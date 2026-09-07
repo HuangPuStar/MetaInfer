@@ -1,0 +1,136 @@
+# Question bank for the `evalscope-correctness` task type.
+#
+# Runs EvalScope correctness benchmarks against an already-running,
+# OpenAI-compatible chat endpoint (e.g. an SGLang server). The task does
+# NOT launch or modify the endpoint — it only sends requests and reports
+# correctness.
+#
+# Notes:
+#   - "file" is not used here; all inputs are text/select/multiselect/number.
+#   - multiselect / select values are the option LABELS as shown below.
+#   - Threshold fields are OPTIONAL per-dataset minimums in [0,1]. A dataset
+#     with no threshold is reported score-only. The quality gate passes only
+#     when every configured threshold passes.
+#   - Only the NAME of an env var holding the API key is stored; the secret
+#     itself is read from the environment at run time and never persisted.
+
+- key: api_url
+  question: "OpenAI-compatible endpoint base URL to evaluate (e.g. http://127.0.0.1:30000/v1):"
+  header: "Endpoint URL"
+  required: true
+  form: text
+
+- key: model
+  question: "Model name the endpoint serves (sent as the OpenAI `model` field):"
+  header: "Model"
+  required: true
+  form: text
+
+- key: model_id
+  question: "Short display id used to name the EvalScope artifact dir (defaults to the model name):"
+  header: "Model id"
+  required: false
+  form: text
+
+- key: benchmarks
+  question: "Which built-in EvalScope correctness benchmarks to run? (select one or more)"
+  header: "Benchmarks"
+  required: true
+  form: multiselect
+  options:
+    - label: "gsm8k"
+      description: "Grade-school math — accuracy (mean)."
+    - label: "gpqa_diamond"
+      description: "Hard graduate-level QA — accuracy (mean)."
+    - label: "humaneval"
+      description: "Code synthesis — pass@1. Requires Docker sandbox execution."
+
+- key: custom_benchmarks
+  question: "Additional EvalScope dataset names supported by this install, comma-separated (e.g. arc, mmlu, race). Evaluated alongside the benchmarks above."
+  header: "Custom datasets"
+  required: false
+  form: text
+
+- key: limit
+  question: "Optional per-subset sample limit for a quick smoke run (blank = full dataset):"
+  header: "Sample limit"
+  required: false
+  form: number
+  default: ""
+
+- key: max_tokens
+  question: "Max generation tokens per request (raise this if any sample is reported truncated):"
+  header: "Max tokens"
+  required: false
+  form: number
+  default: 8192
+
+- key: timeout_seconds
+  question: "Per-request timeout in seconds:"
+  header: "Timeout (s)"
+  required: false
+  form: number
+  default: 300
+
+- key: eval_batch_size
+  question: "Concurrent request batch size (correctness-safe values only):"
+  header: "Batch size"
+  required: false
+  form: select
+  options:
+    - label: "1"
+      description: "Serial — most conservative."
+    - label: "2"
+      description: "Small concurrency (default)."
+    - label: "4"
+      description: "More concurrency."
+
+- key: seed
+  question: "Sampling seed (deterministic, temperature is forced to 0 for correctness):"
+  header: "Seed"
+  required: false
+  form: number
+  default: 42
+
+- key: dataset_cache_dir
+  question: "Optional EvalScope dataset cache dir (blank = EvalScope default):"
+  header: "Dataset cache"
+  required: false
+  form: text
+
+- key: api_key_env_var
+  question: "Name of the environment variable holding the API key (blank = no auth / EvalScope EMPTY). The secret itself is never stored."
+  header: "API key env"
+  required: false
+  form: text
+  default: "EVALSCOPE_API_KEY"
+
+# --- Optional per-dataset minimum-score gates (all in [0,1]) ----------
+# Leave blank to report a dataset's score without gating it.
+
+- key: gate_gsm8k
+  question: "Minimum GSM8K accuracy to pass (0.0-1.0; blank = report only):"
+  header: "GSM8K gate"
+  required: false
+  form: number
+  default: ""
+
+- key: gate_gpqa_diamond
+  question: "Minimum GPQA-Diamond accuracy to pass (0.0-1.0; blank = report only):"
+  header: "GPQA gate"
+  required: false
+  form: number
+  default: ""
+
+- key: gate_humaneval
+  question: "Minimum HumanEval pass@1 to pass (0.0-1.0; blank = report only):"
+  header: "HumanEval gate"
+  required: false
+  form: number
+  default: ""
+
+- key: gate_custom_json
+  question: "Optional JSON map of per-custom-dataset minimums, e.g. {\"arc\": 0.6, \"mmlu\": 0.7}. Ignored if no custom datasets."
+  header: "Custom gates"
+  required: false
+  form: textarea
