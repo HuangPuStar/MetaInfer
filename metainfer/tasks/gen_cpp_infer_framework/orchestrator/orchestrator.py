@@ -225,6 +225,7 @@ def run_with_requirements(
         extra_add_dirs=[notebooks_dir, repo_root, workspace_dir, logs_root, state_dir],
         snapshot_file=paths["agents_file"],
         budget=budget,
+        state_dir=state_dir,
     )
     # Wire the hard-exhausted callback NOW that the manager exists.
     # When the hard threshold is crossed, every in-flight agent gets

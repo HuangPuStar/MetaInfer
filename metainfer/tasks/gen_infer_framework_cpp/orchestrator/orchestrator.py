@@ -262,6 +262,7 @@ def run_with_requirements(
         ],
         snapshot_file=paths["agents_file"],
         budget=budget,
+        state_dir=state_dir,
     )
     # Wire the hard-exhausted callback NOW that the manager exists.
     # When the hard threshold is crossed, every in-flight agent gets
