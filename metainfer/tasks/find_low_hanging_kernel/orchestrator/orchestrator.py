@@ -131,6 +131,7 @@ def run_with_requirements(
         effort=effort,
         extra_add_dirs=[repo_root, logs_root, workspace_dir, *user_paths],
         snapshot_file=paths["agents_file"],
+        state_dir=state_dir,
     )
     pipeline = Pipeline(req=req, store=store, cfg=cfg, manager=manager)
 

@@ -121,6 +121,35 @@ If the Codex binary is not named `codex` or is not on `PATH`, set:
 METAINFER_AGENT_BACKEND=codex METAINFER_CODEX_BIN=/path/to/codex ./serve.py
 ```
 
+#### pi backend
+
+Install the [pi](https://pi.dev) coding agent CLI and configure a provider
+before starting MetaInfer. MetaInfer does not store or pass API keys; it
+invokes `pi --mode json -p` and reuses your local `~/.pi` settings and
+environment variables (`PI_PROVIDER`, `PI_MODEL`, provider API keys, etc.).
+
+```bash
+npm i -g @earendil-works/pi-coding-agent
+pi auth status   # verify a provider is configured
+```
+
+Then start MetaInfer with the pi backend:
+
+```bash
+METAINFER_AGENT_BACKEND=pi ./serve.py
+```
+
+If the pi binary is not named `pi` or is not on `PATH`, set:
+
+```bash
+METAINFER_AGENT_BACKEND=pi METAINFER_PI_BIN=/path/to/pi ./serve.py
+```
+
+The pi backend maps the orchestrator's `effort` knob onto pi's `--thinking`
+level (`low` / `medium` / `high` / `max`). Session continuation uses
+`--session <id> --continue`; the session id is captured from pi's leading
+`session` event so later turns can resume it.
+
 ### Step 2: Install MetaInfer
 ```bash
 git clone https://github.com/MetaInfer/MetaInfer.git
