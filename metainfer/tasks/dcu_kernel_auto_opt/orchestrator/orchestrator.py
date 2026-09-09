@@ -77,6 +77,7 @@ def run_with_requirements(
         extra_add_dirs=[workspace_dir],
         snapshot_file=state_dir / "agents.json",
         max_concurrent=4,
+        state_dir=state_dir,
     )
     restore = install_subagent_shutdown_handlers(manager, pid_file=pid_file)
     try:

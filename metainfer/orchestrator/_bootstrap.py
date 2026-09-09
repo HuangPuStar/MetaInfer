@@ -175,6 +175,7 @@ def make_subagent_manager(
     *,
     claude_bin: str,
     codex_bin: Optional[str] = None,
+    pi_bin: Optional[str] = None,
     agent_backend: Optional[str] = None,
     model: Optional[str],
     permission_mode: str,
@@ -183,6 +184,7 @@ def make_subagent_manager(
     snapshot_file: Path,
     max_concurrent: int = 4,
     budget: Any = None,
+    state_dir: Optional[Path] = None,
 ) -> SubAgentManager:
     """Build a SubAgentManager with the standard settings shared by every
     orchestrator. Per-orchestrator customization happens via
@@ -191,6 +193,11 @@ def make_subagent_manager(
 
     ``budget`` (optional) wires the per-task :class:`TokenBudget` so
     every agent launch is gated + every result's cost is recorded.
+
+    ``state_dir`` (optional) scopes the pi backend's session storage to a
+    per-task directory (``<state_dir>/pi-sessions``) so orchestrator
+    sessions are invisible to a user running ``pi --continue`` from their
+    shell. Other backends ignore it. See ``SubAgentManager.pi_session_dir``.
     """
     resolved_agent_backend = (
         agent_backend
@@ -202,9 +209,15 @@ def make_subagent_manager(
         or os.environ.get("METAINFER_CODEX_BIN")
         or "codex"
     )
+    resolved_pi_bin = (
+        pi_bin
+        or os.environ.get("METAINFER_PI_BIN")
+        or "pi"
+    )
     return SubAgentManager(
         claude_bin=claude_bin,
         codex_bin=resolved_codex_bin,
+        pi_bin=resolved_pi_bin,
         agent_backend=resolved_agent_backend,
         default_model=model,
         permission_mode=permission_mode,
@@ -213,6 +226,7 @@ def make_subagent_manager(
         snapshot_file=snapshot_file,
         max_concurrent=max_concurrent,
         budget=budget,
+        pi_session_dir=(Path(state_dir) / "pi-sessions") if state_dir else None,
     )
 
 

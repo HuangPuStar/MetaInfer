@@ -33,7 +33,19 @@ from typing import Any, Dict, List, Literal, Optional
 # Exit codes / signals that indicate infrastructure rather than logic failure.
 # 124 = timeout (coreutils convention), 137 = SIGKILL (128+9), 143 = SIGTERM (128+15).
 _INFRA_EXIT_CODES = {124, 137, 143}
-AgentBackend = Literal["claude", "codex"]
+AgentBackend = Literal["claude", "codex", "pi"]
+
+
+# Claude Code "effort" levels map onto pi's ``--thinking`` levels 1:1 for
+# the overlapping set (low / medium / high / max). pi additionally offers
+# ``off`` / ``minimal`` / ``xhigh`` but those have no Claude equivalent, so
+# we pass the value through unchanged and let pi validate it.
+_PI_THINKING_ALIASES = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "max": "max",
+}
 
 
 def _normalize_agent_backend(value: str) -> AgentBackend:
@@ -42,7 +54,11 @@ def _normalize_agent_backend(value: str) -> AgentBackend:
         return "claude"
     if v in {"codex", "openai-codex"}:
         return "codex"
-    raise ValueError(f"invalid agent backend {value!r}; expected 'claude' or 'codex'")
+    if v in {"pi", "pi-coding-agent", "earendil"}:
+        return "pi"
+    raise ValueError(
+        f"invalid agent backend {value!r}; expected 'claude', 'codex', or 'pi'"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -160,6 +176,7 @@ class SubAgentManager:
         self,
         claude_bin: str = "ccb",
         codex_bin: str = "codex",
+        pi_bin: str = "pi",
         agent_backend: AgentBackend = "claude",
         default_model: Optional[str] = None,
         max_concurrent: int = 4,
@@ -169,10 +186,22 @@ class SubAgentManager:
         snapshot_file: Optional[Path] = None,
         budget: Any = None,
         budget_source: str = "orchestrator",
+        # pi backend only: isolate orchestrator session files into a
+        # per-task directory so they are invisible to a user running
+        # ``pi --continue`` / ``pi --resume`` from their shell (which
+        # defaults to ~/.pi). Without this, pi indexes sessions by cwd,
+        # so a user cd'ing into an iteration workdir — or passing a
+        # partial session id lifted from events.jsonl — could attach to
+        # a production orchestrator session mid-flight and corrupt the
+        # context that later ``--session <id> --continue`` turns rely on.
+        # When set, ``_build_pi_command`` prepends ``--session-dir`` so
+        # both the initial launch and every resume read/write here.
+        pi_session_dir: Optional[Path] = None,
     ) -> None:
         self.agent_backend = _normalize_agent_backend(agent_backend)
         self.claude_bin = claude_bin
         self.codex_bin = codex_bin
+        self.pi_bin = pi_bin
         self.default_model = default_model
         self.max_concurrent = max_concurrent
         # Per-task token / cost budget (TokenBudget instance or None to
@@ -221,6 +250,9 @@ class SubAgentManager:
         # coupling to this manager.
         self.snapshot_file: Optional[Path] = (
             Path(snapshot_file) if snapshot_file else None
+        )
+        self.pi_session_dir: Optional[Path] = (
+            Path(pi_session_dir).resolve() if pi_session_dir else None
         )
         self._handles: Dict[str, AgentHandle] = {}
         self._results: Dict[str, AgentResult] = {}
@@ -632,6 +664,8 @@ class SubAgentManager:
     def _build_command(self, spec: AgentSpec) -> List[str]:
         if self.agent_backend == "codex":
             return self._build_codex_command(spec)
+        if self.agent_backend == "pi":
+            return self._build_pi_command(spec)
         return self._build_claude_command(spec)
 
     def _build_claude_command(self, spec: AgentSpec) -> List[str]:
@@ -713,6 +747,50 @@ class SubAgentManager:
             cmd += ["-"]
         return cmd
 
+    def _build_pi_command(self, spec: AgentSpec) -> List[str]:
+        # pi (https://pi.dev) owns auth + user configuration via ~/.pi
+        # settings and environment variables (PI_PROVIDER, PI_MODEL,
+        # provider API keys, etc.). We invoke `pi --mode json -p` so the
+        # orchestrator gets a stream of JSONL events on stdout (captured
+        # into events.jsonl just like claude/codex), with the prompt piped
+        # via stdin — pi merges piped stdin into the initial user message.
+        #
+        # pi has no ``--add-dir`` equivalent: its built-in tools (read,
+        # bash, edit, write, grep, find, ls) can already reach any path,
+        # so ``extra_add_dirs`` is a no-op here (cwd scoping via Popen is
+        # enough). We keep the param for interface parity.
+        model = spec.model or self.default_model
+        cmd = [
+            self.pi_bin,
+            "--mode", "json",
+            "-p",  # print (non-interactive) mode; prompt read from stdin
+        ]
+        # Isolate orchestrator sessions from the user's ~/.pi index so a
+        # production task can't be hijacked by ``pi --continue`` / ``pi
+        # --resume`` / ``pi --session <partial-id>`` from a shell sharing
+        # the same cwd. See __init__ docstring on ``pi_session_dir``.
+        if self.pi_session_dir is not None:
+            self.pi_session_dir.mkdir(parents=True, exist_ok=True)
+            cmd += ["--session-dir", str(self.pi_session_dir)]
+        if model:
+            cmd += ["--model", model]
+        # Thinking level maps from the Claude "effort" knob. The overlapping
+        # set (low / medium / high / max) is identical; unknown values are
+        # passed through and pi validates them.
+        if self.effort:
+            cmd += ["--thinking", _PI_THINKING_ALIASES.get(self.effort, self.effort)]
+        # Session continuation. ``--session <id> --continue`` resumes an
+        # existing session; ``--session-id <id>`` pins the UUID for the
+        # first turn so the caller knows what to resume later. If neither
+        # is set, pi mints a fresh session and the manager captures its
+        # id from the ``session`` event at the top of the stream.
+        if spec.resume_session_id:
+            cmd += ["--session", spec.resume_session_id, "--continue"]
+        elif spec.session_id:
+            cmd += ["--session-id", spec.session_id]
+        cmd += list(spec.extra_args)
+        return cmd
+
     def _build_env(self, spec: AgentSpec) -> Dict[str, str]:
         env = dict(os.environ)
         env.update(spec.env_overrides)
@@ -728,7 +806,7 @@ class SubAgentManager:
         env["METAINFER_ROOT"] = str(_paths.root_dir())
         # Keep the agent from going interactive
         env.setdefault("DISABLE_INTERACTIVITY", "1")
-        if self.agent_backend == "codex":
+        if self.agent_backend in ("codex", "pi"):
             return env
         # bypassPermissions under EUID=0 normally trips a hard exit
         # ("--dangerously-skip-permissions cannot be used with root/sudo
@@ -760,57 +838,60 @@ class SubAgentManager:
                 except json.JSONDecodeError:
                     continue
         final_text = ""
-        for ev in reversed(events):
-            if ev.get("type") == "item.completed":
-                item = ev.get("item")
-                if isinstance(item, dict) and item.get("type") == "agent_message":
-                    text = item.get("text")
-                    if isinstance(text, str) and text:
-                        final_text = text
-                        break
-            if ev.get("type") == "assistant" and isinstance(ev.get("message"), dict):
-                content = ev["message"].get("content")
-                if isinstance(content, list):
-                    for blk in content:
-                        if isinstance(blk, dict) and blk.get("type") == "text":
-                            final_text = blk.get("text", "")
-                            break
-                if final_text:
-                    break
-            if ev.get("type") == "result":
-                final_text = ev.get("result", "") or final_text
-                break
-        # Session id: emitted on the very first ``system`` event of the
-        # stream and again on every ``result`` event. Prefer the result's
-        # value (it's the final, post-turn session id; for ``--resume``
-        # invocations this matches the resumed-from id and confirms the
-        # continuation actually happened).
         session_id = None
-        for ev in events:
-            sid = ev.get("session_id")
-            if not sid:
-                sid = ev.get("thread_id")
-            if sid:
-                session_id = sid
-                if ev.get("type") == "result":
-                    break
-        # Pull the cost / usage block from the final ``result`` event.
-        # This is what the token budget circuit breaker keys off. None
-        # when the agent was killed / crashed before emitting result.
         usage: Optional[Dict[str, Any]] = None
-        for ev in reversed(events):
-            if ev.get("type") == "result" and isinstance(ev, dict):
-                if "usage" in ev or "total_cost_usd" in ev:
-                    usage = ev
+        if self.agent_backend == "pi":
+            final_text, session_id, usage = self._extract_pi_result(events)
+        else:
+            for ev in reversed(events):
+                if ev.get("type") == "item.completed":
+                    item = ev.get("item")
+                    if isinstance(item, dict) and item.get("type") == "agent_message":
+                        text = item.get("text")
+                        if isinstance(text, str) and text:
+                            final_text = text
+                            break
+                if ev.get("type") == "assistant" and isinstance(ev.get("message"), dict):
+                    content = ev["message"].get("content")
+                    if isinstance(content, list):
+                        for blk in content:
+                            if isinstance(blk, dict) and blk.get("type") == "text":
+                                final_text = blk.get("text", "")
+                                break
+                    if final_text:
+                        break
+                if ev.get("type") == "result":
+                    final_text = ev.get("result", "") or final_text
                     break
-            if ev.get("type") == "turn.completed" and isinstance(ev, dict):
-                if "usage" in ev:
-                    usage = ev
-                    break
-        if usage is not None and session_id:
-            if not usage.get("session_id") and not usage.get("thread_id"):
-                usage = dict(usage)
-                usage["thread_id"] = session_id
+            # Session id: emitted on the very first ``system`` event of the
+            # stream and again on every ``result`` event. Prefer the result's
+            # value (it's the final, post-turn session id; for ``--resume``
+            # invocations this matches the resumed-from id and confirms the
+            # continuation actually happened).
+            for ev in events:
+                sid = ev.get("session_id")
+                if not sid:
+                    sid = ev.get("thread_id")
+                if sid:
+                    session_id = sid
+                    if ev.get("type") == "result":
+                        break
+            # Pull the cost / usage block from the final ``result`` event.
+            # This is what the token budget circuit breaker keys off. None
+            # when the agent was killed / crashed before emitting result.
+            for ev in reversed(events):
+                if ev.get("type") == "result" and isinstance(ev, dict):
+                    if "usage" in ev or "total_cost_usd" in ev:
+                        usage = ev
+                        break
+                if ev.get("type") == "turn.completed" and isinstance(ev, dict):
+                    if "usage" in ev:
+                        usage = ev
+                        break
+            if usage is not None and session_id:
+                if not usage.get("session_id") and not usage.get("thread_id"):
+                    usage = dict(usage)
+                    usage["thread_id"] = session_id
         error = None
         failure_mode: Optional[Literal["infra", "logic", "budget"]] = None
         success = (rc == 0) and not handle.killed
@@ -838,6 +919,91 @@ class SubAgentManager:
             failure_mode=failure_mode,
             usage=usage,
         )
+
+    def _extract_pi_result(
+        self, events: List[Dict[str, Any]]
+    ) -> tuple[str, Optional[str], Optional[Dict[str, Any]]]:
+        """Parse pi's JSONL event stream into (final_text, session_id, usage).
+
+        pi emits a different schema than claude/codex stream-json:
+
+        * Session id lives on the leading ``session`` event's ``id`` field
+          (not a top-level ``session_id`` / ``thread_id``).
+        * Assistant text lives on ``message_end`` / ``turn_end`` /
+          ``agent_end`` events under ``message.content`` (a list of blocks;
+          concatenate the ``text`` blocks of the last assistant message).
+        * Usage lives on the same events under ``message.usage`` with pi's
+          own field names (``input`` / ``output`` / ``cacheRead`` /
+          ``cacheWrite`` / ``cost.total``). We normalize it into the
+          canonical shape that :func:`usage_from_result_event` already
+          understands so the token-budget circuit breaker works unchanged.
+        """
+        session_id: Optional[str] = None
+        for ev in events:
+            if ev.get("type") == "session" and isinstance(ev.get("id"), str):
+                session_id = ev["id"]
+                break
+
+        final_text = ""
+        usage: Optional[Dict[str, Any]] = None
+        # Walk newest -> oldest. The last assistant message in stream order
+        # is the first one we hit in reverse, which is what we want for both
+        # final_text and the final usage tally.
+        for ev in reversed(events):
+            etype = ev.get("type")
+            if etype not in ("message_end", "turn_end", "agent_end"):
+                continue
+            # agent_end carries the full message list; pick the last assistant.
+            if etype == "agent_end":
+                msgs = ev.get("messages")
+                if not isinstance(msgs, list) or not msgs:
+                    continue
+                msg = None
+                for m in reversed(msgs):
+                    if isinstance(m, dict) and m.get("role") == "assistant":
+                        msg = m
+                        break
+                if msg is None:
+                    continue
+            else:
+                msg = ev.get("message")
+                if not isinstance(msg, dict) or msg.get("role") != "assistant":
+                    continue
+
+            # Final assistant text: concatenate text blocks.
+            if not final_text:
+                content = msg.get("content")
+                if isinstance(content, list):
+                    parts = [
+                        blk.get("text", "")
+                        for blk in content
+                        if isinstance(blk, dict) and blk.get("type") == "text"
+                    ]
+                    text = "".join(p for p in parts if isinstance(p, str))
+                    if text:
+                        final_text = text
+
+            # Usage: pi reports cumulative usage on every assistant message.
+            # The last assistant message carries the final tally.
+            if usage is None:
+                u = msg.get("usage")
+                if isinstance(u, dict):
+                    cost = u.get("cost") if isinstance(u.get("cost"), dict) else {}
+                    usage = {
+                        "type": "result",
+                        "usage": {
+                            "input_tokens": int(u.get("input", 0) or 0),
+                            "output_tokens": int(u.get("output", 0) or 0),
+                            "cache_read_input_tokens": int(u.get("cacheRead", 0) or 0),
+                            "cache_creation_input_tokens": int(u.get("cacheWrite", 0) or 0),
+                        },
+                        "total_cost_usd": float(cost.get("total", 0.0) or 0.0),
+                        "session_id": session_id,
+                    }
+
+            if final_text and usage is not None:
+                break
+        return final_text, session_id, usage
 
     def _write_status(
         self,

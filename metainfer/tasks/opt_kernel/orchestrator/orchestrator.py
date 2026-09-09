@@ -103,6 +103,7 @@ def run_with_requirements(
         effort=effort,
         extra_add_dirs=[notebooks_dir, repo_root, logs_root],
         snapshot_file=paths["agents_file"],
+        state_dir=state_dir,
     )
     orch = Orchestrator(req=req, store=store, cfg=cfg, manager=manager)
 
