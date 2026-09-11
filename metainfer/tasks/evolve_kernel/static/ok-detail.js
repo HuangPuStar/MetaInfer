@@ -15,7 +15,7 @@ import { Timeline } from "app/timeline";
 import {
   getIterations, getCharts, getStateGraph,
   getKernelLibrary, getCorrectnessHarness, getPerfHarness,
-  getReferenceKernel,
+  getReferenceKernel, getKernelDiff,
 } from "app/ok-runtime-api";
 
 const withTimeout = (p, ms = 8000) =>
@@ -140,6 +140,101 @@ function HarnessStatus({ harness, label }) {
   return html`<span class="ok-harness-status fail">${label}: not generated</span>`;
 }
 
+// ---- Kernel source / diff inspector ----
+
+// Line-numbered source rendering: the raw string in a <pre> gives no way to
+// cite a line, so emit one <div> per line with a gutter number.
+function SourceLines({ code }) {
+  const lines = (code || "").split("\n");
+  return html`<div class="ok-source">
+    ${lines.map((ln, i) => html`
+      <div class="ok-source-row" key=${i}>
+        <span class="ok-source-num">${i + 1}</span>
+        <span class="ok-source-line">${ln}</span>
+      </div>
+    `)}
+  </div>`;
+}
+
+// Unified-diff rendering: classify each line by prefix so additions and
+// deletions stand out; hunk headers (@@) get their own muted styling.
+function DiffLines({ diff }) {
+  const lines = (diff || "").split("\n");
+  if (!lines.some((l) => l.length > 0)) {
+    return html`<div class="ok-diff empty muted">No differences.</div>`;
+  }
+  return html`<div class="ok-diff">
+    ${lines.map((ln, i) => {
+      let cls = "ok-diff-ctx";
+      if (ln.startsWith("+++") || ln.startsWith("---")) cls = "ok-diff-meta";
+      else if (ln.startsWith("@@")) cls = "ok-diff-hunk";
+      else if (ln.startsWith("+")) cls = "ok-diff-add";
+      else if (ln.startsWith("-")) cls = "ok-diff-del";
+      return html`<div class=${"ok-diff-row " + cls} key=${i}>${ln || " "}</div>`;
+    })}
+  </div>`;
+}
+
+const DIFF_MODES = [
+  { key: "source", label: "Source" },
+  { key: "reference", label: "Diff vs reference" },
+  { key: "parent", label: "Diff vs parent" },
+];
+
+function KernelInspector({ taskId, kernel, onClose }) {
+  const [mode, setMode] = useState("source");
+  const [diff, setDiff] = useState(null);
+  const [diffErr, setDiffErr] = useState(null);
+
+  useEffect(() => {
+    if (mode === "source" || !taskId || !kernel) return;
+    let cancelled = false;
+    setDiff(null);
+    setDiffErr(null);
+    withTimeout(getKernelDiff(taskId, kernel.id, mode))
+      .then((d) => { if (!cancelled) setDiff(d); })
+      .catch((e) => { if (!cancelled) setDiffErr(String(e.message || e)); });
+    return () => { cancelled = true; };
+  }, [taskId, kernel && kernel.id, mode]);
+
+  const code = kernel.code || kernel.code_preview || "";
+  const parentId = kernel.parent_id ? String(kernel.parent_id).slice(0, 8) : null;
+
+  return html`<section class="panel ok-panel-full">
+    <h2>Kernel: ${String(kernel.id).slice(0, 8)}…
+      <button class="btn btn-sm" style="float:right;" onClick=${onClose}>× close</button>
+    </h2>
+    <div class="ok-inspector-toolbar">
+      <div class="ok-inspector-modes">
+        ${DIFF_MODES.map((m) => html`
+          <button key=${m.key}
+            class=${"btn btn-sm" + (mode === m.key ? " active" : "")}
+            disabled=${m.key === "parent" && !parentId}
+            title=${m.key === "parent" && !parentId ? "kernel has no parent" : ""}
+            onClick=${() => setMode(m.key)}>${m.label}</button>
+        `)}
+      </div>
+      ${mode !== "source" && diff && diff.exists ? html`
+        <span class="ok-diff-stat">
+          <span class="ok-diff-stat-add">+${diff.added}</span>
+          <span class="ok-diff-stat-del">−${diff.removed}</span>
+          <span class="muted">vs ${diff.base_label}</span>
+        </span>
+      ` : null}
+    </div>
+
+    ${mode === "source"
+      ? html`<${SourceLines} code=${code} />`
+      : diffErr
+        ? html`<div class="ok-diff empty error">Failed to load diff: ${diffErr}</div>`
+        : !diff
+          ? html`<div class="ok-diff empty muted">Loading diff…</div>`
+          : !diff.exists
+            ? html`<div class="ok-diff empty muted">${diff.error || "No diff available."}</div>`
+            : html`<${DiffLines} diff=${diff.diff} />`}
+  </section>`;
+}
+
 // ---- Main view ----
 
 export default function OptKernelDetailView({
@@ -185,12 +280,10 @@ export default function OptKernelDetailView({
     </div>
 
     ${selectedKernel ? html`
-      <section class="panel ok-panel-full">
-        <h2>Kernel: ${selectedKernel.id.slice(0, 8)}…
-          <button class="btn btn-sm" style="float:right;" onClick=${() => setSelectedKernel(null)}>× close</button>
-        </h2>
-        <div class="ok-code-preview large">${selectedKernel.code || selectedKernel.code_preview || "Code not available"}</div>
-      </section>
+      <${KernelInspector}
+        taskId=${taskId}
+        kernel=${selectedKernel}
+        onClose=${() => setSelectedKernel(null)} />
     ` : null}
 
     <div class="ok-grid">
