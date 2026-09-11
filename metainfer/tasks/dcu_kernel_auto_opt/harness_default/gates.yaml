@@ -1,0 +1,38 @@
+schema_version: 1
+component: gates
+status: seed
+wired: true
+source_refs:
+  config_py: metainfer/tasks/dcu_kernel_auto_opt/orchestrator/config.py
+  w8a8_pipeline_py: metainfer/tasks/dcu_kernel_auto_opt/orchestrator/w8a8_pipeline.py
+gates:
+  round_acceptance_improvement_percent: 1.0
+  p90_guard: no_p90_regression
+  shadow:
+    enabled: true
+    min_improvement_percent: 0.3
+    max_exclusive_percent: 1.0
+  plateau:
+    recent_valid_rounds: 3
+    max_regression_percent: 2.0
+    window_upper_exclusive_percent: 2.0
+  isa_gate:
+    required_valid_isa_guided_rounds: 2
+    required_hip_rounds_rule: "max(1, max_iterations - 2)"
+    inline_asm_requires_compiler_limitation: true
+  task_budget:
+    default_max_iterations: 10
+    minimum_improvement_percent_semantics: final validated result versus fixed baseline
+source_annotations: |-
+  round_acceptance_improvement_percent: config.py:105 ROUND_ACCEPTANCE_IMPROVEMENT_PERCENT
+  p90_guard: w8a8_pipeline.py:422 evaluate_candidate_acceptance (candidate_p90 <= best_p90)
+  shadow.min_improvement_percent: w8a8_pipeline.py:80 _SHADOW_MIN_IMPROVEMENT_PERCENT
+  plateau.max_regression_percent: w8a8_pipeline.py:79 _PLATEAU_MAX_REGRESSION_PERCENT
+  plateau.window_upper_exclusive_percent: w8a8_pipeline.py:154 value < 2.0
+  isa_gate.required_valid_isa_guided_rounds: w8a8_pipeline.py:78 _REQUIRED_VALID_ISA_GUIDED_ROUNDS
+  isa_gate.required_hip_rounds_rule: w8a8_pipeline.py:111 required_hip_rounds = max(1, max_iterations - 2)
+notes: >-
+  These values ARE read at runtime (orchestrator/gate_policy.py) whenever the
+  manifest marks this component wired; anything missing falls back to the
+  built-in defaults, which equal the historical Python constants. Editing this
+  file now changes behaviour, and the Evolve loop can version it.

@@ -1,4 +1,5 @@
 // @@variant shape=glm_tp8_o_proj_m16 commit=c1cfe1975c2fcb8d4bc23c86e8026afae225a4c4 added=2026-08-31
+//   baseline_us=66.98 speedup=2.79083
 //   median_us=24 p90_us=24.02
 //   source=glm5-2-dsh-tp8-m16-test1-cb4d262c
 // MetaInfer INT8 W8A8 GEMM for Hygon K500SM_AI / gfx928.

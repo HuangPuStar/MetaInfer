@@ -1,4 +1,5 @@
 // @@variant shape=tp8_shared_down_proj_m16 commit=119c281feefbb681f88dba89897484424bb07937 added=2026-08-26
+//   baseline_us=14.849 speedup=1.75665
 //   median_us=8.453 p90_us=9.13
 //   source=hy3-dsh-tp8-m16-1-adf021ab
 // W8A8 INT8 GEMM bootstrap kernel for Hygon K500SM_AI / gfx928.

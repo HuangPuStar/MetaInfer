@@ -47,6 +47,7 @@ from .prompts import (
     generate_kernel_prompt,
     shape_balanced_assignment,
 )
+from .harness_io import harness_root, load_manifest, seed_workspace
 from .real_pipeline import _run, _safe, _status
 from .result_store import SCHEMA_VERSION, write_json
 from .skill_store import generate_merged_skill, generate_worker_skill
@@ -57,6 +58,10 @@ from .w8a8_pipeline import (
     _sha256_file,
     evaluate_final_target,
     snapshot_accepted_kernel_artifact,
+)
+from . import gate_policy as _gates
+from .validation_budget import (
+    resolve_bench_kwargs, resolve_validation_scope,
 )
 from .w8a8_baselines import fixed_triton_graph_baseline
 
@@ -554,6 +559,21 @@ def _render_prebuilt_dispatch(
     ])
 
 
+def _validation_shape_list(
+    optimized: list, fallback: list, scope: str
+) -> list:
+    """Shapes the final serial validation must cover for this scope.
+
+    ``api`` keeps the full-regression sweep (production default); ``task``
+    validates only the optimized shapes, which is what a single-shape AHE
+    child actually needs.
+    """
+    shapes = list(optimized)
+    if scope == "api":
+        shapes += list(fallback)
+    return shapes
+
+
 def _final_performance_gate(
     *,
     shape_id: str,
@@ -815,8 +835,33 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
             "initial_kernel": "pending_parallel_explore_child_generation",
             "created_at": time.time(),
         }
+        # Harness snapshot (M1 slice 5): pin the evolvable-harness workspace
+        # revision + file digests into the fresh task repo. Default = built-in
+        # harness_default/ seed; METAINFER_HARNESS_ROOT overrides to an evolved
+        # workspace. Pure bookkeeping — must never fail staging.
+        try:
+            _harness_root = harness_root()
+            _harness_dst = seed / "harness_snapshot"
+            seed_workspace(_harness_dst, root=_harness_root)
+            scaffold_manifest["harness"] = {
+                "source": str(_harness_root),
+                "revision": (
+                    load_manifest(_harness_root).get("revision") or "seed"
+                ),
+                "files": {
+                    str(p.relative_to(_harness_dst)): file_digest(p)
+                    for p in _harness_dst.rglob("*")
+                    if p.is_file()
+                },
+            }
+        except Exception as _snap_exc:  # noqa: BLE001
+            self.store.append_timeline(
+                "harness_snapshot_skipped", {"error": str(_snap_exc)}
+            )
         write_json(seed / "scaffold_manifest.json", scaffold_manifest)
         _run(["git", "add", "scaffold_manifest.json"], cwd=seed)
+        if (seed / "harness_snapshot").is_dir():
+            _run(["git", "add", "harness_snapshot"], cwd=seed)
         if _run(
             ["git", "diff", "--cached", "--name-only"], cwd=seed
         ).stdout.strip():
@@ -2114,11 +2159,27 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
         )
 
         validation: Dict[str, Dict[str, Any]] = {}
-        validation_shapes = [
+        _answers = self.req.get("answers")
+        if not isinstance(_answers, dict):
+            _answers = self.req
+        validation_scope = resolve_validation_scope(_answers)
+        bench_kwargs = resolve_bench_kwargs(_answers)
+        optimized_shapes = [
             {"id": shape.id, **shape.params}
             for shape in config.shapes.values()
             if shape.id in optimized_ids
-        ] + fallback_shapes
+        ]
+        validation_shapes = _validation_shape_list(
+            optimized_shapes, fallback_shapes, validation_scope
+        )
+        self.store.append_timeline(
+            "final_validation_plan",
+            {
+                "scope": validation_scope,
+                "shapes": [str(shape["id"]) for shape in validation_shapes],
+                "bench": dict(bench_kwargs),
+            },
+        )
         try:
             for shape in validation_shapes:
                 shape_id = str(shape["id"])
@@ -2127,11 +2188,16 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
                     if key != "id"
                 }
                 if shape_id in optimized_ids:
-                    metrics = runner.benchmark(params)
+                    metrics = runner.benchmark(params, **bench_kwargs)
                 else:
-                    metrics = runner.benchmark(
-                        params, warmups=2, samples=3
-                    )
+                    # Regression shapes stay on the light sampling; only the
+                    # replay count follows the configured budget.
+                    regression_kwargs = {"warmups": 2, "samples": 3}
+                    if "replays_per_sample" in bench_kwargs:
+                        regression_kwargs["replays_per_sample"] = (
+                            bench_kwargs["replays_per_sample"]
+                        )
+                    metrics = runner.benchmark(params, **regression_kwargs)
                 validation[shape_id] = metrics
                 if not metrics.get("passed"):
                     raise RuntimeError(
@@ -2148,7 +2214,9 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
                     shape_id=shape_id,
                     best_median=best_median,
                     metrics=metrics,
-                    benchmark=lambda: runner.benchmark(params),
+                    benchmark=lambda: runner.benchmark(
+                        params, **bench_kwargs
+                    ),
                     max_retries=_PERF_GATE_MAX_RETRIES,
                     retry_interval_s=_PERF_GATE_RETRY_INTERVAL_S,
                     store=self.store,
@@ -2202,7 +2270,9 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
             "fallback_regression_shapes": [
                 str(shape["id"]) for shape in fallback_shapes
             ],
-            "all_api_shapes_validated": True,
+            "all_api_shapes_validated": validation_scope == "api",
+            "validation_scope": validation_scope,
+            "bench_budget": dict(bench_kwargs),
             "hip_recompiled_by_main": False,
             "serial_validation_gpu": serial_gpu,
         }
@@ -2218,6 +2288,13 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
     # ------------------------------------------------------------------ #
 
     def run(self, *, dry_run: bool = False) -> Dict[str, Any]:
+        # Record the gate values this run actually used, so the harness_evolve
+        # mechanism gate can verify a gates.yaml change (not just observe it).
+        try:
+            _gates.snapshot(getattr(self.store, "task_dir", None)
+                            or self.workspace_dir.parent)
+        except Exception:  # noqa: BLE001 - evidence is best effort
+            pass
         """Full generate-then-optimize pipeline.
 
         1. PREPARE: parse config (may lack GPU assignments), create seed repo.
@@ -2386,7 +2463,7 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
                 "final validated result versus fixed baseline"
             ),
             "round_acceptance_improvement_percent": (
-                ROUND_ACCEPTANCE_IMPROVEMENT_PERCENT
+                _gates.round_acceptance_improvement_percent()
             ),
             "shape_scope": config.shape_scope,
             "assignment_mode": config.assignment_mode,

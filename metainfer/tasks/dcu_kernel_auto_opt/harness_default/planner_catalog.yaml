@@ -1,0 +1,57 @@
+# planner 方案目录（v0, seed）
+#
+# DKAO 优化方案选择机制的「方案目录」：把"每一轮可以试什么方案"枚举成稳定 id，
+# 供 orchestrator/planner.py（状态条件化选择器 v0）与后续 harness 演化使用。
+#
+# wired: false —— 运行时仍由 prompts.py::w8a8_round_strategy 按轮数菜单出文字，
+# 本目录与 planner.py 当前是纯新增的"选择机制 v0"，用于沉淀/测试/演进，尚未接线。
+# 规则分层见 orchestrator/planner.py：P0 修复 -> P1 预算/阶段 -> P2 瓶颈签名
+# -> P3 覆盖/防循环 -> P4 兜底（legacy 菜单近似）。
+
+catalog:
+  repair_faster_wrong:
+    focus: 修复"更快但错"候选（保留高速架构，只修最小正确性缺陷）
+    family: repair
+  fix_build:
+    focus: 修复上一轮编译/API/语法错误（最小改动，不换架构）
+    family: repair
+  retry_same:
+    focus: 基础设施失败后的原样重试（不算一轮）
+    family: repair
+  bootstrap_correctness:
+    focus: 迭代 0：先拿到正确 kernel（标量/DUMMA 最小可用）
+    family: bootstrap
+  establish_arch:
+    focus: 建立首个正确 DUMMA 几何（不追求性能）
+    family: explore
+  architecture_explore:
+    focus: 探索 launch 几何族（tile/waves/blocks，覆盖 CU）
+    family: explore
+  grid_splitk:
+    focus: grid 并行度不足时评估 split-K（含非 2 幂候选与 combine 成本）
+    family: explore
+  pipeline_tune:
+    focus: 流水线：staging 深度/双缓冲/prefetch/发射分组
+    family: optimize
+  memory_layout:
+    focus: 访存布局：LDS padding/swizzle、packed 布局、bank 冲突
+    family: optimize
+  occupancy_resource:
+    focus: 占用率/资源：LDS 尺寸、VGPR live range、waves per block
+    family: optimize
+  epilogue_fusion:
+    focus: epilogue：scale/bf16/存储融合、去 workspace 中间 pass
+    family: optimize
+  isa_guided_hip:
+    focus: ISA 引导的 HIP/DUMMA 代码塑形（需控制面 plateau 门）
+    family: isa
+  conditional_inline_asm:
+    focus: 最小 inline asm（需前一轮确认编译器限制 + 目标指令）
+    family: isa
+  consolidate:
+    focus: 收尾：固定胜出架构做最终 HIP-only 打磨
+    family: optimize
+
+guards: >-
+  运行时未接线，改动本目录不影响现有行为；tests/test_planner.py 覆盖
+  P0-P4 分层判定与 catalog 加载。

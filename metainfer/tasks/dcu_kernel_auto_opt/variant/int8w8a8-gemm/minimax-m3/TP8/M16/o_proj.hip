@@ -1,4 +1,5 @@
 // @@variant shape=minimax_tp8_o_proj_m16 commit=35384b7737eacb9fb8946dc1c5f984e8bf364aae added=2026-08-28
+//   baseline_us=38.655 speedup=3.39974
 //   median_us=11.37 p90_us=11.39
 //   source=minimax-dsh-tp8-m16-1-78402260
 // W8A8 INT8 GEMM - gfx928 (K500SM_AI) - worker_2 bootstrap (iteration 1).

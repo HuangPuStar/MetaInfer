@@ -196,3 +196,31 @@ def test_reject_slower_guard_skips_when_median_unknown(tmp_path, monkeypatch):
     )
     assert result["action"] == "updated"
     assert "NEW" in vs.variant_path(meta).read_text()
+
+
+def test_backfill_variant_baselines(tmp_path, monkeypatch):
+    monkeypatch.setattr(vs, "variant_root", lambda: tmp_path)
+    target = (
+        tmp_path / "int8w8a8-gemm" / "deepseek-v4" / "TP4" / "M16"
+        / "wqkv_a.hip"
+    )
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        "// @@variant shape=tp4_wqkv_a_m16 commit=abc added=2026-08-26\n"
+        "//   median_us=20.0 p90_us=21.0\n"
+        "//   source=task-1\n"
+        "// @@end\nkernel\n",
+        encoding="utf-8",
+    )
+    r = vs.backfill_variant_baselines()
+    # tp4 wqkv_a m16 fixed Triton baseline is 66.597 us -> speedup ~3.33
+    assert r["updated"] == ["int8w8a8-gemm/deepseek-v4/TP4/M16/wqkv_a.hip"]
+    text = target.read_text()
+    assert "baseline_us=66.597" in text
+    assert "speedup=3.329" in text
+    assert text.index("baseline_us") < text.index("median_us")
+    # idempotent and surfaced by the index
+    assert vs.backfill_variant_baselines()["updated"] == []
+    v = vs.list_variant_index()[0]
+    assert v["speedup"] is not None
+    assert abs(v["baseline_us"] - 66.597) < 1e-3

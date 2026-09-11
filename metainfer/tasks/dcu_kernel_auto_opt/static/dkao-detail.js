@@ -877,6 +877,19 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
                           ? "更新 variant"
                           : "加入 variant"}
                     </button>
+                    ${(() => {
+                      const v = variantIndex ? variantIndex.get(shape) : null;
+                      if (!v) {
+                        return html`<div class="dkao-variant-status muted">当前: 无</div>`;
+                      }
+                      if (v.speedup != null) {
+                        return html`<div class="dkao-variant-status">当前: 超基线 ${metric(v.speedup, 2)}x</div>`;
+                      }
+                      if (v.median_us != null) {
+                        return html`<div class="dkao-variant-status muted">当前: ${metric(v.median_us)} µs</div>`;
+                      }
+                      return html`<div class="dkao-variant-status muted">当前: —</div>`;
+                    })()}
                   </td>
                 </tr>
               `)}

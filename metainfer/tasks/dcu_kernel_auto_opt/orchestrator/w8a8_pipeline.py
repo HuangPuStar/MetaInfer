@@ -26,6 +26,100 @@ from .config import (
 from .gpu_binding import bind_worker_gpu
 from .experience_store import load_verified_experience
 from .guidance import claim_next_guidance
+from .predictions import check_prediction, plan_tag
+from . import gate_policy as _gates
+from .planner import choose_plan_from_history, render_plan
+
+
+_ENV_PLANNER = "METAINFER_PLANNER"
+
+
+def _planner_enabled() -> bool:
+    return os.environ.get(_ENV_PLANNER, "").strip().lower() in {
+        "1", "true", "yes",
+    }
+
+
+def _round_strategy_text(
+    shape: Dict[str, Any],
+    iteration: int,
+    history: list,
+    pmc_evidence: Dict[str, Any],
+    isa_policy: Dict[str, Any],
+    *,
+    plan_sink: "Path | None" = None,
+    shape_id: str = "",
+) -> str:
+    """Round mandate text: legacy menu by default; planner (v0) when
+    METAINFER_PLANNER=1. Behaviour is unchanged unless the env var is set."""
+    max_iterations = int((isa_policy or {}).get("max_iterations") or 10)
+    if not _planner_enabled():
+        return w8a8_round_strategy(
+            shape,
+            iteration,
+            history,
+            pmc_evidence,
+            max_iterations=max_iterations,
+            isa_policy=isa_policy,
+        )
+    tags = [
+        r.get("plan_id") for r in (history or [])
+        if isinstance(r.get("plan_id"), str) and r.get("plan_id")
+    ]
+    phase = (isa_policy or {}).get("phase")
+    plan_id = choose_plan_from_history(
+        (history or []),
+        pmc_evidence,
+        iteration=iteration,
+        max_iterations=max_iterations,
+        shape=shape,
+        plan_tags=tags,
+        compiler_limitation_confirmed=(phase == "conditional_inline_asm"),
+    )
+    if plan_id == "legacy_menu":
+        # Deferred to the hand-tuned menu: render exactly what the non-planner
+        # path would have produced, so this choice can never be worse than the
+        # legacy baseline.
+        if plan_sink is not None:
+            try:
+                plan_sink.parent.mkdir(parents=True, exist_ok=True)
+                with plan_sink.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps({
+                        "ts": time.time(), "iteration": iteration,
+                        "shape_id": shape_id or str(shape.get("id") or ""),
+                        "plan_id": "legacy_menu", "source": "planner",
+                    }) + "\n")
+            except OSError:
+                pass
+        return w8a8_round_strategy(
+            shape, iteration, history, pmc_evidence,
+            max_iterations=max_iterations, isa_policy=isa_policy,
+        )
+
+    # Record the planner's OWN decision (distinct from the plan id an agent
+    # may report for itself) so the AHE mechanism gate can verify that a
+    # planner_policy change really drove the round mandate.
+    if plan_sink is not None:
+        try:
+            plan_sink.parent.mkdir(parents=True, exist_ok=True)
+            with plan_sink.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps({
+                    "ts": time.time(),
+                    "iteration": iteration,
+                    "shape_id": shape_id or str(shape.get("id") or ""),
+                    "plan_id": plan_id,
+                    "source": "planner",
+                }) + "\n")
+        except OSError:
+            pass
+    return render_plan(
+        plan_id,
+        ctx={
+            "iteration": iteration,
+            "max_iterations": max_iterations,
+            "rounds_left": max(0, max_iterations - iteration + 1),
+        },
+    )
 from .isa_analysis import (
     analyze_inline_asm_source,
     evaluate_inline_asm_gate,
@@ -108,7 +202,7 @@ def isa_round_policy(
     history: list[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """Gate ISA Skills and raw asm behind completed HIP-only exploration."""
-    required_hip_rounds = max(1, max_iterations - 2)
+    required_hip_rounds = _gates.required_hip_rounds(max_iterations)
     base = {
         "phase": "hip_only",
         "skill_allowed": False,
@@ -116,7 +210,7 @@ def isa_round_policy(
         "plateau": False,
         "max_iterations": max_iterations,
         "required_valid_hip_rounds": required_hip_rounds,
-        "required_valid_isa_guided_rounds": _REQUIRED_VALID_ISA_GUIDED_ROUNDS,
+        "required_valid_isa_guided_rounds": _gates.isa_required_valid_rounds(),
         "reason": "At least eight HIP-only rounds are required.",
     }
     valid = [
@@ -149,9 +243,10 @@ def isa_round_policy(
         for record in recent
     ]
     plateau = (
-        len(recent) == 3
+        len(recent) == _gates.plateau_recent_valid_rounds()
         and all(
-            -_PLATEAU_MAX_REGRESSION_PERCENT <= value < 2.0
+            -_gates.plateau_max_regression_percent() <= value
+            < _gates.plateau_window_upper_exclusive_percent()
             for value in improvements
         )
     )
@@ -185,7 +280,7 @@ def isa_round_policy(
         == "isa_guided_hip"
     ]
     policy["valid_isa_guided_rounds"] = len(valid_isa)
-    if len(valid_isa) < _REQUIRED_VALID_ISA_GUIDED_ROUNDS:
+    if len(valid_isa) < _gates.isa_required_valid_rounds():
         return policy
 
     previous = valid_isa[-1]
@@ -232,7 +327,7 @@ def phase_extension_reason(
         and record.get("correctness_passed") is True
         and (record.get("metrics") or {}).get("graph_capture_passed") is True
     ]
-    required_hip = max(1, max_iterations - 2)
+    required_hip = _gates.required_hip_rounds(max_iterations)
     valid_hip = [
         record for record in valid
         if (record.get("isa_policy") or {}).get("phase", "hip_only")
@@ -257,10 +352,10 @@ def phase_extension_reason(
         if (record.get("isa_policy") or {}).get("phase")
         == "isa_guided_hip"
     ]
-    if len(valid_isa) < _REQUIRED_VALID_ISA_GUIDED_ROUNDS:
+    if len(valid_isa) < _gates.isa_required_valid_rounds():
         return (
             "need "
-            f"{_REQUIRED_VALID_ISA_GUIDED_ROUNDS - len(valid_isa)} more valid "
+            f"{_gates.isa_required_valid_rounds() - len(valid_isa)} more valid "
             "ISA-guided HIP experiment(s)"
         )
 
@@ -433,7 +528,7 @@ def evaluate_candidate_acceptance(
     candidate_p90 = float(metrics.get("p90_us") or candidate_us)
     best_p90 = float(best_metrics.get("p90_us") or best_us)
     improvement = (best_us / candidate_us - 1.0) * 100.0
-    p90_guard_passed = candidate_p90 <= best_p90
+    p90_guard_passed = candidate_p90 <= best_p90 * _gates.p90_tolerance()
     accepted = (
         passed
         and candidate_us < best_us
@@ -452,8 +547,10 @@ def evaluate_candidate_acceptance(
     shadow_eligible = (
         passed
         and not accepted
-        and _SHADOW_MIN_IMPROVEMENT_PERCENT <= improvement
-        < minimum_improvement_percent
+        and _gates.shadow_enabled()
+        and _gates.shadow_min_improvement_percent() <= improvement
+        < min(minimum_improvement_percent,
+              _gates.shadow_max_exclusive_percent())
         and p90_guard_passed
         and improves_shadow
     )
@@ -1226,7 +1323,7 @@ class RealW8A8OptimizationPipeline:
                 "final validated result versus fixed baseline"
             ),
             "round_acceptance_improvement_percent": (
-                ROUND_ACCEPTANCE_IMPROVEMENT_PERCENT
+                _gates.round_acceptance_improvement_percent()
             ),
             "shape_scope": config.shape_scope,
             "assignment_mode": config.assignment_mode,
@@ -1898,6 +1995,7 @@ acceptance rules to the phase section.
                     verified_experience, comparison_target,
                     isa_policy=isa_policy,
                     continuation=shape_session_id is not None,
+                    attempt_limit=attempt_limit,
                 )
                 prompt_file = root / "logs" / (
                     f"{shape_id}-iteration-{iteration}.prompt.txt"
@@ -2345,7 +2443,7 @@ acceptance rules to the phase section.
                     metrics=metrics,
                     best_metrics=best_metrics,
                     minimum_improvement_percent=(
-                        ROUND_ACCEPTANCE_IMPROVEMENT_PERCENT
+                        _gates.round_acceptance_improvement_percent()
                     ),
                     shadow_metrics=shadow_metrics,
                 )
@@ -2424,6 +2522,21 @@ acceptance rules to the phase section.
                     ),
                     "timestamp": time.time(),
                 }
+                # Inner decision-observability hook (additive, inert unless the
+                # proposal carries a structured `prediction` / `plan_id`):
+                _prediction = check_prediction(
+                    proposal,
+                    candidate_us=candidate_us,
+                    best_us=float(best_metrics["median_us"]),
+                    passed=passed,
+                    p90_guard_passed=p90_guard_passed,
+                    failure_reason=failure_reason,
+                )
+                if _prediction is not None:
+                    experiment["prediction_checked"] = _prediction
+                _plan_id = plan_tag(proposal)
+                if _plan_id is not None:
+                    experiment["plan_id"] = _plan_id
                 candidate_files = archive_iteration_candidate(
                     source, iteration_dir, changed
                 )
@@ -2711,6 +2824,7 @@ Write strict JSON to `{root / 'source' / 'proposal.json'}` with:
         comparison_baseline: Dict[str, Any] | None = None,
         isa_policy: Dict[str, Any] | None = None,
         continuation: bool = False,
+        attempt_limit: int | None = None,
     ) -> str:
         history = history or []
         verified_experience = verified_experience or []
@@ -2724,6 +2838,14 @@ Write strict JSON to `{root / 'source' / 'proposal.json'}` with:
             max_iterations=10,
             history=history,
         )
+        # The planner's budget gate must see the budget the worker will
+        # actually run with (``attempt_limit`` grows with repair/replacement
+        # rounds), otherwise ``rounds_left`` collapses to <=1 early and the
+        # selector degrades into consolidate for the rest of the run.
+        if attempt_limit is not None and int(attempt_limit) > 0:
+            if int(isa_policy.get("max_iterations") or 0) != int(attempt_limit):
+                isa_policy = dict(isa_policy)
+                isa_policy["max_iterations"] = int(attempt_limit)
         if not isa_policy["skill_allowed"]:
             pmc_evidence = dict(pmc_evidence)
             pmc_evidence.pop("isa", None)
@@ -2825,10 +2947,10 @@ skill to answer DUMMA C++ API questions. {raw_rule}
   },
 '''
             change_dimensions += ", isa_memory, isa_compute, or inline_asm"
-        round_strategy = w8a8_round_strategy(
-            shape, iteration, history, pmc_evidence,
-            max_iterations=int(isa_policy.get("max_iterations") or 10),
-            isa_policy=isa_policy,
+        round_strategy = _round_strategy_text(
+            shape, iteration, history, pmc_evidence, isa_policy,
+            plan_sink=root / "planner_plans.jsonl",
+            shape_id=shape_id,
         )
         prompt_best = _compact_metrics_for_prompt(best)
         prompt_baseline = _compact_metrics_for_prompt(comparison_baseline)
@@ -2885,7 +3007,8 @@ Docker, SSH, package tools, or broad searches. Preserve exact shape guards and
 the generic fallback. Raw asm and ISA Skills follow only the policy above.
 Write strict JSON to `{root / 'source' / 'proposal.json'}` with the unchanged
 first-turn schema, including iteration={iteration}, hypothesis,
-profile_evidence, architecture, optional isa_optimization when required, and
+profile_evidence, architecture, optional isa_optimization when required,
+optional plan_id and prediction, and
 files_changed=["csrc/w8a8_gemm_hip.hip"].
 """
         return f"""You are {assignment.worker_id}, a shape-specialized native
@@ -3052,12 +3175,26 @@ or files outside this worktree. Do not add files.
 
 Inspect `README.md`, `w8a8_backend.py`, `csrc/bindings.cpp`, and
 `csrc/w8a8_gemm_hip.hip`, make the focused tracked-source change, inspect the
-diff, and then write `{root / 'source' / 'proposal.json'}` as strict JSON:
+diff, and then write `{root / 'source' / 'proposal.json'}` as strict JSON.
+
+Optional decision-observability fields (recommended when you can commit to
+them): top-level `plan_id` names the plan family this round belongs to; top-level
+`prediction` declares a falsifiable expectation — `expected_us_range` is the
+median-us interval you expect after this change, and/or `direction` is your
+expected movement relative to the current best median (`improve|flat|regress`).
+The control plane logs both and checks `prediction` against the measured round;
+omit fields you are not confident about.
 
 ```json
 {{
   "iteration": {iteration},
   "hypothesis": "one falsifiable bottleneck hypothesis and the focused change",
+  "plan_id": "occupancy_resource or the plan this round belongs to",
+  "prediction": {{
+    "expected_us_range": [340.0, 355.0],
+    "direction": "improve",
+    "at_risk": false
+  }},
     "profile_evidence": {{
     "observed_best": {json.dumps(prompt_best)},
     "path": "scalar_lds or dumma_m16n16k32",

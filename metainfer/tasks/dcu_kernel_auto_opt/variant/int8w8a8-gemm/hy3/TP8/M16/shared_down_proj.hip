@@ -1,4 +1,5 @@
 // @@variant shape=hy3_tp8_shared_down_proj_m16 commit=6f8e396e4eb7b316acecbb928ea5db9f2f3ffe4d added=2026-08-27
+//   baseline_us=17.312 speedup=2.24948
 //   median_us=7.696 p90_us=8.174
 //   source=hy3-dsh-tp8-m16-2-dc53295a
 // INT8 W8A8 GEMM implementation for gfx928 (K500SM_AI).

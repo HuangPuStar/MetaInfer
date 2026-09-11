@@ -1,0 +1,68 @@
+schema_version: 1
+component: planner_policy
+wired: true
+
+repair_priority:
+  faster_wrong: repair_faster_wrong
+  infrastructure_failure: retry_same
+  build_failure: fix_build
+  no_valid_kernel: establish_arch
+
+phase_gates:
+  consolidate_when_rounds_left_lte: 1
+  plateau_recent_valid_rounds: 3
+  plateau_min_improvement_percent: -2.0
+  plateau_max_improvement_percent_exclusive: 2.0
+  isa_required_valid_rounds_rule: "max(1, max_iterations - 2)"
+  isa_plan: isa_guided_hip
+  inline_asm_plan: conditional_inline_asm
+  consolidate_plan: consolidate
+
+bottleneck_to_plan:
+  occupancy_limited: occupancy_resource
+  bank_conflicts: memory_layout
+  lds_wait: pipeline_tune
+  l2_low: memory_layout
+  grid_limited: grid_splitk
+
+coverage:
+  max_consecutive_same_plan: 2
+  max_trials_per_plan: 2
+
+fallback:
+  fresh: establish_arch
+  prefill:
+    - memory_layout
+    - pipeline_tune
+    - architecture_explore
+    - memory_layout
+    - epilogue_fusion
+    - pipeline_tune
+    - occupancy_resource
+    - consolidate
+  m16:
+    - architecture_explore
+    - grid_splitk
+    - pipeline_tune
+    - memory_layout
+    - pipeline_tune
+    - pipeline_tune
+    - occupancy_resource
+    - consolidate
+  small:
+    - establish_arch
+    - memory_layout
+    - occupancy_resource
+    - architecture_explore
+    - memory_layout
+    - pipeline_tune
+    - pipeline_tune
+    - consolidate
+
+# No-evidence fallback: when PMC profiling yields no bottleneck signature the
+# selector has nothing to condition on, so it defers to the hand-tuned legacy
+# round menu (a known-good baseline). The Evolve agent may evolve this row.
+uncertainty:
+  enabled: true
+  plan: legacy_menu
+  min_valid_rounds: 1

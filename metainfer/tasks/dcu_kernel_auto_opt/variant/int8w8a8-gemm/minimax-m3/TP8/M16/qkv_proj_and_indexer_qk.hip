@@ -1,4 +1,5 @@
 // @@variant shape=minimax_tp8_qkv_proj_and_indexer_qk_m16 commit=e72025dfcfa50ff3bf3fcb00b87663e65f4e0fc4 added=2026-08-28
+//   baseline_us=111.486 speedup=2.80609
 //   median_us=39.73 p90_us=39.81
 //   source=minimax-dsh-tp8-m16-1-78402260
 // csrc/w8a8_gemm_hip.hip

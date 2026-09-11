@@ -907,3 +907,38 @@
   color: var(--muted);
   font-size: var(--fs-xs);
 }
+
+/* Subset (Selected shapes only): quick select-all / clear bar */
+.dkao-subset-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+.dkao-subset-count {
+  font-weight: 700;
+  color: var(--fg);
+  font-size: var(--fs-xs);
+}
+.dkao-subset-actions .dkao-shape-tab {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+}
+.dkao-subset-actions .dkao-shape-tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.dkao-subset-hint {
+  color: var(--muted);
+  font-size: var(--fs-xxs);
+}
