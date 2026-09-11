@@ -1,4 +1,5 @@
 // @@variant shape=tp8_wo_b_m16 commit=eb0fbbad60c58b1cf09e6ceff6cb9aaa68a2c1cb added=2026-08-26
+//   baseline_us=32.137 speedup=3.27594
 //   median_us=9.81 p90_us=9.84
 //   source=hy3-dsh-tp8-m16-1-adf021ab
 // MetaInfer INT8 W8A8 GEMM for gfx928 (worker_2 / tp8_wo_b_m16).

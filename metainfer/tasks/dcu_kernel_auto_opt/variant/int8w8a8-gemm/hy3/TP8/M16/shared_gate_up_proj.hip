@@ -1,4 +1,5 @@
 // @@variant shape=hy3_tp8_shared_gate_up_proj_m16 commit=2321c42b8618aae23700bc2cf3532b59c8f6c8d8 added=2026-08-27
+//   baseline_us=66.527 speedup=6.40915
 //   median_us=10.38 p90_us=10.42
 //   source=hy3-dsh-tp8-m16-2-dc53295a
 // MetaInfer W8A8 INT8 GEMM - HIP implementation (gfx928 / K500SM_AI).

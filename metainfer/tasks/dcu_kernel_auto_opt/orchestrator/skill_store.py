@@ -268,6 +268,44 @@ def ccb_skills_root() -> Path:
     )
 
 
+def bundled_skills_root() -> Path:
+    """Skills bundled with this task plugin (seed content).
+
+    The canonical skills this plugin curates (the INT8 W8A8 GEMM family) are
+    vendored under ``metainfer/tasks/dcu_kernel_auto_opt/skills/`` so a fresh
+    checkout carries them; ``seed_bundled_skills()`` installs any that are
+    missing from the live dsh library.
+    """
+    return Path(__file__).resolve().parents[1] / "skills"
+
+
+def seed_bundled_skills() -> Dict[str, Any]:
+    """Copy bundled plugin skills into the dsh library when missing.
+
+    Idempotent and never overwrites: the live library is the authoritative
+    copy once an operator publishes/fuses over it, so only absent skills are
+    seeded. Mirrors to ccb are handled by ``sync_skill_libraries()``.
+    """
+    source = bundled_skills_root()
+    root = dsh_skills_root()
+    if not source.exists():
+        return {"added": [], "root": str(root)}
+    root.mkdir(parents=True, exist_ok=True)
+    added: list[str] = []
+    for src_dir in sorted(source.glob("*/")):
+        if not (src_dir / "SKILL.md").is_file():
+            continue
+        name = src_dir.name
+        dst = root / name
+        if dst.exists():
+            continue
+        shutil.copytree(
+            src_dir, dst, ignore=shutil.ignore_patterns("*.bak-*")
+        )
+        added.append(name)
+    return {"added": added, "root": str(root)}
+
+
 def existing_skills_root() -> Path:
     """The library publish/fuse write into (dsh, the authoritative library)."""
     return dsh_skills_root()
@@ -358,12 +396,15 @@ def _write_sync_summary(workspace_dir: Path, summary: Dict[str, Any]) -> None:
 
 
 def sync_skill_libraries(*, workspace_dir: Path | None = None) -> Dict[str, Any]:
-    """Mirror the authoritative dsh library into the ccb library (one-way).
+    """Seed bundled plugin skills, then mirror dsh into ccb (one-way).
 
-    Copies skills that are new or changed in dsh into ccb; never deletes
-    ccb-only skills. A ccb SKILL.md is backed up before being overwritten so
-    a bad mirror can be rolled back. Idempotent and safe to call repeatedly.
+    First installs any bundled plugin skills (metainfer/.../dcu_kernel_auto_opt/
+    skills) that are missing from the dsh library, then copies skills that are
+    new or changed in dsh into ccb; never deletes ccb-only skills. A ccb
+    SKILL.md is backed up before being overwritten so a bad mirror can be
+    rolled back. Idempotent and safe to call repeatedly.
     """
+    seeded = seed_bundled_skills()
     source = dsh_skills_root()
     target = ccb_skills_root()
     added: list[str] = []
@@ -393,6 +434,7 @@ def sync_skill_libraries(*, workspace_dir: Path | None = None) -> Dict[str, Any]
         "added": added,
         "updated": updated,
         "skipped": skipped,
+        "seeded": sorted(seeded.get("added") or []),
         "ccb_only": sorted(_skill_name_set(target) - _skill_name_set(source)),
         "ts": time.time(),
     }

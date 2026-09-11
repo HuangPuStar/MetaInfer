@@ -1,4 +1,5 @@
 // @@variant shape=minimax_tp4_shared_gate_up_proj_m4096 commit=5c8bfa17fe45a29749afdfc9124782e9068e415c added=2026-08-24
+//   baseline_us=19776.5 speedup=20.0471
 //   median_us=986.5 p90_us=987.7
 //   source=minimaxm3-dsh-tp4-m4096-1-0c2f84a9
 // MetaInfer W8A8 INT8 GEMM backend for Hygon gfx928 (K500SM_AI).

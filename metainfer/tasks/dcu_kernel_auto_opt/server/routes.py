@@ -44,6 +44,7 @@ from ..orchestrator.variant_store import (
     derive_variant_meta,
     list_variant_index,
 )
+from ..orchestrator.w8a8_baselines import fixed_triton_graph_baseline
 
 
 PLUGIN_TYPE = "dcu-kernel-auto-opt"
@@ -810,19 +811,34 @@ def build_router(plugin) -> APIRouter:
         manifest_path = accepted.parent / "manifest.json"
         manifest = _load(manifest_path, {})
         metrics = dict(manifest.get("metrics") or {})
-        # baseline from the task's fixed user-supplied table for the speedup.
-        initial = _load(workspace_dir / "final_report.json", {}).get("initial_metrics") or {}
+        meta = derive_variant_meta(answers, shape_id)
+        # Baseline (for the speedup multiple) comes from the task's fixed
+        # table first (final_report); when the task stopped before REPORT,
+        # fall back to the shared fixed Triton baseline table so the variant
+        # still records a meaningful baseline_us/speedup.
         baseline = None
+        initial = _load(
+            workspace_dir / "final_report.json", {}
+        ).get("initial_metrics") or {}
         b = initial.get(shape_id)
         if isinstance(b, dict):
             baseline = b.get("median_us")
         elif b is not None:
             baseline = b
+        if baseline is None:
+            shape_params = dict(manifest.get("shape") or {})
+            if meta.get("tp") is not None:
+                shape_params["tp_size"] = meta["tp"]
+            try:
+                baseline = fixed_triton_graph_baseline(
+                    shape_id, shape_params
+                ).get("median_us")
+            except ValueError:
+                baseline = None
         if baseline is not None and metrics.get("median_us"):
             metrics["baseline_us"] = baseline
             metrics["speedup"] = float(baseline) / float(metrics["median_us"])
 
-        meta = derive_variant_meta(answers, shape_id)
         kernel_source = accepted.read_text(encoding="utf-8", errors="replace")
         commit = str(manifest.get("commit") or "")
         try:

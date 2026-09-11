@@ -191,9 +191,28 @@ def main() -> int:
     parser.add_argument("--m", type=int)
     parser.add_argument("--n", type=int)
     parser.add_argument("--k", type=int)
-    parser.add_argument("--warmups", type=int, default=100)
-    parser.add_argument("--samples", type=int, default=30)
-    parser.add_argument("--replays-per-sample", type=int, default=100)
+    # Defaults follow the harness budget env when set (see
+    # orchestrator/validation_budget.py): METAINFER_BENCH_WARMUPS / _SAMPLES /
+    # _REPLAYS. Explicit CLI flags still win, so callers keep control.
+    def _env_default(name: str, fallback: int) -> int:
+        try:
+            value = int(os.environ.get(name, ""))
+        except (TypeError, ValueError):
+            return fallback
+        return value if value > 0 else fallback
+
+    parser.add_argument(
+        "--warmups", type=int,
+        default=_env_default("METAINFER_BENCH_WARMUPS", 100),
+    )
+    parser.add_argument(
+        "--samples", type=int,
+        default=_env_default("METAINFER_BENCH_SAMPLES", 30),
+    )
+    parser.add_argument(
+        "--replays-per-sample", type=int,
+        default=_env_default("METAINFER_BENCH_REPLAYS", 100),
+    )
     parser.add_argument("--reference-cache-dir", type=Path)
     parser.add_argument("--probe", action="store_true")
     parser.add_argument("--self-test", action="store_true")

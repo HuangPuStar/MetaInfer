@@ -96,16 +96,24 @@ class FakeStdin:
         self.buffer = io.BytesIO(text.encode("utf-8"))
 
 
-def run_wrapper(module, argv, prompt):
+def run_wrapper(module, argv, prompt, backend="sdk"):
     """Run the wrapper with a scripted prompt/stdin, plus a fake API key.
 
     ``dsh_agent.main()`` refuses to start without credentials (TENCENT_API_KEY
     / DEEPSEEK_API_KEY env or ~/.dsh/.credentials.yaml). CI runners have none
     of those, so inject a dummy key for the duration of the call to keep the
     tests hermetic and environment-independent.
+
+    ``backend`` selects the DSH agent backend through ``DSH_AGENT_BACKEND`` and
+    is restored afterwards.
     """
     out, err = io.StringIO(), io.StringIO()
     old_stdin = sys.stdin
+    old_backend = os.environ.get("DSH_AGENT_BACKEND")
+    if backend:
+        os.environ["DSH_AGENT_BACKEND"] = backend
+    elif old_backend is not None:
+        os.environ.pop("DSH_AGENT_BACKEND", None)
     saved_key = os.environ.get("TENCENT_API_KEY")
     os.environ["TENCENT_API_KEY"] = saved_key or "ci-test-key"
     sys.stdin = FakeStdin(prompt)
@@ -118,6 +126,10 @@ def run_wrapper(module, argv, prompt):
             os.environ.pop("TENCENT_API_KEY", None)
         else:
             os.environ["TENCENT_API_KEY"] = saved_key
+        if old_backend is not None:
+            os.environ["DSH_AGENT_BACKEND"] = old_backend
+        else:
+            os.environ.pop("DSH_AGENT_BACKEND", None)
     return code, out.getvalue(), err.getvalue()
 
 

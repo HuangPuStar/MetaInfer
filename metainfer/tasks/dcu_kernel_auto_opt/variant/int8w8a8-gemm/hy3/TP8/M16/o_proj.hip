@@ -1,208 +1,170 @@
-// @@variant shape=hy3_tp8_o_proj_m16 commit=4ddcb92e2032eb19fef17c7d4e19ac6739780ba9 added=2026-08-27
-//   median_us=12.43 p90_us=12.59
-//   source=hy3-dsh-tp8-m16-2-dc53295a
-// MetaInfer W8A8 INT8 GEMM HIP implementation for gfx928 (worker_1).
+// @@variant shape=hy3_tp8_o_proj_m16 commit=0b2614f457656239125b5d510d60e65275d45e24 added=2026-09-09
+//   median_us=11.04 p90_us=11.16 speedup=2.91 baseline_us=32.14
+//   source=hy3-dsh-tp8-m16-9-8-0161e718
+// MetaInfer W8A8 INT8 GEMM HIP implementation.
 //
-// Iteration 4: bounded LDS prefetch pipeline for the assigned shape
-// hy3_tp8_o_proj_m16 (M=16, N=4096, K=1024).
-//   * Iteration 1 (accepted): 256 blocks x 1 wavefront x 1 16x16 N tile,
-//     direct global fragment loads, 32 K-steps; official median
-//     97.3785 us / p90 99.7009 us.
-//   * Iteration 2 (rejected): 128 blocks x 2 wavefronts x 2 N tiles,
-//     median 168.109 us / p90 177.434 us -- intra-block wave pairing with
-//     the direct byte-load B path regressed, so launch-geometry co-
-//     residency alone is not the lever.
-//   * Iteration 3 (accepted official best): split-K=2 pipeline with int32
-//     partials in the caller workspace -- (1)
-//     w8a8_dumma_m16_n16_splitk_partial_kernel<2>: grid = 2*256 = 512
-//     one-wave blocks (one 16x16 N tile per block; split s owns the K-half
-//     [s*512, s*512+512), 16 ascending m16n16k32 steps with the
-//     iteration-1 direct-load double-buffered K loop), each block storing
-//     its int32 tile to workspace plane s via the API LDS plane
-//     (mem_row_major); (2) w8a8_dumma_m16_combine_kernel<2>: grid = 256
-//     one-wave blocks summing the planes in ascending split order and
-//     applying the exact reference fp32 scale/bf16 chain. Official median
-//     31.446 us / p90 31.509 us (beats the fixed Triton Graph baseline
-//     32.137/35.969 us).
-//   * This round (mandated architecture/pipeline axis: bounded
-//     register/LDS prefetch): the exact code object of the accepted
-//     iteration-3 partial kernel shows per K-step ONE global_load_dwordx2
-//     per lane for A (8 B, immediate K-offsets -- already vectorized and
-//     L2-hot) but EIGHT per-lane global_load_ubyte for B (one byte per
-//     k-row, k-rows strided by N=4096) with s_waitcnt vmcnt(N) interleaved
-//     with the byte reassembly -- 16 dwordx2 + 128 ubyte + 150 waits + 16
-//     mmac per block, i.e. ~9 serialized global-latency rounds per K-step.
-//     A-only staging would remove only ~1 of those 9 rounds, and
-//     multi-N-tile reuse would add 8 B-ubyte rounds per extra tile per
-//     step (per-step chain grows while blocks/CU halves), so the load path
-//     itself is replaced with a BOUNDED depth-1 LDS prefetch pipeline: the
-//     partial kernel keeps the exact split-K=2 geometry (512 one-wave
-//     blocks = 4.27/CU, zero barriers, same combine kernel, same workspace
-//     planes, same ascending-K int32 order) and only the B load path
-//     changes. Each block stages its 8-KiB B tile slice into a
-//     double-buffered LDS window (2 x 64 rows x 48-B padded stride; one
-//     window = 2 m16n16k32 steps; 8 windows for kLen=512) with ONE 16-B
-//     global_load_dwordx4 per lane per window, issued one full window
-//     ahead of consumption; the K loop then reads B fragments from LDS
-//     (ds_read_ubyte x8 + reassembly, ~30-cycle LDS latency, no vmcnt)
-//     while A stays on its proven single-dwordx2 direct path. Byte reuse:
-//     A (8 KiB/block slice; 16 KiB total, L2-hot) is re-read per K-step
-//     exactly as before; B (8 KiB per block) is read from global exactly
-//     once per block through the vectorized prefetch and every staged byte
-//     is consumed by exactly one m16n16k32 step (B is inherently
-//     single-use per block -- the change converts 128 scattered
-//     ubyte-load+wait rounds into 8 vectorized prefetch rounds plus LDS
-//     reads).
-//   * Falsifiable gate: median_us < 31.446 AND p90_us < 31.509 (strict
-//     improvement over the iteration-3 official best with the p90 noise
-//     guard); expected effect ~2x (partial kernel ~3-4x faster, combine
-//     ~2-3 us unchanged).
-//   * The CU-aligned non-power-of-two candidate (SPLIT_K=3, grid = 768
-//     blocks = 6.4 blocks/CU, non-uniform 32-aligned K slices 384/384/256)
-//     remains implemented in the same templated partial+combine pair and
-//     explicitly instantiated; this round launches SPLIT_K=2 as the
-//     primary candidate.
-//   * Workspace contract unchanged: partials occupy SPLIT_K * 65536 int32
-//     planes (512 KiB for S=2) and are overwritten on every launch; stream
-//     order makes combine read the planes written by the same replay.
-//     Graph capture/replay safe: two kernel launches, no allocation, no
-//     sync, no host reads, no default stream.
-//   * Iteration 6 (this round): the exact code object of the accepted
-//     iteration-4 partial kernel shows the B fragment is still reassembled
-//     per m16n16k32 step from EIGHT per-lane ds_read_u8 (k-rows strided by
-//     the 48-B padded window stride, one byte per k-row) with ~8
-//     s_waitcnt lgkmcnt + ~15 VALU byte-reassembly ops per step, while A is
-//     already one dwordx2 per lane per step and software-pipelined 4-6
-//     steps ahead by the compiler (offsets 128..288 issued early). The
-//     remaining per-step serial chain is therefore the B-from-LDS byte
-//     path, so this round replaces the B data path with the validated
-//     gate_up/down_proj recipe (int8-w8a8-gemm-decode skill): pack the
-//     exact-shape weight OUT of the timed region into n-major fragment
-//     layout packed[n*K + k] = raw[k*N + n] (same 4 MiB byte count, same
-//     buffer, graph-stable addresses; identity pack retained for every
-//     other (K, N)), keep the depth-1 double-buffered LDS window pipeline,
-//     but store each window n-major (16 n-cols x 64 k-rows, 80-B padded
-//     k-stride = 64+16, 16-B aligned non-power-of-two bank skew) so the
-//     col_major B fragment load (du_mma.hpp: lane l reads
-//     p[(l&15)*ldm + (l>>4)*8 + i], i=0..7 -- 8 CONTIGUOUS bytes) becomes
-//     one 8-B vectorized read per lane per step (emitted as two
-//     ds_read_b32) with no reassembly. Stage-in stays
-//     one 16-B global_load_dwordx4 per lane per window (now from the packed
-//     n-major buffer), issued one window ahead of consumption. A path,
-//     split-K=2 geometry (512 + 256 one-wave blocks), combine kernel,
-//     workspace planes, ascending-K exact int32 order, and zero-barrier
-//     structure are held fixed; the scalar fallback decodes the n-major
-//     pack for (k,n)==(1024,4096) (keeps the paired M=2 API shape exact).
-//   * Iteration 7 (rejected, reverted): single-buffering leg of the
-//     mandated double-vs-single buffer comparison -- all 8 B windows staged
-//     in a prologue burst (LDS 11264 B, zero B-related vmcnt in the K loop,
-//     525 -> 371 instructions). Median 14.7632 / p90 14.7728 us vs the
-//     iteration-6 gate 14.7233/14.7345 -> NOT accepted. Conclusion: the B
-//     stage-in latency was not the binding constraint; the residual
-//     per-wave serial latency is the direct A-path global loads waited
-//     inside the K loop (vmcnt(0..6) pipelined waits) with only 1.07
-//     waves/SIMD (4.27 one-wave blocks/CU) to overlap them.
-//   * Iteration 8 (this round, mandated HIP-only occupancy probe): PMC for
-//     the accepted iteration-6 build (arch_vgpr 40, sgpr 16, LDS 3584 B,
-//     scratch 0, 512 blocks, partial kernel 12.8 us) shows LDS allows 18
-//     blocks/CU and VGPR 24 blocks/CU with zero spills -- neither resource
-//     binds at 4.27 blocks/CU, so the only occupancy limiter is the grid
-//     (total one-wave blocks). This round flips ONLY the split factor to
-//     SPLIT_K=4: 1024 one-wave partial blocks = 8.53 blocks/CU = 2.13
-//     wavefronts/SIMD (first candidate in the trusted [2..8] probe set that
-//     crosses 2 waves/SIMD), uniform 64-window-aligned K slices 256/256/
-//     256/256 (numWindows = 4), all blocks resident (LDS 18.3 >= 8.53,
-//     VGPR 24 >= 8.53). The kernel body is bit-identical to the accepted
-//     iteration-6 code: depth-1 double-buffered LDS window pipeline
-//     (b_lds[2][1280], one 16-B global_load_dwordx4 per lane per window
-//     issued one window ahead), col_major B fragment (one 8-B vectorized
-//     LDS read per lane per step), direct A dwordx2 path, zero barriers,
-//     same combine/scale chain, same n-major pack, same fallbacks. A and B
-//     per-replay HBM totals stay constant (A: 1024 x 4 KiB, B: 1024 x
-//     4 KiB); only the combine kernel now sums 4 freshly-written
-//     L2-resident planes (+512 KiB reads, no repeated A/B HBM reads).
-//     Workspace: 4 planes x 256 KiB = 1 MiB <= the 16-plane (4 MiB) caller
-//     budget; the launcher workspace guard keeps the scalar fallback for an
-//     undersized workspace. Expected effect: the ~2x resident waves overlap
-//     the A-load global stalls (and the 4 instead of 8 per-block stage-in
-//     rounds halve the per-wave exposed-latency chain), partial kernel
-//     ~12.8 us -> ~7-10 us, combine ~2 us -> ~2.5-3.5 us, total ~10-13 us.
-//     Falsifiable gate: median_us < 14.72327470779419 AND p90_us <
-//     14.734469652175903 (strict improvement over the iteration-6 official
-//     best with the p90 noise guard). If the median stays ~14.7 us, the
-//     kernel is not occupancy-limited on this axis and the next round must
-//     attack the A-path itself (LDS-stage A, or A layout) or probe SPLIT_K=8
-//     (4.27 waves/SIMD, combine reads 2 MiB).
-//   * Iteration 11 (rejected, reverted): SPLIT_K=8 occupancy probe (2048
-//     one-wave partial blocks = 17.07 blocks/CU = 4.27 waves/SIMD, kernel
-//     body bit-identical to iteration 8) regressed to 17.3119/17.3270 vs the
-//     14.4528/14.4672 gate -- the occupancy axis is falsified (1.07 through
-//     4.27 waves/SIMD all flat or worse; 2.13 is the peak). Per-kernel
-//     profile of the accepted build: partial kernel 12.16 us + combine
-//     kernel 2.88 us (profiled; operator 15.04 us), i.e. the combine is a
-//     ~20% SERIAL second phase plus its launch gap.
-//   * Iteration 12 (this round, HIP-only consolidation): fuse the combine
-//     into the partial kernel with the qkv_proj-lineage per-tile
-//     last-arrival protocol -- monotonic counters in the workspace tail
-//     (256 x int32 after plane 3; one async zero per workspace pointer on
-//     its first eager use, before capture), each block does one
-//     __threadfence() + atomicAdd(&counters[tile], 1), and the arrival with
-//     (arrived % SPLIT_K) == SPLIT_K - 1 sums the tile's 4 planes in
-//     ascending split order and writes the scaled bf16 output with the exact
-//     combine-kernel math (bit-identical bytes). The operator becomes ONE
-//     launch per replay: the ~2.9-us serial combine phase and its launch gap
-//     disappear, each tile's combine runs as soon as its 4 splits land
-//     (overlapped with sibling blocks), and the plane reads happen while the
-//     planes are L2-fresh. SPLIT_K=4 geometry, kernel body, n-major pack,
-//     workspace planes, exact int32 order, and fallbacks are unchanged; the
-//     two-kernel path remains for workspaces that fit the planes but not the
-//     counters. Expected: partial kernel ~12 us (combine tail on the
-//     last-arrivers only) + no second kernel -> total ~12-13 us. Falsifiable
-//     gate: median_us < 14.452790021896362 AND p90_us < 14.467190504074097
-//     (strict improvement over the iteration-8 official best with the p90
-//     noise guard). If the median stays ~14.4 us, the serial combine phase
-//     was not the binding cost and the next round must attack the partial
-//     kernel's own issue chain (dual accumulator fragments) or geometry.
-//   * Iteration 21 (this round, HIP-only): A-LDS double-buffered window
-//     staging -- A is staged through the same depth-1 double-buffered LDS
-//     window pipeline as B (a_lds[2][1280], one 16-B dwordx4 per lane per
-//     window issued one window ahead) and the per-step a_frag loads read LDS
-//     (ldm = 80) instead of global (ldm = 1024). Iteration 7 showed removing
-//     every B-related vmcnt wait from the K loop does not move the time, and
-//     identified the DIRECT A-PATH global loads waited inside the loop as the
-//     residual per-wave serial latency; iteration 10 hoisted all A dwordx2
-//     loads into a prologue burst and regressed (14.8639) because the 8
-//     steps of A sat in VGPRs. Staging A in LDS (not VGPRs) keeps the
-//     prefetch in registers only (the compiler hoists all 8 A/B window
-//     dwordx4 prefetches into the prologue with progressive vmcnt waits;
-//     arch_vgpr 40 -> 50, 2-3 waves/SIMD -- lockstep evidence says extra
-//     co-residency does not change the serial-chain makespan), LDS 3588 ->
-//     6148 B/block (64 KiB / 6.15 KiB = 10.4 blocks/CU >= 8.53 needed, grid
-//     stays fully resident), and moves the A vmcnt wait out of the per-step
-//     mmac chain to the top-of-window ds_write where it overlaps a full
-//     compute window -- the exact recipe that took the B path from 31.45 to
-//     19.01 us in iteration 4. Fragment values are byte-identical (same
-//     global bytes staged, same col_major-style 8-B fragment mapping), so
-//     the k-ascending int32 accumulation, the ascending-split sum, the fp32
-//     scale/bf16 chain and every output byte are unchanged. Geometry
-//     (SPLIT_K=4, 1024 one-wave blocks, one launch per replay), B path,
-//     fused last-arrival counter protocol, workspace/planes/counters budget,
-//     Graph safety, two-kernel fallback (counters = nullptr) and generic
-//     scalar fallback are UNCHANGED. Expected: per-block serial latency
-//     drops by the exposed A-load round trips (~8 waited dwordx2 -> 4
-//     prologue-hidden dwordx4), operator median toward ~8-11 us.
-//     Falsifiable gate: median_us < 13.084909915924072 AND p90_us <
-//     13.115299940109253 (strict improvement over the iteration-12 official
-//     best with the p90 noise guard). If the median stays ~13 us, the A path
-//     is falsified as the binding cost and the residual is the fused
-//     atomic/combine tail, irreducible in this protocol.
+// Worker:  worker_1 (physical GPU 1)
+// Task:    hy3-dsh-tp8-m16-9-8-0161e718, parallel-explore child
+// Shape:   hy3_tp8_o_proj_m16  M=16, N=4096, K=1024
 //
-// The guarded exact-shape branch keeps every other (m, n, k) -- including the
-// paired M=2 API shape with the same (N, K) -- on the generic scalar fallback
-// (which decodes the n-major pack only for (k,n)==(1024,4096) and otherwise
-// reads the row-major weight, matching the identity pack below).
-// Later optimization rounds may replace only the exact-shape branch
-// implementation (and the pack op) while this dispatch structure stays.
+// Iteration 0 = correctness bootstrap: one scalar int8 dot-product kernel,
+// one thread -> one output element (no DUMMA). Official median 78.99 us.
+//
+// Iteration 1 = minimal native gfx928 DUMMA m16n16k32 INT8 tile with the
+// installed <du_mma.h> API: one 64-thread wavefront per block, one 16x16 N
+// tile per block (grid = N/16 = 256 blocks; M = 16 fits exactly one M-tile),
+// 32 strictly ascending du_mma_sync steps over K = 1024 in a single int32
+// accumulator fragment, zero barriers anywhere (single wavefront per block;
+// the epilogue LDS store->read round-trip is intra-wavefront program order),
+// exact fp32 scale chain (float(acc) * x_scale[m] * weight_scale[n]) and
+// round-to-nearest-even bf16 store, one launch per replay on the caller
+// stream, no workspace use. Official median 18.2465 us (1.76x vs the fixed
+// Triton 32.137 us Graph baseline), but the grid is only 256 resident
+// one-wave blocks = 0.53 wavefronts/SIMD (256 waves over 120 CUs x 4
+// SIMDs): about half of every SIMD's issue slots are empty, so the kernel
+// is co-residency / load-latency bound, not compute bound.
+//
+// Iteration 2 (accepted official best 15.118930/15.126930 us; architecture
+// mandate: one complete launch geometry among 1/2/4 waves per block x 1/2/4 adjacent N tiles): choose
+// 2 wavefronts per block x 1 adjacent N tile per block = in-block
+// split-K=2. Grid stays kNTiles = 256 blocks (>= 120 device CUs, ~2.13
+// blocks/CU); each 128-thread block holds two 64-thread wavefronts. Wave 0
+// accumulates the contiguous ascending K slice [0, 512), wave 1 accumulates
+// [512, 1024) (16 m16n16k32 steps each, direct 8-B vectorized global
+// fragment loads as in iteration 1). Each wave publishes its int32 partial
+// tile to a per-block LDS plane pair (2 x 1 KiB), one END-of-K
+// __syncthreads(), then wave 1 adds the planes (s=0 then s=1; int32
+// addition is exact, so the combined total is bit-identical to iteration
+// 1's single full-K accumulator) and runs the unchanged scale/RNE-bf16
+// epilogue. This doubles the wavefront count to 512 (~1.07/SIMD, 4-5
+// resident waves/CU) without any extra global traffic, needs no workspace,
+// and mirrors the validated N=4096 M=16 o_proj winner of the TP4 decode
+// lineage (256 blocks x 2 waves, one tile/block, one END-of-K barrier).
+// The exact-shape weight pack (untimed, launch_pack_w8a8_weight) switches
+// from the identity copy to an n-major transpose packed[n*K + k] =
+// raw[k*N + n] for exactly (k, n) == (1024, 4096) so each lane's 8-byte
+// matrix_b col_major fragment is one contiguous 8-B vectorized global load
+// (identity [K, N] would scatter it one byte per k row); the generic scalar
+// fallback decodes that n-major layout for the exact (k, n) pair so every
+// other (m, n, k) -- including the paired M=2 API shape with the same
+// (N, K) -- stays byte-exact. Identity packing is retained for every other
+// (K, N).
+//
+// Iteration 9 (this round): the accepted iteration-2 kernel (official
+// 15.118930/15.126930 us) is replaced by the exact-shape reference lineage's
+// validated final architecture for this geometry (hy3-dsh-tp8-m16-2-dc53295a,
+// official 12.43/12.59 us on the same fixed 32.137 us Triton baseline):
+// grid-level split-K=4 (1024 one-wave blocks, ~2.13 resident wavefronts/
+// SIMD), each block accumulating one contiguous ascending K quarter with A
+// AND B both staged through the depth-1 double-buffered LDS window pipeline
+// (one 16-B uint4 per lane per window issued one window ahead; per-step
+// fragment loads read LDS at the 80-B padded stride), publishing its int32
+// tile to a workspace plane, with the split-K combine FUSED into the same
+// kernel as a per-tile last-arrival tail (monotonic counters in the
+// workspace tail) so the operator stays one launch per replay. In-lineage
+// experiments that failed to beat iteration 2 are reverted and NOT replayed:
+// iteration 5 (wave-1 tail scale prefetch, 15.2968/15.3360 us), iteration 7
+// (rolled depth-1 register stage transport, 19.2353/19.2721 us), iteration 8
+// (in-block split-K=4 occupancy probe, 15.4697/15.5025 us).
+//
+// Iteration 17 (this round): B-stream-locality round on the accepted
+// iteration-9 kernel (official 11.320700/11.428699 us, digest 71ac0c9a,
+// verified == live source before this edit; git HEAD 2dc3fd7 clean). Rounds
+// 11 (publish tail surgery, 12.7361/12.7681), 14 (A register-resident,
+// 12.3341/12.4781) and 15 (grid split-K 8, 14.8350/14.8526) were rejected
+// and rolled back byte-for-byte, so this is a NEW bounded experiment from
+// the pristine accepted source. Round-14/15 evidence leaves ONE untested
+// axis of the accepted architecture: the physical layout of the once-read
+// 4-MiB packed-B stream. The accepted kernel's exact-shape pack is the
+// n-major transpose packed[n*K+k] = raw[k*N+n] (column stride K = 1024), so
+// every one of a block's four 1-KiB window prefetches issues 16 FULL 64-B
+// L2 lines strided 1 KiB apart (each block's B quarter is 16 scattered
+// column chunks of 256 B over 16 KiB of address space), and the replay-wide
+// 4-MiB B stream is served as ~65k single lines with no run structure at
+// the DRAM row level (~377 GB/s effective read for a per-replay 4.27-MB
+// footprint in 11.32 us). This round REPACKS the exact-shape buffer (same
+// 4-MiB buffer, same byte count, one-time untimed pack, byte-permutation
+// only) so each (split, tile) block owns one contiguous 4-KiB slot holding
+// its whole B slice: slot = split*256 + tile, then window (1 KiB), then
+// column (64 B), then k. Each window prefetch then reads 16 SEQUENTIAL
+// 64-B lines (one contiguous 1-KiB run per block per matrix per window),
+// block slots are issued in launch order (blockIdx = split*256 + tile), and
+// the replay B stream decomposes into 1024 advancing 4-KiB sequential runs
+// instead of 4096 scattered 1-KiB column runs -- strictly better DRAM
+// row-buffer / prefetch structure for byte-identical traffic. LDS staging,
+// fragment order, plane/workspace protocol, epilogue chain, launch geometry
+// and every byte VALUE the kernel consumes are unchanged (the slot is
+// exactly the old 16 columns x 256 k of the block in the same ascending-k
+// order), so int32 accumulation is bit-identical to iteration 9; the
+// generic scalar fallback and the paired M=2 path decode the same new pack
+// (w8a8_pack_b_off), keeping every output byte exact. Falsifiable
+// prediction: official unprofiled Graph-replay median below 11.207493 us
+// (>= 1% under 11.320700 us) with p90 <= 1.05 x 11.428699 = 11.999134 us,
+// 0 mismatches, Graph capture passed and the paired M=2 fallback validation
+// unchanged; flat 11.2-11.6 us falsifies DRAM run-locality as the limiter
+// (kernel is latency-chain bound instead) and directs the next round to
+// per-wave latency reduction at unchanged geometry/traffic.
+//
+// Iteration 19 (this round): two-tile-per-wave A-sharing round on the
+// shadow-active iteration-17 source (digest 19ec89c8, official Graph-replay
+// median 11.272130/11.289730 us on the same fixed 32.137 us Triton baseline;
+// git HEAD 2dc3fd7 = accepted iteration 9). Rounds 11 (publish tile_lds
+// removal, 12.7361/12.7681), 14 (A register-resident with 8-B global
+// fragment preloads, 12.3341/12.4781), 15 (grid split-K 8, 2048 blocks,
+// 14.8350/14.8526), 17 (B block-contiguous repack, 11.2721/11.2897 -- only
+// +0.43%, not accepted) and 18 (split-K 8 + A register-resident at 3588 B
+// LDS, 15.0071/16.1807) bound this round. The surviving limiter reading:
+// the replay wall is dominated by per-replay L2 line-REQUEST service, not by
+// DRAM bytes, LDS path instructions or occupancy. Every falsified round kept
+// the per-replay line-request count at 131,072 read requests (A 65,536 = 4
+// splits x 256 tile-blocks x one 4-KiB/64-line A slice each, B 65,536
+// compulsory once-read lines), and round 14 is the one negative control that
+// MOVED the request count: its 8 x 8-B dwordx2 A preloads re-requested each
+// A 64-B line twice (request count up ~50%) and the wall went up ~9%.
+// This round halves the A-side requests by pairing the two adjacent 16-col
+// tiles of each (split, pair) in ONE 64-lane wave that stages and loads its
+// 4-KiB A slice ONCE and feeds two 16x16 accumulator tiles from the same
+// a_lds window stream (grid 512 = 4 splits x 128 tile pairs; b_lds gains a
+// second per-stage 1280-B plane for the paired tile; per-window MMA work
+// doubles 2 -> 4 so the depth-1 window-prefetch latency cover per wave
+// grows; per-block plane publish and arrival machinery now serve two tiles).
+// Per-replay read requests drop to ~98,304 (-25%: A 32,768, B 65,536) at
+// byte-identical per-(tile, split) traffic, DRAM bytes, workspace protocol,
+// int32 accumulation order and every output byte. Falsifiable prediction:
+// official unprofiled Graph-replay median below 11.207493 us (>= 1% under
+// 11.320700 us) with p90 <= 11.999134 us, 0 mismatches, Graph capture passed
+// and the paired M=2 fallback validation unchanged; point expectation
+// ~9.6-10.9 us if request service is the wall (the tp4 o_proj M16 lineage's
+// 512-wavefront final kernel streamed its once-read B at ~460-520 GB/s vs
+// ~372-450 GB/s here at 1024 waves -- fewer waves with more per-wave work is
+// the proven-faster regime on this exact N=4096 geometry); flat ~11.2-11.6
+// us or worse falsifies request service as the limiter and shows that >= ~2
+// resident waves/SIMD are required to hide the per-wave latency chain,
+// directing the next round back to grid-1024 per-wave latency/tail work.
+//
+// Logical operator (fixed contract, see int8_w8a8_gemm_api.py):
+//     out[m, n] = bf16( int32_dot(x_q[m, :], weight[:, n])
+//                       * x_scale[m, 0] * weight_scale[n, 0] )
+// with x_q [M, K] int8, packed_weight the exact-shape n-major [N, K] int8
+// transpose (identity [K, N] for every other shape), x_scale [M, 1] fp32,
+// weight_scale [N, 1] fp32 and out [M, N] bf16.
+//
+// Host symbols (called from csrc/bindings.cpp, which owns TORCH_LIBRARY
+// registration and the current-stream lookup):
+//     launch_w8a8_gemm(...)
+//     launch_pack_w8a8_weight(...)
+//
+// Graph-safety: the gemm launch uses only caller-provided tensors and the
+// passed hipStream_t (PyTorch's current stream); it never allocates, packs,
+// synchronizes, or touches the default stream. The exact-shape arm uses the
+// caller workspace as int32 partial planes plus a 1-KiB monotonic
+// arrival-counter tail that the launcher zeros once per workspace pointer on
+// its first eager use (before Graph capture; never during capture/replay).
+// pack_weight runs outside the timed region and outside Graph capture.
+//
+// Include order is the known-good DTK order: hip_runtime.h first, then
+// hip_bfloat16.h, then du_mma.h (du_mma.h is not self-contained when included
+// before the HIP runtime headers; du_mma_common.h is not a public header).
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_bfloat16.h>
@@ -212,619 +174,641 @@
 
 namespace {
 
-// gfx928 wavefront is 64; block dimensions must be multiples of 64.
-constexpr int kScalarBlockThreads = 256;
+// ---------------------------------------------------------------------------
+// Geometry / tuning constants
+// ---------------------------------------------------------------------------
+
+// Generic scalar fallback block size (multiple of the 64-lane wavefront).
+constexpr int kScalarThreads = 256;
+
+// gfx928 wavefront / DUMMA tile geometry.
 constexpr int kWaveSize = 64;
+constexpr int kTileM = 16;
+constexpr int kTileN = 16;
+constexpr int kTileK = 32;
 
-// Exact-shape DUMMA geometry for hy3_tp8_o_proj_m16 (M=16, N=4096, K=1024).
-constexpr int kTargetM = 16;
-constexpr int kTargetN = 4096;
-constexpr int kTargetK = 1024;
-constexpr int kDummaTileM = 16;
-constexpr int kDummaTileN = 16;
-constexpr int kDummaTileK = 32;
+// Exact assigned decode shape: hy3_tp8_o_proj_m16 (worker_1 / GPU 1).
+// (K, N) = (1024, 4096) is also a valid paired M=2 API shape; the exact-shape
+// guard below deliberately includes m == kExactM so those paired shapes keep
+// reaching the generic scalar fallback (which decodes the exact-shape n-major
+// pack there).
+constexpr int kExactM = 16;
+constexpr int kExactN = 4096;
+constexpr int kExactK = 1024;
 
-// Split-K planning for the exact shape: one 16x16 N tile per block means
-// kNTiles = N/16 = 256 tiles; a split-K=S partial grid has S*kNTiles
-// one-wave blocks. Every K boundary is aligned to the 32-element DUMMA step
-// and to the 64-k-row LDS window (uniform 512/512 for S=2; uniform 256/256/
-// 256/256 for S=4; non-uniform 384/384/256 for S=3).
-constexpr int kNTiles = kTargetN / kDummaTileN;  // 256
-constexpr int kPlaneInts = kTargetM * kTargetN;  // 65536
-
-__device__ __forceinline__ constexpr int kSplitStart(int split_k, int s) {
-  if (split_k == 2) return s * 512;
-  if (split_k == 4) return s * 256;
-  return s * 384;  // S=3
-}
-__device__ __forceinline__ constexpr int kSplitLen(int split_k, int s) {
-  if (split_k == 2) return 512;
-  if (split_k == 4) return 256;
-  return (s < 2) ? 384 : 256;  // S=3
-}
-
-// ---------------------------------------------------------------------------
-// Generic scalar int8 dot-product kernel: one thread per output element.
-// Fallback for every (m, n, k) not handled by an exact-shape specialization.
-// For the exact (k, n) == (1024, 4096) the packed weight buffer holds the
-// n-major transpose packed[n*K + k] = raw[k*N + n] (iteration 6), so the
-// fallback decodes that layout there (this keeps the paired M=2 API shape
-// with the same (N, K) byte-exact); every other (k, n) keeps the identity
-// pack (raw row-major [K, N]).
-// ---------------------------------------------------------------------------
-__global__ __launch_bounds__(kScalarBlockThreads) void
-w8a8_scalar_gemm_kernel(
-    const int8_t* __restrict__ a,
-    const int8_t* __restrict__ b,
-    const float* __restrict__ x_scale,
-    const float* __restrict__ weight_scale,
-    hip_bfloat16* __restrict__ out,
-    int m,
-    int n,
-    int k) {
-  const int64_t linear =
-      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-  const int64_t total = static_cast<int64_t>(m) * n;
-  if (linear >= total) {
-    return;
-  }
-  const int row = static_cast<int>(linear / n);
-  const int col = static_cast<int>(linear - static_cast<int64_t>(row) * n);
-
-  const int8_t* a_row = a + static_cast<int64_t>(row) * k;
-  const bool packed_nmajor = (k == kTargetK && n == kTargetN);
-  const int8_t* b_col = b + col;
-  int32_t acc = 0;
-  if (packed_nmajor) {
-    // packed[col * 1024 + kk] == raw[kk * 4096 + col] (iteration-6 pack).
-    const int8_t* b_pack_col = b + static_cast<int64_t>(col) * kTargetK;
-    for (int kk = 0; kk < k; ++kk) {
-      acc += static_cast<int32_t>(a_row[kk]) *
-             static_cast<int32_t>(b_pack_col[kk]);
-    }
-  } else {
-    for (int kk = 0; kk < k; ++kk) {
-      acc += static_cast<int32_t>(a_row[kk]) *
-             static_cast<int32_t>(b_col[static_cast<int64_t>(kk) * n]);
-    }
-  }
-  const float scaled =
-      static_cast<float>(acc) * x_scale[row] * weight_scale[col];
-  out[linear] = __float2bfloat16(scaled);
-}
-
-// ---------------------------------------------------------------------------
-// Split-K partial kernel: one 64-thread wavefront per block, one 16x16 N
-// tile per block, one K-slice per split. Iteration 6 replaces the B data
-// path with the validated n-major packed + col_major fragment recipe: the
-// exact-shape weight is packed (out of the timed region) as
-// packed[n*K + k] = raw[k*N + n], and each block stages its B slice
-// (kLen k-rows x 16 n-cols) into a double-buffered LDS window stored
-// n-major (16 n-cols x 64 k-rows, 80-B padded k-stride) with ONE 16-B
-// global_load_dwordx4 per lane per window, issued one full window (2
-// m16n16k32 steps) ahead of consumption; the per-step K loop then reads B
-// fragments from LDS with the col_major load (du_mma.hpp lane mapping:
-// p[(l&15)*ldm + (l>>4)*8 + i], i=0..7), i.e. one 8-B vectorized read per
-// lane per step -- emitted by the compiler as two ds_read_b32 (8 contiguous
-// bytes) -- so the 8 ds_read_u8 + ~8 lgkmcnt + ~15 VALU byte-reassembly
-// chain of iteration 4 is gone (validated on gate_up/down_proj in this
-// lineage).
-// Iteration 21: A takes the same depth-1 double-buffered LDS window path as
-// B (a_lds[2][1280], one 16-B dwordx4 per lane per window issued one window
-// ahead; per-step a_frag reads from LDS at ldm = kWindowKStride), so the
-// direct A-path vmcnt wait leaves the per-step mmac chain (iteration 7
-// identified those waited A loads as the residual per-wave serial latency;
-// iteration 10's register hoist regressed on VGPR pressure -- LDS staging
-// avoids it). Explicit int32 accumulation (max |dot| per slice =
-// 16,516,096 << 2^31, k-ascending).
-// Each block publishes its int32 tile through the API LDS plane
-// (mem_row_major) and stores it to workspace plane `split` with one 16-B
-// vector store per lane. Single wavefront -> no barrier anywhere (LDS
-// store->read ordering is per-wave program order; buffer w&1 is stored at
-// the top of iteration w and read only after that store). Guarded in the
-// launcher: only this exact (m, n, k) reaches it.
-// Iteration 12 (fused last-arrival combine, qkv_proj lineage recipe): with
-// the counters pointer the tile's LAST arrival (monotonic per-tile counters
-// in the workspace tail, (arrived % SPLIT_K) == SPLIT_K - 1) sums the
-// tile's SPLIT_K planes in ascending split order and emits the scaled bf16
-// output in-kernel, byte-identical to the separate combine kernel, so the
-// operator becomes ONE launch per replay; counters = nullptr keeps the
-// iteration-8 two-kernel behavior for undersized workspaces.
-// ---------------------------------------------------------------------------
-constexpr int kWindowKRows = 64;   // one window = 2 m16n16k32 steps
-constexpr int kWindowNCols = 16;   // block tile width (n-cols per window)
+// Exact-shape DUMMA launch plan (iteration 9): one 16x16 N tile per block,
+// grid-level split-K = 4 along K (uniform contiguous ascending K quarters),
+// one 64-thread wavefront per block, fused per-tile last-arrival combine
+// (the exact-shape reference lineage's validated final architecture for this
+// geometry: 12.43/12.59 us in hy3-dsh-tp8-m16-2-dc53295a). Each block stages
+// its A+B slice through a depth-1 double-buffered LDS window pipeline (see
+// the kernel below); the int32 partial planes and the per-tile arrival
+// counters live in the caller workspace.
+constexpr int kNTiles = kExactN / kTileN;   // 256 tiles (>= 120 device CUs)
+constexpr int kSkSplitK = 4;                // grid split factor along K
+constexpr int kSkKPerBlock = kExactK / kSkSplitK;  // 256 k per block
+constexpr int kSkTilesPerBlock = 2;  // iteration 19: adjacent N tiles per wave
+constexpr int kSkTPairs = kNTiles / kSkTilesPerBlock;  // 128 tile pairs per split
+constexpr int kSkGrid = kSkSplitK * kSkTPairs;  // 512 one-wave blocks (1.07/SIMD)
+constexpr int kWindowKRows = 64;   // k-rows per LDS window (2 m16n16k32 steps)
 constexpr int kWindowKStride = 80; // 64 k-rows + 16 pad; 16-B aligned,
                                    // non-power-of-two bank skew (<=2-way)
-constexpr int kNumBStages = 2;     // double-buffered (depth-1 prefetch)
+constexpr int kWindowBytes = kTileN * kWindowKStride;  // 1280 B per stage
+constexpr int kNumLdsStages = 2;   // depth-1 double buffering
+constexpr int kSkWindows = kSkKPerBlock / kWindowKRows;  // 4 windows per block
 
-template <int SPLIT_K>
-__global__ __launch_bounds__(kWaveSize) void
-w8a8_dumma_m16_n16_splitk_partial_kernel(
-    const int8_t* __restrict__ a,
-    const int8_t* __restrict__ b,
-    int32_t* __restrict__ partials,
-    int32_t* __restrict__ counters,
-    const float* __restrict__ x_scale,
-    const float* __restrict__ weight_scale,
-    hip_bfloat16* __restrict__ out) {
-  static_assert(SPLIT_K == 2 || SPLIT_K == 3 || SPLIT_K == 4,
-                "exact-shape split-K plan supports SPLIT_K=2, 3 or 4");
-  const int lane = static_cast<int>(threadIdx.x);
-  const int split = static_cast<int>(blockIdx.x) / kNTiles;
-  const int tile = static_cast<int>(blockIdx.x) % kNTiles;
-  const int n0 = tile * kDummaTileN;
-  const int kStart = kSplitStart(SPLIT_K, split);
-  const int kLen = kSplitLen(SPLIT_K, split);
-  const int numWindows = kLen / kWindowKRows;  // 8 (S=2), 6/4 (S=3)
+// Iteration-17 B-pack slot geometry (see w8a8_pack_b_off / the pack kernel):
+// the exact-shape packed buffer stores every (split, tile) block's whole B
+// slice as one contiguous 4-KiB slot (4 windows x 16 columns x 64 k), so
+// each window prefetch is one contiguous 1-KiB run (16 sequential 64-B
+// lines) per matrix instead of 16 lines strided by the old column stride
+// K = 1024.
+constexpr int kBPackSliceBytes = 1 << 12;                 // 4096 B per slot
+constexpr int kBPackWindowBytes = kTileN * kWindowKRows;  // 1024 B per window
+constexpr int kBPackColBytes = kWindowKRows;  // 64 B per column per window
+constexpr int64_t kPlaneInts =
+    static_cast<int64_t>(kExactM) * kExactN;  // 65536 int32 per split plane
+constexpr int64_t kPlaneBytes = kPlaneInts * sizeof(int32_t);  // 256 KiB
+constexpr int64_t kCounterInts = kNTiles;  // one arrival counter per tile
 
-  __shared__ __align__(16) int8_t b_lds[kNumBStages][kWindowNCols *
-                                                      kWindowKStride];
-  // Iteration 21: A is staged through the same double-buffered LDS window
-  // pipeline as B (16 m-rows x 64 k-rows per window, 80-B padded stride,
-  // one 16-B dwordx4 per lane per window issued one window ahead), so the
-  // per-step a_frag loads read LDS (ldm = kWindowKStride) instead of global
-  // (ldm = kTargetK). The A-path vmcnt wait leaves the per-step mmac chain
-  // and lands at the top-of-window ds_write alongside B's (iteration 7
-  // identified the direct A-path global loads as the residual per-wave
-  // serial latency; iteration 10's register hoist was rejected -- staging in
-  // LDS, not VGPRs, keeps occupancy and the windowed depth-1 prefetch).
-  __shared__ __align__(16) int8_t a_lds[kNumBStages][kWindowNCols *
-                                                      kWindowKStride];
+// ---------------------------------------------------------------------------
+// Device helpers
+// ---------------------------------------------------------------------------
 
-  du::dumma::DUFragment<du::dumma::matrix_a, kDummaTileM, kDummaTileN,
-                        kDummaTileK, signed char, du::dumma::row_major>
-      a_frag[2];
-  du::dumma::DUFragment<du::dumma::matrix_b, kDummaTileM, kDummaTileN,
-                        kDummaTileK, signed char, du::dumma::col_major>
-      b_frag[2];
-  du::dumma::DUFragment<du::dumma::accumulator, kDummaTileM, kDummaTileN,
-                        kDummaTileK, int>
-      acc_frag;
-  du::dumma::du_fill_fragment(acc_frag, 0);
-
-  // Depth-1 double-buffered LDS prefetch. Window w covers B k-rows
-  // [kStart + w*64, kStart + w*64 + 64) at the block's 16 n-cols. The
-  // packed buffer is n-major, so lane l fetches 16 CONTIGUOUS k-rows
-  // (16 B, one dwordx4) at n-col (n0 + (l&15)) and k-offset
-  // 16*(l>>4) within the window; the data for window w is issued one
-  // iteration ahead (prologue for w=0) so the vmcnt wait lands at the
-  // top-of-iteration ds_write_b128, a full compute window (~2 mmac steps)
-  // after issue.
-  const int8_t* b_packed_col =
-      b + static_cast<int64_t>(n0 + (lane & 15)) * kTargetK;
-  uint4 prefetch = *reinterpret_cast<const uint4*>(
-      b_packed_col + kStart + 16 * (lane >> 4));
-  // A prefetch mirrors B: lane l fetches 16 contiguous k-rows (16 B, one
-  // dwordx4) of its A row (lane & 15) at k-offset 16*(lane >> 4) within the
-  // window; every staged byte is consumed by exactly one m16n16k32 step via
-  // the row_major col_major-style fragment (the 16-B chunk covers two
-  // 8-B k-groups, exactly like the B window).
-  const int8_t* a_row = a + static_cast<int64_t>(lane & 15) * kTargetK;
-  uint4 a_prefetch = *reinterpret_cast<const uint4*>(
-      a_row + kStart + 16 * (lane >> 4));
-#pragma unroll
-  for (int w = 0; w < numWindows; ++w) {
-    // Store the previously-prefetched window w into buffer w&1 (its vmcnt
-    // wait has had the prior iteration's compute to complete), then issue
-    // the next window's prefetches before computing this window from LDS.
-    *reinterpret_cast<uint4*>(
-        &b_lds[w & 1][(lane & 15) * kWindowKStride + 16 * (lane >> 4)]) =
-        prefetch;
-    *reinterpret_cast<uint4*>(
-        &a_lds[w & 1][(lane & 15) * kWindowKStride + 16 * (lane >> 4)]) =
-        a_prefetch;
-    if (w + 1 < numWindows) {
-      prefetch = *reinterpret_cast<const uint4*>(
-          b_packed_col + kStart + (w + 1) * kWindowKRows + 16 * (lane >> 4));
-      a_prefetch = *reinterpret_cast<const uint4*>(
-          a_row + kStart + (w + 1) * kWindowKRows + 16 * (lane >> 4));
-    }
-
-    const int8_t* bwin = &b_lds[w & 1][0];
-    const int8_t* awin = &a_lds[w & 1][0];
-    du::dumma::du_load_matrix_sync(a_frag[0], awin, kWindowKStride);
-    du::dumma::du_load_matrix_sync(b_frag[0], bwin, kWindowKStride);
-    du::dumma::du_load_matrix_sync(a_frag[1], awin + kDummaTileK,
-                                   kWindowKStride);
-    du::dumma::du_load_matrix_sync(b_frag[1], bwin + kDummaTileK,
-                                   kWindowKStride);
-    du::dumma::du_mma_sync(acc_frag, a_frag[0], b_frag[0], acc_frag);
-    du::dumma::du_mma_sync(acc_frag, a_frag[1], b_frag[1], acc_frag);
-  }
-
-  // Publish the int32 tile through the API (mem_row_major), then one 16-B
-  // vector store per lane. Plane layout is per-tile contiguous
-  // workspace[split][tile][256] (e = row*16 + col), so each block's 1-KiB
-  // int32 tile is one coalesced 64-lane x 16-B store. Single wavefront per
-  // block: the LDS write->read dependency is ordered by the compiler's
-  // lgkmcnt wait, no barrier needed.
-  __shared__ __align__(16) int32_t tile_lds[kDummaTileM * kDummaTileN];
-  du::dumma::du_store_matrix_sync(tile_lds, acc_frag, kDummaTileN,
-                                  du::dumma::mem_row_major);
-
-  const int e = lane * 4;
-  const uint4 packed =
-      make_uint4(tile_lds[e], tile_lds[e + 1], tile_lds[e + 2],
-                 tile_lds[e + 3]);
-  *reinterpret_cast<uint4*>(partials + split * kPlaneInts +
-                            tile * (kDummaTileM * kDummaTileN) + e) = packed;
-
-  // Fused last-arrival combine tail (iteration 12): when counters != nullptr
-  // the separate combine kernel is removed and the operator is ONE launch per
-  // replay. Every block signals its arrival for its tile with one lane-0
-  // __threadfence() + atomicAdd(&counters[tile], 1); the arrival whose
-  // pre-increment value satisfies (arrived % SPLIT_K) == SPLIT_K - 1 is the
-  // tile's LAST arrival of this replay (counters are monotonic: each replay
-  // adds exactly SPLIT_K to every tile counter) and it sums the tile's
-  // SPLIT_K planes in ascending split order and writes the scaled bf16
-  // output -- byte-identical to the separate combine kernel (same plane
-  // chunk reads, same ascending int32 sum, same
-  // float(acc) * x_scale[row] * weight_scale[col] -> __float2bfloat16 chain,
-  // same store addresses). Each tile's combine now runs as soon as its 4
-  // splits land, while sibling blocks are still computing, so the ~2.9-us
-  // serial combine phase and its launch gap disappear and the plane reads
-  // happen while the planes are L2-fresh (per-tile, immediately after the
-  // tile's last write). Exact int32 accumulation unchanged: per-slice max
-  // |dot| << 2^31, ascending-split sum order (same as the reference's
-  // ascending-K order). The counters live in the workspace tail (last 256
-  // int32 = 1 KiB, past plane SPLIT_K-1) and are zeroed once per workspace
-  // pointer by the launcher before the first eager use (never inside Graph
-  // capture); the two-kernel fallback passes counters = nullptr and the tail
-  // branch is dead there.
-  if (counters != nullptr) {
-    __syncthreads();
-    __shared__ int s_is_last;
-    if (lane == 0) {
-      __threadfence();  // release: this block's plane store is visible to the
-                        // observer of this block's arrival atomic
-      const int arrived = atomicAdd(&counters[tile], 1);
-      __threadfence();  // acquire: the reads below (after the barrier) see
-                        // every sibling plane store released before its
-                        // arrival atomic
-      s_is_last = ((arrived % SPLIT_K) == SPLIT_K - 1);
-    }
-    __syncthreads();
-    if (s_is_last) {
-      const int row = lane >> 2;         // 0..15
-      const int cbase = (lane & 3) * 4;  // 0, 4, 8, 12 within the tile
-      // 16-B aligned reads of the per-tile-contiguous plane layout
-      // workspace[split][tile][256]; plane stride is kPlaneInts/4 uint4s.
-      const uint4* plane =
-          reinterpret_cast<const uint4*>(partials) +
-          tile * (kDummaTileM * kDummaTileN / 4) + row * (kDummaTileN / 4) +
-          (lane & 3);
-      int32_t acc[4] = {0, 0, 0, 0};
-#pragma unroll
-      for (int s = 0; s < SPLIT_K; ++s) {
-        const uint4 v = plane[s * (kPlaneInts / 4)];
-        acc[0] += v.x;
-        acc[1] += v.y;
-        acc[2] += v.z;
-        acc[3] += v.w;
-      }
-      const float xs = x_scale[row];
-#pragma unroll
-      for (int i = 0; i < 4; ++i) {
-        const int col = n0 + cbase + i;
-        const float scaled =
-            static_cast<float>(acc[i]) * xs * weight_scale[col];
-        out[static_cast<int64_t>(row) * kTargetN + col] =
-            __float2bfloat16(scaled);
-      }
-    }
-  }
+// float32 -> bfloat16 with round-to-nearest-even, stored as its raw uint16
+// bit pattern. This is bit-identical to __float2bfloat16() / torch's bf16
+// cast for finite inputs and keeps the epilogue independent of any one
+// bfloat16 class/family: out tensors are plain 16-bit bf16 storage.
+__device__ __forceinline__ uint16_t float_to_bf16_rn(const float v) {
+  const uint32_t bits = __float_as_uint(v);
+  // Add 0x7FFF plus the LSB of the kept half (ties round to even), then keep
+  // the high 16 bits.
+  const uint32_t rounded = (bits + 0x7FFFu + ((bits >> 16) & 1u)) >> 16;
+  return static_cast<uint16_t>(rounded);
 }
 
 // ---------------------------------------------------------------------------
-// Combine+scale kernel: one 64-thread wavefront per block, one 16x16 N tile
-// per block. Each lane loads its 4-element chunk from every split plane with
-// one 16-B vector load per plane, sums the SPLIT_K planes in ascending split
-// order (exact int32; ascending-split sum == the reference's ascending-K
-// order), then applies the exact reference fp32 chain
-// float(acc) * x_scale[row] * weight_scale[n0 + col] -> __float2bfloat16
-// (RN). Same expression order as the reference -> bit-identical output for
-// the same int32 dot. Zero barriers. Reads only planes written by the
-// partial kernel of the same stream-ordered launch.
+// Exact-shape block-contiguous B pack decode (iteration 17)
 // ---------------------------------------------------------------------------
-template <int SPLIT_K>
-__global__ __launch_bounds__(kWaveSize) void w8a8_dumma_m16_combine_kernel(
-    const int32_t* __restrict__ partials,
+// Byte offset of column `col` / k-row `kk` inside the exact-shape packed
+// buffer. The iteration-17 pack layout is a pure byte permutation of the
+// iteration-1/9 n-major transpose packed[n*K+k] = raw[k*N+n] (same buffer,
+// same byte count, same logical (col, k) byte values):
+//   packed[ split*256 + tile ][ window ][ col&15 ][ kk&63 ]
+// with split = kk >> 8 (K quarter 0..3), window = (kk >> 6) & 3 (1-KiB
+// window inside the block's 4-KiB slice), tile = col >> 4 (0..255) and
+// column c = col & 15. Slot = split*256 + tile holds one block's whole B
+// slice: 4 windows x 1024 B; a window holds 16 columns x 64 contiguous k.
+__device__ __forceinline__ int64_t w8a8_pack_b_off(const int col,
+                                                   const int kk) {
+  const int64_t split = static_cast<int64_t>(kk) >> 8;    // 0..3
+  const int64_t w = (static_cast<int64_t>(kk) >> 6) & 3;  // 0..3
+  const int64_t tile = static_cast<int64_t>(col) >> 4;    // 0..255
+  const int64_t c = static_cast<int64_t>(col) & 15;       // 0..15
+  return (split * kNTiles + tile) * kBPackSliceBytes +
+         w * kBPackWindowBytes + c * kBPackColBytes +
+         (static_cast<int64_t>(kk) & (kBPackColBytes - 1));
+}
+
+// ---------------------------------------------------------------------------
+// Generic scalar correctness kernel (fallback for every unmatched shape)
+// ---------------------------------------------------------------------------
+
+// Scalar int8 dot-product GEMM, one thread per output element. Grid:
+// blockIdx.x tiles the N dimension with kScalarThreads columns per block,
+// blockIdx.y selects the M row, so adjacent lanes (threadIdx.x) read
+// adjacent addresses along the fastest-varying N dimension (coalesced B
+// reads) and every lane of a block broadcasts the same A row.
+// For the exact (k, n) == (1024, 4096) the packed weight buffer holds the
+// iteration-17 block-contiguous pack (one contiguous 4-KiB slot per
+// (split, tile), see w8a8_pack_b_off), so the fallback decodes that layout
+// there (this keeps the paired M=2 API shape with the same (N, K)
+// byte-exact; the decode is a pure permutation of the iteration-1 n-major
+// transpose it supersedes); every other (k, n) keeps the identity pack
+// (raw row-major [K, N]).
+__global__ __launch_bounds__(kScalarThreads) void w8a8_gemm_scalar_kernel(
+    const int8_t* __restrict__ a,        // [M, K] row-major int8
+    const int8_t* __restrict__ b,        // [K, N] (identity) or [N, K] (exact pair)
+    const float* __restrict__ x_scale,   // [M] fp32
+    const float* __restrict__ weight_scale,  // [N] fp32
+    uint16_t* __restrict__ out,          // [M, N] bf16 raw storage
+    const int m,
+    const int n,
+    const int k) {
+  const int col = static_cast<int>(blockIdx.x) * kScalarThreads +
+                  static_cast<int>(threadIdx.x);
+  const int row = static_cast<int>(blockIdx.y);
+  if (row >= m || col >= n) {
+    return;
+  }
+
+  // Exact k-ascending int32 accumulation. Assigned K keeps the exact int8
+  // dot well inside int32 range.
+  const int8_t* a_row = a + static_cast<int64_t>(row) * k;
+  const bool packed_nmajor = (k == kExactK && n == kExactN);
+  int32_t acc = 0;
+  if (packed_nmajor) {
+    // Iteration-17 block-contiguous pack decode (w8a8_pack_b_off): the
+    // exact-shape buffer was repacked (same bytes, new permutation) so each
+    // block's B slice is one contiguous 4-KiB slot; the fallback reads the
+    // same logical (col, kk) byte values as the iteration-1/9 n-major
+    // transpose it supersedes.
+    for (int kk = 0; kk < k; ++kk) {
+      acc += static_cast<int32_t>(a_row[kk]) *
+             static_cast<int32_t>(b[w8a8_pack_b_off(col, kk)]);
+    }
+  } else {
+    const int8_t* b_col = b + col;  // advances by n every k step
+    for (int kk = 0; kk < k; ++kk) {
+      acc += static_cast<int32_t>(a_row[kk]) *
+             static_cast<int32_t>(*b_col);
+      b_col += n;
+    }
+  }
+
+  // Convert to float only for the scaled product, then store bf16:
+  // (int32 dot) * x_scale[m] * weight_scale[n] == ((dot * xs) * ws).
+  const float scaled =
+      static_cast<float>(acc) * x_scale[row] * weight_scale[col];
+  out[static_cast<int64_t>(row) * n + col] = float_to_bf16_rn(scaled);
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Exact-shape DUMMA decode kernel (iteration 19: iteration-17 source plus
+// two-tile-per-wave A-sharing; grid-level split-K = 4, A+B LDS-window
+// staged, fused per-tile last-arrival combine)
+// ---------------------------------------------------------------------------
+// Architecture lineage: iteration 9 ported this geometry's validated
+// reference kernel (hy3-dsh-tp8-m16-2-dc53295a, 12.43/12.59 us) -- one 16x16
+// N tile per ONE-wave block, SPLIT_K = 4 grid-level K quarters (1024 blocks,
+// ~2.13 resident waves/SIMD, zero intra-pipeline barriers), A and B both
+// staged through a depth-1 double-buffered LDS window pipeline, split-K
+// combine FUSED into the kernel (per-tile last-arrival tail) -- and reached
+// the official best 11.320700/11.428699 us; iteration 17 repacked B into
+// block-contiguous 4-KiB slots (shadow 11.272130/11.289730 us, +0.43% only).
+//
+// Iteration 19 geometry: each of the 128 tile PAIRS per split (two adjacent
+// 16-col tiles) is computed by ONE 64-lane wave, so the grid is 512 one-wave
+// blocks = 4 splits x 128 pairs (1.07 waves/SIMD). The wave stages and
+// loads its 4-KiB A slice ONCE per window and feeds two 16x16 accumulator
+// tiles from the same a_lds window stream (a_frag shared, b_lds holds a
+// second per-stage 1280-B plane for the paired tile); per-window MMA work
+// doubles (2 -> 4 m16n16k32 steps) so each window's compute covers its own
+// depth-1 prefetch latency longer; per-block prologue, plane-publish and
+// arrival machinery now serve two tiles. This is the first lineage round
+// that reduces the per-replay L2 line-request count: A-side requests halve
+// (65,536 -> 32,768: one 64-line A-slice request set per 2 tiles instead of
+// per tile) and total read requests drop ~25% to ~98,304 (B stays 65,536
+// compulsory once-read lines; DRAM bytes, workspace protocol, plane layout,
+// counter semantics and every output byte are unchanged).
+//
+// Window pipeline per tile (byte-for-byte the accepted data path): tile t of
+// a pair owns the contiguous ascending K slice [256*split, 256*split + 256)
+// and k-rows are covered window by window ([64w, 64w + 64), w = 0..3 = two
+// m16n16k32 steps per tile). Lane l prefetches ONE 16-B uint4 per matrix per
+// window -- 16 contiguous k-bytes at k-offset 16*(lane>>4) of the window:
+// A from the logical row-major ldm-K=1024 activation at row (lane&15), B
+// from the iteration-17 block-contiguous pack slots (split*256 + 2*pair)<<12
+// and +4096 (each (split, tile) slot = one contiguous 4-KiB run; the pair's
+// two slots are adjacent) at column (lane&15) -- issued one full window
+// ahead of consumption, stored into
+// a_lds[w&1][(lane&15)*80 + 16*(lane>>4)] and
+// b_lds[w&1][t&1][(lane&15)*80 + 16*(lane>>4)] (16 x 64-k window planes at
+// the 80-B padded k-stride = 64+16 bank skew). The per-step fragment loads
+// (du_mma.hpp: lane l reads 8 contiguous bytes at row (l&15)*ldm +
+// (l>>4)*8 + i) read LDS at ldm = 80 -- no global vmcnt in the mmac chain.
+//
+// Exact int32 accumulation: per-tile dots stay strictly k-ascending over the
+// windowed m16n16k32 steps (max |partial| = 256*127*127 << 2^31), so each
+// published plane tile is bit-identical to the iteration-9/17 per-(split,
+// tile) blocks; the last-arrival tail sums the SPLIT_K = 4 planes in
+// ascending split order (s = 0..3); int32 addition is exact, so every output
+// byte is bit-identical to the accepted kernels (0 mismatches expected).
+//
+// Combine + epilogue (fused tail, counters != nullptr): the wave publishes
+// BOTH tiles' int32 results to workspace planes `split` (per-tile contiguous
+// layout workspace[split][tile][256], one 16-B vector store per lane per
+// tile, through two API LDS planes tile_lds0/tile_lds1 with
+// du_store_matrix_sync mem_row_major ldm 16), then lane 0 __threadfence()s
+// (release), increments BOTH tiles' monotonic arrival counters (atomicAdd),
+// __threadfence()s (acquire) and records for each tile whether the
+// pre-increment value satisfies (arrived % SPLIT_K) == SPLIT_K - 1 in
+// shared s_last0/s_last1. Each tile's LAST arrival of the replay then reads
+// its 4 row-major int32 chunks of each plane in ascending split order and
+// runs the UNCHANGED accepted scale/RNE-bf16 epilogue
+// float(total) * x_scale[row] * weight_scale[n0 + col] for its 4 columns
+// (row = lane>>2, cbase = 4*(lane&3)); the other three splits of each tile
+// exit. Counters are monotonic (each replay adds exactly SPLIT_K per tile),
+// so no per-replay reset is needed; the launcher zeroes them once per
+// workspace pointer on first eager use, before Graph capture.
+// ---------------------------------------------------------------------------
+__device__ __forceinline__ void w8a8_tail_emit_tile(
+    const int32_t* __restrict__ partials, const int tile,
     const float* __restrict__ x_scale,
-    const float* __restrict__ weight_scale,
-    hip_bfloat16* __restrict__ out) {
+    const float* __restrict__ weight_scale, uint16_t* __restrict__ out) {
+  // Fused per-tile last-arrival epilogue (byte-for-byte the iteration-9 tail):
+  // 16-B aligned reads of the per-tile-contiguous plane layout
+  // workspace[split][tile][256]; plane stride kPlaneInts/4 uint4s. Only the
+  // tile's last arrival calls this (guarded by the caller), so the planes it
+  // reads are all released (acquire fence in the caller) and L2-fresh.
   const int lane = static_cast<int>(threadIdx.x);
-  const int n0 = static_cast<int>(blockIdx.x) * kDummaTileN;
   const int row = lane >> 2;         // 0..15
   const int cbase = (lane & 3) * 4;  // 0, 4, 8, 12 within the tile
-
-  // 16-B aligned reads of the per-tile-contiguous plane layout
-  // workspace[split][tile][256]; plane stride is kPlaneInts/4 uint4s.
-  const uint4* plane =
-      reinterpret_cast<const uint4*>(partials) +
-      blockIdx.x * (kDummaTileM * kDummaTileN / 4) + row * (kDummaTileN / 4) +
-      (lane & 3);
+  const uint4* plane = reinterpret_cast<const uint4*>(partials) +
+                       static_cast<int64_t>(tile) * (kTileM * kTileN / 4) +
+                       row * 4 + (lane & 3);
   int32_t acc[4] = {0, 0, 0, 0};
 #pragma unroll
-  for (int s = 0; s < SPLIT_K; ++s) {
+  for (int s = 0; s < kSkSplitK; ++s) {
     const uint4 v = plane[s * (kPlaneInts / 4)];
     acc[0] += v.x;
     acc[1] += v.y;
     acc[2] += v.z;
     acc[3] += v.w;
   }
-
   const float xs = x_scale[row];
+  const int n0 = tile * kTileN;
+  uint16_t* out_p =
+      out + static_cast<int64_t>(row) * kExactN + n0 + cbase;
 #pragma unroll
   for (int i = 0; i < 4; ++i) {
-    const int col = n0 + cbase + i;
-    const float scaled = static_cast<float>(acc[i]) * xs * weight_scale[col];
-    out[static_cast<int64_t>(row) * kTargetN + col] =
-        __float2bfloat16(scaled);
+    const float scaled =
+        static_cast<float>(acc[i]) * xs * weight_scale[n0 + cbase + i];
+    out_p[i] = float_to_bf16_rn(scaled);
+  }
+}
+__global__ __launch_bounds__(kWaveSize) void w8a8_dumma_m16_n16_sk4_lds_fused_kernel(
+    const int8_t* __restrict__ a,            // [M=16, K=1024] row-major int8
+    const int8_t* __restrict__ b,            // packed [N, K] n-major int8
+    int32_t* __restrict__ partials,          // workspace [kSkSplitK][kPlaneInts]
+    int32_t* __restrict__ counters,          // workspace tail, 256 int32
+    const float* __restrict__ x_scale,       // [16] fp32
+    const float* __restrict__ weight_scale,  // [N] fp32
+    uint16_t* __restrict__ out) {            // [16, N] bf16 raw storage
+  const int lane = static_cast<int>(threadIdx.x);   // 0..63
+  const int pair = static_cast<int>(blockIdx.x) % kSkTPairs;  // 0..127
+  const int split = static_cast<int>(blockIdx.x) / kSkTPairs; // 0..3 (K quarter)
+  const int tile0 = pair * kSkTilesPerBlock;  // even N tile of the pair
+  const int tile1 = tile0 + 1;                // adjacent odd N tile
+  const int kStart = split * kSkKPerBlock;    // contiguous ascending K quarter
+
+  // Double-buffered LDS windows (private to this single-wave block; no
+  // barrier inside the pipeline: store->read ordering is per-wave program
+  // order, enforced by the compiler's lgkmcnt waits). b_lds holds one
+  // 1280-B window plane per stage per tile of the pair; a_lds is SHARED by
+  // the two tiles (one A window load/stage feeds two 16x16 accumulators).
+  __shared__ __align__(16) int8_t a_lds[kNumLdsStages][kWindowBytes];
+  __shared__ __align__(16) int8_t b_lds[kNumLdsStages][kSkTilesPerBlock]
+                                        [kWindowBytes];
+
+  du::dumma::DUFragment<du::dumma::matrix_a, kTileM, kTileN, kTileK,
+                        signed char, du::dumma::row_major>
+      a_frag[2];
+  du::dumma::DUFragment<du::dumma::matrix_b, kTileM, kTileN, kTileK,
+                        signed char, du::dumma::col_major>
+      b0_frag[2];
+  du::dumma::DUFragment<du::dumma::matrix_b, kTileM, kTileN, kTileK,
+                        signed char, du::dumma::col_major>
+      b1_frag[2];
+  du::dumma::DUFragment<du::dumma::accumulator, kTileM, kTileN, kTileK, int>
+      acc0_frag;
+  du::dumma::DUFragment<du::dumma::accumulator, kTileM, kTileN, kTileK, int>
+      acc1_frag;
+  du::dumma::du_fill_fragment(acc0_frag, 0);
+  du::dumma::du_fill_fragment(acc1_frag, 0);
+
+  // Per-lane base pointers: A slice = activation row (lane&15). B = the
+  // pair's two contiguous 4-KiB slots of the iteration-17 block-contiguous
+  // pack at (split*256 + tile0) << 12 and +4096; inside a window (1 KiB),
+  // lane (lane&15) owns column c = lane&15 whose 64 k-bytes sit at c << 6,
+  // so one window prefetch is one contiguous 1-KiB run per tile (a pair
+  // covers 8 KiB of sequential pack slots per block). Byte values are
+  // identical to the iteration-9/17 layouts.
+  const int8_t* b_slot =
+      b + (static_cast<int64_t>(split) * kNTiles + tile0) * kBPackSliceBytes +
+      (lane & 15) * kBPackColBytes;
+  const int8_t* a_row = a + static_cast<int64_t>(lane & 15) * kExactK;
+
+  // Prologue: prefetch window 0 for A and for each tile's B plane
+  // (16 contiguous k-bytes per lane per matrix per tile).
+  uint4 a_prefetch = *reinterpret_cast<const uint4*>(
+      a_row + kStart + 16 * (lane >> 4));
+  uint4 b0_prefetch = *reinterpret_cast<const uint4*>(
+      b_slot + 16 * (lane >> 4));
+  uint4 b1_prefetch = *reinterpret_cast<const uint4*>(
+      b_slot + kBPackSliceBytes + 16 * (lane >> 4));
+
+#pragma unroll
+  for (int w = 0; w < kSkWindows; ++w) {
+    // Store the previously-prefetched window w into buffer w&1 (its vmcnt
+    // wait has had the prior iteration's compute to complete), then issue
+    // the next window's prefetches before computing this window from LDS.
+    *reinterpret_cast<uint4*>(
+        &a_lds[w & 1][(lane & 15) * kWindowKStride + 16 * (lane >> 4)]) =
+        a_prefetch;
+    *reinterpret_cast<uint4*>(
+        &b_lds[w & 1][0][(lane & 15) * kWindowKStride + 16 * (lane >> 4)]) =
+        b0_prefetch;
+    *reinterpret_cast<uint4*>(
+        &b_lds[w & 1][1][(lane & 15) * kWindowKStride + 16 * (lane >> 4)]) =
+        b1_prefetch;
+    if (w + 1 < kSkWindows) {
+      a_prefetch = *reinterpret_cast<const uint4*>(
+          a_row + kStart + (w + 1) * kWindowKRows + 16 * (lane >> 4));
+      b0_prefetch = *reinterpret_cast<const uint4*>(
+          b_slot + (w + 1) * kBPackWindowBytes + 16 * (lane >> 4));
+      b1_prefetch = *reinterpret_cast<const uint4*>(
+          b_slot + kBPackSliceBytes + (w + 1) * kBPackWindowBytes +
+          16 * (lane >> 4));
+    }
+
+    // Two ascending m16n16k32 steps of this window PER TILE, fragments from
+    // LDS. The A fragments are loaded once and shared by both tiles' MMAs,
+    // so one A window global load + LDS stage serves two 16x16 tiles: the
+    // per-replay A-side line requests halve vs one tile per wave. Each
+    // tile's step order stays k-ascending (step 0 = lower k32 of the window,
+    // step 1 = upper k32), bit-identical to the iteration-9 per-(split,
+    // tile) blocks.
+    const int8_t* awin = &a_lds[w & 1][0];
+    const int8_t* bwin0 = &b_lds[w & 1][0][0];
+    const int8_t* bwin1 = &b_lds[w & 1][1][0];
+    du::dumma::du_load_matrix_sync(a_frag[0], awin, kWindowKStride);
+    du::dumma::du_load_matrix_sync(a_frag[1], awin + kTileK,
+                                   kWindowKStride);
+    du::dumma::du_load_matrix_sync(b0_frag[0], bwin0, kWindowKStride);
+    du::dumma::du_load_matrix_sync(b0_frag[1], bwin0 + kTileK,
+                                   kWindowKStride);
+    du::dumma::du_load_matrix_sync(b1_frag[0], bwin1, kWindowKStride);
+    du::dumma::du_load_matrix_sync(b1_frag[1], bwin1 + kTileK,
+                                   kWindowKStride);
+    du::dumma::du_mma_sync(acc0_frag, a_frag[0], b0_frag[0], acc0_frag);
+    du::dumma::du_mma_sync(acc1_frag, a_frag[0], b1_frag[0], acc1_frag);
+    du::dumma::du_mma_sync(acc0_frag, a_frag[1], b0_frag[1], acc0_frag);
+    du::dumma::du_mma_sync(acc1_frag, a_frag[1], b1_frag[1], acc1_frag);
+  }
+
+  // Publish this wave's two int32 partial tiles to workspace plane `split`
+  // (per-tile contiguous plane layout workspace[split][tile][256], row-major
+  // via the API LDS planes), one 16-B vector store per lane per tile.
+  __shared__ __align__(16) int32_t tile_lds0[kTileM * kTileN];
+  __shared__ __align__(16) int32_t tile_lds1[kTileM * kTileN];
+  const int e = lane * 4;  // this lane's 4 consecutive row-major int32
+  du::dumma::du_store_matrix_sync(&tile_lds0[0], acc0_frag, kTileN,
+                                  du::dumma::mem_row_major);
+  *reinterpret_cast<uint4*>(
+      partials + split * kPlaneInts +
+      static_cast<int64_t>(tile0) * (kTileM * kTileN) + e) =
+      make_uint4(tile_lds0[e], tile_lds0[e + 1], tile_lds0[e + 2],
+                 tile_lds0[e + 3]);
+  du::dumma::du_store_matrix_sync(&tile_lds1[0], acc1_frag, kTileN,
+                                  du::dumma::mem_row_major);
+  *reinterpret_cast<uint4*>(
+      partials + split * kPlaneInts +
+      static_cast<int64_t>(tile1) * (kTileM * kTileN) + e) =
+      make_uint4(tile_lds1[e], tile_lds1[e + 1], tile_lds1[e + 2],
+                 tile_lds1[e + 3]);
+
+  // Fused last-arrival combine tail (unchanged per-tile protocol, now for
+  // two tiles). Only a tile's LAST arrival of this replay (pre-increment
+  // counter value % SPLIT_K == SPLIT_K - 1) sums its 4 planes in ascending
+  // split order and emits the scaled bf16 output, so each tile's combine
+  // runs as soon as its splits land while sibling blocks are still
+  // computing and the plane reads hit L2-fresh data.
+  if (counters != nullptr) {
+    __syncthreads();
+    __shared__ int s_last0;
+    __shared__ int s_last1;
+    if (lane == 0) {
+      __threadfence();  // release: this wave's plane stores (both tiles) are
+                        // visible to the observers of the arrival atomics
+      const int arrived0 = atomicAdd(&counters[tile0], 1);
+      const int arrived1 = atomicAdd(&counters[tile1], 1);
+      __threadfence();  // acquire: the plane reads below see every sibling
+                        // block's store released before its arrival atomic
+      s_last0 = ((arrived0 % kSkSplitK) == kSkSplitK - 1);
+      s_last1 = ((arrived1 % kSkSplitK) == kSkSplitK - 1);
+    }
+    __syncthreads();
+    if (s_last0) {
+      w8a8_tail_emit_tile(partials, tile0, x_scale, weight_scale, out);
+    }
+    if (s_last1) {
+      w8a8_tail_emit_tile(partials, tile1, x_scale, weight_scale, out);
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Identity device-to-device packing: byte-for-byte copy. This is the generic
-// fallback for any (K, N) and is valid for every shape.
-// pack_weight runs outside the timed region and outside Graph capture.
+// Pack kernels (both run outside the timed region, in launch_pack_w8a8_weight)
 // ---------------------------------------------------------------------------
-__global__ __launch_bounds__(kScalarBlockThreads) void
-w8a8_pack_identity_bytes_kernel(
-    const uint8_t* __restrict__ src,
-    uint8_t* __restrict__ dst,
-    int64_t num_bytes) {
+
+// Identity device-to-device copy (generic fallback for every (K, N) and the
+// scale copy for all shapes).
+template <typename T>
+__global__ __launch_bounds__(kScalarThreads) void w8a8_identity_copy_kernel(
+    const T* __restrict__ src, T* __restrict__ dst, const int64_t numel) {
   const int64_t stride =
-      static_cast<int64_t>(gridDim.x) * blockDim.x;
-  for (int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-       i < num_bytes; i += stride) {
+      static_cast<int64_t>(gridDim.x) * static_cast<int64_t>(blockDim.x);
+  for (int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x +
+                   threadIdx.x;
+       i < numel; i += stride) {
     dst[i] = src[i];
   }
 }
 
-// ---------------------------------------------------------------------------
-// Exact-shape n-major pack (iteration 6): for (K, N) == (1024, 4096) the
-// weight is transposed one-time (outside the timed region / Graph) into
-// packed[n * K + k] = raw[k * N + n], so each lane's 8-byte col_major B
-// fragment (du_mma.hpp lane mapping) is contiguous and every m16n16k32
-// fragment is a single vectorized load. Same byte count and buffer as the
-// identity pack, so captured addresses are unchanged. One thread per output
-// byte; runs once during weight prep.
-// ---------------------------------------------------------------------------
-__global__ __launch_bounds__(kScalarBlockThreads) void
-w8a8_pack_nmajor_bytes_kernel(
+void launch_identity_copy_int8(const int8_t* src,
+                               int8_t* dst,
+                               const int64_t numel,
+                               hipStream_t stream) {
+  constexpr int64_t kMaxBlocks = 65535;
+  int64_t blocks = (numel + kScalarThreads - 1) / kScalarThreads;
+  if (blocks > kMaxBlocks) {
+    blocks = kMaxBlocks;
+  }
+  if (blocks < 1) {
+    blocks = 1;
+  }
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(w8a8_identity_copy_kernel<int8_t>),
+      dim3(static_cast<unsigned>(blocks)), dim3(kScalarThreads), 0, stream,
+      src, dst, numel);
+}
+
+void launch_identity_copy_f32(const float* src,
+                              float* dst,
+                              const int64_t numel,
+                              hipStream_t stream) {
+  constexpr int64_t kMaxBlocks = 65535;
+  int64_t blocks = (numel + kScalarThreads - 1) / kScalarThreads;
+  if (blocks > kMaxBlocks) {
+    blocks = kMaxBlocks;
+  }
+  if (blocks < 1) {
+    blocks = 1;
+  }
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(w8a8_identity_copy_kernel<float>),
+      dim3(static_cast<unsigned>(blocks)), dim3(kScalarThreads), 0, stream,
+      src, dst, numel);
+}
+
+// Exact-shape block-contiguous pack (iteration 17): for (K, N) ==
+// (1024, 4096) the weight is transposed one-time (outside the timed region
+// / Graph) into the iteration-17 slot layout consumed by the DUMMA kernel
+// and decoded by the scalar fallback (w8a8_pack_b_off): every (split, tile)
+// block owns one contiguous 4-KiB slot = 4 windows x (16 columns x 64 k),
+// with the k-byte run of each column inside a window contiguous so the
+// kernel's 16-B per-lane window prefetches are one contiguous 1-KiB run per
+// matrix per window (16 sequential 64-B lines). Same byte count and buffer
+// as the identity/n-major pack, so captured addresses are unchanged; the
+// mapping is a pure byte permutation of the iteration-1 n-major transpose.
+// One thread per output byte; runs once during weight prep. Only correct /
+// invoked for (k, n) == (1024, 4096) (the launcher guard below).
+__global__ __launch_bounds__(kScalarThreads) void w8a8_pack_nmajor_bytes_kernel(
     const int8_t* __restrict__ raw,
     int8_t* __restrict__ packed,
-    int k,
-    int n) {
+    const int k,
+    const int n) {
   const int64_t total = static_cast<int64_t>(k) * n;
   const int64_t stride =
-      static_cast<int64_t>(gridDim.x) * blockDim.x;
+      static_cast<int64_t>(gridDim.x) * static_cast<int64_t>(blockDim.x);
   for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x +
                      threadIdx.x;
        idx < total; idx += stride) {
-    const int col = static_cast<int>(idx / k);
-    const int kk = static_cast<int>(idx - static_cast<int64_t>(col) * k);
-    packed[idx] = raw[static_cast<int64_t>(kk) * n + col];
+    // idx = slot * 4096 + w * 1024 + c * 64 + kk
+    const int64_t slot = idx / kBPackSliceBytes;   // split*256+tile (0..1023)
+    const int64_t rem = idx % kBPackSliceBytes;
+    const int64_t w = rem / kBPackWindowBytes;     // 0..3 window in the slot
+    const int64_t c = (rem / kBPackColBytes) & 15; // 0..15 col in the tile
+    const int64_t kk = rem % kBPackColBytes;       // k inside the 64-k window
+    const int k_src =
+        static_cast<int>(((slot / kNTiles) << 8) | (w << 6) | kk);  // 0..1023
+    const int col = static_cast<int>(((slot % kNTiles) << 4) | c);  // 0..4095
+    packed[idx] = raw[static_cast<int64_t>(k_src) * n + col];
   }
 }
 
-// Explicit instantiations: the CU-aligned non-power-of-two candidate
-// (SPLIT_K=3, grid = 3*kNTiles = 768 blocks = 6.4 blocks/CU, non-uniform
-// 32-aligned K slices 384/384/256) and the SPLIT_K=4 occupancy candidate
-// (grid = 4*kNTiles = 1024 blocks = 8.53 blocks/CU, uniform 64-window-aligned
-// K slices 256/256/256/256) are compiled so a future round flips one
-// constant; this round launches SPLIT_K=4 as the primary mandated candidate.
-template __global__ void w8a8_dumma_m16_n16_splitk_partial_kernel<3>(
-    const int8_t*, const int8_t*, int32_t*, int32_t*, const float*,
-    const float*, hip_bfloat16*);
-template __global__ void w8a8_dumma_m16_combine_kernel<3>(
-    const int32_t*, const float*, const float*, hip_bfloat16*);
-template __global__ void w8a8_dumma_m16_n16_splitk_partial_kernel<4>(
-    const int8_t*, const int8_t*, int32_t*, int32_t*, const float*,
-    const float*, hip_bfloat16*);
-template __global__ void w8a8_dumma_m16_combine_kernel<4>(
-    const int32_t*, const float*, const float*, hip_bfloat16*);
+// Generic scalar launch shared by the exact-shape-adjacent fallback path.
+void launch_w8a8_gemm_scalar(const int8_t* a,
+                             const int8_t* b,
+                             const float* x_scale,
+                             const float* weight_scale,
+                             void* out,
+                             const int m,
+                             const int n,
+                             const int k,
+                             hipStream_t stream) {
+  const dim3 block(kScalarThreads);
+  const dim3 grid((static_cast<unsigned>(n) + kScalarThreads - 1) /
+                      kScalarThreads,
+                  static_cast<unsigned>(m));
+  hipLaunchKernelGGL(w8a8_gemm_scalar_kernel, grid, block, 0, stream, a, b,
+                     x_scale, weight_scale,
+                     reinterpret_cast<uint16_t*>(out), m, n, k);
+}
 
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// Host launchers (stable symbols consumed by csrc/bindings.cpp).
+// Host launch symbols (stable contract with csrc/bindings.cpp)
 // ---------------------------------------------------------------------------
 
-extern "C" void launch_w8a8_gemm(
-    const int8_t* a,
-    const int8_t* b,
-    const float* x_scale,
-    const float* weight_scale,
-    void* out,
-    void* workspace,
-    int64_t workspace_bytes,
-    int m,
-    int n,
-    int k,
-    hipStream_t stream) {
-  hip_bfloat16* out_bf16 = static_cast<hip_bfloat16*>(out);
-
-  // Guarded exact-shape dispatch: only hy3_tp8_o_proj_m16 (16, 4096, 1024)
-  // reaches the split-K DUMMA pipeline. Every other (m, n, k) -- including
-  // the paired M=2 API shape with the same (N, K) -- takes the generic
-  // scalar fallback (which reads the row-major weight, matching the
-  // identity pack).
-  if (m == kTargetM && n == kTargetN && k == kTargetK) {
-    // Split-K pipeline (iteration 8: occupancy probe -- SPLIT_K=4, grid =
-    // 4*kNTiles = 1024 one-wave partial blocks = 8.53 blocks/CU = 2.13
-    // wavefronts/SIMD. PMC evidence for the accepted iteration-6 SPLIT_K=2
-    // build (arch_vgpr 40, sgpr 16, LDS 3584 B, scratch 0, 512 blocks) shows
-    // LDS allows 18 blocks/CU and VGPR 24 blocks/CU -- neither binds at the
-    // 4.27 blocks/CU needed, so the only occupancy limiter is the grid
-    // itself (1.07 waves/SIMD). Iteration 7 proved removing every B-related
-    // vmcnt wait from the K loop does not move the time (14.763 vs 14.723
-    // us), i.e. the per-wave serial latency is the direct A-path global
-    // loads waited inside the loop with no sibling wave to overlap them.
-    // SPLIT_K=4 doubles resident waves to 2.13/SIMD (all 1024 blocks stay
-    // resident: LDS 18.3 >= 8.53, VGPR 24 >= 8.53) while keeping the exact
-    // iteration-6 depth-1 double-buffered window pipeline, A/B totals and
-    // per-replay HBM traffic constant (only the combine reads 4 instead of
-    // 2 freshly-written L2-resident planes, +512 KiB). The partial kernel
-    // reads B from the n-major packed buffer through the col_major fragment
-    // path (one 8-B vectorized LDS read per lane per step, staged via the
-    // double-buffered LDS window prefetched one window ahead): int32
-    // partials in the caller workspace, combine+scale kernel in the timed
-    // Graph. Both launches are stream ordered inside the same captured
-    // region; the partial kernel overwrites every partial element on each
-    // launch (no workspace clear needed).
-    constexpr int kSplitK = 4;
-    constexpr int kPartialBlocks = kSplitK * kNTiles;  // 1024
-    constexpr int kCombineBlocks = kNTiles;            // 256
-    const int64_t plane_bytes =
-        static_cast<int64_t>(kPlaneInts) * sizeof(int32_t);  // 256 KiB
-    const int64_t counters_bytes =
-        static_cast<int64_t>(kNTiles) * sizeof(int32_t);  // 1 KiB
+extern "C" void launch_w8a8_gemm(const int8_t* a,
+                                 const int8_t* b,
+                                 const float* x_scale,
+                                 const float* weight_scale,
+                                 void* out,
+                                 void* workspace,
+                                 int64_t workspace_bytes,
+                                 int m,
+                                 int n,
+                                 int k,
+                                 hipStream_t stream) {
+  // Timed operator constraints: no allocation, compilation, autotuning,
+  // packing, host/device synchronization, or default-stream launch. Only the
+  // caller-provided out and the caller-provided workspace (int32 partial
+  // planes + arrival-counter tail, iteration 9) may be written; the one-time
+  // counter hipMemsetAsync below is a stream op issued before Graph capture
+  // (first eager use), never during a capture/replay call.
+  //
+  // Exact assigned decode shape arm (hy3_tp8_o_proj_m16). Iteration 19 runs
+  // the grid-level split-K=4 kernel w8a8_dumma_m16_n16_sk4_lds_fused_kernel
+  // (512 one-wave blocks = 4 splits x 128 two-tile pairs, A+B LDS-window
+  // staged, two adjacent 16-col tiles per wave sharing one A window stream,
+  // fused last-arrival combine; iteration-9 reference architecture plus the
+  // iteration-19 A-sharing request-halving round). The guard keeps
+  // `m == kExactM`, so paired shapes with the same (N, K) (e.g. the M=2 API
+  // shape) fall through to the generic scalar fallback below (which decodes
+  // the exact-shape block-contiguous pack).
+  if (m == kExactM && n == kExactN && k == kExactK) {
+    // Split-K=4 fused path: 4 int32 planes (4 x 256 KiB) + 256 per-tile
+    // arrival counters (1 KiB) in the caller workspace. The fixed API
+    // validates workspaces for this (M=16, N=4096) shape at the 16-plane /
+    // 4-MiB capacity, so the fused single-launch path is always taken; an
+    // undersized workspace falls through to the generic scalar fallback and
+    // never runs the tuned pipeline.
     int32_t* partials = static_cast<int32_t*>(workspace);
-    if (workspace_bytes >= kSplitK * plane_bytes + counters_bytes) {
-      // Fused single-launch path (iteration 12): the combine runs inside the
-      // partial kernel (per-tile last arrival), so the operator is ONE kernel
-      // launch per replay and the separate combine kernel + its launch gap
-      // disappear. The per-tile arrival counters (256 x int32 = 1 KiB) live
-      // immediately after plane kSplitK-1 (the partial kernel writes planes
-      // 0..kSplitK-1 only; the two-kernel fallback below never touches the
-      // counters). Counters are monotonic -- each replay adds exactly SPLIT_K
-      // to every tile counter -- so the last-arrival test is
-      // (arrived % SPLIT_K) == SPLIT_K - 1 and NO per-replay reset is needed.
-      // One async zero per workspace pointer is issued on the workspace's
-      // first eager use (the Graph capture flow always warms up eagerly
-      // first): the guarded hipMemsetAsync is a stream op on the caller's
-      // stream, no host sync, and is NOT part of the captured graph -- the
-      // qkv_proj lineage validated this exact protocol.
-      int32_t* counters = partials + kSplitK * kPlaneInts;
+    constexpr int64_t kFusedBytes =
+        static_cast<int64_t>(kSkSplitK) * kPlaneBytes +
+        kCounterInts * static_cast<int64_t>(sizeof(int32_t));
+    if (workspace_bytes >= kFusedBytes) {
+      int32_t* counters = partials + kSkSplitK * kPlaneInts;
+      // Counters are monotonic (each replay adds exactly kSkSplitK per tile
+      // counter), so zeroing once per workspace pointer -- on its first
+      // eager use, before Graph capture -- is sufficient; the zero is never
+      // issued inside capture or on replay.
       static const void* s_fused_counters_ws = nullptr;
       if (s_fused_counters_ws != workspace) {
-        hipMemsetAsync(counters, 0, static_cast<size_t>(counters_bytes),
-                       stream);
+        (void)hipMemsetAsync(
+            counters, 0, static_cast<size_t>(kCounterInts) * sizeof(int32_t),
+            stream);
         s_fused_counters_ws = workspace;
       }
       hipLaunchKernelGGL(
-          HIP_KERNEL_NAME(w8a8_dumma_m16_n16_splitk_partial_kernel<kSplitK>),
-          dim3(kPartialBlocks),
-          dim3(kWaveSize),
-          0,
-          stream,
-          a,
-          b,
-          partials,
-          counters,
-          x_scale,
-          weight_scale,
-          out_bf16);
+          w8a8_dumma_m16_n16_sk4_lds_fused_kernel,
+          dim3(static_cast<unsigned>(kSkGrid)), dim3(kWaveSize), 0, stream,
+          a, b, partials, counters, x_scale, weight_scale,
+          reinterpret_cast<uint16_t*>(out));
       return;
     }
-    if (workspace_bytes >= kSplitK * plane_bytes) {
-      // Two-kernel fallback for workspaces that fit the partial planes but
-      // not the counters: partial kernel without the fused tail
-      // (counters = nullptr -> the tail branch is dead) then the combine
-      // kernel, byte-identical to the accepted iteration-8 behavior.
-      hipLaunchKernelGGL(
-          HIP_KERNEL_NAME(w8a8_dumma_m16_n16_splitk_partial_kernel<kSplitK>),
-          dim3(kPartialBlocks),
-          dim3(kWaveSize),
-          0,
-          stream,
-          a,
-          b,
-          partials,
-          static_cast<int32_t*>(nullptr),
-          x_scale,
-          weight_scale,
-          out_bf16);
-      hipLaunchKernelGGL(
-          HIP_KERNEL_NAME(w8a8_dumma_m16_combine_kernel<kSplitK>),
-          dim3(kCombineBlocks),
-          dim3(kWaveSize),
-          0,
-          stream,
-          partials,
-          x_scale,
-          weight_scale,
-          out_bf16);
-      return;
-    }
-    // Workspace smaller than the split-K=4 partial planes: fall through to
-    // the generic scalar fallback (correct for every (m, n, k)); never run
-    // the tuned pipeline with an undersized workspace.
   }
 
-  const int64_t total = static_cast<int64_t>(m) * n;
-  const unsigned blocks = static_cast<unsigned>(
-      (total + kScalarBlockThreads - 1) / kScalarBlockThreads);
-  hipLaunchKernelGGL(
-      HIP_KERNEL_NAME(w8a8_scalar_gemm_kernel),
-      dim3(blocks),
-      dim3(kScalarBlockThreads),
-      0,
-      stream,
-      a,
-      b,
-      x_scale,
-      weight_scale,
-      out_bf16,
-      m,
-      n,
-      k);
+  // Generic scalar fallback for every unmatched (m, n, k).
+  launch_w8a8_gemm_scalar(a, b, x_scale, weight_scale, out, m, n, k, stream);
 }
 
-extern "C" void launch_pack_w8a8_weight(
-    const int8_t* raw_weight,
-    const float* weight_scale,
-    int8_t* packed_weight,
-    float* packed_weight_scale,
-    int k,
-    int n,
-    hipStream_t stream) {
+extern "C" void launch_pack_w8a8_weight(const int8_t* raw_weight,
+                                        const float* weight_scale,
+                                        int8_t* packed_weight,
+                                        float* packed_weight_scale,
+                                        int k,
+                                        int n,
+                                        hipStream_t stream) {
+  // Exact-shape n-major pack (iteration 1): only (k, n) == (1024, 4096) gets
+  // the transposed fragment layout consumed by the exact-shape DUMMA kernel
+  // (and decoded by the scalar fallback for the same (k, n)); every other
+  // (K, N) keeps the byte-identical identity copy so the generic scalar
+  // fallback stays correct for all other shapes.
   const int64_t weight_bytes = static_cast<int64_t>(k) * n;
-  const int64_t scale_bytes = static_cast<int64_t>(n) * sizeof(float);
-  constexpr int kPackThreads = kScalarBlockThreads;
-
-  // Exact-shape n-major pack (iteration 6): only (k, n) == (1024, 4096)
-  // gets the transposed fragment layout consumed by the tuned partial
-  // kernel; every other (K, N) keeps the byte-identical identity pack so
-  // the generic scalar fallback stays correct for all other shapes.
-  if (k == kTargetK && n == kTargetN) {
-    const unsigned pack_blocks = static_cast<unsigned>(
-        (weight_bytes + kPackThreads - 1) / kPackThreads);
-    hipLaunchKernelGGL(
-        HIP_KERNEL_NAME(w8a8_pack_nmajor_bytes_kernel),
-        dim3(pack_blocks),
-        dim3(kPackThreads),
-        0,
-        stream,
-        raw_weight,
-        packed_weight,
-        k,
-        n);
-  } else {
-    const unsigned weight_blocks = static_cast<unsigned>(
-        (weight_bytes + kPackThreads - 1) / kPackThreads);
-    hipLaunchKernelGGL(
-        HIP_KERNEL_NAME(w8a8_pack_identity_bytes_kernel),
-        dim3(weight_blocks),
-        dim3(kPackThreads),
-        0,
-        stream,
-        reinterpret_cast<const uint8_t*>(raw_weight),
-        reinterpret_cast<uint8_t*>(packed_weight),
-        weight_bytes);
+  constexpr int64_t kMaxPackBlocks = 65535;
+  int64_t weight_blocks = (weight_bytes + kScalarThreads - 1) / kScalarThreads;
+  if (weight_blocks > kMaxPackBlocks) {
+    weight_blocks = kMaxPackBlocks;
   }
-
-  const unsigned scale_blocks = static_cast<unsigned>(
-      (scale_bytes + kPackThreads - 1) / kPackThreads);
-  hipLaunchKernelGGL(
-      HIP_KERNEL_NAME(w8a8_pack_identity_bytes_kernel),
-      dim3(scale_blocks),
-      dim3(kPackThreads),
-      0,
-      stream,
-      reinterpret_cast<const uint8_t*>(weight_scale),
-      reinterpret_cast<uint8_t*>(packed_weight_scale),
-      scale_bytes);
+  if (weight_blocks < 1) {
+    weight_blocks = 1;
+  }
+  if (k == kExactK && n == kExactN) {
+    hipLaunchKernelGGL(
+        w8a8_pack_nmajor_bytes_kernel,
+        dim3(static_cast<unsigned>(weight_blocks)), dim3(kScalarThreads), 0,
+        stream, raw_weight, packed_weight, k, n);
+  } else {
+    launch_identity_copy_int8(raw_weight, packed_weight, weight_bytes,
+                              stream);
+  }
+  launch_identity_copy_f32(weight_scale, packed_weight_scale,
+                           static_cast<int64_t>(n), stream);
 }
 // @@end
