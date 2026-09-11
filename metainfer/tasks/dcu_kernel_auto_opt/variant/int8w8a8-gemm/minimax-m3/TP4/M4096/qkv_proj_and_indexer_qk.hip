@@ -1,4 +1,5 @@
 // @@variant shape=minimax_tp4_qkv_proj_and_indexer_qk_m4096 commit=d6cbef3829c738228f5dab5255b89c384c66c6ef added=2026-08-24
+//   baseline_us=35918.8 speedup=33.1966
 //   median_us=1082 p90_us=1089
 //   source=minimaxm3-dsh-tp4-m4096-1-0c2f84a9
 // MetaInfer W8A8 INT8 GEMM bootstrap for gfx928 (K500SM_AI).

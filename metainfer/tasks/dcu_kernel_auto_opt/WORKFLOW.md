@@ -88,13 +88,13 @@ M/N/K 是否合法（M 范围、K%32==0、N%16==0、(K,N) 是否在 TP4/TP8 表�
 `w8a8_baselines.py::fixed_triton_graph_baseline(shape_id, shape)` 按 `(tp, M, N, K)` 查表，
 **查不到就抛 ValueError**（baseline 阶段直接失败），所以新 shape 必须先补表。
 表值是 Triton Graph 基线（µs），TP4 M=4096 条目是 2026-08-06 在 worker29 用
-`baseline/int8_utils.py`（lmslim）实测的（graph replay median：wqkv_a 13247、wq_b 20590、
+`tools/baseline/int8_utils.py`（lmslim）实测的（graph replay median：wqkv_a 13247、wq_b 20590、
 wo_b 19882、gate_up 8790、down 5546；wq_b 与 indexer.wq_b 共用一条）。
 
 要自己测 Triton baseline：用 `matmul_int8`（即 SGLang/lmslim 实际调用路径），M>1024 默认 config
 是 `BM256/BN256/BK64/GROUP8/SPLIT_K1/warps8`，GPU event、预分配 out（排除分配）、
 热缓存协议建议 `warmups=10, samples=20, launches_per_sample=5`；可参考
-`zth_infer/baseline/bench_triton_tp4_m4096.py`。
+`tools/baseline/bench_triton_tp4_m4096.py`（脚本在 task 目录内，`int8_utils.py` 与之同目录）。
 
 ### 2.4 Parallel explore（worker 生命周期，w8a8_pipeline.py）
 
@@ -180,8 +180,8 @@ TP8 另有 wq_b/wo_b (1024,4096)、gate_up (4096,512)、down (256,4096)、indexe
   `MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES=(4096,)`（**不进** `DEFAULT_OPTIMIZATION_SHAPES`，
   默认 42 不变，串行验证 fallback 不受影响）；前端三个模型的 TP8 topology 加
   `mValues: [2,16,3072,4096]`；基线表 15 条 `(8,4096,…)` 已实测
-  （`baseline/bench_triton_tp8_m4096.py`，int8_utils.matmul_kernel + CUDA-graph replay，
-  结果存 `baseline/tp8_m4096_graph.json`）。DeepSeek TP8 不加 M=4096。
+  （`tools/baseline/bench_triton_tp8_m4096.py`，int8_utils.matmul_kernel + CUDA-graph replay，
+  结果存 `tools/baseline/tp8_m4096_graph.json`）。DeepSeek TP8 不加 M=4096。
 - `MIN_M=1, MAX_M=4096`；`WORKSPACE_BUDGET_BYTES=16MB`。
 - **M=4096 时大部分 (N,K) 的 split-K workspace 容量为 0** → 大 M kernel 必须走 2D M-tile 路径，
   不能依赖 split-K workspace。
@@ -254,8 +254,11 @@ TP8 另有 wq_b/wo_b (1024,4096)、gate_up (4096,512)、down (256,4096)、indexe
    `int8-w8a8-gemm-foundations`；旧名 `int8-w8a8-quantized-gemm-optimization` 保留为路由器。
    其余：`dcu-kernel-tuning`、`hygon-dcu-kernel`、`hygon-gfx928-memory-isa`、
    `sglang-custom-kernel-integration`；环境/SSH/容器细节参考 `remote-dcu-env`。
-   改动 skill 库（`~/.dsh/skills/`）后记得跑 `sync_skill_libraries()` 镜像到
-   `~/.claude/skills/`（skill_store 测试里有覆盖）。
+   **规范 skill 以 `metainfer/tasks/dcu_kernel_auto_opt/skills/` 内的副本为种子**（int8-w8a8 家族，
+   2026-08-27 起随插件一起维护）：新机器上 `sync_skill_libraries()`（或 WebUI 同步按钮）会自动
+   把缺失的 skill 补种进 `~/.dsh/skills/`，再镜像到 `~/.claude/skills/`；已有的库 skill 不被覆盖。
+   baseline 测量工具在 `tools/baseline/`（`bench_triton_tp4/tp8_m4096.py` + `int8_utils.py`）。
+   kernel-repos 默认在 MetaInfer 同级（`METAINFER_KERNEL_REPOS` 可改），不随插件目录走。
 5. 改动任何行为后：更新本文件相关段落 + 跑 tests + 用真实任务验证（优先在 zth_meta 里）。
 
 ## 7. 不确定性标注
@@ -264,3 +267,40 @@ TP8 另有 wq_b/wo_b (1024,4096)、gate_up (4096,512)、down (256,4096)、indexe
 - “恢复流程”是手工驱动（复用 `_synthesize_final_candidate`），不是 UI 一键重试；UI 是否提供重试以
   `server/routes.py` 实际实现为准。
 - 本文档不替代 skill 里的性能调优细节（tile 选择、LDS、DUMMA API、hipprof 用法），那些看对应 skill。
+
+## 8. AHE 接入准备（M1，2026-09-09，纯新增/默认零行为变化）
+
+设计文档：`MetaInfer/docs/ahe_dkao_integration_plan.md`、`ahe_dkao_design.md`、
+`dkao_harness_eval_protocol.md`；AHE 官方参考在 `/root/zth_agent/ahe-ref`。
+
+新增组件（都在本插件内，运行管线默认不消费、不改变行为）：
+
+| 文件 | 作用 | wired |
+|---|---|---|
+| `harness_default/manifest.yaml` | 可演化 harness 组件清单 | false |
+| `harness_default/gates.yaml` | gate 规范值（漂移守卫 tests/test_harness_io.py） | false |
+| `harness_default/planner_catalog.yaml` | 方案目录（14 个 plan id） | false |
+| `orchestrator/harness_io.py` | 定位/读取/播种 harness（`METAINFER_HARNESS_ROOT` 可覆盖） | partial |
+| `orchestrator/planner.py` | 状态条件化方案选择器 v0（P0 修复→P1 预算/plateau→P2 瓶颈→P3 覆盖→P4 兜底）+ `render_plan()` 渲染成轮次指令文字 | false |
+| `tools/planner_parity.py` | 离线 parity 只读分析（历史轮次状态回放 planner vs 菜单，报告 JSON） | tool |
+| `orchestrator/predictions.py` | 内层决策钩子：结构化 prediction 解析/核对（hit/miss/na） | partial |
+| w8a8_pipeline.py（改动） | 轮记录加 `prediction_checked` / `plan_id`（proposal 带结构化字段才写） | partial |
+| gen_and_opt_pipeline.py（改动） | Generate staging 写 `harness_snapshot/` + scaffold_manifest.harness（revision+digests） | partial |
+
+- 运行时菜单（prompts.py::w8a8_round_strategy）**默认不变**；设 `METAINFER_PLANNER=1` 时
+  轮次指令改由 planner 渲染（`_round_strategy_text`，w8a8_pipeline.py），用于 A/B 对比。
+- worker prompt 模板现提示可选 `plan_id` / `prediction`（expected_us_range/direction），
+  agent 自主决定是否带；带时轮记录会写入 `prediction_checked` 与 `plan_id`（决策钩子活化）。
+- 受控 parity（tests/test_plan_render.py）：fresh lane/plateau/ISA/faster_wrong 状态下
+  planner 渲染文字与菜单关键方向词一致。离线 corpus parity（tools/planner_parity.py）
+  曾抓出 planner "空 history 误判 fix_build" bug（已修），其精确分歧率受关键字启发式
+  与历史缺 PMC 影响，仅作 sanity，不作准绳。
+- 测试：`tests/test_harness_io.py`、`test_planner.py`、`test_predictions.py`、
+  `test_plan_render.py`、`test_prompt_schema.py`、`test_planner_wiring.py`；
+  全量 269 passed。
+
+## 9. harness_evolve 外循环插件（同仓、平级 task，2026-09-09）
+
+新增 `metainfer/tasks/harness_evolve/`（自动发现即可见，headless CLI 用法与边界见其
+`README.md`）。它把本插件的 DKAO 任务实例当评测单元跑 AHE 外层闭环（dry-run 已通；
+`dkao-cli` evaluator 与真实 Evolve Agent 需在 worker29 后续迭代验证）。

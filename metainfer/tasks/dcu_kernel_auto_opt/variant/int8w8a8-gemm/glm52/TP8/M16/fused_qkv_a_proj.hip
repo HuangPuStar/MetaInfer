@@ -1,4 +1,5 @@
 // @@variant shape=glm_tp8_fused_qkv_a_proj_m16 commit=bf306c40c48713a81efbd7ace430c9cf21cbb429 added=2026-08-31
+//   baseline_us=97.99 speedup=2.33476
 //   median_us=41.97 p90_us=42.09
 //   source=glm5-2-dsh-tp8-m16-test1-cb4d262c
 // INT8 W8A8 GEMM kernel for Hygon K500SM_AI / gfx928 (worker_0).

@@ -277,3 +277,120 @@ def _parse_variant_header(text: str) -> Dict[str, Any]:
         elif key in _HEADER_TEXT_FIELDS:
             fields[key] = value
     return fields
+
+
+def backfill_variant_baselines() -> Dict[str, Any]:
+    """Enrich variant headers that lack ``baseline_us``/``speedup``.
+
+    Older variants (added before the add-route baseline fallback, or from
+    stopped tasks without a final report) only carry ``median_us``/``p90_us``.
+    This resolves each variant's ``(K, N)`` from its model/TP operator
+    catalog, reads the fixed Triton baseline, and appends ``baseline_us`` and
+    ``speedup`` to the header comment block. Idempotent: files that already
+    carry a speedup, or for which no median / catalog entry / baseline can be
+    resolved, are skipped untouched.
+    """
+    from metainfer.tasks.dcu_kernel_auto_opt.api.int8w8a8gemm.int8_w8a8_gemm_api import (  # noqa: PLC0415
+        GLM52_TP4_OPERATOR_KN,
+        GLM52_TP8_OPERATOR_KN,
+        HY3_TP4_OPERATOR_KN,
+        HY3_TP8_OPERATOR_KN,
+        MINIMAX_TP4_OPERATOR_KN,
+        MINIMAX_TP8_OPERATOR_KN,
+        TP4_OPERATOR_KN,
+        TP8_OPERATOR_KN,
+    )
+    from metainfer.tasks.dcu_kernel_auto_opt.orchestrator.w8a8_baselines import (  # noqa: PLC0415
+        fixed_triton_graph_baseline,
+    )
+
+    tables: Dict[tuple, Dict[str, tuple]] = {
+        ("deepseek-v4", "TP4"): TP4_OPERATOR_KN,
+        ("deepseek-v4", "TP8"): TP8_OPERATOR_KN,
+        ("hy3", "TP4"): HY3_TP4_OPERATOR_KN,
+        ("hy3", "TP8"): HY3_TP8_OPERATOR_KN,
+        ("minimax-m3", "TP4"): MINIMAX_TP4_OPERATOR_KN,
+        ("minimax-m3", "TP8"): MINIMAX_TP8_OPERATOR_KN,
+        ("glm52", "TP4"): GLM52_TP4_OPERATOR_KN,
+        ("glm52", "TP8"): GLM52_TP8_OPERATOR_KN,
+    }
+    root = variant_root()
+    updated: list[str] = []
+    skipped: Dict[str, int] = {
+        "has_speedup": 0, "no_median": 0, "no_catalog": 0, "no_baseline": 0,
+    }
+    if not root.exists():
+        return {"updated": updated, "skipped": skipped}
+    for file in sorted(root.rglob("*.hip")):
+        if file.name.startswith("w8a8_gemm_variants"):
+            continue
+        rel = file.relative_to(root).parts
+        if len(rel) < 4:
+            continue
+        model, tp, m_dir = rel[1], rel[2], rel[3]
+        header = _parse_variant_header(
+            file.read_text(encoding="utf-8", errors="replace")
+        )
+        if header.get("baseline_us") is not None or header.get("speedup") is not None:
+            skipped["has_speedup"] += 1
+            continue
+        median = header.get("median_us")
+        if median is None:
+            skipped["no_median"] += 1
+            continue
+        table = tables.get((model, tp))
+        if table is None:
+            skipped["no_catalog"] += 1
+            continue
+        kn = next(
+            (
+                entry
+                for key, entry in table.items()
+                if key.replace(".", "_") == file.stem
+            ),
+            None,
+        )
+        if kn is None or not m_dir.startswith("M"):
+            skipped["no_catalog"] += 1
+            continue
+        k, n = kn
+        m = int(m_dir[1:])
+        try:
+            baseline = fixed_triton_graph_baseline(
+                header.get("shape") or file.stem,
+                {
+                    "tp_size": int(tp[2:]),
+                    "M": m,
+                    "N": n,
+                    "K": k,
+                },
+            ).get("median_us")
+        except ValueError:
+            baseline = None
+        if baseline is None:
+            skipped["no_baseline"] += 1
+            continue
+        speedup = float(baseline) / float(median)
+        new_line = f"//   baseline_us={float(baseline):.6g} speedup={speedup:.6g}"
+        text = file.read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines(keepends=True)
+        # Insert immediately after the ``// @@variant`` header line. Kernel
+        # source comments also start with ``//`` and there is no blank line
+        # between the header and the kernel, so only the @@variant anchor is
+        # reliable.
+        insert_at: int | None = None
+        for index, line in enumerate(lines):
+            if line.startswith("// @@variant"):
+                insert_at = index
+                break
+        if insert_at is None:
+            skipped["no_catalog"] += 1
+            continue
+        file.write_text(
+            "".join(lines[: insert_at + 1])
+            + new_line + "\n"
+            + "".join(lines[insert_at + 1:]),
+            encoding="utf-8",
+        )
+        updated.append(str(file.relative_to(root)))
+    return {"updated": updated, "skipped": skipped}

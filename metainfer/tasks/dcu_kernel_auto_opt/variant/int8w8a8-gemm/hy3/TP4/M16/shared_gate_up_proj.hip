@@ -1,4 +1,5 @@
 // @@variant shape=hy3_tp4_shared_gate_up_proj_m16 commit=f52225ed98ffd619fa1318d3eca7e56addd32f82 added=2026-08-26
+//   baseline_us=73.262 speedup=6.47763
 //   median_us=11.31 p90_us=11.32
 //   source=hy3-dsh-tp4-m16-1-7f1fb1d1
 // MetaInfer W8A8 INT8 GEMM for gfx928 (K500SM_AI).

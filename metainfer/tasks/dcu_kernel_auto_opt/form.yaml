@@ -117,6 +117,30 @@
     - label: "GLM5.2"
       description: "GLM-5.2 INT4/INT8 mix via SGLang v0.5.15"
 
+- key: validation_scope
+  question: "最终串行验证范围：全量 API shapes（默认，含未优化 shape 的回归）或仅本次任务 shape（更快）"
+  header: "Final validation"
+  required: false
+  form: select
+  default: "All API shapes"
+  options:
+    - label: "All API shapes"
+      description: "验证冻结 API 的每个 shape（含 fallback 回归）——最稳，但每题约 50-90 分钟"
+    - label: "Task shapes only"
+      description: "只验证本任务优化的 shape——快得多，适合只关心本次 shape 性能的场景"
+
+- key: bench_profile
+  question: "benchmark 采样密度：full 用资产默认(100/30/100)，quick 用较快且稳定的采样(30/30/50)"
+  header: "Bench profile"
+  required: false
+  form: select
+  default: "full"
+  options:
+    - label: "full"
+      description: "默认高密度采样"
+    - label: "quick"
+      description: "轻量采样，串行验证更快（median/p90 略有噪声）"
+
 - key: shape_assignment_mode
   question: "Choose whether the control plane or you assign shapes to physical GPUs."
   header: "Shape assignment"

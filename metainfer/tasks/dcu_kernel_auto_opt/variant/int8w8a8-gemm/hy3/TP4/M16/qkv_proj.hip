@@ -1,4 +1,5 @@
 // @@variant shape=hy3_tp4_qkv_proj_m16 commit=7d6959345400cb268cfd9289338d0891db2297f9 added=2026-08-26
+//   baseline_us=80.19 speedup=3.07831
 //   median_us=26.05 p90_us=26.09
 //   source=hy3-dsh-tp4-m16-1-7f1fb1d1
 // MetaInfer W8A8 INT8 GEMM - worker_0 (iteration 17, fused combine tail).

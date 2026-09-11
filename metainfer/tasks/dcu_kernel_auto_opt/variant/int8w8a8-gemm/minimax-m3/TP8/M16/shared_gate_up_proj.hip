@@ -1,4 +1,5 @@
 // @@variant shape=minimax_tp8_shared_gate_up_proj_m16 commit=4358dea23da7468d3868ce258b971667a50c139e added=2026-08-28
+//   baseline_us=104.527 speedup=6.10912
 //   median_us=17.11 p90_us=17.13
 //   source=minimax-dsh-tp8-m16-1-78402260
 // MetaInfer W8A8 INT8 GEMM - HIP implementation for Hygon K500SM_AI / gfx928.

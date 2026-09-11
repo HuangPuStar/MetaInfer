@@ -1,4 +1,5 @@
 // @@variant shape=glm_tp8_shared_down_proj_m16 commit=42d49afdb24af21a5480786c88ca11a84d57f44a added=2026-08-31
+//   baseline_us=18.177 speedup=2.20621
 //   median_us=8.239 p90_us=9.122
 //   source=glm5-2-dsh-tp8-m16-test1-cb4d262c
 // W8A8 INT8 GEMM for Hygon K500SM_AI / gfx928 (worker_3).
