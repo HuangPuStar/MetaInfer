@@ -5,6 +5,7 @@ Reads: iterations, charts, state-graph, kernel library, harnesses.
 
 from __future__ import annotations
 
+import difflib
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -213,3 +214,94 @@ def read_reference_kernel(workspace_dir: Path) -> Dict[str, Any]:
         "path": str(path),
         "lines": len(code.splitlines()),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Kernel source & diff
+# --------------------------------------------------------------------------- #
+
+# Metadata carried alongside a single kernel's source (the fields the diff
+# view needs to explain a change: how fast it was, which iteration added it,
+# and which library kernel it was derived from).
+_KERNEL_META_KEYS = (
+    "exec_time_ms",
+    "complexity_score",
+    "combined_score",
+    "iteration_added",
+    "parent_id",
+)
+
+
+def read_kernel_source(workspace_dir: Path, kernel_id: str) -> Dict[str, Any]:
+    """Return the full source + metadata for one library kernel, by id.
+
+    ``read_kernel_library`` ships every kernel's code in one payload; this
+    resolves a single kernel so callers that already know the id (the diff
+    view) don't have to scan the list, and so the lookup has one definition.
+    """
+    for k in read_kernel_library(workspace_dir)["kernels"]:
+        if str(k.get("id")) == str(kernel_id):
+            code = k.get("code") or ""
+            return {
+                "exists": True,
+                "id": k.get("id"),
+                "code": code,
+                "lines": len(code.splitlines()),
+                "meta": {key: k.get(key) for key in _KERNEL_META_KEYS},
+            }
+    return {"exists": False, "id": kernel_id, "code": "", "lines": 0, "meta": {}}
+
+
+def read_kernel_diff(workspace_dir: Path, kernel_id: str,
+                     base: str = "reference") -> Dict[str, Any]:
+    """Unified diff of a library kernel against a baseline.
+
+    ``base`` is ``"reference"`` (the original kernel the task started from)
+    or ``"parent"`` (the library kernel this one was derived from). Returns
+    the diff text plus added/removed line counts; a missing kernel, a root
+    kernel with no parent, or a parent that is no longer in the library
+    (the library evicts past ``MAX_LIBRARY_SIZE``) yields ``exists: False``
+    with an ``error`` reason rather than raising.
+    """
+    src = read_kernel_source(workspace_dir, kernel_id)
+    if not src["exists"]:
+        return _diff_missing(base, f"unknown kernel {kernel_id!r}")
+
+    if base == "parent":
+        parent_id = src["meta"].get("parent_id")
+        if not parent_id:
+            return _diff_missing(base, "kernel has no parent")
+        base_src = read_kernel_source(workspace_dir, parent_id)
+        if not base_src["exists"]:
+            return _diff_missing(
+                base, f"parent {str(parent_id)[:8]} is no longer in the library")
+        base_code = base_src["code"]
+        base_label = f"kernel {str(parent_id)[:8]}"
+    else:
+        ref = read_reference_kernel(workspace_dir)
+        base_code = ref["code"] if ref["exists"] else ""
+        base_label = "reference"
+
+    diff_lines = list(difflib.unified_diff(
+        base_code.splitlines(), (src["code"] or "").splitlines(),
+        fromfile=f"a/{base_label}",
+        tofile=f"b/kernel {str(kernel_id)[:8]}",
+        lineterm="",
+    ))
+    added = sum(1 for ln in diff_lines
+                if ln.startswith("+") and not ln.startswith("+++"))
+    removed = sum(1 for ln in diff_lines
+                  if ln.startswith("-") and not ln.startswith("---"))
+    return {
+        "exists": True,
+        "base": base,
+        "base_label": base_label,
+        "diff": "\n".join(diff_lines),
+        "added": added,
+        "removed": removed,
+    }
+
+
+def _diff_missing(base: str, error: str) -> Dict[str, Any]:
+    return {"exists": False, "base": base, "base_label": base,
+            "diff": "", "added": 0, "removed": 0, "error": error}

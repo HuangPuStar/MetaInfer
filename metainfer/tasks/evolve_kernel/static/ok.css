@@ -162,3 +162,107 @@
   color: var(--muted, #8b949e);
   margin-top: 0.25rem;
 }
+
+/* ---- Kernel source / diff inspector ---- */
+
+.ok-inspector-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ok-inspector-modes {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.ok-inspector-modes .btn.active {
+  background: var(--accent-bg, rgba(88, 166, 255, 0.15));
+  color: var(--accent, #58a6ff);
+  border-color: var(--accent, #58a6ff);
+}
+
+.ok-diff-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-family: monospace;
+}
+
+.ok-diff-stat-add {
+  color: #3fb950;
+  font-weight: 600;
+}
+
+.ok-diff-stat-del {
+  color: #f85149;
+  font-weight: 600;
+}
+
+.ok-source,
+.ok-diff {
+  max-height: 600px;
+  overflow: auto;
+  background: var(--code-bg, #0d1117);
+  border: 1px solid var(--border-color, #30363d);
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.ok-diff.empty {
+  padding: 1rem;
+}
+
+.ok-diff.empty.error {
+  color: #f85149;
+}
+
+.ok-source-row,
+.ok-diff-row {
+  display: flex;
+  white-space: pre;
+}
+
+.ok-source-num {
+  flex: 0 0 auto;
+  width: 3.5rem;
+  padding: 0 0.6rem;
+  text-align: right;
+  color: var(--muted, #8b949e);
+  user-select: none;
+  border-right: 1px solid var(--border-color, #30363d);
+}
+
+.ok-source-line {
+  flex: 1 1 auto;
+  padding: 0 0.6rem;
+}
+
+.ok-diff-row {
+  padding: 0 0.75rem;
+}
+
+.ok-diff-add {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+}
+
+.ok-diff-del {
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+}
+
+.ok-diff-hunk {
+  color: var(--accent, #58a6ff);
+  background: var(--accent-bg, rgba(88, 166, 255, 0.08));
+}
+
+.ok-diff-meta {
+  color: var(--muted, #8b949e);
+}

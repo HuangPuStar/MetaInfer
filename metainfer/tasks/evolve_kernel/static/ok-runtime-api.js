@@ -51,6 +51,14 @@ export async function getReferenceKernel(taskId) {
   return res.json();
 }
 
+export async function getKernelDiff(taskId, kernelId, base = "reference") {
+  const res = await fetch(
+    `${BASE(taskId)}/kernels/${encodeURIComponent(kernelId)}/diff` +
+    `?base=${encodeURIComponent(base)}`);
+  if (!res.ok) throw new Error(`kernel diff: ${res.status}`);
+  return res.json();
+}
+
 export async function getRetrospective(taskId, n) {
   const res = await fetch(`${BASE(taskId)}/iterations/${n}/retrospective`);
   if (!res.ok) throw new Error(`retrospective ${n}: ${res.status}`);

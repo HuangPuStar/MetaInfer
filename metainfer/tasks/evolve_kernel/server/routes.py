@@ -95,6 +95,16 @@ def build_router(plugin) -> APIRouter:
         require_task_type(entry, PLUGIN_TYPE)
         return _state_readers.read_reference_kernel(workspace_dir_for(entry))
 
+    # ---- Kernel diff ----
+
+    @router.get("/kernels/{kernel_id}/diff")
+    def ok_kernel_diff(task_id: str, kernel_id: str,
+                       base: str = "reference") -> Dict[str, Any]:
+        entry = task_or_404(task_id)
+        require_task_type(entry, PLUGIN_TYPE)
+        return _state_readers.read_kernel_diff(
+            workspace_dir_for(entry), kernel_id, base)
+
     # ---- QA ----
 
     register_qa_routes(router, plugin, prefix="/qa")
