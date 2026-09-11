@@ -1,4 +1,5 @@
 // @@variant shape=tp8_wq_b_m16 commit=bfaef2fc76d0e4a095b2ffae2b466f2863511d43 added=2026-08-26
+//   baseline_us=32.137 speedup=2.19066
 //   median_us=14.67 p90_us=14.7
 //   source=hy3-dsh-tp8-m16-1-adf021ab
 // W8A8 INT8 GEMM — gfx928 implementation (worker_1, physical GPU 1)

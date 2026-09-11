@@ -3,17 +3,29 @@ from __future__ import annotations
 import pytest
 
 from ..orchestrator.config import load_config
+from ..orchestrator import skill_store as skill_store_mod
 from ..orchestrator.skill_store import (
     _apply_fuse_decision,
     _parse_fuse_decision,
+    bundled_skills_root,
     dsh_skills_root,
     generate_merged_skill,
     generate_worker_skill,
     list_skill_library,
     publish_skill,
     rollback_skill,
+    seed_bundled_skills,
     sync_skill_libraries,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_bundled_skills(tmp_path, monkeypatch):
+    """Point the plugin's bundled-skills root at an empty tmp dir by default,
+    so seeding never pollutes library assertions in unrelated tests."""
+    bundled = tmp_path / "bundled-skills"
+    bundled.mkdir(exist_ok=True)
+    monkeypatch.setattr(skill_store_mod, "bundled_skills_root", lambda: bundled)
 
 
 def test_skill_library_lists_and_publishes_without_overwrite(
@@ -82,6 +94,28 @@ def test_sync_skill_libraries_mirrors_dsh_to_ccb(tmp_path, monkeypatch):
     assert summary2["added"] == []
     assert summary2["updated"] == []
     assert summary2["skipped"] == ["alpha", "beta"]
+
+
+def test_seed_bundled_skills_copies_missing_only(tmp_path, monkeypatch):
+    dsh_root = tmp_path / "dsh"
+    bundled = tmp_path / "bundled"
+    (bundled / "zeta").mkdir(parents=True)
+    (bundled / "zeta" / "SKILL.md").write_text("# zeta seed\n", encoding="utf-8")
+    (bundled / "eta").mkdir(parents=True)
+    (bundled / "eta" / "SKILL.md").write_text("# eta seed\n", encoding="utf-8")
+    # dsh already has eta (different content) -> must not be overwritten
+    (dsh_root / "eta").mkdir(parents=True)
+    (dsh_root / "eta" / "SKILL.md").write_text("# eta live\n", encoding="utf-8")
+    monkeypatch.setenv("DSH_SKILLS_DIR", str(dsh_root))
+    monkeypatch.setattr(skill_store_mod, "bundled_skills_root", lambda: bundled)
+
+    seeded = seed_bundled_skills()
+    assert seeded["added"] == ["zeta"]
+    assert (dsh_root / "zeta" / "SKILL.md").read_text() == "# zeta seed\n"
+    # an existing live skill is never clobbered by the bundled seed
+    assert (dsh_root / "eta" / "SKILL.md").read_text() == "# eta live\n"
+    # idempotent
+    assert seed_bundled_skills()["added"] == []
 
 
 def test_rollback_skill_restores_backup(tmp_path, monkeypatch):

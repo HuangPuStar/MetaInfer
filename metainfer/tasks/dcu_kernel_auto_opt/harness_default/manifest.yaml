@@ -1,0 +1,36 @@
+schema_version: 1
+harness_name: dcu_kernel_auto_opt_default
+revision: seed-v0.1
+seed_source: metainfer/tasks/dcu_kernel_auto_opt/harness_default
+components:
+  manifest:
+    path: manifest.yaml
+    kind: meta
+    role: component inventory (Evolve readable system map); wired flags
+      decide which components are applied at runtime
+    wired: true
+  gates:
+    path: gates.yaml
+    kind: data
+    role: acceptance / plateau / ISA gating canonical values (read at runtime
+      through orchestrator/gate_policy.py)
+    wired: true
+    drift_guard: tests/test_harness_io.py::test_gates_match_python_constants
+  planner_catalog:
+    path: planner_catalog.yaml
+    kind: data
+    role: stable plan ids + worker-facing plan descriptions
+    wired: true
+    drift_guard: tests/test_planner.py::test_catalog_loads_from_yaml_seed
+  planner_policy:
+    path: planner_policy.yaml
+    kind: data
+    role: evolvable state-to-plan policy (repair / phase / bottleneck / coverage / fallback)
+    wired: true
+    drift_guard: tests/test_planner_policy.py
+layout_note: >-
+  Future components land here as files: systemprompt/, planner/ (optimization
+  plan selection mechanism), tools/, middleware/, skills/, memory/. Together
+  they form the evolvable harness workspace that the harness_evolve outer loop
+  versions (git) and evolves per the evaluation protocol v2
+  (docs/dkao_harness_eval_protocol.md).

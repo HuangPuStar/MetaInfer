@@ -1,4 +1,5 @@
 // @@variant shape=minimax_tp8_qkv_proj_m16 commit=b86aaad82e2a39632cd692ec7fe88dcaeeadaaed added=2026-08-28
+//   baseline_us=110.478 speedup=3.32765
 //   median_us=33.2 p90_us=33.31
 //   source=minimax-dsh-tp8-m16-1-78402260
 // MetaInfer W8A8 INT8 GEMM — gfx928 (K500SM_AI) bootstrap.

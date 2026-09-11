@@ -1,4 +1,5 @@
 // @@variant shape=tp8_wqkv_a_m16 commit=b67e227c20b3349d46020f9f52cd2484b2142ff3 added=2026-08-26
+//   baseline_us=66.591 speedup=3.8052
 //   median_us=17.5 p90_us=17.52
 //   source=hy3-dsh-tp8-m16-1-adf021ab
 // MetaInfer W8A8 GEMM - worker_0 HIP implementation (gfx928).

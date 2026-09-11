@@ -1,4 +1,5 @@
 // @@variant shape=glm_tp8_q_b_proj_m16 commit=8a9a28e409277a6f266a59e0c053a3d2bb516f12 added=2026-08-31
+//   baseline_us=42.035 speedup=2.97698
 //   median_us=14.12 p90_us=14.14
 //   source=glm5-2-dsh-tp8-m16-test1-cb4d262c
 // csrc/w8a8_gemm_hip.hip

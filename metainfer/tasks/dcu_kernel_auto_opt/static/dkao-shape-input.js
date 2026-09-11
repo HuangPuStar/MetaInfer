@@ -439,6 +439,24 @@ function ShapeCatalog(_a) {
   `;
 }
 
+// Quick select/deselect helper shown above subset (Selected shapes only)
+// catalogs. A subset task starts with NOTHING selected on purpose: the user
+// ticks the shapes that should enter this task (or hits "Select all").
+function SubsetActions(_a) {
+  var count = _a.count, total = _a.total, onAll = _a.onAll, onNone = _a.onNone;
+  return html`
+    <div class="dkao-subset-actions">
+      <span class="dkao-subset-count">${count} / ${total} selected</span>
+      <button type="button" class="dkao-shape-tab" onClick=${onAll}>Select all</button>
+      <button type="button" class="dkao-shape-tab"
+        disabled=${count === 0}
+        onClick=${onNone}>Clear</button>
+      <span class="dkao-subset-hint">Only ticked shapes enter this task.</span>
+    </div>
+    ${count === 0 ? html`<p class="muted">No shape selected — the task starts empty. Tick at least one shape above (or Select all).</p>` : null}
+  `;
+}
+
 function ApiDefaultsPreview(_a) {
   var catalog = _a.catalog;
   var tpSizes = catalog
@@ -502,7 +520,9 @@ function AiShapeSubset(_a) {
   var catalog = modelCatalog(model);
   var _b = useState(function () {
     var parsed = parseShapeRecords(value || "");
-    return selectedShapes(parsed, true, catalog, model);
+    // Start EMPTY (no fallback to the full catalog): only shapes the user
+    // ticks (or Select-all) enter this task.
+    return selectedShapes(parsed, false, catalog, model);
   }), selected = _b[0], setSelected = _b[1];
 
   var emit = useCallback(function (next) {
@@ -515,6 +535,10 @@ function AiShapeSubset(_a) {
 
   useEffect(function () { emit(selected); }, []);
 
+  var count = catalog.filter(function (shape) {
+    return selected[shape.id];
+  }).length;
+
   return html`
     <div class="dkao-manual-assignment">
       <div class="dkao-guided-info">
@@ -523,6 +547,15 @@ function AiShapeSubset(_a) {
         shapes stay on the trusted fallback and are checked again before the
         candidate is published.
       </div>
+      <${SubsetActions}
+        count=${count}
+        total=${catalog.length}
+        onAll=${function () {
+          var next = {};
+          catalog.forEach(function (shape) { next[shape.id] = true; });
+          emit(next);
+        }}
+        onNone=${function () { emit({}); }} />
       <${ShapeCatalog}
         shapes=${catalog}
         selected=${selected}
@@ -573,7 +606,8 @@ function ManualGpuAssignment(_a) {
   var _b = useState(function () {
     var parsedShapes = parseShapeRecords(value || "");
     return subset
-      ? selectedShapes(parsedShapes, true, catalog, model)
+      // Start EMPTY for a manual subset: only ticked shapes enter this task.
+      ? selectedShapes(parsedShapes, false, catalog, model)
       : selectedMap(catalog.map(function (shape) {
         return shape.id;
       }));
@@ -620,6 +654,21 @@ function ManualGpuAssignment(_a) {
         appears exactly once; empty GPU cards are allowed.
       </div>
       ${subset && html`
+        <${SubsetActions}
+          count=${catalog.filter(function (s) { return selected[s.id]; }).length}
+          total=${catalog.length}
+          onAll=${function () {
+            var nextSelected = {};
+            var nextOwners = Object.assign({}, owners);
+            catalog.forEach(function (shape) {
+              nextSelected[shape.id] = true;
+              if (nextOwners[shape.id] == null) {
+                nextOwners[shape.id] = operatorGroupedOwners(catalog)[shape.id];
+              }
+            });
+            emitState(nextOwners, nextSelected);
+          }}
+          onNone=${function () { emitState(owners, {}); }} />
         <${ShapeCatalog}
           shapes=${catalog}
           selected=${selected}
