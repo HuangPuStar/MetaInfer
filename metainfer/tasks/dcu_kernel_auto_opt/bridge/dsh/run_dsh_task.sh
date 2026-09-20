@@ -12,7 +12,8 @@
 #
 # Optional env:
 #   DSH_AGENT_MAX_TOKENS   per-request output cap (default 65536)
-#   DSH_AGENT_MODEL        model override (default deepseek/deepseek-v4-flash-0731)
+#   DSH_AGENT_MODEL        model override (default deepseek/deepseek-flash,
+#                          the 4.1 Flash build)
 #   METAINFER_GPU_IDS      restrict GPUs, e.g. 4,5,6,7
 
 set -euo pipefail

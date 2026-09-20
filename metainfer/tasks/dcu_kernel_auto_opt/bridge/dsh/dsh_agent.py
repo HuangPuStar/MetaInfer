@@ -27,7 +27,8 @@ Environment:
     DSH_AGENT_PROVIDER      provider name for the DSH runtime
                             (default: deepseek-official — the only adapter
                             shipped by the dev-checkout runtime)
-    DSH_AGENT_MODEL         model override (default deepseek/deepseek-v4-flash-0731)
+    DSH_AGENT_MODEL         model override (default deepseek/deepseek-flash,
+                            the 4.1 Flash label deepseek-flash-4.1)
     DSH_AGENT_BASE_URL      model endpoint; falls back to DEEPSEEK_BASE_URL
                             (default: https://tokenhub.tencentmaas.com/plan/v3)
     TENCENT_API_KEY         preferred API key (matches ~/.dsh/settings.yaml)
@@ -71,9 +72,11 @@ def default_provider() -> str:
 
 
 def default_model() -> str:
+    """Default DSH model id (the 4.1 Flash build) unless DSH_AGENT_MODEL pins
+    another one. Matches orchestrator/config.py DSH_DEFAULT_MODEL_ID."""
     return (
-        os.environ.get("DSH_AGENT_MODEL", "deepseek/deepseek-v4-flash-0731")
-        .strip() or "deepseek/deepseek-v4-flash-0731"
+        os.environ.get("DSH_AGENT_MODEL", "deepseek/deepseek-flash")
+        .strip() or "deepseek/deepseek-flash"
     )
 
 
@@ -144,13 +147,20 @@ def default_api_key() -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Model mapping (legacy Claude labels -> this host's DSH model ids)
+# Model mapping (legacy Claude labels / form labels -> this host's DSH ids)
 # --------------------------------------------------------------------------- #
 
+#: Form labels produced by both MetaInfer task frontends (dcu-kernel-auto-opt's
+#: agent_model field and harness-evolve's evolve_model field). Kept in sync with
+#: orchestrator/config.py (DSH_MODEL_IDS) — the orchestrator resolves the label
+#: itself, so this map only serves callers that hand the wrapper a bare label.
 _MODEL_MAP = {
-    "opus": "deepseek-v4-pro",
-    "sonnet": "deepseek-v4-flash",
-    "haiku": "deepseek-v4-flash",
+    "deepseek-flash-4.1": "deepseek/deepseek-flash",
+    "deepseek-flash": "deepseek/deepseek-flash",
+    "deepseek-v4-flash": "deepseek/deepseek-v4-flash-0731",
+    "opus": "deepseek/deepseek-v4-flash-0731",
+    "sonnet": "deepseek/deepseek-v4-flash-0731",
+    "haiku": "deepseek/deepseek-v4-flash-0731",
 }
 
 
@@ -160,11 +170,8 @@ def map_model(requested: Optional[str]) -> str:
     key = requested.strip().lower()
     if key in _MODEL_MAP:
         return _MODEL_MAP[key]
-    if key == "deepseek-v4-flash":
-        # Bare user-facing label -> the pinned host model id.
-        return default_model()
     if key.startswith("deepseek"):
-        # Full model id (e.g. deepseek/deepseek-v4-flash-0731): pass through.
+        # Full model id (e.g. deepseek/deepseek-flash): pass through.
         return key
     # Unknown label: keep the caller's intent but stay on a known model id.
     return default_model()
@@ -294,6 +301,13 @@ def _headless_backend_main(args: Any, prompt: str) -> int:
     sub-agent is still working so SubAgentManager's no-output watchdog never
     mistakes a long task for a stuck process; the final assistant text is
     emitted as the last message, matching the ccb stream-json contract.
+
+    Model selection caveat: the ``dsh --profile headless`` app takes no
+    ``--model`` flag, so it runs whatever the user's DSH settings document
+    (``~/.dsh/settings.yaml`` -> ``agent-default-model``) selects — the host
+    default, not ``--model``. Emit the requested model in the system event so
+    the mismatch is visible instead of silent. The SDK backend below does honour
+    ``--model``.
     """
     import subprocess
     import tempfile

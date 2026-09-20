@@ -24,9 +24,11 @@ function parseCsvInts(raw) {
 var W8A8_M_VALUES = [2, 16, 3072];
 // Large-prefill boundary added on 2026-08-06 for TP4; extended to the
 // Hy3 / MiniMax M3 / GLM5.2 TP8 catalogs on 2026-08-27 via per-topology
-// mValues. DeepSeek TP1/TP8 keep the three original M values. The backend
-// validates shapes against the contract.
+// mValues, plus the M=8 short-decode boundary on 2026-09-20. DeepSeek TP1/TP8
+// keep the three original M values. The backend validates shapes against the
+// contract (MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES = (8, 4096)).
 var W8A8_TP4_M_VALUES = [2, 16, 3072, 4096];
+var W8A8_MODEL_TP8_M_VALUES = [2, 8, 16, 3072, 4096];
 
 // Model label → W8A8 GEMM workload. (M, K) @ (K, N) per weight name and TP
 // size, mirroring the model cards in the operator docs. DeepSeek keeps the
@@ -94,7 +96,7 @@ var MODEL_WORKLOADS = {
       },
       {
         tp_size: 8,
-        mValues: [2, 16, 3072, 4096],
+        mValues: W8A8_MODEL_TP8_M_VALUES,
         operators: [
           { operator: "qkv_proj", K: 4096, N: 1280 },
           { operator: "o_proj", K: 1024, N: 4096 },
@@ -129,7 +131,7 @@ var MODEL_WORKLOADS = {
       },
       {
         tp_size: 8,
-        mValues: [2, 16, 3072, 4096],
+        mValues: W8A8_MODEL_TP8_M_VALUES,
         operators: [
           { operator: "qkv_proj", K: 6144, N: 1280 },
           { operator: "qkv_proj_and_indexer_qk", K: 6144, N: 1536 },
@@ -167,7 +169,7 @@ var MODEL_WORKLOADS = {
       },
       {
         tp_size: 8,
-        mValues: [2, 16, 3072, 4096],
+        mValues: W8A8_MODEL_TP8_M_VALUES,
         operators: [
           { operator: "fused_qkv_a_proj", K: 6144, N: 2624 },
           { operator: "q_b_proj", K: 2048, N: 2048 },
@@ -186,7 +188,8 @@ function modelCatalog(modelLabel) {
   var shapes = [];
   (model.topologies || []).forEach(function (topology) {
     // Per-topology M values override the defaults; TP4 and the Hy3/MiniMax/
-    // GLM TP8 catalogs cover the M=4096 large-prefill boundary.
+    // GLM TP8 catalogs cover the M=8 short-decode and M=4096 large-prefill
+    // boundaries.
     var mValues = topology.mValues || (topology.tp_size === 4
       ? W8A8_TP4_M_VALUES : W8A8_M_VALUES);
     topology.operators.forEach(function (item) {
@@ -468,8 +471,10 @@ function ApiDefaultsPreview(_a) {
       <div class="dkao-guided-info">
         <strong>${catalog.length} logical shapes.</strong>
         Workloads are grouped by TP size and kept as separate task identities.
-        Each operator is optimized at M=2, M=16 and the large-prefill boundary
-        M=3072; TP4 additionally covers M=4096.
+        Every operator covers the decode and prefill boundaries of its own
+        catalog (per TP size above), e.g. DeepSeek M=2/16/3072 with TP4 adding
+        M=4096, and the Hy3 / MiniMax M3 / GLM5.2 TP8 catalogs adding the short
+        decode boundary M=8 and M=4096.
       </div>
       <div class="dkao-gpu-grid">
         ${tpSizes.map(function (tp) {
@@ -488,7 +493,16 @@ function ApiDefaultsPreview(_a) {
               });
             }
           });
-          var mValues = tp === 4 ? W8A8_TP4_M_VALUES : W8A8_M_VALUES;
+          // Derive the M list from the catalog itself so model-specific
+          // catalogs (Hy3 / MiniMax M3 / GLM5.2 TP8) show their real M
+          // values (including the M=8 and M=4096 boundaries) instead of the
+          // DeepSeek defaults.
+          var mValues = topoShapes
+            .map(function (shape) { return shape.M; })
+            .filter(function (value, index, all) {
+              return all.indexOf(value) === index;
+            })
+            .sort(function (a, b) { return a - b; });
           return html`
             <section class="dkao-gpu-card">
               <header>

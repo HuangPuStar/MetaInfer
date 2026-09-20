@@ -8,14 +8,170 @@ import importlib.util
 import json
 import math
 import os
+import re
 import statistics
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 try:
     import torch
 except ModuleNotFoundError:  # Allow CPU-only CI to import pure helpers.
     torch = None  # type: ignore[assignment]
+
+
+#: Device admission rule for anything that measures: VRAM <= 90% and HCU == 0.
+#: This harness is the only thing that runs the candidate kernel, and an agent
+#: can invoke it directly from its own shell, so the rule is enforced here too —
+#: not only in the orchestrator that happens to launch us. A number taken while
+#: another workload shares the card is noise (the same unchanged shape has been
+#: seen at 884us -> 3047us), so we refuse to produce one.
+GATE_EXIT_CODE = 75
+_GATE_DRM_ROOT = Path("/sys/class/drm")
+_GATE_SMI_ROW = re.compile(
+    r"^(?P<index>\d+)\s+[\d.]+C\s+[\d.]+W\s+\S+\s+[\d.]+W\s+"
+    r"(?P<vram>[\d.]+|N/A|n/a)%\s+(?P<util>[\d.]+|N/A|n/a)%"
+)
+
+
+def _gate_number(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _gate_hy_smi() -> dict:
+    """``{gpu: {vram_percent, util_percent}}`` from hy-smi; empty if unreadable."""
+    for binary in ("hy-smi", "rocm-smi"):
+        try:
+            proc = subprocess.run([binary], capture_output=True, text=True,
+                                  timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if proc.returncode != 0 or not proc.stdout.strip():
+            continue
+        out = {}
+        for line in proc.stdout.splitlines():
+            match = _GATE_SMI_ROW.match(line.strip())
+            if not match:
+                continue
+            out[int(match.group("index"))] = {
+                "vram_percent": _gate_number(match.group("vram").strip("%")),
+                "util_percent": _gate_number(match.group("util").strip("%")),
+            }
+        if out:
+            return out
+    return {}
+
+
+def _gate_sysfs() -> dict:
+    """Driver sysfs fallback: works when the management interface says N/A."""
+    out = {}
+    cards = []
+    try:
+        entries = sorted(_GATE_DRM_ROOT.iterdir(), key=lambda p: p.name)
+    except OSError:
+        return out
+    for entry in entries:
+        if not re.fullmatch(r"card\d+", entry.name):
+            continue
+        device = entry / "device"
+        try:
+            uevent = (device / "uevent").read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if not any(driver in uevent for driver in ("hycu", "amdgpu", "hydcu")):
+            continue
+        if not (device / "mem_info_vram_total").is_file():
+            continue
+        cards.append(device)
+    for index, device in enumerate(cards):
+        row = {}
+        try:
+            row["util_percent"] = float(
+                (device / "gpu_busy_percent").read_text().strip())
+        except (OSError, ValueError):
+            pass
+        try:
+            used = float((device / "mem_info_vram_used").read_text().strip())
+            total = float((device / "mem_info_vram_total").read_text().strip())
+            if total > 0:
+                row["vram_percent"] = round(100.0 * used / total, 2)
+        except (OSError, ValueError, ZeroDivisionError):
+            pass
+        if row:
+            out[index] = row
+    return out
+
+
+def _gate_violation(device: int) -> str:
+    """``""`` when the device passes, else why it does not."""
+    from_smi = _gate_hy_smi().get(device) or {}
+    complete = (from_smi.get("vram_percent") is not None
+                and from_smi.get("util_percent") is not None)
+    readings = from_smi if complete else dict(_gate_sysfs().get(device) or {})
+    if not complete:
+        for key in ("vram_percent", "util_percent"):
+            if readings.get(key) is None and from_smi.get(key) is not None:
+                readings[key] = from_smi[key]
+    vram = readings.get("vram_percent")
+    util = readings.get("util_percent")
+    if vram is None or util is None:
+        return "device state unavailable (no HCU/VRAM reading)"
+    if vram > 90.0:
+        return f"VRAM {vram:.0f}% > 90%"
+    if util > 0.0:
+        return f"HCU {util:.0f}% > 0%"
+    return ""
+
+
+def enforce_measurement_gate(device: int | None = None) -> None:
+    """Wait for ``VRAM <= 90% and HCU == 0``; exit if it never happens.
+
+    ``METAINFER_GPU_PREFLIGHT=0`` is the deliberate opt-out. Waiting is
+    deliberately bounded (``METAINFER_GATE_WAIT_SECONDS`` x
+    ``METAINFER_GATE_MAX_WAITS``, default 30 min x 48 = 24 h): a shared card
+    must never silently turn into a measurement, and waiting forever is not an
+    answer either.
+    """
+    if str(os.environ.get("METAINFER_GPU_PREFLIGHT", "")).strip().lower() in {
+            "0", "false", "no", "off"}:
+        return
+    if device is None:
+        raw = str(os.environ.get("HIP_VISIBLE_DEVICES")
+                  or os.environ.get("ROCR_VISIBLE_DEVICES") or "0")
+        device = int(raw.split(",")[0].strip() or 0)
+    try:
+        wait_s = int(os.environ.get("METAINFER_GATE_WAIT_SECONDS", "") or 1800)
+    except ValueError:
+        wait_s = 1800
+    try:
+        max_waits = int(os.environ.get("METAINFER_GATE_MAX_WAITS", "") or 48)
+    except ValueError:
+        max_waits = 48
+    for attempt in range(1, max_waits + 1):
+        reason = _gate_violation(int(device))
+        if not reason:
+            return
+        if attempt > max_waits:
+            break
+        print(json.dumps({
+            "measurement_gate": "blocked", "device": int(device),
+            "attempt": attempt, "max_waits": max_waits,
+            "wait_seconds": wait_s, "reason": reason,
+        }), file=sys.stderr)
+        if attempt == max_waits:
+            break
+        time.sleep(max(0.0, float(wait_s)))
+    reason = _gate_violation(int(device)) or "device never became idle"
+    print(json.dumps({
+        "measurement_gate": "give_up", "device": int(device),
+        "checks": max_waits, "reason": reason,
+    }), file=sys.stderr)
+    raise SystemExit(GATE_EXIT_CODE)
+
 
 
 def load_module(module_path: Path, name: str):
@@ -330,6 +486,11 @@ def main() -> int:
             "reference_cache_path": str(reference_path),
         }, sort_keys=True))
         return 0
+
+    # Everything below initialises the device and measures on it. CPU-only runs
+    # (--self-test, --prepare-reference) returned above, so they are never
+    # blocked; every device-touching run has to pass the gate first.
+    enforce_measurement_gate()
 
     source = args.source.resolve()
     fixed_contract = source / "int8_w8a8_gemm_api.py"

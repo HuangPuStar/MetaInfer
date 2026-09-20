@@ -148,18 +148,88 @@ def test_live_contract_accepts_model_catalog_tp8_m4096_shapes():
 
 
 def test_default_optimization_shapes_unchanged_by_model_tp8_boundary():
-    # Adding the model-catalog TP8 M=4096 boundary must not change the
+    # Adding the model-catalog TP8 M=8/M=4096 boundaries must not change the
     # DeepSeek-only default workload or its serial-validation fallback scope.
     from ..api.int8w8a8gemm.int8_w8a8_gemm_api import (
         DEFAULT_OPTIMIZATION_SHAPES,
         MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES,
     )
 
-    assert MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES == (4096,)
+    assert MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES == (8, 4096)
     assert len(DEFAULT_OPTIMIZATION_SHAPES) == 42
     assert all(
         str(shape["id"]).startswith("tp") for shape in DEFAULT_OPTIMIZATION_SHAPES
     )
+
+
+def test_live_contract_accepts_model_catalog_tp8_m8_shapes():
+    # Model-catalog TP8 short-decode boundary (2026-09-20): Hy3 / MiniMax M3 /
+    # GLM5.2 TP8 operators are optimizable at M=8 ("Selected shapes only");
+    # DeepSeek TP8 defaults keep the original three M values.
+    contract = resolve_operator_api("Quantized GEMM", "INT8 W8A8")
+    shapes = {
+        "hy3_tp8_qkv_proj_m8": {
+            "tp_size": 8, "operator": "qkv_proj",
+            "M": 8, "N": 1280, "K": 4096,
+        },
+        "hy3_tp8_o_proj_m8": {
+            "tp_size": 8, "operator": "o_proj",
+            "M": 8, "N": 4096, "K": 1024,
+        },
+        "hy3_tp8_shared_gate_up_proj_m8": {
+            "tp_size": 8, "operator": "shared_gate_up_proj",
+            "M": 8, "N": 384, "K": 4096,
+        },
+        "hy3_tp8_shared_down_proj_m8": {
+            "tp_size": 8, "operator": "shared_down_proj",
+            "M": 8, "N": 4096, "K": 192,
+        },
+        "minimax_tp8_qkv_proj_m8": {
+            "tp_size": 8, "operator": "qkv_proj",
+            "M": 8, "N": 1280, "K": 6144,
+        },
+        "minimax_tp8_qkv_proj_and_indexer_qk_m8": {
+            "tp_size": 8, "operator": "qkv_proj_and_indexer_qk",
+            "M": 8, "N": 1536, "K": 6144,
+        },
+        "minimax_tp8_o_proj_m8": {
+            "tp_size": 8, "operator": "o_proj",
+            "M": 8, "N": 6144, "K": 1024,
+        },
+        "minimax_tp8_shared_gate_up_proj_m8": {
+            "tp_size": 8, "operator": "shared_gate_up_proj",
+            "M": 8, "N": 768, "K": 6144,
+        },
+        "minimax_tp8_shared_down_proj_m8": {
+            "tp_size": 8, "operator": "shared_down_proj",
+            "M": 8, "N": 6144, "K": 384,
+        },
+        "glm52_tp8_fused_qkv_a_proj_m8": {
+            "tp_size": 8, "operator": "fused_qkv_a_proj",
+            "M": 8, "N": 2624, "K": 6144,
+        },
+        "glm52_tp8_q_b_proj_m8": {
+            "tp_size": 8, "operator": "q_b_proj",
+            "M": 8, "N": 2048, "K": 2048,
+        },
+        "glm52_tp8_kv_b_proj_m8": {
+            "tp_size": 8, "operator": "kv_b_proj",
+            "M": 8, "N": 3584, "K": 512,
+        },
+        "glm52_tp8_o_proj_m8": {
+            "tp_size": 8, "operator": "o_proj",
+            "M": 8, "N": 6144, "K": 2048,
+        },
+        "glm52_tp8_shared_gate_up_proj_m8": {
+            "tp_size": 8, "operator": "shared_gate_up_proj",
+            "M": 8, "N": 512, "K": 6144,
+        },
+        "glm52_tp8_shared_down_proj_m8": {
+            "tp_size": 8, "operator": "shared_down_proj",
+            "M": 8, "N": 6144, "K": 256,
+        },
+    }
+    validate_contract_shapes(contract, shapes)
 
 
 def test_live_contract_accepts_minimax_m3_tp4_shapes():

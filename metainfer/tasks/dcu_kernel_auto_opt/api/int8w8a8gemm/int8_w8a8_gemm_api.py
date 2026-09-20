@@ -193,14 +193,19 @@ DEFAULT_OPTIMIZATION_M_VALUES: Final[tuple[int, ...]] = (2, 16, 3072)
 # the original three M values, so each TP4 operator gets exactly one M=4096
 # shape while TP8 defaults are unchanged.
 TP4_EXTRA_OPTIMIZATION_M_VALUES: Final[tuple[int, ...]] = (4096,)
-# Model-catalog TP8 large-prefill boundary added on 2026-08-27. The DeepSeek
-# TP8 default workload keeps the original three M values; Hy3 / MiniMax M3 /
-# GLM5.2 TP8 operators are additionally optimizable at M=4096 via
-# "Selected shapes only" (their (K,N) pairs are already in the allowed sets
-# and their Triton CUDA-graph baselines are measured). This constant is not
-# applied by _default_optimization_shapes(), so DEFAULT_OPTIMIZATION_SHAPES
+# Model-catalog TP8 extra M values. The DeepSeek TP8 default workload keeps
+# the original three M values; Hy3 / MiniMax M3 / GLM5.2 TP8 operators are
+# additionally optimizable at these M values via "Selected shapes only"
+# (their (K,N) pairs are already in the allowed sets and their Triton
+# CUDA-graph baselines are measured). This constant is not applied by
+# _default_optimization_shapes(), so DEFAULT_OPTIMIZATION_SHAPES
 # (DeepSeek-only) and its serial-validation fallback scope are unchanged.
-MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES: Final[tuple[int, ...]] = (4096,)
+#   M=4096: model-catalog large-prefill boundary added on 2026-08-27.
+#   M=8:    model-catalog short decode boundary added on 2026-09-20; the
+#           Triton Graph baselines for the 15 catalog (K, N) pairs were
+#           measured on worker29/gfx928 with tools/baseline/
+#           bench_triton_tp8_m8.py (raw passes in tp8_m8_graph_run{1,2,3}.json).
+MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES: Final[tuple[int, ...]] = (8, 4096)
 
 
 def _default_optimization_shapes() -> tuple[dict[str, int | str], ...]:
