@@ -20,6 +20,31 @@ async function postJson(url, body) {
   return payload;
 }
 
+// ---------------------------------------------------------------------------
+// Embedding context
+// ---------------------------------------------------------------------------
+// This view renders a DKAO run. Usually that is a task of this type, resolved
+// by task_id. The AHE page also embeds it, pointing at one question of one
+// iteration: those runs are spawned by the HE orchestrator and are not in the
+// task registry, so the caller passes their artifact directory instead and the
+// routes accept it (see routes.py -> _ahe_child_entry). Such an embedded view
+// is read-only: the round's workers belong to the HE orchestrator.
+//
+// Every component below takes `ctx = { taskId, stateDir, readOnly }` so both
+// the standalone page and the embedded one share one code path.
+export function apiBase({ taskId, stateDir }) {
+  const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId || "")}`;
+  return stateDir ? `${base}?state_dir=${encodeURIComponent(stateDir)}` : base;
+}
+
+function ctxOf(props) {
+  return {
+    taskId: props.taskId,
+    stateDir: props.stateDir || "",
+    readOnly: Boolean(props.readOnly),
+  };
+}
+
 function StateMachine({ graph }) {
   const nodes = graph?.nodes || [];
   if (!nodes.length) return html`<p class="muted">Waiting for the control plane.</p>`;
@@ -324,7 +349,7 @@ function GuidanceCard({ item }) {
   `;
 }
 
-function WorkerLane({ lane, taskId, onSaved }) {
+function WorkerLane({ lane, ctx, onSaved }) {
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const [restarting, setRestarting] = useState(false);
@@ -335,7 +360,7 @@ function WorkerLane({ lane, taskId, onSaved }) {
     setSaving(true);
     setMessage("");
     try {
-      const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId)}`;
+      const base = apiBase(ctx);
       await postJson(
         `${base}/workers/${encodeURIComponent(lane.worker_id)}/guidance`,
         { text: text.trim() },
@@ -357,7 +382,7 @@ function WorkerLane({ lane, taskId, onSaved }) {
     setRestarting(true);
     setMessage("");
     try {
-      const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId)}`;
+      const base = apiBase(ctx);
       await postJson(
         `${base}/workers/${encodeURIComponent(lane.worker_id)}/restart`, {},
       );
@@ -412,7 +437,7 @@ function WorkerLane({ lane, taskId, onSaved }) {
           ${lane.state}
         </span>
         <small>${lane.assigned_shapes?.join(", ") || "No shapes assigned"}</small>
-        ${["failed", "timed_out"].includes(lane.state) ? html`
+        ${!ctx.readOnly && ["failed", "timed_out"].includes(lane.state) ? html`
           <button
             class="btn dkao-restart-worker"
             type="button"
@@ -452,6 +477,7 @@ function WorkerLane({ lane, taskId, onSaved }) {
           ${!bootstrap.length && !rounds.length && !(lane.guidance || []).length
             ? html`<p class="muted">No plan recorded.</p>` : null}
         </div>
+        ${ctx.readOnly ? null : html`
         <form class="dkao-guidance-form" onSubmit=${submit}>
           <input
             value=${text}
@@ -463,7 +489,7 @@ function WorkerLane({ lane, taskId, onSaved }) {
           <button class="btn btn-primary" type="submit" disabled=${!text.trim() || !lane.assigned || saving}>
             ${saving ? "Saving…" : "Use next round"}
           </button>
-        </form>
+        </form>`}
         ${message ? html`<small class="dkao-guidance-message">${message}</small>` : null}
       </div>
     </div>
@@ -523,7 +549,7 @@ function SkillFuseStatus({ status, onRollback }) {
       ${synced && (synced.added?.length || synced.updated?.length)
         ? ` · 已同步到 ccb 库${synced.added?.length ? `（新增 ${synced.added.length}）` : ""}${synced.updated?.length ? `（更新 ${synced.updated.length}）` : ""}`
         : ""}
-      ${status.action === "merge" ? html`
+      ${status.action === "merge" && onRollback ? html`
         <button class="btn" type="button"
           onClick=${() => onRollback(status.name)}>还原</button>
       ` : null}
@@ -534,19 +560,19 @@ function SkillFuseStatus({ status, onRollback }) {
   `;
 }
 
-function SkillLibrary({ taskId, onClose }) {
+function SkillLibrary({ ctx, onClose }) {
   const [library, setLibrary] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const load = useCallback(async () => {
     try {
-      const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId)}`;
+      const base = apiBase(ctx);
       setLibrary(await fetchJson(`${base}/skills`));
       setError("");
     } catch (err) {
       setError(String(err));
     }
-  }, [taskId]);
+  }, [ctx.taskId, ctx.stateDir]);
   useEffect(() => { load(); }, [load]);
   // While a fusion job is running, poll the library so the status flips to
   // done/error without a manual refresh.
@@ -559,7 +585,7 @@ function SkillLibrary({ taskId, onClose }) {
     if (!window.confirm(`Add "${skill.name}" to the existing skill library (dsh, mirrored to Claude)?`)) return;
     setBusy(`publish-${skill.name}`);
     try {
-      const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId)}`;
+      const base = apiBase(ctx);
       await postJson(
         `${base}/skills/${encodeURIComponent(skill.name)}/publish`, {},
       );
@@ -576,7 +602,7 @@ function SkillLibrary({ taskId, onClose }) {
     )) return;
     setBusy(`fuse-${skill.name}`);
     try {
-      const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId)}`;
+      const base = apiBase(ctx);
       await postJson(`${base}/skills/fuse`, { skill_name: skill.name });
       await load();
     } catch (err) {
@@ -588,7 +614,7 @@ function SkillLibrary({ taskId, onClose }) {
   const syncNow = async () => {
     setBusy("sync");
     try {
-      const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId)}`;
+      const base = apiBase(ctx);
       await postJson(`${base}/skills/sync`, {});
       await load();
     } catch (err) {
@@ -601,7 +627,7 @@ function SkillLibrary({ taskId, onClose }) {
     if (!window.confirm(`Restore the last backup of skill "${name}"?`)) return;
     setBusy(`rollback-${name}`);
     try {
-      const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId)}`;
+      const base = apiBase(ctx);
       await postJson(`${base}/skills/${encodeURIComponent(name)}/rollback`, {});
       await load();
     } catch (err) {
@@ -617,11 +643,18 @@ function SkillLibrary({ taskId, onClose }) {
           <h2>Skill library</h2>
           <p class="muted">dsh 库为权威，融合/发布后自动同步到 Claude (ccb) 库。</p>
         </div>
+        ${ctx.readOnly ? null : html`
         <button class="btn" type="button" disabled=${busy === "sync"}
-          onClick=${syncNow}>${busy === "sync" ? "Syncing…" : "同步 Skill 库"}</button>
+          onClick=${syncNow}>${busy === "sync" ? "Syncing…" : "同步 Skill 库"}</button>`}
         <button class="btn" type="button" onClick=${onClose}>Close</button>
       </div>
       ${error ? html`<div class="task-banner task-banner-err">${error}</div>` : null}
+      ${readOnly ? html`
+        <div class="task-banner dkao-readonly-banner">
+          只读镜像 —— 该 DKAO 运行是 harness_evolve 的一轮考题，由 HE 编排器调度；
+          本页不提供引导 / 重启 / 发布等写操作。
+        </div>
+      ` : null}
       ${library?.publish_disabled_reason ? html`
         <div class="task-banner task-banner-err">
           ${library.publish_disabled_reason}
@@ -629,7 +662,8 @@ function SkillLibrary({ taskId, onClose }) {
             ? ` (${library.quarantined_count} pending files quarantined)` : ""}
         </div>
       ` : null}
-      <${SkillFuseStatus} status=${library?.fuse_status} onRollback=${rollback} />
+      <${SkillFuseStatus} status=${library?.fuse_status}
+        onRollback=${ctx.readOnly ? null : rollback} />
       ${!library ? html`<p class="muted">Loading skills…</p>` : html`
         <div class="dkao-skill-columns">
           <div class="dkao-skill-column">
@@ -648,8 +682,8 @@ function SkillLibrary({ taskId, onClose }) {
               ${(library.pending || []).map((skill) => html`
                 <${SkillFile}
                   skill=${skill}
-                  canPublish=${true}
-                  canFuse=${true}
+                  canPublish=${!ctx.readOnly}
+                  canFuse=${!ctx.readOnly}
                   busy=${busy}
                   onPublish=${publish}
                   onFuse=${fuse}
@@ -665,14 +699,17 @@ function SkillLibrary({ taskId, onClose }) {
   `;
 }
 
-export default function DcuKernelAutoOptDetail({ taskId, data }) {
+export default function DcuKernelAutoOptDetail(props) {
+  const { taskId, data } = props;
+  const ctx = ctxOf(props);
+  const readOnly = ctx.readOnly;
   const [runtime, setRuntime] = useState({ summary: null, graph: null, lanes: [] });
   const [error, setError] = useState(null);
   const [showSkills, setShowSkills] = useState(false);
   const refresh = useCallback(async () => {
     if (!taskId) return;
     try {
-      const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId)}`;
+      const base = apiBase(ctx);
       const [summary, graph, iterations] = await Promise.all([
         fetchJson(`${base}/summary`),
         fetchJson(`${base}/state-graph`),
@@ -683,7 +720,7 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
     } catch (err) {
       setError(String(err));
     }
-  }, [taskId]);
+  }, [ctx.taskId, ctx.stateDir]);
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
@@ -698,13 +735,13 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
   const loadVariants = useCallback(async () => {
     if (!taskId) return;
     try {
-      const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId)}`;
+      const base = apiBase(ctx);
       const data = await fetchJson(`${base}/variants`);
       // Map shape -> variant record (incl. median_us/speedup/source) so the
       // update flow can compare the existing variant against this task.
       setVariantIndex(new Map((data.variants || []).map((v) => [v.shape, v])));
     } catch (err) { /* non-fatal */ }
-  }, [taskId]);
+  }, [ctx.taskId, ctx.stateDir]);
   useEffect(() => { loadVariants(); }, [loadVariants]);
   const addVariant = async (shape) => {
     const existing = variantIndex ? variantIndex.get(shape) : null;
@@ -729,7 +766,7 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
     setVariantBusy(shape);
     setVariantMsg("");
     try {
-      const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId)}`;
+      const base = apiBase(ctx);
       const res = await postJson(`${base}/variants`, { shape_id: shape });
       const meta = res.meta || {};
       const tp = meta.tp != null ? `tp${meta.tp}` : "tp?";
@@ -766,7 +803,7 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
     setRenameBusy(true);
     setRenameMsg("");
     try {
-      const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId)}`;
+      const base = apiBase(ctx);
       const res = await postJson(`${base}/rename-repo`, {
         new_name: target.trim(),
       });
@@ -787,6 +824,12 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
   return html`
     <div class="dkao-detail">
       ${error ? html`<div class="task-banner task-banner-err">${error}</div>` : null}
+      ${readOnly ? html`
+        <div class="task-banner dkao-readonly-banner">
+          只读镜像 —— 该 DKAO 运行是 harness_evolve 的一轮考题，由 HE 编排器调度；
+          本页不提供引导 / 重启 / 发布等写操作。
+        </div>
+      ` : null}
       ${smokeOnly ? html`
         <div class="task-banner task-banner-err">
           Infrastructure smoke only: this task did not execute the selected
@@ -807,6 +850,7 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
             Kernel repository
             <span class="muted"> — ${repoName}</span>
           </h2>
+          ${readOnly ? null : html`
           <div class="dkao-repo-actions">
             <button
               class="btn"
@@ -814,9 +858,42 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
               onClick=${renameRepo}
             >${renameBusy ? "Renaming…" : "重命名仓库"}</button>
             ${renameMsg ? html`<span class="dkao-rename-msg">${renameMsg}</span>` : null}
-          </div>
+          </div>`}
         </section>
       ` : null}
+
+      <section class="panel dkao-profile-panel">
+        <h2>
+          执行画像
+          <span class="muted">
+            — ${runtime.summary?.execution_profile === "production"
+              ? "production（优先级 100，排在 harness_evolve 之前；仍过 VRAM≤90%/HCU==0 闸门）"
+              : "default（调控/占据模式按 gpu_mode 决定）"}
+          </span>
+        </h2>
+        ${(() => {
+          const lease = runtime.summary?.gpu_leases || {};
+          const gpus = lease.gpus || [];
+          const gate = runtime.summary?.gate || {};
+          return html`
+            ${gpus.length ? html`
+              <div class="muted">
+                已租设备：${gpus.map((g) => `GPU${g}`).join(", ")}
+                · 模式 ${lease.mode || "-"}
+                · 优先级 ${lease.priority ?? "-"}
+                · holder <code>${lease.holder || "-"}</code>
+              </div>
+            ` : html`<div class="muted">尚未取得设备租约</div>`}
+            ${gate.blocked ? html`
+              <div class="muted">
+                准入闸门：共 ${gate.checks} 次检查，其中 ${gate.blocked} 次因设备被占用而等待
+                — 最近一次 ${gate.last_event || "-"}@${gate.last_site || "-"}
+                GPU${gate.last_gpu ?? "-"}：${(gate.last_reasons || []).join("; ") || "-"}
+              </div>
+            ` : html`<div class="muted">准入闸门：暂无阻塞记录（VRAM≤90% 且 HCU==0）</div>`}
+          `;
+        })()}
+      </section>
 
       <section class="panel dkao-state-panel">
         <h2>
@@ -841,7 +918,7 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
         <h2>Iterations <span class="muted">four isolated worker lanes</span></h2>
         <div class="dkao-worker-lanes">
           ${runtime.lanes.map((lane) => html`
-            <${WorkerLane} lane=${lane} taskId=${taskId} onSaved=${refresh} />
+            <${WorkerLane} lane=${lane} ctx=${ctx} onSaved=${refresh} />
           `)}
         </div>
       </section>
@@ -868,6 +945,7 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
                   <td>${metric(item.metrics.logical_tops ?? item.metrics.tflops, 3)}</td>
                   <td>${metric(item.metrics.algorithmic_bandwidth_gb_s ?? item.metrics.bandwidth_gb_s, 2)} GB/s</td>
                   <td>
+                    ${readOnly ? null : html`
                     <button class="btn" type="button"
                       disabled=${variantBusy === shape}
                       onClick=${() => addVariant(shape)}>
@@ -876,7 +954,7 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
                         : (variantIndex && variantIndex.has(shape))
                           ? "更新 variant"
                           : "加入 variant"}
-                    </button>
+                    </button>`}
                     ${(() => {
                       const v = variantIndex ? variantIndex.get(shape) : null;
                       if (!v) {
@@ -940,10 +1018,11 @@ export default function DcuKernelAutoOptDetail({ taskId, data }) {
         <button class="btn btn-primary" type="button" onClick=${() => setShowSkills(true)}>
           View skill library
         </button>
+        ${readOnly ? html`<p class="muted">以只读方式嵌入：不提供发布/同步操作。</p>` : null}
       </section>
 
       ${showSkills ? html`
-        <${SkillLibrary} taskId=${taskId} onClose=${() => setShowSkills(false)} />
+        <${SkillLibrary} ctx=${ctx} onClose=${() => setShowSkills(false)} />
       ` : null}
     </div>
   `;

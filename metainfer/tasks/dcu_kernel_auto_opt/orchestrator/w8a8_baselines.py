@@ -225,6 +225,35 @@ _TRITON_GRAPH_BASELINES_US = {
     (8, 4096, 6144, 2048): ("o_proj", 54775.797),
     (8, 4096, 512, 6144): ("shared_gate_up_proj", 21254.589),
     (8, 4096, 6144, 256): ("shared_down_proj", 17700.262),
+    # Model-catalog TP8 M=8 short-decode baselines measured on 2026-09-20
+    # (worker29, gfx928) with the same protocol as the 2026-08-12 catalog:
+    # lmslim int8_utils.matmul_kernel (the W8A8 Triton baseline), GPU events,
+    # CUDA Graph replay, hot cache, warmups=10, samples=20, launches/sample=5,
+    # BM16/BN32/BK256 (matmul_int8 default for M<=32). Covers the Hy3 /
+    # MiniMax M3 / GLM5.2 TP8 operators at M=8 (see
+    # MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES in the operator API contract).
+    # Each value is the per-shape median of three independent passes
+    # (tools/baseline/bench_triton_tp8_m8.py -> tp8_m8_graph_run{1,2,3}.json,
+    # merged view in tp8_m8_graph_merged.json). The median keeps the estimate
+    # robust where a single pass was disturbed by a co-tenant on the shared
+    # card (e.g. minimax shared_down_proj pass 2: 33.760 vs 19.968/19.984).
+    # Cross-pass spread is <= 1.6% for 12 of 15 shapes, 5.8%/6.8% for
+    # glm52 q_b_proj / shared_down_proj.
+    (8, 8, 1280, 4096): ("qkv_proj", 66.432),
+    (8, 8, 4096, 1024): ("o_proj", 31.472),
+    (8, 8, 384, 4096): ("shared_gate_up_proj", 57.008),
+    (8, 8, 4096, 192): ("shared_down_proj", 14.592),
+    (8, 8, 1280, 6144): ("qkv_proj", 98.865),
+    (8, 8, 1536, 6144): ("qkv_proj_and_indexer_qk", 99.473),
+    (8, 8, 6144, 1024): ("o_proj", 32.960),
+    (8, 8, 768, 6144): ("shared_gate_up_proj", 92.928),
+    (8, 8, 6144, 384): ("shared_down_proj", 19.984),
+    (8, 8, 2624, 6144): ("fused_qkv_a_proj", 87.200),
+    (8, 8, 2048, 2048): ("q_b_proj", 36.704),
+    (8, 8, 3584, 512): ("kv_b_proj", 15.808),
+    (8, 8, 6144, 2048): ("o_proj", 58.864),
+    (8, 8, 512, 6144): ("shared_gate_up_proj", 88.448),
+    (8, 8, 6144, 256): ("shared_down_proj", 15.136),
 }
 
 

@@ -1,17 +1,21 @@
-"""State-conditioned optimization plan selector (v0, not yet wired).
+"""State-conditioned optimization plan selector.
 
-DKAO currently chooses the next optimization direction with the round menus in
-``prompts.py::w8a8_round_strategy`` (keyed by iteration number). This module is
-the first step toward a *state-conditioned* plan selector that decides "what to
-try this round" from the current measured state (history + PMC + budget), per
-the design in ``docs/dkao_harness_eval_protocol.md`` / M1 slice-2.
+DKAO chooses the next optimization direction in one of two ways:
 
-Slice-2 semantics:
-- **Additive and inert**: nothing in the runtime pipelines calls this module yet.
-  ``prompts.py``/``w8a8_pipeline.py`` keep their current behaviour unchanged.
+* ``METAINFER_PLANNER`` unset — the round menus in
+  ``prompts.py::w8a8_round_strategy`` (keyed by iteration number; the wording of
+  those menus is now data in ``systemprompt/round_strategy.yaml``);
+* ``METAINFER_PLANNER=1`` — this module, choosing from the current measured
+  state (history + PMC + budget), per ``docs/dkao_harness_eval_protocol.md`` /
+  M1 slice-2. ``w8a8_pipeline`` reaches it through ``choose_plan_from_history``
+  and records every decision in the worker's ``planner_plans.jsonl``.
+
+Semantics:
+- **Opt-in**: the pipeline consults this module only when ``METAINFER_PLANNER``
+  is set; with it unset, behaviour is byte-identical to the legacy menus.
 - The plan catalog lives as data in ``harness_default/planner_catalog.yaml``
   (read through ``harness_io`` with ``METAINFER_HARNESS_ROOT`` override) so it is
-  already an evolvable harness component; this module only consumes it.
+  an evolvable harness component; this module only consumes it.
 - Selection layering: P0 repair -> P1 budget/phase -> P2 bottleneck signature ->
   P3 coverage / anti-loop -> P4 fallback (legacy round-menu approximation).
   Rules are deterministic pure functions, tested without GPU.

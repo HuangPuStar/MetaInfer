@@ -19,7 +19,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 12.103659741538994,
-    "finished_at": "2026-08-26 14:59"
+    "finished_at": "2026-08-26 14:59",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "hy3-dsh-tp4-m16-2-368c654c",
@@ -41,7 +42,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 17.25332137715848,
-    "finished_at": "2026-08-26 14:59"
+    "finished_at": "2026-08-26 14:59",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "hy3-dsh-tp4-m16-2-368c654c",
@@ -63,7 +65,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 8.790590661865588,
-    "finished_at": "2026-08-26 14:59"
+    "finished_at": "2026-08-26 14:59",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "hy3-dsh-tp4-m16-2-368c654c",
@@ -85,7 +88,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 5.513470747715742,
-    "finished_at": "2026-08-26 14:59"
+    "finished_at": "2026-08-26 14:59",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "hy3-tp4-m4096-dsh-test1-bfdf3002",
@@ -107,7 +111,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 113.51448671844342,
-    "finished_at": "2026-08-22 05:44"
+    "finished_at": "2026-08-22 05:44",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "hy3-tp4-m4096-dsh-test1-bfdf3002",
@@ -129,7 +134,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 85.48282973644304,
-    "finished_at": "2026-08-22 05:44"
+    "finished_at": "2026-08-22 05:44",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "hy3-tp4-m4096-dsh-test1-bfdf3002",
@@ -151,7 +157,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 116.75758455641257,
-    "finished_at": "2026-08-22 05:44"
+    "finished_at": "2026-08-22 05:44",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "hy3-tp4-m4096-dsh-test1-bfdf3002",
@@ -173,7 +180,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 59.97493489868936,
-    "finished_at": "2026-08-22 05:44"
+    "finished_at": "2026-08-22 05:44",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "hy3-dsh-tp8-m4096-1-0ebb994d",
@@ -195,7 +203,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 134.86789833717404,
-    "finished_at": "2026-08-27 07:23"
+    "finished_at": "2026-08-27 07:23",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "hy3-dsh-tp8-m4096-1-0ebb994d",
@@ -217,7 +226,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 121.47625592271805,
-    "finished_at": "2026-08-27 07:23"
+    "finished_at": "2026-08-27 07:23",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "hy3-dsh-tp8-m4096-1-0ebb994d",
@@ -239,7 +249,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 111.70305446889755,
-    "finished_at": "2026-08-27 07:23"
+    "finished_at": "2026-08-27 07:23",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "hy3-dsh-tp8-m4096-1-0ebb994d",
@@ -261,7 +272,100 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 37.497086951439755,
-    "finished_at": "2026-08-27 07:23"
+    "finished_at": "2026-08-27 07:23",
+    "validation_state": "最终验收通过"
+  },
+  {
+    "task_id": "hy3-dsh-tp8-m16-9-8-0161e718",
+    "model": "Hy3 (gfx928 INT8 W8A8)",
+    "kernel_repo": "hy3-dsh-TP8-M16-9.8",
+    "tp": 8,
+    "operator": "qkv_proj",
+    "M": 16,
+    "N": 1280,
+    "K": 4096,
+    "dtype": "INT8 W8A8",
+    "baseline_us": 74.782,
+    "worker_best_us": 19.29679036140442,
+    "best_variant_source": "worker_0 accepted/<shape> (n=30 samples)",
+    "final_us": 19.29679036140442,
+    "final_p90_us": 19.323190450668335,
+    "speedup_x": 3.875359507950698,
+    "improvement_pct": 287.53595079506977,
+    "target_met": null,
+    "passed": null,
+    "logical_tops": 8.694303915720704,
+    "finished_at": "",
+    "validation_state": "仅worker验收(未过最终验收)"
+  },
+  {
+    "task_id": "hy3-dsh-tp8-m16-9-8-0161e718",
+    "model": "Hy3 (gfx928 INT8 W8A8)",
+    "kernel_repo": "hy3-dsh-TP8-M16-9.8",
+    "tp": 8,
+    "operator": "o_proj",
+    "M": 16,
+    "N": 4096,
+    "K": 1024,
+    "dtype": "INT8 W8A8",
+    "baseline_us": 32.137,
+    "worker_best_us": 11.043989658355713,
+    "best_variant_source": "worker_1 accepted/<shape> (n=30 samples)",
+    "final_us": 11.043989658355713,
+    "final_p90_us": 11.16318941116333,
+    "speedup_x": 2.9099085560701914,
+    "improvement_pct": 190.99085560701914,
+    "target_met": null,
+    "passed": null,
+    "logical_tops": 12.153011017938878,
+    "finished_at": "",
+    "validation_state": "仅worker验收(未过最终验收)"
+  },
+  {
+    "task_id": "hy3-dsh-tp8-m16-9-8-0161e718",
+    "model": "Hy3 (gfx928 INT8 W8A8)",
+    "kernel_repo": "hy3-dsh-TP8-M16-9.8",
+    "tp": 8,
+    "operator": "shared_gate_up_proj",
+    "M": 16,
+    "N": 384,
+    "K": 4096,
+    "dtype": "INT8 W8A8",
+    "baseline_us": 66.527,
+    "worker_best_us": 12.48797059059143,
+    "best_variant_source": "worker_2 accepted/<shape> (n=30 samples)",
+    "final_us": 12.48797059059143,
+    "final_p90_us": 12.534370422363281,
+    "speedup_x": 5.327286729048045,
+    "improvement_pct": 432.7286729048045,
+    "target_met": null,
+    "passed": null,
+    "logical_tops": 4.030410516655156,
+    "finished_at": "",
+    "validation_state": "仅worker验收(未过最终验收)"
+  },
+  {
+    "task_id": "hy3-dsh-tp8-m16-9-8-0161e718",
+    "model": "Hy3 (gfx928 INT8 W8A8)",
+    "kernel_repo": "hy3-dsh-TP8-M16-9.8",
+    "tp": 8,
+    "operator": "shared_down_proj",
+    "M": 16,
+    "N": 4096,
+    "K": 192,
+    "dtype": "INT8 W8A8",
+    "baseline_us": 17.312,
+    "worker_best_us": 8.670825064182281,
+    "best_variant_source": "worker_3 accepted/<shape> (n=30 samples)",
+    "final_us": 8.670825064182281,
+    "final_p90_us": 9.144449830055237,
+    "speedup_x": 1.9965804720836726,
+    "improvement_pct": 99.65804720836726,
+    "target_met": null,
+    "passed": null,
+    "logical_tops": 2.9023563286907703,
+    "finished_at": "",
+    "validation_state": "仅worker验收(未过最终验收)"
   },
   {
     "task_id": "minimax-dsh-tp8-m16-1-78402260",
@@ -283,7 +387,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 7.581029876132359,
-    "finished_at": "2026-08-28 17:17"
+    "finished_at": "2026-08-28 17:17",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimax-dsh-tp8-m16-1-78402260",
@@ -305,7 +410,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 7.599622449219237,
-    "finished_at": "2026-08-28 17:17"
+    "finished_at": "2026-08-28 17:17",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimax-dsh-tp8-m16-1-78402260",
@@ -327,7 +433,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 17.10070466699301,
-    "finished_at": "2026-08-28 17:17"
+    "finished_at": "2026-08-28 17:17",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimax-dsh-tp8-m16-1-78402260",
@@ -349,7 +456,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 8.718209743071991,
-    "finished_at": "2026-08-28 17:17"
+    "finished_at": "2026-08-28 17:17",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimax-dsh-tp8-m16-1-78402260",
@@ -371,7 +479,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 8.082003660070677,
-    "finished_at": "2026-08-28 17:17"
+    "finished_at": "2026-08-28 17:17",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimaxm3-dsh-tp4-m4096-1-0c2f84a9",
@@ -393,7 +502,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 74.24514869949742,
-    "finished_at": "2026-08-23 18:45"
+    "finished_at": "2026-08-23 18:45",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimaxm3-dsh-tp4-m4096-1-0c2f84a9",
@@ -415,7 +525,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 118.31698222866211,
-    "finished_at": "2026-08-23 18:45"
+    "finished_at": "2026-08-23 18:45",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimaxm3-dsh-tp4-m4096-1-0c2f84a9",
@@ -437,7 +548,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 136.98508169710212,
-    "finished_at": "2026-08-23 18:45"
+    "finished_at": "2026-08-23 18:45",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimaxm3-dsh-tp4-m4096-1-0c2f84a9",
@@ -459,7 +571,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 80.33419874225937,
-    "finished_at": "2026-08-23 18:45"
+    "finished_at": "2026-08-23 18:45",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimaxm3-dsh-tp4-m4096-1-0c2f84a9",
@@ -481,7 +594,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 60.95455267843923,
-    "finished_at": "2026-08-23 18:45"
+    "finished_at": "2026-08-23 18:45",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimaxm3-dsh-tp8-m4096-1-b0482833",
@@ -503,7 +617,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 135.68637642417067,
-    "finished_at": "2026-08-29 03:28"
+    "finished_at": "2026-08-29 03:28",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimaxm3-dsh-tp8-m4096-1-b0482833",
@@ -525,7 +640,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 148.82460170966874,
-    "finished_at": "2026-08-29 03:28"
+    "finished_at": "2026-08-29 03:28",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimaxm3-dsh-tp8-m4096-1-b0482833",
@@ -547,7 +663,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 130.64379245024566,
-    "finished_at": "2026-08-29 03:28"
+    "finished_at": "2026-08-29 03:28",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimaxm3-dsh-tp8-m4096-1-b0482833",
@@ -569,7 +686,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 123.91928365478229,
-    "finished_at": "2026-08-29 03:28"
+    "finished_at": "2026-08-29 03:28",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "minimaxm3-dsh-tp8-m4096-1-b0482833",
@@ -591,7 +709,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 62.14396076195009,
-    "finished_at": "2026-08-29 03:28"
+    "finished_at": "2026-08-29 03:28",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "glm5-2-dsh-tp8-m4096-1-e6a280a2",
@@ -613,7 +732,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 140.78913965554716,
-    "finished_at": "2026-08-31 11:23"
+    "finished_at": "2026-08-31 11:23",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "glm5-2-dsh-tp8-m4096-1-e6a280a2",
@@ -635,7 +755,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 159.48946182998893,
-    "finished_at": "2026-08-31 11:23"
+    "finished_at": "2026-08-31 11:23",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "glm5-2-dsh-tp8-m4096-1-e6a280a2",
@@ -657,7 +778,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 111.55233090221004,
-    "finished_at": "2026-08-31 11:23"
+    "finished_at": "2026-08-31 11:23",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "glm5-2-dsh-tp8-m4096-1-e6a280a2",
@@ -679,7 +801,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 136.3839562001365,
-    "finished_at": "2026-08-31 11:23"
+    "finished_at": "2026-08-31 11:23",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "glm5-2-dsh-tp8-m4096-1-e6a280a2",
@@ -701,7 +824,8 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 94.49491855548743,
-    "finished_at": "2026-08-31 11:23"
+    "finished_at": "2026-08-31 11:23",
+    "validation_state": "最终验收通过"
   },
   {
     "task_id": "glm5-2-dsh-tp8-m4096-1-e6a280a2",
@@ -723,6 +847,7 @@
     "target_met": true,
     "passed": true,
     "logical_tops": 47.089410050974806,
-    "finished_at": "2026-08-31 11:23"
+    "finished_at": "2026-08-31 11:23",
+    "validation_state": "最终验收通过"
   }
 ]

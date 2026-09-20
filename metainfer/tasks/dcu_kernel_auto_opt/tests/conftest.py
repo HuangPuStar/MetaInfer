@@ -21,6 +21,20 @@ def client(app):
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _no_measurement_gate(monkeypatch):
+    """Offline tests never wait on a real device.
+
+    Every timed benchmark and PMC profile now passes the admission gate
+    (VRAM <= 90% and HCU == 0), which on a busy machine means a 30-minute wait
+    per check. Unit tests exercise command construction and parsing, not
+    admission, so the gate is off unless a test turns it back on (see
+    ``test_gpu_preflight.py``).
+    """
+    monkeypatch.setenv("METAINFER_GPU_PREFLIGHT", "0")
+    yield
+
+
 def register_dkao_task(
     state_dir, workspace_dir, task_id: str = "dkao-1"
 ) -> TaskEntry:

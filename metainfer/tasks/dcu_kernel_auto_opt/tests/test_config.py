@@ -81,7 +81,26 @@ assignments:
     assert cfg.claude_model == "deepseek/deepseek-v4-flash-0731"
 
 
-def test_dsh_default_model_when_agent_model_missing(monkeypatch):
+def test_dsh_flash_41_label_resolves_to_flash_model(monkeypatch):
+    """The new frontend label maps to deepseek/deepseek-flash (4.1)."""
+    monkeypatch.delenv("DSH_AGENT_MODEL", raising=False)
+    req = _req("""
+shapes:
+  - {id: m2, M: 2, N: 16, K: 32}
+assignments:
+  worker_0: {gpu: 0, shapes: [m2]}
+""")
+    req["answers"]["agent_framework"] = "dsh"
+    req["answers"]["agent_model"] = "deepseek-flash-4.1"
+
+    assert load_config(req).claude_model == "deepseek/deepseek-flash"
+    # Un-pinned, the older label still resolves to its own pinned build.
+    req["answers"]["agent_model"] = "deepseek-v4-flash"
+    assert load_config(req).claude_model == "deepseek/deepseek-v4-flash-0731"
+
+
+def test_dsh_model_pin_collapses_catalog(monkeypatch):
+    """DSH_AGENT_MODEL pins a mixed-version host to one build for every dsh label."""
     monkeypatch.setenv("DSH_AGENT_MODEL", "deepseek/deepseek-v4-flash-0731")
     req = _req("""
 shapes:
@@ -90,8 +109,24 @@ assignments:
   worker_0: {gpu: 0, shapes: [m2]}
 """)
     req["answers"]["agent_framework"] = "dsh"
+    req["answers"]["agent_model"] = "deepseek-flash-4.1"
 
-    assert load_config(req).claude_model == DSH_DEFAULT_MODEL_ID
+    assert load_config(req).claude_model == "deepseek/deepseek-v4-flash-0731"
+
+
+def test_dsh_default_model_when_agent_model_missing(monkeypatch):
+    monkeypatch.delenv("DSH_AGENT_MODEL", raising=False)
+    req = _req("""
+shapes:
+  - {id: m2, M: 2, N: 16, K: 32}
+assignments:
+  worker_0: {gpu: 0, shapes: [m2]}
+""")
+    req["answers"]["agent_framework"] = "dsh"
+
+    cfg = load_config(req)
+    assert cfg.claude_model == DSH_DEFAULT_MODEL_ID
+    assert cfg.claude_model == "deepseek/deepseek-flash"
 
 
 def test_dsh_rejects_ccb_only_model(monkeypatch):

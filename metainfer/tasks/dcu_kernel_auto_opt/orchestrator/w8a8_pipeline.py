@@ -10,7 +10,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Sequence
 
 from metainfer.orchestrator.state import StateStore
 from metainfer.orchestrator.subagent_manager import AgentSpec, SubAgentManager
@@ -32,6 +32,232 @@ from .planner import choose_plan_from_history, render_plan
 
 
 _ENV_PLANNER = "METAINFER_PLANNER"
+
+#: Sub-task measurement gate. A DKAO child iterates for hours, so the device it
+#: was given can be taken over long after the parent admitted it. Every timed
+#: benchmark and every PMC profile re-checks the gate first: a number produced
+#: while another workload shares the card is not evidence, it is noise
+#: (the same unchanged shape has been observed at 884us -> 3047us).
+MEASUREMENT_GATE_VRAM_PERCENT = 90.0
+MEASUREMENT_GATE_UTIL_PERCENT = 0.0
+MEASUREMENT_GATE_WAIT_S = 1800      # re-check every 30 minutes
+MEASUREMENT_GATE_MAX_WAITS = 48     # ... for at most 24 hours
+#: where the per-check audit trail lands when the task did not pass a state dir
+_GATE_LOG_NAME = "measurement_gate.jsonl"
+
+
+class MeasurementGateBlocked(RuntimeError):
+    """The device did not pass ``VRAM <= 90% and HCU == 0`` in time.
+
+    Raising this instead of measuring is the point: a blocked device yields no
+    number at all, which the parent treats as an environment failure and
+    re-measures later (and eventually stops the round) rather than scoring a
+    polluted reading as a kernel result.
+    """
+
+    def __init__(self, gpu: int, checks: int, reason: str = "") -> None:
+        self.gpu = gpu
+        self.checks = checks
+        self.gate_reason = reason
+        super().__init__(
+            f"GPU {gpu} did not pass the measurement gate (VRAM <="
+            f"{MEASUREMENT_GATE_VRAM_PERCENT:.0f}% and HCU =="
+            f"{MEASUREMENT_GATE_UTIL_PERCENT:.0f}%) after {checks} checks"
+            + (f": {reason}" if reason else "")
+        )
+
+
+def _gate_preflight_enabled() -> bool:
+    """``METAINFER_GPU_PREFLIGHT=off`` is the operator's opt-out of gating.
+
+    Fails *closed*: if the gate module cannot be imported we still gate (all
+    ``preflight_enabled`` does is read the env/form switch, so a failure here
+    means something is wrong, not that gating was turned off).
+    """
+    try:
+        from .gpu_preflight import preflight_enabled
+    except Exception:  # noqa: BLE001
+        return True
+    try:
+        return bool(preflight_enabled(None))
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def _gate_wait_config(env: Dict[str, str]) -> tuple[int, int]:
+    def _int(name: str, default: int) -> int:
+        try:
+            return int(str(env.get(name) or "").strip() or default)
+        except (TypeError, ValueError):
+            return default
+
+    return (_int("METAINFER_GATE_WAIT_SECONDS", MEASUREMENT_GATE_WAIT_S),
+            _int("METAINFER_GATE_MAX_WAITS", MEASUREMENT_GATE_MAX_WAITS))
+
+
+def _env_flag_off(env: Dict[str, str]) -> bool:
+    """True when the operator turned the GPU probe (and so the gate) off."""
+    raw = str(env.get("METAINFER_GPU_PREFLIGHT") or "").strip().lower()
+    return raw in {"0", "false", "no", "off"}
+
+
+def _gate_log(payload: Dict[str, Any], *, state_dir: "Path | None",
+              env: Dict[str, str]) -> None:
+    """Best-effort audit row for one gate check (never raises)."""
+    row = {"ts": time.time(), **payload}
+    targets = []
+    if state_dir is not None:
+        targets.append(Path(state_dir) / _GATE_LOG_NAME)
+    raw = str(env.get("METAINFER_CHILD_STATE_DIR") or "").strip()
+    if raw:
+        targets.append(Path(raw) / _GATE_LOG_NAME)
+    for path in targets:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        except OSError:
+            continue
+
+
+def discard_if_contaminated(*, experiments_path: Path, iteration: int,
+                            iteration_dir: Path, source: Path,
+                            state_dir: Path,
+                            best_commit: str = "") -> Dict[str, Any]:
+    """Drop a round measured while this worker's device was shared.
+
+    Returns the discard record. When a round is discarded the kernel source is
+    rolled back to its last good commit, so the round can be re-measured from
+    the previous state instead of on top of a polluted one.
+    """
+    result = discard_contaminated_round(
+        experiments_path=experiments_path, iteration=iteration,
+        state_dir=state_dir, iteration_dir=iteration_dir)
+    if not result.get("discarded"):
+        return result
+    try:
+        if best_commit:
+            _run(["git", "reset", "--hard", best_commit], cwd=source)
+        else:
+            _run(["git", "checkout", "--", "."], cwd=source)
+        result["source_restored"] = True
+    except Exception as exc:  # noqa: BLE001 - the discard still stands
+        result["source_restored"] = False
+        result["restore_error"] = repr(exc)
+    return result
+
+
+def ensure_measurement_gate(gpu: int, *, state_dir: "Path | None" = None,
+                            env: Dict[str, str] | None = None,
+                            wait_seconds: int | None = None,
+                            max_waits: int | None = None,
+                            site: str = "benchmark") -> Dict[str, Any]:
+    """Wait until ``gpu`` passes VRAM <= 90% and HCU == 0 before measuring.
+
+    Returns the passing device check. Raises :class:`MeasurementGateBlocked`
+    after ``max_waits`` re-checks (default 48 x 30 min = 24 h) so a shared card
+    can never silently produce a measurement.
+    """
+    env = dict(env or os.environ)
+    if _env_flag_off(env):
+        return {"skipped": True, "reason": "METAINFER_GPU_PREFLIGHT disabled"}
+    from .gpu_preflight import preflight_gpus
+
+    default_wait, default_max = _gate_wait_config(env)
+    wait_s = int(wait_seconds if wait_seconds is not None else default_wait)
+    max_waits = int(max_waits if max_waits is not None else default_max)
+    attempts = 0
+    last: Dict[str, Any] = {}
+    while True:
+        attempts += 1
+        try:
+            plan = preflight_gpus(
+                [int(gpu)], samples=1, interval_s=0.0,
+                vram_limit_percent=MEASUREMENT_GATE_VRAM_PERCENT,
+                util_tolerance=MEASUREMENT_GATE_UTIL_PERCENT,
+            )
+            check = dict((plan.get("gpus") or {}).get(int(gpu)) or {})
+        except Exception as exc:  # noqa: BLE001 - fail closed, never measure
+            check = {"usable": False, "reasons": [f"gate probe failed: {exc!r}"]}
+        if not check:
+            check = {"usable": False, "reasons": ["no device state was read"]}
+        last = check
+        _gate_log({
+            "event": "gate_ok" if check.get("usable") else "gate_blocked",
+            "site": site, "gpu": int(gpu), "attempt": attempts,
+            "max_waits": max_waits, "wait_seconds": wait_s,
+            "usable": bool(check.get("usable")),
+            "util_percent": check.get("util_percent"),
+            "vram_percent": check.get("vram_percent"),
+            "state_source": check.get("state_source"),
+            "reasons": list(check.get("reasons") or []),
+        }, state_dir=state_dir, env=env)
+        if check.get("usable"):
+            return check
+        if attempts > max_waits:
+            reason = "; ".join(str(r) for r in (check.get("reasons") or []))
+            raise MeasurementGateBlocked(int(gpu), attempts - 1, reason)
+        time.sleep(max(0.0, float(wait_s)))
+
+
+def ensure_any_measurement_gate(devices: Sequence[int], *,
+                                state_dir: "Path | None" = None,
+                                env: Dict[str, str] | None = None,
+                                wait_seconds: int | None = None,
+                                max_waits: int | None = None,
+                                site: str = "probe") -> int:
+    """Wait until *one* of ``devices`` passes the gate; return that device.
+
+    Pinning a helper to a single card is how a task ends up sleeping 24 h while
+    its siblings sit idle: "GPU 0 is occupied" says nothing about GPU 1. The
+    candidates keep their given order, so a preferred device still wins when it
+    is free, and the wait only happens when *no* candidate passes.
+    """
+    candidates = [int(d) for d in devices]
+    if not candidates:
+        raise ValueError("ensure_any_measurement_gate needs at least one device")
+    env = dict(env or os.environ)
+    if _env_flag_off(env):
+        return candidates[0]
+    from .gpu_preflight import preflight_gpus
+
+    default_wait, default_max = _gate_wait_config(env)
+    wait_s = int(wait_seconds if wait_seconds is not None else default_wait)
+    max_waits = int(max_waits if max_waits is not None else default_max)
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            plan = preflight_gpus(
+                candidates, samples=1, interval_s=0.0,
+                vram_limit_percent=MEASUREMENT_GATE_VRAM_PERCENT,
+                util_tolerance=MEASUREMENT_GATE_UTIL_PERCENT,
+            )
+            states = dict(plan.get("gpus") or {})
+        except Exception as exc:  # noqa: BLE001 - fail closed, never measure
+            states = {d: {"usable": False,
+                          "reasons": [f"gate probe failed: {exc!r}"]}
+                      for d in candidates}
+        passing = [d for d in candidates if (states.get(d) or {}).get("usable")]
+        blocked = [d for d in candidates if d not in passing]
+        _gate_log({
+            "event": "gate_ok" if passing else "gate_blocked",
+            "site": site, "gpu": passing[0] if passing else candidates[0],
+            "candidates": candidates, "passing": passing,
+            "attempt": attempts, "max_waits": max_waits,
+            "wait_seconds": wait_s, "usable": bool(passing),
+            "reasons": [r for d in blocked
+                        for r in ((states.get(d) or {}).get("reasons") or [])],
+        }, state_dir=state_dir, env=env)
+        if passing:
+            return int(passing[0])
+        if attempts > max_waits:
+            reason = "; ".join(
+                f"gpu{d}: " + ", ".join(
+                    str(r) for r in ((states.get(d) or {}).get("reasons") or [])
+                ) for d in blocked)
+            raise MeasurementGateBlocked(int(candidates[0]), attempts - 1, reason)
+        time.sleep(max(0.0, float(wait_s)))
 
 
 def _planner_enabled() -> bool:
@@ -132,6 +358,7 @@ from .pmc_profile import (
     parse_pmc_csv,
 )
 from .real_pipeline import _last_json, _run, _safe, _status
+from .contention import discard_contaminated_round
 from .result_store import SCHEMA_VERSION, append_jsonl, write_json
 from .skill_store import generate_merged_skill, generate_worker_skill
 from .w8a8_baselines import fixed_triton_graph_baseline
@@ -858,6 +1085,7 @@ def _check_required_files(repo: Path) -> bool:
 class W8A8Runner:
     def __init__(self, worker_root: Path, gpu: int) -> None:
         self.worker_root = worker_root
+        self.gpu = int(gpu)
         self.source = worker_root / "source"
         staged_harness = self.source / "w8a8_bench.py"
         self.harness = (
@@ -879,6 +1107,27 @@ class W8A8Runner:
             "TMPDIR",
         ):
             Path(self.env[key]).mkdir(parents=True, exist_ok=True)
+
+    def _ensure_gate(self, site: str) -> Dict[str, Any]:
+        """Block until this worker's device passes the measurement gate.
+
+        Called immediately before every timed benchmark and PMC profile, so a
+        device taken over mid-task stops producing numbers instead of producing
+        polluted ones. ``METAINFER_GPU_PREFLIGHT=off`` keeps the old behaviour.
+        """
+        if not _gate_preflight_enabled():
+            return {}
+        return ensure_measurement_gate(
+            int(self.gpu),
+            state_dir=self._gate_state_dir(),
+            env=self.env,
+            site=site,
+        )
+
+    def _gate_state_dir(self) -> "Path | None":
+        """Child state dir for gate audit rows, when the task provides one."""
+        raw = str(self.env.get("METAINFER_CHILD_STATE_DIR") or "").strip()
+        return Path(raw) if raw else None
 
     def _prepare_compile_cache(self) -> Dict[str, Any]:
         """Stage immutable content-addressed compiler inputs for Ninja reuse."""
@@ -980,6 +1229,7 @@ class W8A8Runner:
         if not check_correctness:
             command.append("--skip-correctness")
         build = self._prepare_compile_cache()
+        self._ensure_gate("benchmark")
         result = _run(
             command, cwd=self.source, env=self.env,
             timeout=_BENCHMARK_TIMEOUT_S,
@@ -1049,6 +1299,7 @@ class W8A8Runner:
             )
         output_dir.mkdir(parents=True, exist_ok=True)
         build = self._prepare_compile_cache()
+        self._ensure_gate("profile_pmc")
         _run(
             [
                 "bash",
@@ -2601,7 +2852,45 @@ acceptance rules to the phase section.
                 write_json(
                     iteration_dir / "iteration.json", experiment
                 )
-                append_jsonl(experiments_path, experiment)
+                # A round measured while the parent had this device frozen
+                # (another workload took it over) is not evidence: drop the
+                # number, quarantine the record and roll the worker back to the
+                # previous good state so the round is simply re-measured.
+                contaminated = discard_if_contaminated(
+                    experiments_path=experiments_path,
+                    iteration=iteration,
+                    iteration_dir=iteration_dir,
+                    source=source,
+                    state_dir=self.state_dir,
+                )
+                if contaminated.get("discarded"):
+                    accepted = False
+                    best_commit = _run(
+                        ["git", "rev-parse", "HEAD"], cwd=source
+                    ).stdout.strip()
+                    experiment["contaminated_discarded"] = {
+                        "reason": contaminated.get("reason"),
+                        "quarantined": contaminated.get("quarantined"),
+                    }
+                    self.store.append_timeline(
+                        "worker_round_discarded_contended",
+                        {
+                            "worker_id": assignment.worker_id,
+                            "physical_gpu": assignment.gpu,
+                            "shape_id": shape_id,
+                            "iteration": iteration,
+                            "window": contaminated.get("window"),
+                            "reason": contaminated.get("reason"),
+                            "quarantined": contaminated.get("quarantined"),
+                            "policy": (
+                                "the device was shared while this round was "
+                                "measured; the number is discarded and the "
+                                "round is re-measured"
+                            ),
+                        },
+                    )
+                else:
+                    append_jsonl(experiments_path, experiment)
                 if candidate_destination is not None:
                     publish_iteration_candidate(
                         iteration_dir, candidate_destination

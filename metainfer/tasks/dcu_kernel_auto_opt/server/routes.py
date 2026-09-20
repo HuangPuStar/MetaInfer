@@ -71,6 +71,132 @@ def _read_jsonl(path: Path) -> list[Dict[str, Any]]:
     return rows
 
 
+def _execution_profile(state_dir: Path) -> str:
+    """``production`` or ``default`` — the queue rank this task runs at."""
+    requirements = read_requirements(state_dir) or {}
+    answers = requirements.get("answers")
+    raw = ""
+    if isinstance(answers, dict):
+        raw = str(answers.get("execution_profile") or "")
+    raw = raw.strip().lower()
+    return "production" if raw in {"production", "prod"} else "default"
+
+
+# --------------------------------------------------------------------------- #
+# Embedding a harness_evolve child (AHE iteration -> DKAO view)
+# --------------------------------------------------------------------------- #
+# Every harness_evolve question is a real DKAO run, but it is spawned straight
+# from the orchestrator CLI and is therefore NOT in the WebUI task registry --
+# so ``task_or_404`` cannot find it and the DKAO page could not render it. The
+# AHE page passes the child's artifact directory instead. Only genuine AHE
+# children are accepted, and they are exposed read-only: the roster of a round
+# belongs to the HE orchestrator, not to whoever happens to be looking at it.
+AHE_CHILD_PREFIX = "ahe-child:"
+
+
+def _ahe_child_entry(state_dir_raw: str):
+    """Build a read-only entry for a harness_evolve child's artifact dir.
+
+    Raises 404 unless ``state_dir`` is the ``state/`` of a question inside a
+    *registered* harness_evolve task's ``children/iteration_NNN/<question>/``
+    tree. The registry is what makes the caller trustworthy: without it any
+    path on the box could be read through these routes.
+    """
+    from metainfer.server import tasks as _tasks
+
+    state_dir = Path(state_dir_raw)
+    parts = state_dir.parts
+    # .../children/iteration_NNN/<question>/state
+    # parts[-1] = "state", parts[-2] = <question>, parts[-3] = iteration_NNN
+    if state_dir.name != "state" or len(parts) < 3 \
+            or not re.fullmatch(r"iteration_\d+", parts[-3]):
+        raise HTTPException(404, f"not an AHE child directory: {state_dir}")
+    question_dir = state_dir.parent
+    iteration_dir = question_dir.parent
+    children_dir = iteration_dir.parent
+    if children_dir.name != "children":
+        raise HTTPException(404, f"not an AHE child directory: {state_dir}")
+    workspace_dir = children_dir.parent
+    owner = next(
+        (e for e in _tasks.list_tasks()
+         if e.type == "harness-evolve"
+         and Path(e.workspace_dir or "") == workspace_dir),
+        None,
+    )
+    if owner is None:
+        raise HTTPException(
+            404, f"no harness-evolve task owns {workspace_dir}")
+    return _tasks.TaskEntry(
+        id=f"{AHE_CHILD_PREFIX}{state_dir}",
+        type=PLUGIN_TYPE,
+        label=f"{owner.label or owner.id} · {question_dir.name}",
+        state_dir=str(state_dir),
+        workspace_dir=str(question_dir / "workspace"),
+        created_at=owner.created_at,
+        launcher=owner.launcher,
+    )
+
+
+def _entry_for(request: Request, task_id: str):
+    """``task_or_404``, plus the embed path used by the AHE page."""
+    state_dir_raw = str(request.query_params.get("state_dir") or "").strip()
+    if state_dir_raw:
+        return _ahe_child_entry(state_dir_raw)
+    return task_or_404(task_id)
+
+
+def _is_mirrored_child(entry) -> bool:
+    """True for the read-only AHE-child view (see ``_ahe_child_entry``)."""
+    return str(getattr(entry, "id", "")).startswith(AHE_CHILD_PREFIX)
+
+
+def _require_writable(entry) -> None:
+    """Refuse writes through the embedded mirror.
+
+    An AHE round's workers are steered by the HE orchestrator that spawned
+    them; letting the drill-down mutate them would let a read-only view change
+    a run's roster mid-round. The UI hides these controls too -- this is the
+    half that a hand-made request cannot bypass.
+    """
+    if _is_mirrored_child(entry):
+        raise HTTPException(
+            403, "this DKAO run is embedded read-only from a harness_evolve "
+                 "iteration; steer it from its own task page")
+
+
+
+
+def _latest_gpu_lease(state_dir: Path) -> Dict[str, Any]:
+    """The last ``gpu_leases_acquired`` row, or ``{}`` when nothing is leased."""
+    latest: Dict[str, Any] = {}
+    for row in _read_jsonl(state_dir / "timeline.jsonl"):
+        if row.get("type") == "gpu_leases_acquired":
+            payload = row.get("payload")
+            if isinstance(payload, dict):
+                latest = payload
+    return latest
+
+
+def _gate_status(state_dir: Path, limit: int = 200) -> Dict[str, Any]:
+    """Compact view of the admission-gate audit trail.
+
+    Answers "why is nothing happening": a task waiting for VRAM<=90%/HCU==0 on
+    every candidate device leaves the blocked checks and their reasons here.
+    """
+    rows = _read_jsonl(state_dir / "measurement_gate.jsonl")[-limit:]
+    blocked = [r for r in rows if r.get("event") == "gate_blocked"]
+    last = rows[-1] if rows else {}
+    return {
+        "checks": len(rows),
+        "blocked": len(blocked),
+        "last_event": last.get("event"),
+        "last_ts": last.get("ts"),
+        "last_site": last.get("site"),
+        "last_gpu": last.get("gpu"),
+        "last_reasons": list(last.get("reasons") or []),
+    }
+
+
 def _running_pid(path: Path) -> int | None:
     record = _load(path, {}) or {}
     try:
@@ -473,8 +599,8 @@ def build_router(plugin) -> APIRouter:
     router = APIRouter()
 
     @router.get("/summary")
-    def summary(task_id: str) -> Dict[str, Any]:
-        entry = task_or_404(task_id)
+    def summary(task_id: str, request: Request) -> Dict[str, Any]:
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
         state_dir = state_dir_for(entry)
         workspace_dir = workspace_dir_for(entry)
@@ -488,11 +614,16 @@ def build_router(plugin) -> APIRouter:
             "plan": _load(workspace_dir / "plan.json", None),
             "workers": workers,
             "report": _load(workspace_dir / "final_report.json", None),
+            # production mode: which queue rank this task took and which devices
+            # it holds, so the operator can tell a real run from a harness round
+            "execution_profile": _execution_profile(state_dir),
+            "gpu_leases": _latest_gpu_lease(state_dir),
+            "gate": _gate_status(state_dir),
         }
 
     @router.get("/iterations")
-    def iterations(task_id: str) -> Dict[str, Any]:
-        entry = task_or_404(task_id)
+    def iterations(task_id: str, request: Request) -> Dict[str, Any]:
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
         return read_worker_lanes(workspace_dir_for(entry), state_dir_for(entry))
 
@@ -500,8 +631,9 @@ def build_router(plugin) -> APIRouter:
     async def submit_guidance(
         task_id: str, worker_id: str, request: Request
     ) -> Dict[str, Any]:
-        entry = task_or_404(task_id)
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
+        _require_writable(entry)
         plan = _load(workspace_dir_for(entry) / "plan.json", {}) or {}
         assigned = {
             str(item.get("worker_id"))
@@ -521,9 +653,10 @@ def build_router(plugin) -> APIRouter:
         return {"guidance": guidance}
 
     @router.post("/workers/{worker_id}/restart")
-    def restart_worker(task_id: str, worker_id: str) -> Dict[str, Any]:
-        entry = task_or_404(task_id)
+    def restart_worker(task_id: str, worker_id: str, request: Request) -> Dict[str, Any]:
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
+        _require_writable(entry)
         if not re.fullmatch(r"worker_[0-3]", worker_id):
             raise HTTPException(status_code=400, detail="invalid worker id")
         state_dir = state_dir_for(entry)
@@ -604,8 +737,9 @@ def build_router(plugin) -> APIRouter:
         Body: ``{"new_name": "<kernel-repos directory name>"}``. Refuses
         while the task's orchestrator is still running.
         """
-        entry = task_or_404(task_id)
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
+        _require_writable(entry)
         state_dir = state_dir_for(entry)
         workspace_dir = workspace_dir_for(entry)
         try:
@@ -625,8 +759,8 @@ def build_router(plugin) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.get("/state-graph")
-    def state_graph(task_id: str) -> Dict[str, Any]:
-        entry = task_or_404(task_id)
+    def state_graph(task_id: str, request: Request) -> Dict[str, Any]:
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
         state_dir = state_dir_for(entry)
         run = read_run(state_dir)
@@ -643,8 +777,8 @@ def build_router(plugin) -> APIRouter:
         )
 
     @router.get("/skills")
-    def skills(task_id: str) -> Dict[str, Any]:
-        entry = task_or_404(task_id)
+    def skills(task_id: str, request: Request) -> Dict[str, Any]:
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
         workspace_dir = workspace_dir_for(entry)
         library = list_skill_library(workspace_dir)
@@ -660,9 +794,10 @@ def build_router(plugin) -> APIRouter:
         return library
 
     @router.post("/skills/{skill_name}/publish")
-    def publish(task_id: str, skill_name: str) -> Dict[str, Any]:
-        entry = task_or_404(task_id)
+    def publish(task_id: str, skill_name: str, request: Request) -> Dict[str, Any]:
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
+        _require_writable(entry)
         workspace_dir = workspace_dir_for(entry)
         plan = _load(workspace_dir / "plan.json", {}) or {}
         if plan.get("execution_mode") in {LEGACY_SMOKE_MODE, SMOKE_MODE}:
@@ -685,10 +820,11 @@ def build_router(plugin) -> APIRouter:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @router.post("/skills/sync")
-    def sync_skills(task_id: str) -> Dict[str, Any]:
+    def sync_skills(task_id: str, request: Request) -> Dict[str, Any]:
         """Manually mirror the authoritative dsh library into the ccb library."""
-        entry = task_or_404(task_id)
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
+        _require_writable(entry)
         workspace_dir = workspace_dir_for(entry)
         return {"sync": sync_skill_libraries(workspace_dir=workspace_dir)}
 
@@ -697,8 +833,9 @@ def build_router(plugin) -> APIRouter:
         """Trigger the main-agent fusion of one pending skill into the dsh
         library (mirrored to ccb afterwards). Runs in the background; poll
         ``GET /skills`` ``fuse_status`` for progress."""
-        entry = task_or_404(task_id)
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
+        _require_writable(entry)
         workspace_dir = workspace_dir_for(entry)
         state_dir = state_dir_for(entry)
         plan = _load(workspace_dir / "plan.json", {}) or {}
@@ -752,11 +889,12 @@ def build_router(plugin) -> APIRouter:
         }
 
     @router.post("/skills/{skill_name}/rollback")
-    def rollback(task_id: str, skill_name: str) -> Dict[str, Any]:
+    def rollback(task_id: str, skill_name: str, request: Request) -> Dict[str, Any]:
         """Restore the latest SKILL.md backup of a fused skill in the dsh
         library and re-mirror to ccb."""
-        entry = task_or_404(task_id)
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
+        _require_writable(entry)
         workspace_dir = workspace_dir_for(entry)
         try:
             return {"result": rollback_skill(skill_name, workspace_dir=workspace_dir)}
@@ -766,10 +904,10 @@ def build_router(plugin) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.get("/variants")
-    def variants_index(task_id: str) -> Dict[str, Any]:
+    def variants_index(task_id: str, request: Request) -> Dict[str, Any]:
         """Return the fine-grained variant index (which shapes are already
         captured in the shared variant library)."""
-        entry = task_or_404(task_id)
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
         return {"variants": list_variant_index()}
 
@@ -778,8 +916,9 @@ def build_router(plugin) -> APIRouter:
         """Add one optimized shape's accepted kernel into the shared variant
         library, organized by operator type / model / TP / specific operator.
         Replaces an existing section for the same shape (with a file backup)."""
-        entry = task_or_404(task_id)
+        entry = _entry_for(request, task_id)
         require_task_type(entry, PLUGIN_TYPE)
+        _require_writable(entry)
         state_dir = state_dir_for(entry)
         workspace_dir = workspace_dir_for(entry)
         try:

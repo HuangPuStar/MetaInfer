@@ -49,7 +49,7 @@ def test_form_schema_is_available():
     assert model["default"] == "Opus"
     assert model["override_component"] == "agent-model"
     assert [option["label"] for option in model["options"]] == [
-        "Opus", "Sonnet", "deepseek-v4-flash"
+        "Opus", "Sonnet", "deepseek-flash-4.1", "deepseek-v4-flash"
     ]
 
 

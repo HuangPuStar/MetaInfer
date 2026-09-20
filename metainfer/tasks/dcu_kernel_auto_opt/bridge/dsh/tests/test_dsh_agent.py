@@ -5,7 +5,8 @@ Runs without a real model endpoint: the ``deepseek_harness`` SDK module is
 replaced by a fake whose behavior is scripted per test. Verify:
 
   1. arg parsing tolerates every SubAgentManager flag (incl. unknown ones)
-  2. model mapping: sonnet/haiku -> deepseek-v4-flash, opus -> deepseek-v4-pro
+  2. model mapping: form labels deepseek-flash-4.1 / deepseek-v4-flash and the
+     legacy Claude labels resolve to real DSH model ids
   3. the emitted stream contains system -> assistant* -> result, exit 0
   4. a resume failure (finish_reason == "error") falls back to a fresh
      session and the stream's first session_id is the fallback one
@@ -166,10 +167,40 @@ class DshAgentTests(unittest.TestCase):
         mod = install_fake_sdk([
             ("s1", "ok", "completed"),
         ])
-        # opus -> deepseek-v4-pro
+        # Legacy Claude labels stay routable (mapped onto the pinned V4 build).
         run_wrapper(mod, [a if a != "sonnet" else "opus" for a in BASE_ARGS], "hi")
         cfg = FakeDeepSeekHarness.instances[0].config
-        self.assertEqual(cfg.model, "deepseek-v4-pro")
+        self.assertEqual(cfg.model, "deepseek/deepseek-v4-flash-0731")
+
+    def test_form_labels_map_to_dsh_model_ids(self):
+        """Form labels from both frontends resolve to real platform ids."""
+        cases = {
+            "deepseek-flash-4.1": "deepseek/deepseek-flash",     # new default
+            "deepseek-v4-flash": "deepseek/deepseek-v4-flash-0731",
+            # Full ids pass through untouched.
+            "deepseek/deepseek-flash": "deepseek/deepseek-flash",
+        }
+        for label, expected in cases.items():
+            mod = install_fake_sdk([("s1", "ok", "completed")])
+            args = [a if a != "sonnet" else label for a in BASE_ARGS]
+            code, _out, err = run_wrapper(mod, args, "hi")
+            self.assertEqual(code, 0, err)
+            cfg = FakeDeepSeekHarness.instances[0].config
+            self.assertEqual(cfg.model, expected, label)
+
+    def test_default_model_is_flash_41(self):
+        """With no --model the wrapper defaults to the 4.1 Flash build."""
+        mod = install_fake_sdk([("s1", "ok", "completed")])
+        args = [a for a in BASE_ARGS if a not in ("--model", "sonnet")]
+        old = os.environ.pop("DSH_AGENT_MODEL", None)
+        try:
+            code, _out, err = run_wrapper(mod, args, "hi")
+        finally:
+            if old is not None:
+                os.environ["DSH_AGENT_MODEL"] = old
+        self.assertEqual(code, 0, err)
+        cfg = FakeDeepSeekHarness.instances[0].config
+        self.assertEqual(cfg.model, "deepseek/deepseek-flash")
 
     def test_resume_fallback(self):
         mod = install_fake_sdk([

@@ -1,459 +1,467 @@
-// @@variant shape=hy3_tp8_qkv_proj_m16 commit=f2b771e350c9fea3b13d59b5fec4219786976bcc added=2026-09-09
-//   median_us=19.3 p90_us=19.32 speedup=3.875 baseline_us=74.78
-//   source=hy3-dsh-tp8-m16-9-8-0161e718
-// W8A8 INT8 GEMM HIP implementation for Hygon K500SM_AI / gfx928.
+// @@variant shape=hy3_tp8_qkv_proj_m16 commit=a1271e87052a802cf1a620ad5f58ba9d526103cd added=2026-09-17
+//   median_us=14.43 p90_us=14.44 speedup=5.183 baseline_us=74.78
+//   source=hy3-tp8-m16-test9-16-619177f8
+// Initial correctness-first INT8 W8A8 GEMM for gfx928 (K500SM_AI).
 //
-// Worker: worker_0 (physical GPU 0), shape hy3_tp8_qkv_proj_m16
-//   M = 16, N = 1280, K = 4096  (logical weight layout [K, N]).
+// Bootstrap strategy (iteration 0): one plain scalar kernel computes the
+// complete int32 dot product for every output element. There is no DUMMA, no
+// split-K, no LDS staging, no inline assembly, no software pipelining and no
+// autotuning. The only goals are:
+//   * compile fast and portably for gfx928,
+//   * launch on PyTorch's current HIP stream with no host/device sync,
+//   * be exact against bf16((A.float() @ B.float()) * x_scale * w_scale.T).
 //
-// Iteration 0 (bootstrap): correctness-first scalar kernel (one thread per
-// output element) served every shape and measured 336 us on this shape.
+// Layout contract for this iteration (identity pack):
+//   a            : int8 [M, K]  row-major  (x_q)
+//   b            : int8 [K, N]  row-major  (packed_weight)
+//   x_scale      : fp32 [M]
+//   weight_scale : fp32 [N]
+//   out          : bf16 [M, N]  row-major
 //
-// Iteration 1 (DUMMA bootstrap, this round): replace the scalar kernel for
-// the exact guard (m, n, k) == (16, 1280, 4096) with the minimal native
-// gfx928 DUMMA INT8 m16n16k32 tile per the round mandate:
-//   - one 64-lane wavefront per block, one 16x16 output tile per block
-//     (grid = N/16 = 80 blocks), no cross-wave barrier;
-//   - A and B fragments are loaded DIRECTLY from their row-major global
-//     tensors every 32-K step (no LDS staging, no split-K, no workspace,
-//     no combine kernel in the timed region);
-//   - explicit int32 accumulation: du_fill_fragment(acc, 0) then one
-//     du_mma_sync per ascending 32-K step (exact int32 dot, same sum as
-//     the scalar kernel since int32 addition is exact and order-free);
-//   - single-wave LDS epilogue: du_store_matrix_sync materializes the
-//     16x16 int32 tile in LDS (library-defined ownership), one
-//     __syncthreads() reached by all 64 threads, then the 64 lanes scale
-//     with x_scale[row] * weight_scale[n0+col] (scalar-path float order)
-//     and store bf16 through the manual round-to-nearest-even conversion.
-// This establishes the exact DUMMA API family below so later rounds can
-// tune geometry (wavefronts/block, LDS staging, split-K planes).
+// launch_pack_w8a8_weight is an identity device-to-device copy of both the
+// int8 weight and the fp32 weight scale. Later Parallel explore rounds may
+// change that packing and the matching GEMM interpretation.
 //
-// Iteration 2 (architecture round, this round): measure grid parallelism
-// before polishing.  The iteration-1 geometry (80 one-wave blocks over 120
-// CUs, 0.67 blocks/CU) is far below the two-blocks-per-CU latency-hiding
-// target, and the measured 130.43 us median (vs 74.782 us Triton Graph
-// baseline) is dominated by underfilled CUs and per-block serial load->mma
-// chains (128 direct-load 32-K steps per block).  This round replaces the
-// exact-guard dispatch with a grid-level split-K=3 geometry, still one
-// 64-lane wavefront per block and one 16x16 N tile per wave (zero in-block
-// barriers):
-//   - grid = (N/16) * SPLIT_K = 80 * 3 = 240 blocks = exactly 2 blocks per
-//     device CU (120 CUs), split id on gridDim.y, tile id on gridDim.x;
-//   - the 4,096-long K axis is partitioned into three legal 32-aligned,
-//     non-uniform, ascending slices of {1376, 1376, 1344} rows (43/43/42
-//     m16n16k32 steps), each block du_fill_fragment(acc,0) then runs its
-//     own ascending 32-K DUMMA chain over its slice only (bit-exact int32
-//     partial dot: |partial| <= 6.6e7 << 2^31, order-free);
-//   - each block materializes its 16x16 int32 partial (LDS epilogue, same
-//     single-wave store/barrier pattern as iteration 1) into its own plane
-//     of the caller's int32 workspace: partials[split][16][N]; every launch
-//     overwrites every plane, so no workspace clear is needed;
-//   - a small combine kernel (80 blocks x 64 lanes, second launch on the
-//     same stream inside the timed API) sums the SPLIT_K planes ascending
-//     per output element (exact int32, identical to the scalar k-ascending
-//     sum) and applies x_scale[row] * weight_scale[col] then bf16 RNE,
-//     keeping every output bit-identical to the CPU reference.
-// Split-K combine is part of the operator wall and stays inside the timed
-// region/Graph.  Workspace need = SPLIT_K*M*N*4 = 245,760 B, well under the
-// contract's 16-plane 1,310,720 B allocation for this shape.
+// Iteration 1 established the minimal native gfx928 DUMMA INT8 m16n16k32
+// tile: ONE 64-lane wavefront per block, one 16x16 output tile per block,
+// grid = N/16 = 80 one-wave blocks, blockDim 64, A/B fragments loaded
+// directly from row-major global at every 32-K step, explicit int32
+// accumulation, and a single-wave LDS epilogue.  It reached 119.72 us
+// (official best), well behind the 74.78 us Triton graph baseline.
 //
-// Iteration 3 (architecture round, this round): continue the mandated
-// split-K occupancy sweep.  Iteration 2's falsifiable claim held (240
-// one-wave blocks = 2 blocks/CU cut the wall from 130.43 to 68.65 us
-// median, 1.089x over the 74.782 us Triton Graph baseline), but the
-// measured logical rate (86 GB/s, 2.44 TOPS) is still far below the
-// headroom of this decode family, so the sweep goes finer inside the
-// trusted CU-aligned probe set {2,3,4,5,6,8,9,12}: SPLIT_K=6 -> grid =
-// 80 N tiles x 6 K-slices = 480 one-wave zero-in-block-barrier blocks =
-// exactly 4 blocks per device CU, and each block's serial 32-K chain
-// halves to {22,22,21,21,21,21} steps = rows {704,704,672,672,672,672}
-// (the existing generic slice formula; disjoint, ascending, 32-aligned,
-// exact cover of [0,4096)).  The partial and combine kernels are
-// UNCHANGED code -- both were already generic over gridDim.y /
-// split_count -- so this round only moves the launcher geometry constant
-// kSplitK from 3 to 6.  Workspace need = 6*M*N*4 = 491,520 B, still
-// inside the caller's 16-plane 1,310,720 B allocation; the combine kernel
-// (80 blocks x 64 lanes) sums the six planes ascending per output element
-// (exact int32 -> bit-identical to the scalar k-ascending sum) and stays
-// in the timed Graph.
+// Iteration 2 (architecture: launch-geometry exploration).
+// PMC/ISA evidence for that 80-block grid:
+//   * grid_blocks = 80 for device_cu_count = 120 -> 40 CUs idle and at most
+//     one resident wave per busy CU, far below the two-blocks-per-CU
+//     latency-hiding target;
+//   * the disassembled K-loop is a serial chain -- 16 x global_load_ubyte,
+//     a run of s_waitcnt vmcnt(N...) drains, then exactly one v_mmac -- so
+//     each wave stalls on global latency every 32-K step with no other wave
+//     on the CU to cover it;
+//   * counter-derived HBM bandwidth is ~45 GB/s, i.e. the device is nowhere
+//     near memory-bandwidth bound: the kernel is latency/underfill bound.
+// The N dimension only has N/16 = 80 tiles and M is already the full 16, so
+// the single geometry that can raise independent block count is split-K.
+// This round therefore keeps the complete one-wave / one-N-tile geometry
+// (waves_per_block = 1, adjacent_n_tiles = 1, no cross-wave barrier, direct
+// global fragment loads, one v_mmac per 32-K step) and adds a 3-way split of
+// the 128 stage-aligned (k/32) K-steps:
+//   * grid = (N/16) * 3 = 240 one-wave blocks for 120 CUs => exactly two
+//     independent blocks per CU, the mandated latency-hiding target;
+//   * split s owns stages [s*T/S, (s+1)*T/S) with T = k/32 = 128 and S = 3,
+//     i.e. 42/43/43 stages of 32 K each -- every range stays 32-aligned, so
+//     the stage-alignment constraint and the workspace constraint (S <= 16
+//     planes) both hold;
+//   * each block accumulates its K sub-range exactly in int32 and stores the
+//     16x16 partial into plane s of the caller-provided workspace
+//     (int32 [S][M][N]); a separate 128-thread combine kernel sums the S
+//     int32 planes (exact, order-free integer addition), applies
+//     static_cast<float>(acc) * x_scale[row] * weight_scale[col] in the same
+//     order as the scalar fallback, and writes bf16 -- so the output stays
+//     bit-identical while the combine is a cheap L2-resident second launch.
 //
-// Iteration 4 (architecture/pipeline round, this round): multi-N-tile
-// reuse.  The iteration-3 code object (PMC digest 26d6df45...) shows the
-// poison direct-load pattern per 32-K step: 16 global_load_ubyte (8 per
-// A/B fragment) with ~10 scattered s_waitcnt vmcnt before byte reassembly
-// and one v_mmac_i32_16x16x32_i8, and no cross-iteration load overlap, so
-// at 4 resident one-wave blocks/CU every block's serial chain is one
-// ~load-latency step per m16n16k32 mma (52.19 us median; the wall is the
-// per-step latency of a one-mma step, not raw issue or HBM traffic).
-// This round keeps the same split-K partial + combine architecture and
-// the same 4 blocks/CU co-residency but widens each one-wave block to TWO
-// adjacent 16-wide N tiles (32 columns): per 32-K step the wave loads the
-// A fragment ONCE and issues two du_mma_sync (independent accumulators),
-// so the x_q A bytes [16 x 32] of the shared step are reused across the
-// two output tiles (per-output A global loads/reassembly halve) while
-// each B byte is still read exactly once (no B reuse).  To keep 480
-// one-wave blocks = exactly 4/CU over 120 CUs the grid becomes 40 N
-// groups x SPLIT_K=12 K-slices ({11x8, 10x4} 32-K steps = rows
-// {352x8, 320x4}, disjoint ascending exact cover of [0,4096), every
-// boundary a DUMMA-k multiple; existing generic slice formula).  Per-block
-// serial chain drops to <= 11 steps of TWO mmas, so if the iteration-3
-// wall is per-step load->mma latency the per-output step latency halves
-// and the unprofiled Graph median/P90 must drop materially below
-// 52.194/52.269 us.  Workspace need = 12*M*N*4 = 983,040 B, still inside
-// the caller's 16-plane 1,310,720 B allocation; the combine kernel (80
-// blocks x 64 lanes) is UNCHANGED code and sums the twelve planes
-// ascending per output element (exact int32 -> bit-identical to the
-// scalar k-ascending sum), staying in the timed Graph.  The only edits
-// are the widened per-wave N tile in the partial kernel plus the launcher
-// geometry; the workspace-less fallback keeps the iteration-1 one-wave
-// direct kernel byte-for-byte and the scalar fallback still serves every
-// unmatched shape including the paired M=2 API shape.
+// Iteration 3 (architecture: split-K occupancy sweep).
+// The iteration-2 falsifiable claim held: the 240 one-wave blocks (2 blocks
+// per CU) cut the wall to 47.81 us median, 1.564x over the 74.78 us Triton
+// Graph baseline, so the 80-block underfill was real.  The current-best
+// PMC still reports grid_blocks = 240 for device_cu_count = 120 -- only TWO
+// of the four SIMDs of every CU ever hold a resident wave -- and the
+// counter-derived HBM rate is still just 123.8 GB/s, far below device
+// bandwidth, so the kernel remains latency/occupancy bound rather than
+// bandwidth bound.  The trusted CU-aligned probe set for this shape is
+// {2,3,4,5,6,8,9,12}; with N/16 = 80 one-wave N tiles the grid is 80*S, so
+// the CU-aligned splits are the multiples of 3 (80*S must be a multiple of
+// 120).  split-K=2 yields only 160 blocks = 1.33 blocks/CU -- still below
+// the mandated two-blocks-per-CU target -- so it is rejected, and the next
+// CU-aligned candidate is split-K=6:
+//   * grid = (N/16) * 6 = 480 one-wave blocks for 120 CUs => exactly FOUR
+//     independent one-wave blocks per CU, i.e. one resident wave on each of
+//     the four SIMDs, instead of 2 of 4 in iteration 2;
+//   * the 128 32-aligned K-stages are partitioned 21/21/22/21/21/22 (rows
+//     672/672/704/672/672/704) -- disjoint, ascending, exact cover of
+//     [0, 4096), every boundary a multiple of 32 -- so the stage-alignment
+//     and exact-int32 contracts are unchanged;
+//   * workspace need = 6 * M * N * 4 = 491,520 B, inside the contract's
+//     16-plane 1,310,720 B allocation; the partial kernel, its plane
+//     indexing and the combine+scale kernel are already generic in split_k,
+//     so the only source change is the launcher geometry constant
+//     kSplitKTarget 3 -> 6 (the combine stays inside the timed Graph).
+// Falsifiable claim: if the two idle SIMDs per CU are the limiter, the
+// per-block serial 32-K chain halves (43 -> ~21 steps) while the number of
+// resident waves doubles, so the official Graph median/P90 must drop
+// materially below the 47.81/47.85 us iteration-2 best (expected ~34-40 us,
+// with the extra 2 partial planes and the slightly longer combine cost
+// included).  If it stays flat or regresses, the wall is the per-step
+// load->wait->reassemble->mma latency or per-CU issue rather than SIMD
+// occupancy, and the next round must attack the 16 direct global byte loads
+// per stage instead of the split factor.
 //
-// Iteration 5 (packed-weight/staging round, this round): B-only LDS slice
-// staging.  The iteration-4 code object (PMC digest 1a4e30d0..., vmem_read
-// 122,880 = 24 byte-granular global_load_ubyte per 32-K step x 5120
-// block-steps) shows the remaining wall is the poison direct-global B half
-// of the per-step load->wait->reassembly->mma chain: per step the wave
-// still pays 16 global byte loads (B0/B1) plus ~10 scattered s_waitcnt
-// vmcnt on the MMA critical path even though every byte is L2-hot in the
-// timed Graph replay.  Per the lineage rule, direct-global fragment loads
-// are poison: this round removes the B half by staging each block's whole
-// 32-column B slice (<= 352 rows x 32 B = 11,264 B) into LDS ONCE at block
-// start with 16-B int4 cooperative loads (64 lanes x 16 B per wavefront
-// instruction, 4-deep source batching so one vmcnt drain covers 4
-// in-flight round trips), one same-wave __syncthreads(), then every
-// 32-K step reads the B0/B1 fragments from LDS with du_load_matrix_sync
-// (~30-cycle LDS latency, no global round trip) at row stride 32 -- the
-// staged tile is an exact byte mirror of the block's global B strip, so
-// fragment contents, the k-ascending int32 order and the partial planes
-// are bit-identical to iteration 4.  A stays direct-global on purpose:
-// this round isolates the B-side hypothesis (A-only staging and the
-// packed [N,K] layout remain untested axes).  Geometry is UNCHANGED (40
-// N groups x SPLIT_K=12 = 480 one-wave blocks = exactly 4 blocks/CU over
-// 120 CUs; per-block LDS 11,264 B + 2 x 1,024 B acc tiles = 13,312 B,
-// 65,536/13,312 = 4.9, so the 4/CU co-residency is preserved and LDS does
-// not become the occupancy limiter).  If the per-step wall is the B-load
-// half of the global wait ladder, the official unprofiled Graph median/P90
-// must drop materially below 41.154/41.233 us (partial-kernel profiled
-// 36.32 us); if instead the median stays flat or regresses, the wall at 4
-// waves/CU is A-side latency or per-CU issue (16 vs 24 loads immaterial),
-// and the next round must stage A too (LDS-only K loop) or raise
-// co-residency -- never a scalar-fallback change.  Exactness is preserved
-// for every shape: the (m,n,k)==(16,1280,4096) guard is unchanged; the
-// staged bytes are a copy of the same global bytes the direct loader
-// read, the workspace-less fallback keeps the iteration-1 direct kernel
-// byte-for-byte (still correct for this shape), the scalar fallback still
-// serves every unmatched shape including the paired M=2 API shape, and no
-// pack/layout/env/stream/config change is made; all launches stay on the
-// caller stream inside the timed API/Graph.
+// Iteration 4 (accepted, architecture/pipeline: multi-N-tile reuse).
+// The iteration-3 result falsified its own prediction: moving kSplitKTarget
+// 3 -> 6 cut the wall only 47.81 -> 45.08 us (-5.7%) instead of the
+// predicted ~34-40 us, so doubling the resident one-wave blocks per CU did
+// NOT remove the limiter.  The reason is an invariance the split factor
+// cannot break: the total m16n16k32 mma count is fixed at (N/16)*(K/32) =
+// 80*128 = 10,240, so per device SIMD (480 of them) the number of serial
+// load->wait->reassemble->mma steps is 10,240/480 = 21.3 for ANY split
+// factor -- finer splits only shorten each block while multiplying the
+// block count by the same amount.  The measured PMC still shows the poison
+// per-step pattern: 16 global_load_ubyte (8 for the A fragment + 8 for the
+// single B fragment) followed by a ladder of scattered s_waitcnt vmcnt and
+// exactly ONE v_mmac per 32-K step, with no cross-iteration load overlap.
+// This round therefore keeps the split-K partial+combine architecture and
+// the 480-block / 4-blocks-per-CU co-residency but widens every one-wave
+// block to TWO adjacent 16-wide N tiles (32 N columns):
+//   * per 32-K step the wave loads the A fragment (16 m-rows x 32 K bytes =
+//     512 B of x_q) EXACTLY ONCE and issues TWO independent du_mma_sync
+//     calls -- one per 16-wide N tile -- so those A bytes are REUSED across
+//     both output tiles (the per-output-tile A global loads and their
+//     wait/reassembly cost halve);
+//   * every B byte (k x 32 N bytes per block slice) is still read exactly
+//     once -- B has no reuse (each N column belongs to exactly one block);
+//   * the 128 32-aligned K stages are split 12 ways and each block owns TWO
+//     output tiles, so the grid is (N/(16*2)) * 12 = 40 * 12 = 480 one-wave
+//     blocks for 120 CUs = exactly 4 blocks/CU, i.e. one resident wave per
+//     SIMD, identical co-residency to iteration 3 (enough blocks to cover
+//     every CU);
+//   * each block's serial chain drops from ~21 single-mma steps to <= 11
+//     two-mma steps (the 128 stages partition 8 x 11 + 4 x 10 = rows
+//     352 x 8 + 320 x 4, disjoint, ascending, exact 32-aligned cover of
+//     [0, 4096)), so if the wall is the per-step global latency then the
+//     latency paid per m16n16k32 mma is halved;
+//   * workspace need = 12 * M * N * 4 = 983,040 B, inside the contract's
+//     16-plane 1,310,720 B allocation; the partial kernel body, its plane
+//     indexing and the combine+scale kernel stay generic in split_k (the
+//     runtime clamp still shrinks split_k to the supplied workspace), and
+//     the combine stays inside the timed Graph.
+// Falsifiable claim: if the per-step direct-global load->wait->mma latency
+// is the limiter, the per-output A-load cost halves and the serial chain
+// per block halves, so the official Graph median/P90 must drop materially
+// below the 45.08/45.17 us iteration-3 best (expected ~33-39 us, with the
+// six extra partial planes and the longer 12-way combine included).  If it
+// stays flat or regresses, the limiter is L2/HBM-side byte traffic or the
+// per-step issue of the byte-granular loads themselves rather than latency
+// amortization, and the next round must stage the operands in LDS.
 //
-// Iteration 6 (infrastructure failure, no valid artifact): the round-6
-// attempt was killed by the agent infrastructure before it produced a
-// candidate result; no round-6 source change was accepted and the session
-// was reset to the iteration-5 accepted best source below.  The failure does
-// not count as a completed optimization round.
+// Iteration 5 (measured and NOT accepted: B-only LDS staging).
+// Staging only the B operand into a per-block LDS mirror (16-B int4
+// cooperative copy + one same-wave barrier, then du_load_matrix_sync from LDS
+// at row stride 32) left the loop time unchanged and paid the serial staging
+// prologue on top: the official Graph median/P90 moved 30.374/30.420 ->
+// 31.309/31.350 us (+3.1%), so the round was rejected and the source was
+// reverted to the iteration-4 best recorded here.  The falsification is
+// informative: removing two thirds of the per-step global byte loads (the 16
+// B loads of the 24) did NOT shorten the per-step chain, so the residual
+// serialized operand fetch on the MMA critical path is the A half, and the
+// B-only design additionally left a mixed dual-latency step (LDS B + global
+// A) whose LDS reads replay the same bank 4x at the iteration-5 row pitch.
 //
-// Iteration 7 (staging round, this round): A+B whole-slice LDS staging
-// (LDS-only K loop).  The iteration-5 result (39.404/39.485 us official
-// Graph median/P90 vs iteration-4 41.154/41.233) falsified its own claim:
-// the predicted 25-33 us for the B-half hypothesis did not appear, so per
-// the iteration-5 contingency text this round stages the shared A operand
-// too.  The iteration-5 PMC (source digest 5fb42aff..., grid 480 = 40 N
-// groups x SPLIT_K=12, vmem_read 46,080, l2_misses 98,879, counter-derived
-// HBM ~187.9 GB/s << peak) still shows 8 byte-granular global_load_ubyte of
-// the shared A fragment plus ~8 scattered s_waitcnt vmcnt before shift/or
-// reassembly on the MMA path every 32-K step (~40,960 of the 46,080
-// vmem_read over 5,120 block-steps): pure per-step A-side global latency
-// serialization, not traffic.  This round stages BOTH operands once per
-// block with 16-B int4 cooperative loads (A slice: 16 m-rows x 256 B + 16 B
-// pad/row = 4,352 B at row stride 272 for bank skew; B strip: 256 x 32 =
-// 8,192 B), one same-wave __syncthreads(), then an LDS-only K loop (A
-// fragment at row stride 272, B0/B1 at row stride 32 via
-// du_load_matrix_sync) with zero per-step global loads/waits.  Staged tiles
-// are exact byte mirrors of the global operands, so fragment bytes, the
-// k-ascending int32 order and the partial planes are bit-identical to
-// iteration 5.  Geometry forced by LDS capacity: a whole-slice A stage does
-// not fit at SPLIT_K=12 with 4 resident blocks/CU (A 16 x 352 = 5,632 B +
-// B 11,264 B + acc 2,048 B = 18,944 B -> floor(65,536/18,944) = 3), so the
-// guard launch moves to SPLIT_K=16: sixteen UNIFORM 8-step slices (128 ==
-// 16 x 8, rows {256 x 16}; every boundary a DUMMA-k multiple), grid = 40 N
-// groups x 16 = 640 one-wave blocks ~ 5.33/CU over 120 CUs, per-block LDS
-// 4,352 + 8,192 + 2,048 = 14,592 B -> floor(65,536/14,592) = 4 resident
-// blocks/CU, i.e. the iteration-5 co-residency is preserved.  Workspace
-// need = 16 int32 planes = 1,310,720 B = the caller's full fixed 16-plane
-// allocation for this shape, still gated by the launcher's workspace_bytes
-// >= kWorkspaceNeeded check (undersized workspaces keep the workspace-less
-// fallback).  The combine kernel (80 blocks x 64 lanes, second same-stream
-// launch in the timed API/Graph) is UNCHANGED code, generic over
-// split_count = 16, and sums the sixteen planes ascending per output
-// element (exact int32 -> bit-identical to the scalar k-ascending sum),
-// staying in the timed Graph.  All fallbacks, guards, pack/layout/env/
-// stream/config behavior are unchanged.
+// Iteration 6 (pipeline round, this round): A+B whole-slice LDS staging.
+// Mandated staging-family decision, made from the L2/VMEM evidence:
+//   * VMEM: the exact-source PMC of the iteration-4 code object (digest
+//     d5784ae4...) shows the rolled K loop issuing 24 byte-granular
+//     global_load_ubyte per 32-K step (vmem_read 122,880 = 24 x 5,120
+//     block-steps) behind an 18-entry scattered s_waitcnt vmcnt ladder, all
+//     on the MMA path with no cross-iteration load overlap.
+//   * L2: the same replay reports 61.237% L2 hits, and the per-kernel TCC/EA
+//     traffic ledger shows the partial kernel reading only 5,359,488 B while
+//     its load instructions request ~7.9 MB (A 2.62 MB + B 5.24 MB).  The
+//     40x-reused x_q A operand is therefore ~95% L2-resident (A HBM misses
+//     ~= 5,359,488 - 5,242,880 = 116,608 B) and the streaming B operand is
+//     the compulsory HBM traffic read exactly once.  No staging family can
+//     change the HBM byte count: direct, A-only, B-only and A+B all fetch the
+//     same 5,242,880 B of B and the same ~116,608 B of A misses.  The choice
+//     is therefore only about WHERE the operand fetch latency sits.
+//   * B-only was already measured (iteration 5) and regressed, so between the
+//     remaining families the evidence selects A+B: it is the ONLY one that
+//     removes the A-side global wait (which the B-only result proves is the
+//     serialization point) AND the B-side ladder at the same time, replacing
+//     both with one batched cooperative prologue of 16-B loads.
+// Design (one-wave geometry, blockDim 64, unchanged):
+//   * Each 64-lane block stages BOTH operands of its whole K slice once:
+//     stage_a = the 16 m-rows x 256 slice bytes of x_q at row stride 272
+//     (256 data + 16 pad for bank skew, 4,352 B) and stage_b = the
+//     256 k-rows x 32 B B-strip at row stride 36 (32 data + 4 pad, 9,216 B).
+//     Both are EXACT byte mirrors of the global regions the direct loader
+//     read, filled by 16-B int4 cooperative copies (A: rows/16 = 16 chunks
+//     per m-row -> 256 chunks / 64 lanes = 4 chunks per lane, one 4-deep
+//     batched group; B: 2 chunks per k-row -> 512 chunks / 64 lanes = 8
+//     chunks per lane, two 4-deep batched groups), one same-wave
+//     __syncthreads(), and then a K loop with ZERO per-step global loads and
+//     ZERO vmcnt waits: A from LDS at stride 272, B0/B1 from LDS at stride 36.
+//   * Pad choice is deliberate: the row_major B fragment loader reads each
+//     lane's bytes at (8*(lane>>4) + i)*ldm, so a 32-B ldm puts the four lane
+//     groups 256 B (== 0 mod 128) apart and replays one LDS bank 4x, while
+//     36 B puts them 288 B (== 32 mod 128) apart -> banks b, b+8, b+16, b+24;
+//     the A pad 272 B (== 16 mod 128) likewise skews its 16 row reads.  The
+//     pads are never written and never read.
+//   * Geometry moves 12 -> 16 splits because a whole-slice A stage does not
+//     fit at split 12 with 4 resident blocks/CU (A 16x368 + B 352x36 + 2,048
+//     = 20,608 B -> floor(65,536/20,608) = 3 resident waves/CU, below the
+//     measured 4).  At S = 16 the slices are uniform 8 x 32 stages = 256 rows
+//     (128 == 16*8), per-block LDS is 4,352 + 9,216 + 2,048 = 15,616 B ->
+//     floor(65,536/15,616) = 4 resident blocks/CU (62,464 B <= 65,536), and
+//     the grid is (N/32) x 16 = 40 x 16 = 640 one-wave blocks = 5.33/CU over
+//     120 CUs, i.e. the measured 4-blocks/CU co-residency is preserved.
+//     The workspace need is 16 int32 planes = 1,310,720 B = the caller's full
+//     fixed allocation for this shape (the existing clamp still shrinks
+//     split_k for any smaller buffer, and a slice larger than the staging
+//     capacity keeps the byte-for-byte direct-global loop below).
+//   * Every partial is still an exact int32 ascending 32-aligned sub-sum over
+//     the SAME fragment bytes (the staged mirrors are exact copies), the
+//     combine kernel is unchanged, and no cross-wave synchronization or
+//     cross-block state is introduced.
+// Byte ledger: HBM read/write bytes UNCHANGED (B 5,242,880 B read once + A
+// misses ~116,608 B + 1,310,720 B of partial planes written/read); LDS added
+// per block = 4,352 (stage_a) + 9,216 (stage_b) = 13,568 B written and
+// re-read 8 times as fragments (8 x 1,536 B = 12,288 B), with the bank-skew
+// pads chosen so the fragment reads are conflict-free.
+// Falsifiable claim: if the per-step serialized operand fetch (not the
+// compulsory HBM bytes) is the wall, the LDS-only K loop plus the batched
+// 16-B staging prologue must drop the official Graph median/P90 materially
+// below 30.374/30.420 us (expected ~21-27 us, combine's +4 planes included).
+// If it instead stays flat or regresses, the wall at 4 waves/CU is the
+// DRAM/LDS service rate or per-CU issue rather than the per-step wait ladder,
+// and the next round must attack the operand stream's DRAM granularity (a
+// packed [N/32][K][32] weight layout) rather than the staging family.
 //
-// Iteration 8 (occupancy/resource round, this round): raise the waves-per-
-// block occupancy limiter from 1 to 2 wavefronts per block (blockDim 64 ->
-// 128).  PMC of the accepted iteration-7 code object (source digest
-// b64e3209..., grid 640, workgroup 64, arch_vgpr 40, sgpr 48, scratch 0,
-// LDS/block 14,592 B -> floor(65,536/14,592) = 4 resident blocks/CU =
-// 5.33 waves/CU by grid) shows the residual wall is per-SIMD single-wave
-// latency exposure, not issue or HBM traffic: each resident wave is alone
-// on its SIMD (4 blocks x 1 wave -> 4 SIMDs), so every per-step
-// s_waitcnt lgkmcnt after the staged-fragment du_load_matrix_sync and every
-// du_mma accumulator dependency stalls that SIMD with no second independent
-// wave to issue (VALU issue utilization ~3-6% of the 26.56 us profiled
-// kernel; only 12 one-time staging global loads per block, vmem_read
-// 7,680).  The fix keeps the iteration-7 geometry byte-for-byte in every
-// respect that affects partials (SPLIT_K=16, 40 x 16 = 640 blocks, 8-step
-// slices rows {256 x 16}, staged exact byte mirrors, k-ascending int32
-// order, 16-plane workspace) and splits the one-time staging ACROSS the two
-// waves (wave 0 copies the A slice, wave 1 copies the B strip; exactly the
-// same global bytes read once -- no repeated HBM reads traded for
-// occupancy), then each wave runs its OWN 8-step accumulator chain for one
-// n16 tile of the block's 32 columns (one du_mma per step per wave; total
-// MMA count unchanged).  LDS per block stays 14,592 B -> still 4 resident
-// blocks/CU, but now 8 resident waves/CU = 2 per SIMD, so a stalling wave
-// is covered by its co-resident sibling.  The only deliberately added cost
-// is LDS re-reads: the shared A fragment is now loaded by both waves
-// (predicted lds_instructions 99,840 -> ~125-135k with conflicts scaling at
-// the measured ~2.56/instr); LDS is not the wall at ~3-6% issue
-// utilization.  The combine kernel, guards, workspace-less fallback, scalar
-// fallback and pack identity are all unchanged.
+// Iteration 7 (measured and NOT accepted: depth-1 register double buffering).
+// Giving the rolled LDS-only K loop two fragment register sets moved the
+// official Graph median 21.412 -> 20.938 us but the P90 21.427 -> 25.333 us
+// (+18%, max 26.557), so the round was rejected on the tail and the source was
+// reverted to the iteration-6 best recorded here.  The lesson: at ONE resident
+// wave per SIMD there is no sibling wave to absorb the tail, so the fix must
+// add wave-level parallelism rather than reorder a single wave's own chain.
 //
-// Iteration 9 (combine restructure round, this round): attack the OTHER half
-// of the operator wall.  PMC of the accepted iteration-8 code object (source
-// digest beb25b76..., official Graph median/P90 28.884/28.933 us) profiles
-// BOTH timed dispatches of the operator replay: the 640-block partial kernel
-// at 19.361 us AND the 80-block combine kernel at 16.960 us -- the combine is
-// 46.7% of the 36.321 us profiled operator aggregate, not a small tail.  Its
-// structure explains the cost: 80 one-wave 64-lane blocks (<= 80 of 480
-// SIMDs busy, ~40 CUs fully idle) whose lanes each run FOUR output elements
-// through a DEPENDENT per-plane chain -- one 4-B global load + s_waitcnt
-// vmcnt + int32 add per plane, 16 serial DRAM round trips per element (the
-// exact code object's static body is one load/wait/add per plane iteration)
-// -- against plane data that is L2-cold at combine start (combine
-// l2_hit_rate 6.9%, l2_misses 21,596 ~= the whole 1.31 MB of partial planes,
-// evicted by the partial kernel's 5.37 MB streaming read): DRAM-latency
-// serialization on only 1.34 MB of reads, plus underfill.  This round
-// restructures ONLY the combine kernel (the partial kernel, SPLIT_K=16
-// 640-block geometry, staged byte mirrors, k-ascending int32 partials,
-// 16-plane 1,310,720 B workspace contract, workspace-less fallback, exact
-// guard and scalar fallback are byte-for-byte unchanged): the guard launcher
-// switches the combine grid from 80 x 1 one-wave blocks to a 2-D grid of 80
-// n-tiles x 4 four-row m-groups = 320 one-wave blocks, and the kernel's
-// split_count == 16 specialization gives every lane exactly ONE output
-// element that issues ALL sixteen plane loads as INDEPENDENT reads into a
-// 16-int register array (one vmcnt drain, 16-way memory-level parallelism
-// per lane), then sums the registers in ascending split order s = 0..15 --
-// the identical int32 sequence as the old ascending loop -- and applies the
-// unchanged float scale order and f32_to_bf16_rne, so every output element
-// stays bit-identical (this mirrors the validated gate_up S=16 combine
-// recipe: issue all 16 plane loads into a register array before the
-// ascending sum).  Same stream, same two launches, no allocation or sync
-// inside the timed API/Graph.
+// Iteration 8 (occupancy/resource round, this round): raise the waves-per-block
+// occupancy limiter from 1 to 2.  The exact-source PMC of the accepted
+// iteration-6 code object (digest 4fe713e6..., grid 640 = 40 N groups x 16
+// splits, workgroup 64, arch_vgpr 80, sgpr 64, scratch 0, LDS 15,616 B/block
+// -> floor(65,536/15,616) = 4 resident blocks/CU, i.e. exactly ONE resident
+// wave per SIMD) shows the residual wall is per-SIMD single-wave latency
+// exposure, not issue or HBM traffic: every per-step s_waitcnt lgkmcnt after
+// the staged-fragment du_load_matrix_sync and every du_mma accumulator
+// dependency stalls that SIMD with no second independent wave to issue
+// (lds_wait_instructions 11,842, lds_bank_conflicts 133,120, vmem_read 7,680 =
+// only the one-time staging loads).  This round makes each block TWO 64-lane
+// wavefronts (blockDim 64 -> 128, __launch_bounds__(128)) and splits the block
+// by ownership: wave w computes ONLY n-tile w (cols [n0+16w, n0+16w+16)) over
+// the shared 8-step slice with its own independent m16n16k32 accumulator chain,
+// one du_mma per step per wave (same total MMA count).  LDS per block is
+// UNCHANGED (stage_a 4,352 + stage_b 9,216 + 2 x 1,024 acc tiles = 15,616 B),
+// so 4 resident blocks/CU still fit but now carry 8 resident waves/CU = 2 per
+// SIMD: one wave's LDS->MMA stall is covered by its co-resident sibling.  The
+// one-time staging is PARTITIONED, not duplicated: wave 0 copies the shared A
+// slice, wave 1 copies the B strip (the iteration-6 cooperative loops
+// unchanged), so exactly the same global bytes are read once per block -- no
+// repeated HBM reads are traded for occupancy -- and the staging barrier
+// becomes a cross-wave __syncthreads().  The only deliberately added cost is
+// LDS re-reads: the shared A fragment is now loaded from the staged mirror by
+// both waves (LDS bandwidth is not the wall at this issue utilization).  Every
+// partial int32 is the identical ascending sum over the identical staged bytes
+// for its own 16-column tile, so the output stays bit-identical and the combine
+// kernel, the 16-plane workspace contract, the exact (m,n,k) == (16,1280,4096)
+// guard, the workspace-less direct-global path and the scalar fallback for
+// every unmatched shape (paired M=2 included) are all unchanged.
+// Falsifiable claim: if the per-SIMD single-wave latency exposure is the wall,
+// the official Graph median/P90 must drop below 21.411954/21.427149 us
+// (expected ~19.5-20.9 us median) with mismatch_count 0; if it stays flat or
+// regresses, the wall at 8 waves/CU is the LDS service rate or per-CU issue
+// rather than wave-level coverage.
 //
-// Iterations 10-15 (five-wave occupancy arc on this guard, all archived at
-// iterations/hy3_tp8_qkv_proj_m16/iterationN): iteration 10 (direct-register
-// epilogue on the two-wave mapping: acc tiles + epilogue barrier removed,
-// LDS 14,592 -> 12,544 B = 5 resident blocks/CU = 10 waves/CU) measured
-// 20.827/21.585 us and was NOT accepted; iteration 11 raised waves-per-block
-// 2 -> 5 (blockDim 320, grid 16 x 16 = 256 blocks, LDS 29,952 B = 2 resident
-// blocks/CU = 10 waves/CU) but FAILED exact correctness (its source declared
-// no __launch_bounds__ while the launcher requests 320 threads, so the
-// compiled descriptor capped the workgroup at 256 and the fifth wavefront's
-// tile was absent: 4,091/20,480 mismatches, first at (m,n)=(0,64)); the
-// iteration-11 repair was completed in iteration 13 by declaring
-// __launch_bounds__(320) (exact correctness passed, 0 mismatches; measured
-// 23.764/24.086 us); iteration 14 (ping/pong fragment double-buffer) passed
-// correctness but the toolchain spilled the second fragment set to the
-// private segment on every K step (.private_segment_fixed_size 48) -> 39.472
-// us, closing the register-pipelining axis; iteration 15 replaced the
-// five-wave epilogue __syncthreads() with __threadfence_block() (the acc
-// tiles are wave-private and the waves' plane stores are disjoint, so the
-// cross-wave join was pure skew cost) and measured 20.613/20.641 us, correct
-// but still not below the accepted two-wave 20.179/20.216.
+// Iteration 9 (combine-restructure round, this round): attack the OTHER timed
+// dispatch of the operator -- the split-K combine.  Every previous round
+// optimized only the 640-block partial kernel, but the operator replay runs
+// TWO kernels on the same stream and the combine is a real part of the wall:
+// its exact-source PMC (source digest e2a23702..., 160 x 128-thread
+// one-element-per-thread blocks) profiles at 3.52 us against 19.52 us for the
+// partial kernel, and the static code object's rolled plane loop is a
+// DEPENDENT load -> s_waitcnt vmcnt -> int32 add chain of 16 DRAM round trips
+// per output element (one 4-B global load per plane iteration) with only 160
+// blocks (~1.33 warps/SIMD) to hide it.  This round restructures ONLY the
+// combine kernel and its launch:
+//   * the guard launcher switches the combine from 160 linear 128-thread
+//     blocks to a 2-D grid of (n / 64) column groups x m rows = 20 x 16 = 320
+//     ONE-wave 64-lane blocks, and the kernel's split_k == 16 specialization
+//     gives every lane exactly ONE output element (row = blockIdx.y,
+//     col = blockIdx.x * 64 + lane): all sixteen plane loads are issued as
+//     INDEPENDENT reads into a 16-int register array (one vmcnt drain,
+//     16-way memory-level parallelism per lane) and only then summed in the
+//     unchanged ascending split order s = 0..15;
+//   * each per-plane wavefront load now reads 64 lanes x 4 B = 256 B
+//     CONTIGUOUS (four consecutive 64-B lines of one m-row) instead of four
+//     runs at the 5,120-B m-row stride.
+// The partial kernel, the 640-block / 16-split geometry, the staged byte
+// mirrors, the k-ascending int32 partials, the 16-plane 1,310,720 B workspace
+// contract, the workspace-less fallback and the scalar fallback are
+// byte-for-byte unchanged.  Integer addition is exact and order-free
+// (|acc| <= K*127*127 ~= 6.6e7 << 2^31), the fp32 scale order and the bf16
+// conversion are element-for-element identical, so every output byte is
+// bit-identical.  A clamped split_k < 16 still takes the unchanged generic
+// combine path with its original 128-thread launch, so an undersized
+// workspace cannot change behavior.
+// Falsifiable claim: if the combine's per-element dependent plane-load chain
+// (and its underfilled 160-block grid) is a material part of the 19.51 us
+// operator wall, the official Graph median/P90 must drop materially below
+// 19.510394/19.535989 us (expected ~17.3-18.9 us); if it stays flat, the
+// combine was already fully hidden behind the partial kernel's drain and the
+// remaining wall is entirely partial-kernel side.
 //
-// Iteration 16 (this round): close the five-wave occupancy axis with the
-// measured occupancy evidence and apply the repair arc's validated epilogue
-// discovery to the accepted mapping.  Occupancy ledger of the partial
-// kernel, all correct and bit-identical: 8 resident waves/CU (4 x 2-wave
-// blocks, LDS 14,592 B) = 20.179/20.216 us (iteration 9, accepted); the two
-// independent 10 resident-waves/CU configurations -- iteration 10 (5 x
-// 2-wave blocks) 20.827/21.585 and iteration 15 (2 x 5-wave blocks)
-// 20.613/20.641 -- BOTH trail the 8-wave configuration, i.e. per-SIMD wave
-// density 2.5 (some SIMDs carry 3 waves while others idle) is worse than a
-// clean 2.0 on this kernel, and the five-wave mapping (2 or 1 resident
-// 5-wave blocks/CU = 10 or 5 waves/CU only) can never reach the 8-wave
-// sweet spot.  The accepted iteration-9 source below still carries the SAME
-// provably-unnecessary epilogue __syncthreads() cross-wave join whose
-// five-wave form cost ~3.15 us (iteration 13 23.764 -> iteration 15 20.613
-// with the join removed).  Fix (the ONLY code change of this round; the
-// two-wave geometry, blockDim 128, grid 40 x 16 = 640 blocks, staging
-// partition, stage byte mirrors, 8-step K loop, combine kernel and its
-// 320-block launch, workspace, guards and fallbacks are byte-for-byte the
-// accepted iteration-9 candidate, verified by diff): replace the partial
-// kernel's epilogue __syncthreads() with __threadfence_block(), exactly as
-// iteration 15 validated on the five-wave form of this same kernel.
-// acc_tile0/acc_tile1 are each written by du_store_matrix_sync and read
-// back only by the SAME wave (w == 0 -> acc_tile0, w == 1 -> acc_tile1), and
-// the two waves' plane stores touch disjoint 16-column ranges, so no
-// epilogue stage has any cross-wave dependency; __threadfence_block() still
-// orders each wave's own outstanding LDS writes before its read-back
-// ds_reads (wavefront-wide lgkmcnt drain) while costing zero cross-wave
-// wait.  The staging __syncthreads() above stays (wave 0 stages the A slice
-// that wave 1 also reads).  Every partial byte and combine output byte is
-// unchanged, so the output is bit-identical to iteration 9.
+// Iteration 11 (DS-side staging-latency round, this round): shorten the
+// one-time staging join of the accepted iteration-9/10 partial kernel.  The
+// exact-source PMC of that object (source digest bd963ec6..., grid 640 = 40 N
+// groups x 16 splits, workgroup 128, LDS 15,616 B, arch_vgpr 80, scratch 0,
+// profiled 20.159 us) shows the kernel is deeply latency-bound, not
+// issue/bandwidth-bound: only 486,400 VALU + 112,640 LDS wave-instructions for
+// 1,280 resident wavefronts x 8 K-steps, while vmem_read_instructions is just
+// 7,680 (= the one-time staging loads, 12 int4 loads per block) and the
+// block's critical path therefore still contains the operand staging prologue.
+// The staging is PARTITIONED (wave 0 copies the 4-chunk-per-lane A slice,
+// wave 1 copies the 8-chunk-per-lane B strip) and the cross-wave
+// __syncthreads() joins both, so the join costs the SLOWER wave.  Wave 0
+// already issues its whole A copy as one 4-deep batch, but wave 1's 512-chunk
+// B strip (rows*2 = 256*2 = 512 chunks == 8 x 64 lanes) is emitted as two
+// serialized 4-deep iterations: iteration k+1's four 16-B global loads cannot
+// issue until iteration k's four dependent LDS stores have consumed their
+// registers, so every block pays TWO dependent global round trips on the
+// staging join instead of one.  Change (one focused HIP edit,
+// csrc/w8a8_gemm_hip.hip only): when the B strip is exactly the guard's
+// 8-chunk-per-lane shape (b_chunks == 8 * kDummaWaveSize == 512, which the
+// exact (m,n,k) == (16,1280,4096) guard always produces because rows ==
+// kStageMaxRows == 256), wave 1 now runs ONE straight-line 8-deep batched
+// group: all eight 16-B source loads are issued before the first LDS store,
+// so a single vmcnt drain covers the whole strip and the second global round
+// trip leaves every block's staging join.  The generic rolled 4-deep loop
+// stays verbatim as the else path for any non-guard chunk count.  The staged
+// bytes, their LDS addresses (the same 36-B row pitch and store decomposition)
+// and therefore every fragment byte, every k-ascending int32 partial and the
+// combine output stay bit-identical; the 16-plane 1,310,720 B workspace
+// contract, the workspace-less direct-global fallback, the exact shape guard,
+// the scalar fallback for every unmatched shape (paired M=2 included), the
+// combine kernel and its 320-block one-row-per-block launch, the pack identity
+// and every stream/Graph property are unchanged.
+// Falsifiable claim: if the block's staging join is a material part of the
+// 18.980 us wall, removing the second global round trip from wave 1's B copy
+// must move the official Graph median/P90 below 18.980430/19.183630 us
+// (expected ~18.3-18.9 us median) with mismatch_count 0; if it stays flat or
+// regresses, the staging join is already fully covered by the co-resident
+// blocks and the residual wall is the LDS-only K loop.
 //
-// Iteration 18 (this round): compile-time 8-step K-loop specialization of
-// the partial kernel, applied to the current checked-in source (the
-// iteration-16 candidate; working-tree digest cbc40932... = the iteration-16
-// archive, verified by diff).  Round 17 drafted exactly this edit and
-// verified its codegen locally, but the agent session was killed by the
-// round infrastructure before a valid proposal landed -- no source change
-// was ever applied, no build/benchmark ran, and per policy that
-// infrastructure failure does not count toward the valid-round ledger, so
-// this round re-submits the same HIP-only change as a fresh valid round.
-// The iteration-11 repair item is closed since iteration 13 (archived
-// iteration-11 five-wave source + __launch_bounds__(320) ONLY, exact-correct
-// with 0 mismatches; iterations 13-16 completed that arc and iteration 16
-// re-based on the accepted two-wave mapping).  Status of the current source:
-// the iteration-16 epilogue barrier-decoupled two-wave partial kernel
-// (blockDim 128, grid 40 x 16 = 640 blocks, LDS 14,592 B = 4 resident
-// blocks/CU = 8 resident waves/CU) measured official Graph median/P90
-// 19.9885/20.0133 us (min 19.9557 / max 21.3734, correctness 0 mismatches,
-// Graph capture and paired M=2 fallback passed), improving the accepted
-// 20.179/20.216 by 0.95%; it is kept as the experimental base ("official
-// best is unchanged until cumulative improvement reaches the normal
-// acceptance threshold"), and this round keeps building on that source.
-// The partial kernel dominates the operator wall, and the exact-source code
-// object shows its K loop is ROLLED: the generic loop is runtime-bounded
-// (my_steps from the runtime k and gridDim.y args), so the backend emits one
-// static body of [ds_read2_b32 (A) + 8 x ds_read_u8 (B) + ~25-VALU byte
-// reassembly + 4 lgkmcnt drains + one v_mmac_i32_16x16x32_i8] with a
-// loop-carried WAR on the single fragment register set: step s+1's LDS
-// reads cannot issue until step s's v_mmac has consumed the same fragment
-// registers, so every step's full LDS latency sits serially on the
-// accumulator chain with only 2 resident waves/SIMD to cover it (reused PMC
-// of this exact geometry: lds_instructions 107,520, lds_wait_instructions
-// 19,597, lds_bank_conflicts 276,480).  The guard launch is the kernel's
-// ONLY call site and always runs the uniform 8-step slice (k == 4096,
-// gridDim.y == 16 -> my_steps == 8 == kStageMaxSteps, rows == 256 ==
-// kStageMaxRows, staged capacity exactly filled), so this round specializes
-// that case: when my_steps == kStageMaxSteps the K loop runs with a
-// COMPILE-TIME trip count of 8 under #pragma unroll; the backend then fully
-// unrolls the chain, renames the fragment registers per step and issues
-// each step's LDS reads after the previous step's v_mmac has consumed its
-// registers, overlapping the next step's LDS round trip with the current
-// v_mmac's execution (no loop-carried WAR; verified in the local exact-flag
-// code object of this edit: 8 static v_mmac + 72 static ds_reads in the
-// specialized path vs 1 static v_mmac / 10 static ds_reads in the rolled
-// predecessor, vgpr 34 / sgpr 39 / private_segment 0 / group_segment 14,592
-// B and exactly ONE s_barrier unchanged -> the 4-blocks/CU = 8-waves/CU
-// occupancy is preserved).  Both branches issue the identical ascending-s
-// du_mma sequence into the same accumulator (v_mmac acc operand v[1:4]
-// throughout) over the same staged byte mirrors, so every partial byte and
-// every combine output byte is bit-identical to iteration 16 and exact
-// correctness must pass with 0 mismatches; the generic rolled loop stays
-// verbatim as the else path for any non-guard (my_steps != 8)
-// configuration.  Geometry, staging partition, stage byte mirrors, the
-// blockDim 128 / grid 40 x 16 = 640 blocks launch, the epilogue
-// (acc-tile store + __threadfence_block + read-back plane store), the
-// combine kernel and its 320-block launch, the 16-plane 1,310,720 B
-// workspace need, the workspace-less iteration-1 fallback, the exact
-// (m,n,k)==(16,1280,4096) guard and the scalar fallback for every unmatched
-// shape (including paired M=2) are all unchanged.
+// Iteration 13 (HIP-only consolidation round, this round): halve the split-K
+// partial-plane round trip, the only non-compulsory component of the
+// operator's memory traffic.  The exact-source PMC of the accepted iteration-11
+// object (source digest 210fbfcfde28bc26d9c1c93a8a5f91353db51c5426853e85b5701dd44fa81fa8,
+// primary kernel 640 blocks x 128 threads, LDS 15,616 B, arch_vgpr 80, sgpr 48,
+// scratch 0, profiled 20.0 us; combine 320 one-wave blocks, profiled 2.72 us;
+// official unprofiled Graph median/P90 18.145450/18.166250 us) reports, per
+// operator replay, 6,716,736 B read + 1,351,680 B written = 8,068,416 B, and
+// the memory_traffic ledger splits it into 5,368,320 B for the partial kernel
+// (B 5,242,880 compulsory + A + the 1,310,720 B of int32 partial planes it
+// writes) and 1,348,416 B read + 40,960 B written for the combine (the same
+// 1,310,720 B of planes re-read).  The combine's own L2 hit rate is just
+// 6.849% (l2_hits 1,597 / l2_misses 21,721) against the partial kernel's
+// 54.392%, i.e. the 16 int32 planes are written through L2, evicted by the
+// streaming B strip, and pulled back from DRAM by the immediately following
+// combine: 2,621,440 B of the 8,068,416 B total (32.5%) is pure split-K
+// bookkeeping against a compulsory A 65,536 B + B 5,242,880 B + out 40,960 B
+// = 5,349,376 B.  Change (one focused HIP edit, csrc/w8a8_gemm_hip.hip only):
+// move kSplitKTarget 16 -> 8 so the split-K bookkeeping halves to 8 planes
+// (655,360 B written + 655,360 B re-read), removing 1,310,720 B (16.2%) of the
+// per-replay traffic.
+//   * Geometry: grid = (N/(16*T)) * 8 = 40 * 8 = 320 blocks of 128 threads;
+//     the 128 32-K stages partition into uniform 16-stage (512-row) slices
+//     (128 == 8 x 16), every boundary still a multiple of 32, so the
+//     stage-alignment and exact-int32 contracts are unchanged.  The workspace
+//     need is 8 x 80 KiB = 655,360 B, well inside the contract's fixed
+//     1,310,720 B / 16-plane allocation, and the existing clamp still shrinks
+//     split_k for a smaller buffer.
+//   * Staging: a 512-row slice is twice the unchanged 256-row staging
+//     capacity, so the kernel now stages and consumes its slice in ascending
+//     256-row PHASES (exactly two at the guard).  Each phase is byte-for-byte
+//     the accepted iteration-11 geometry: wave 0 stages the 256-chunk A phase
+//     as one 4-deep batch and wave 1 stages the 512-chunk B strip as ONE
+//     straight-line 8-deep batch behind a single vmcnt drain, then the phase's
+//     8 K-steps accumulate into the SAME acc_frag in ascending k order, and an
+//     end-of-phase __syncthreads() releases the LDS for the next phase.  The
+//     staged bytes, their bank-skewed LDS addresses, the 36-B B row pitch, the
+//     8-deep batch and therefore every fragment byte are unchanged, so every
+//     k-ascending int32 partial and the combine output stay bit-identical.
+//   * LDS per block is unchanged at 15,616 B (stage_a 4,352 + stage_b 9,216 +
+//     2 x 1,024 acc tiles), so four resident blocks/CU still fit by capacity
+//     (2 waves/block = 8 waves/CU = 2 per SIMD by capacity); the 320-block
+//     grid is a single resident generation.
+//   * The combine guard split and its 2-D one-wave launch move to
+//     kCombineSplits = 8 (the same 20 x 16 = 320 one-wave blocks, eight
+//     independent plane loads per lane in registers); a clamped split_k < 8
+//     keeps the unchanged generic 128-thread combine path.
+// The exact shape guard, the workspace-less fall-through, the scalar fallback
+// for every unmatched shape (paired M=2 included), the pack identity, the
+// stream/Graph contract and every fallback path are unchanged; no raw inline
+// asm and no ISA skill is used (phase hip_only, plateau false,
+// raw_inline_asm_allowed false, skill_allowed false).
+// Falsifiable claim: if the 2,621,440 B split-K plane round trip is a material
+// part of the 18.145 us wall, halving it must move the official Graph
+// median/P90 below 18.145450/18.166250 us (expected ~16.5-17.5 us median,
+// ~4-9% faster, from the 1,310,720 B traffic reduction minus the reduced grid
+// parallelism) with mismatch_count 0 and unchanged Graph capture; if it stays
+// flat or regresses, the plane traffic was hidden behind the operand stream
+// and the residual wall is the compulsory 5.35 MB operand/out stream.
 //
-// Iteration 20 (DS-side staging-latency round, accepted): the exact-guard
-// launch always stages the full 512-chunk B strip (chunks == 512 == 8 x 64
-// lanes), so wave 1's B copy now runs as ONE straight-line 8-deep batched
-// group (all eight 16-B source loads issue before the first LDS store, one
-// vmcnt drain covers the whole strip) instead of two serialized 4-deep
-// iterations -- the second global round trip is removed from every block's
-// staging join critical path (official Graph median/P90 19.967 -> 19.541/
-// 19.558 us, accepted).  The generic rolled loop stays verbatim as the else
-// path for any non-guard (chunks != 512) configuration.
+// The scalar kernel below stays byte-for-byte as the generic fallback for
+// every unmatched shape, including the paired M=2 API shape with the same
+// (N, K); the (m, n, k) == (16, 1280, 4096) guard is the only call site of
+// the split-K DUMMA path, and if the caller supplies no usable workspace the
+// exact shape safely falls through to that scalar fallback.
 //
-// Iteration 21 (this round): DS-side bank-skew round for the B-fragment
-// ds_read_u8 structure (pre-registered in iterations 18 and 20: the next
-// increment must attack the PMC-documented DS ledger of this exact object --
-// lds_bank_conflicts 276,480 = ~2.57 replays per LDS instruction, dominated
-// by the 8 byte-granular B-fragment reads per step per wave, 128 per block).
-// The row-major B fragment loader reads each lane's 8 bytes at addresses
-// base + (8*(lane>>4) + i) * ldm for i = 0..7, so the four row groups
-// g = lane>>4 of the fragment's 32 k rows sit 8*ldm bytes apart; with the
-// stage_b rows packed at the old ldm == 32, every group sat 256 B (== 0
-// mod 128 B) apart and each ds_read_u8 replayed the SAME LDS bank 4x per
-// wavefront.  This round pads each staged B row to kStageBRowStride = 36 B
-// (32 data + 4 pad): the groups then sit 288 B (== 32 mod 128 B) apart and
-// hit banks {b, b+8, b+16, b+24} -- the B-fragment reads become
-// conflict-free while every staged data byte, the fragment contents, the
-// k-ascending int32 order and the partial planes stay bit-identical (the
-// pads are never written or read; only the loader's ldm argument and the
-// wave-1 store offsets change).  Wave-1 staging stores become four 4-B
-// words per 16-B chunk (36*r is only 4-B aligned) at int32 offsets
-// 9*r + 4*h + {0,1,2,3}; LDS store bandwidth is unchanged.  LDS per block
-// grows 14,592 -> 15,616 B (stage_b 8,192 -> 9,216): 4 x 15,616 = 62,464
-// <= 65,536, so the 4-resident-blocks/CU = 8-resident-waves/CU occupancy
-// sweet spot is preserved.  The workspace-less fallback, the exact
-// (m,n,k)==(16,1280,4096) guard, the scalar fallback for every unmatched
-// shape (including paired M=2), the combine kernel and its 320-block
-// launch, the pack identity and the 16-plane 1,310,720 B workspace need are
-// all unchanged.  The iteration-11 repair item stays closed since
-// iteration 13 (five-wave archive + __launch_bounds__(320) ONLY, exact-
-// correct; the five-wave axis closed on measurement: best 20.613/20.641 us
-// vs the accepted two-wave mapping 19.541/19.558 us).
-//
-// Iterations 22-25 (rounds 22 and 23 measured and rejected, tree reverted to
-// the iteration-21 source e7ae27d0...; round 24 was killed mid-round before
-// any measurement -- its archive draft was never compiled or run): round 22
-// removed the acc-tile LDS round trip from the partial epilogue at pinned
-// occupancy (direct-register plane stores) and REGRESSED (+0.82 us ->
-// 20.276/20.298 us) because the register-distributed acc values force 16-B
-// store granules per wavefront instruction instead of the read-back path's
-// four full 64-B lines -- rejected and reverted; round 23 widened each
-// combine block to a 32-column n-strip with dwordx2 plane loads (160 blocks)
-// and measured FLAT (median 19.4504 us vs the 19.4528 shadow, within its own
-// +/-0.05 us falsification band, plus a 41.1 us max outlier) -- rejected and
-// reverted.  Round 23's pre-registered falsification branch (a) therefore
-// committed THIS round to a combine block mapping whose per-plane reads run
-// in longer contiguous runs per row (or a partial-plane store-order change),
-// never occupancy / fragment duplication / raw asm / a scalar-fallback
-// change.
-//
-// Iteration 25 (this round): combine mapping v3 -- one output row per
-// block.  The combine byte stream is fixed (every plane word is read
-// exactly once, 64-B sectors fully consumed), so v1 (iteration 9: blocks of
-// 4 rows x 16 cols) and v2 (iteration 23: 4 rows x 32 cols) both issue
-// every per-plane wavefront load as FOUR 64-B (v1) or 128-B (v2) runs at
-// the 5,120-B m-row stride -- four different DRAM rows, i.e. up to four row
-// activations per load instruction -- which is exactly why widening the
-// per-row run 64 -> 128 B in v2 could not move the combine (it never
-// reduced the rows-per-instruction scatter).  The guard combine launch now
-// uses one-wave blocks that each own ONE m-row x 64 consecutive columns
-// (kDummaCombineColsPerBlock = 64; grid 20 x 16 = 320 blocks, the same
-// 320-block count and the same one-output-element-per-lane, 16-independent-
-// plane-load structure as iteration 9): every per-plane wavefront load then
-// reads 64 lanes x 4 B = 256 B CONTIGUOUS = four consecutive 64-B lines of
-// ONE DRAM row (single run, ~4x fewer DRAM row activations for the same
-// byte stream).  Each element's ascending-s int32 sum, the float scale
-// order and every output bf16 word are unchanged element-for-element, so
-// the output is bit-identical to the iteration-21 shadow; the partial
-// kernel, the 16-plane workspace contract, the exact guard, the
-// workspace-less fallback and the scalar fallback (paired M=2 included) are
-// byte-for-byte untouched.
-//
-// launch_pack_w8a8_weight (optional, out of the timed region) is an
-// identity device-to-device copy: the logical [K, N] int8 weight and the
-// [N, 1] fp32 scales are copied unchanged, so the DUMMA direct loader
-// reads the exact logical [K, N] row-major layout.  Later rounds may
-// change the packed layout here together with the matching GEMM
-// interpretation.
-//
-// This file is compiled with hipcc by torch.utils.cpp_extension; it must
-// stay free of torch/ATen dependencies.  Only the two extern "C" launchers
-// below are the host contract consumed by csrc/bindings.cpp.
-//
-// Include order is the known-good DTK order: HIP runtime first, then the
-// bfloat16 header, then du_mma.h (consumed by the DUMMA kernel below).
+// Iteration 17 (HIP-only consolidation round, this round): complete the B
+// memory path by packing the cold once-read weight into the col_major
+// fragment layout, the lineage rule that the sibling TP4/TP8 M=16 shapes
+// validated ("one ds_read_b64 per step, was 8 ds_read_u8").  Evidence for the
+// accepted iteration-13 object (source digest 920506893c362e1bcefa5c36ffb0776fbfee00a9dd004943b66fc55d386ae572,
+// primary kernel 320 blocks x 128 threads, LDS 15,616 B, arch_vgpr 80, sgpr 48,
+// scratch 0, profiled 18.24 us; combine 320 one-wave blocks, profiled 2.72 us;
+// official unprofiled Graph median/P90 16.614190340042114/16.642990112304688
+// us): the exact-source code object's rolled LDS-only K loop issues ONE
+// ds_read2_b32 for the A fragment, but EIGHT scatter ds_read_u8 per lane for
+// the B fragment (immediates i*36 on the k-major 36-B row pitch) plus the
+// byte-mask/shift/OR reassembly that packs those eight bytes into the v_mmac
+// operand -- ~10 of the ~11 LDS wave-instructions and ~2/3 of the ~41 VALU
+// wave-instructions per wave-step, with lds_wait_instructions 15,137 and
+// lds_bank_conflicts 117,760 against lds_instructions 108,800.  The B
+// fragment's 8 bytes per lane are contiguous in memory if and only if the
+// staged B tile is n-major, because the library col_major matrix_b loader
+// reads p[(lane&15)*ldm + 8*(lane>>4) + i].  Change (one focused HIP edit,
+// csrc/w8a8_gemm_hip.hip only):
+//   * for the exact (K, N) == (4096, 1280) weight pair, launch_pack_w8a8_weight
+//     now writes the n-major transpose packed[n*K + k] = raw[k*N + n] instead
+//     of the identity copy (same buffer, same k*n bytes, outside the timed
+//     region/Graph; the packed layout is opaque per the API contract).  Every
+//     other (K, N) keeps the identity copy.
+//   * the guard kernel stages its 32-column B strip n-major:
+//     stage_b[n * kStageBColStride + k] = packed[n0 + n][phase_begin + k] at
+//     the 16-B-aligned 272-B column stride, so each 16-B cooperative chunk is
+//     one ds_write_b128 and each column's phase is one contiguous run.
+//   * the B fragment is declared col_major and loaded from the n-major mirror
+//     (ldm = 272), so the K loop's B fragment becomes ONE contiguous 8-byte
+//     LDS read per step.
+//   * the scalar fallback (paired M=2 and every unmatched shape) and the
+//     DUMMA kernel's direct-global safety net decode the same permutation for
+//     this (K, N); all other shapes are untouched.
+// The same logical (k, n) element lands in the same v_mmac fragment register,
+// every staged byte is a copy of the same packed byte, and the k-ascending
+// int32 accumulation is unchanged, so every partial and every output byte stay
+// bit-identical; LDS per block drops 15,616 -> 15,104 B (still 4 resident
+// blocks/CU), and the grid, plane geometry, combine kernel, workspace
+// contract, stream/Graph properties and fallbacks are unchanged.  No raw
+// inline asm and no ISA skill is used (phase hip_only, plateau false,
+// raw_inline_asm_allowed false, skill_allowed false).
+// Falsifiable claim: if the B fragment's 8-scatter-byte LDS read plus its
+// reassembly VALU is a material part of the 16.614 us wall, replacing it with
+// one 8-byte LDS read (and ~4x fewer LDS wave-instructions) must move the
+// official Graph median/P90 below 16.614190/16.642990 us (expected
+// ~15.9-16.3 us median, 2-4% faster) with mismatch_count 0 and unchanged
+// Graph capture; if it stays flat or regresses, the LDS instruction count is
+// not the wall and the residual wall is the compulsory operand byte stream.
 
 #include <hip/hip_runtime.h>
 #include <hip/hip_bfloat16.h>
@@ -463,662 +471,629 @@
 
 namespace {
 
-// IEEE round-to-nearest-even conversion of an fp32 value to a bf16 bit
-// pattern, implemented with pure integer ops.  This is exactly the
-// conversion applied by the CPU reference (`scaled.to(torch.bfloat16)`),
-// independent of which bf16 type family the DTK headers provide.
-__device__ __forceinline__ uint16_t f32_to_bf16_rne(float f) {
-  constexpr uint32_t kRoundBias = 0x7FFFu;
-  uint32_t u;
-  __builtin_memcpy(&u, &f, sizeof(u));
-  const uint32_t lsb = (u >> 16) & 1u;  // tie goes to even
-  u += kRoundBias + lsb;
-  return static_cast<uint16_t>(u >> 16);
-}
+// 128 threads = 2 waves of the native gfx928 64-lane wavefront, and a
+// multiple of 64 as required by this DTK.
+constexpr int kBlockThreads = 128;
 
-}  // namespace
+// Iteration 17: the exact-guard weight pair (K, N) == (4096, 1280) whose
+// packed weight buffer is the n-major transpose packed[n*K + k] =
+// raw[k*N + n] instead of the identity copy.  launch_pack_w8a8_weight writes
+// that permutation (outside the timed region / Graph), the split-K DUMMA
+// kernel consumes it through its n-major LDS stage with the library col_major
+// matrix_b fragment loader, and every other consumer of the packed weight
+// (the scalar fallback that serves the paired M=2 shape and every unmatched
+// (m, n, k), plus the DUMMA kernel's direct-global safety net) decodes the
+// same permutation.  Every other (K, N) keeps the byte-for-byte identity pack.
+constexpr int kGuardK = 4096;
+constexpr int kGuardN = 1280;
 
-// ---------------------------------------------------------------------------
-// Scalar generic GEMM: out[m, n] = bf16(int32(sum_k a[m,k]*b[k,n])
-//                                      * x_scale[m] * weight_scale[n]).
-// One thread per output element.  Adjacent lanes walk adjacent columns n
-// (the fastest-changing output/weight dimension).  gfx928 wavefront = 64;
-// the launcher always uses blockDim 128 (a multiple of 64).
-// ---------------------------------------------------------------------------
-__global__ void w8a8_scalar_gemm_kernel(
-    const int8_t* __restrict__ a,        // x_q      [M, K] row-major
-    const int8_t* __restrict__ b,        // packed_weight [K, N] row-major
-    const float* __restrict__ x_scale,   // [M] (logical [M, 1])
-    const float* __restrict__ w_scale,   // [N] (logical [N, 1])
-    uint16_t* __restrict__ out,          // [M, N] bf16 payload
+// One thread -> one output element. Consecutive threads stay adjacent in N,
+// the fastest-changing dimension, so weight loads are coalesced.
+__global__ __launch_bounds__(kBlockThreads) void w8a8_scalar_kernel(
+    const int8_t* __restrict__ a,
+    const int8_t* __restrict__ b,
+    const float* __restrict__ x_scale,
+    const float* __restrict__ weight_scale,
+    __hip_bfloat16* __restrict__ out,
     int m,
     int n,
     int k) {
-  const int tid =
-      static_cast<int>(blockIdx.x) * static_cast<int>(blockDim.x) +
-      static_cast<int>(threadIdx.x);
-  const int total = m * n;
-  if (tid >= total) {
+  const int64_t total =
+      static_cast<int64_t>(m) * static_cast<int64_t>(n);
+  const int64_t idx =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx >= total) {
     return;
   }
-  const int row = tid / n;  // M is small for decode; N is the fast axis
-  const int col = tid - row * n;
 
-  const int8_t* a_row = a + static_cast<int64_t>(row) * k;
-  const int8_t* b_col = b + col;  // stride n along k
+  const int row = static_cast<int>(idx / n);
+  const int col = static_cast<int>(idx - static_cast<int64_t>(row) * n);
 
+  const int8_t* a_ptr = a + static_cast<int64_t>(row) * k;
   int32_t acc = 0;
-#pragma unroll 4
-  for (int kk = 0; kk < k; ++kk) {
-    acc += static_cast<int32_t>(a_row[kk]) *
-           static_cast<int32_t>(b_col[static_cast<int64_t>(kk) * n]);
+  if (k == kGuardK && n == kGuardN) {
+    // Iteration 17: the exact-guard weight buffer holds the n-major
+    // transpose packed[n*K + k] = raw[k*N + n] (a pure byte permutation),
+    // so the fallback decodes that layout here.  The k-ascending int32 sum
+    // and therefore every output byte are unchanged.
+    const int8_t* b_col = b + static_cast<int64_t>(col) * k;
+    for (int kk = 0; kk < k; ++kk) {
+      acc += static_cast<int32_t>(a_ptr[kk]) *
+             static_cast<int32_t>(b_col[kk]);
+    }
+  } else {
+    const int8_t* b_ptr = b + col;
+    for (int kk = 0; kk < k; ++kk) {
+      acc += static_cast<int32_t>(a_ptr[kk]) * static_cast<int32_t>(*b_ptr);
+      b_ptr += n;
+    }
   }
 
-  const float scaled = static_cast<float>(acc) * x_scale[row] * w_scale[col];
-  out[tid] = f32_to_bf16_rne(scaled);
+  // Integer dot stays exact in int32; the two fp32 scales are applied once at
+  // the very end and the result is stored as bf16.
+  const float scaled = static_cast<float>(acc) * x_scale[row] *
+                       weight_scale[col];
+  out[idx] = __float2bfloat16(scaled);
 }
 
 // ---------------------------------------------------------------------------
-// Exact-guard DUMMA path for hy3_tp8_qkv_proj_m16 (M=16, N=1280, K=4096).
+// Exact-guard DUMMA split-K path for hy3_tp8_qkv_proj_m16
+// (M=16, N=1280, K=4096).
 //
-// Minimal native gfx928 INT8 tile: DUFragment<matrix_a/matrix_b,16,16,32,
-// signed char> fragments with a DUFragment<accumulator,16,16,32,int>
-// accumulator, one 64-thread wavefront per block, one 16x16 output tile per
-// block (grid = N/16 = 80 blocks).  Every K step is an explicit int32
-// du_mma_sync over a 32-aligned ascending k chunk, so the int32 dot is
-// identical to the scalar kernel's sum (exact integer addition, no
-// overflow: |out| <= K*127*127 ~= 6.6e7 << 2^31).
+// Minimal native gfx928 INT8 tile: DUFragment<matrix_a/matrix_b, 16,16,32,
+// signed char, row_major> fragments with a DUFragment<accumulator,16,16,32,
+// int> accumulator, one 64-lane wavefront per N tile (two wavefronts per block
+// since iteration 8).  Iteration 4 gives every block kTilesPerWave = 2
+// adjacent 16x16 output tiles, and the 128 stage-aligned (k/32) K-steps are
+// split kSplitKTarget ways so that the grid becomes (N/(16*T))*S blocks
+// instead of N/16.  Every K step is an explicit int32 du_mma_sync over a
+// 32-aligned ascending k chunk, so each partial is an exact int32 sub-sum and
+// the combine below is bit-identical to the scalar kernel's total (exact
+// integer addition, order-free; |total| <= K*127*127 ~= 6.6e7 << 2^31).
 //
-// The gfx928 int8 m16n16k32 accelerator fragment ownership is opaque, so
-// the epilogue materializes the tile with du_store_matrix_sync into a
-// single-wave LDS staging array (library-defined mem_row_major placement,
-// 256 x int32 = 1,024 B) and only afterwards applies the per-element float
-// scaling and the bf16 RNE store.  BlockDim is one wavefront, so the single
-// __syncthreads() below is a same-wave barrier (all 64 threads reach it)
-// and there is no cross-wave synchronization anywhere in the kernel.
+// Iteration 6 adds whole-slice A+B LDS staging: each block first mirrors its
+// whole A slice and its whole 32-column B strip into LDS with 16-B cooperative
+// copies (exact byte mirrors, bank-skewed row pitches), and the K loop then
+// reads every fragment from LDS with no global load and no vmcnt wait on the
+// MMA path.  See the staging block below for the capacity, bank-skew and
+// bit-exactness arguments.
+//
+// Iteration 8 raises waves-per-block from 1 to 2: wave w owns N tile w of the
+// block's 32 columns and runs its own independent accumulator chain, the
+// one-time staging is partitioned across the two waves (no operand byte is
+// fetched twice), and LDS per block is unchanged, so 4 resident blocks/CU
+// become 8 resident waves/CU = 2 per SIMD.
+//
+// The gfx928 int8 m16n16k32 accelerator fragment ownership is opaque, so the
+// epilogue materializes each tile with du_store_matrix_sync into a per-wave
+// LDS staging array (16x16 int32 = 1,024 B each, library-defined mem_row_major
+// placement) and from there stores the raw int32 partials into plane `split`
+// of the caller workspace.  blockDim is two wavefronts, so the staging
+// __syncthreads() is a genuine cross-wave barrier inside one block (wave 0's A
+// slice is read by wave 1 and vice versa for the B strip); there is no
+// cross-block synchronization anywhere.
 // ---------------------------------------------------------------------------
 constexpr int kDummaM = 16;
 constexpr int kDummaN = 16;
 constexpr int kDummaK = 32;
 constexpr int kDummaWaveSize = 64;
 
-// Combine constants.  Iteration 9: the exact-guard launcher (SPLIT_K == 16)
-// launched the combine kernel as 80 n-tiles x four-row m-groups of one-wave
-// blocks and the kernel specialized split_count == kDummaCombineSplits with
-// one output element per lane.  Iteration 25 (mapping v3): the guard launch
-// becomes 20 column-groups x 16 m-rows of one-wave blocks -- each block owns
-// ONE output row x kDummaCombineColsPerBlock = 64 consecutive columns (4 x
-// kDummaN), so every per-plane wavefront load reads a single 256-B
-// contiguous run (four consecutive 64-B lines inside one DRAM row) instead
-// of four 64/128-B runs at the 5,120-B row stride (see the kernel comment
-// below for the DRAM row-activation mechanism).
-constexpr int kDummaCombineSplits = 16;        // == the guard launcher kSplitK
-constexpr int kDummaCombineColsPerBlock = 64;  // n-columns per combine block
+// Iteration 4: two adjacent 16-wide N tiles per block (32 N columns).
+// Iteration 8: one 64-lane wave owns each of those two tiles, so the block is
+// two wavefronts and the A fragment of a 32-K step is shared by both waves
+// through LDS; B has no reuse (every B byte belongs to exactly one block).
+constexpr int kTilesPerWave = 2;
 
-__global__ void w8a8_dumma_m16_tile_kernel(
-    const int8_t* __restrict__ a,        // x_q [M, K] row-major
-    const int8_t* __restrict__ b,        // packed_weight [K, N] row-major
-    const float* __restrict__ x_scale,   // [M]
-    const float* __restrict__ w_scale,   // [N]
-    uint16_t* __restrict__ out,          // [M, N] bf16 payload
+// Iteration 13 target split of the K dimension: 8.  With kTilesPerWave = 2 the
+// grid is (N / (16*2)) * S = 40 * S blocks, so S = 8 gives 320 one-generation
+// blocks over the 120-device-CU K500SM_AI (2.67 blocks/CU by grid, all resident
+// because the unchanged 15,616 B/block LDS footprint still fits four blocks/CU
+// = 8 resident waves/CU = 2 per SIMD by capacity).  The move 16 -> 8 halves the
+// ONLY non-compulsory component of the operator's memory traffic: the split-K
+// partial planes (8 x 80 KiB = 655,360 B written and re-read instead of
+// 16 x 80 KiB = 1,310,720 B), i.e. 1,310,720 B of the measured 8,068,416 B
+// per-operator-replay traffic.  Each split now owns 16 x 32 K stages = 512
+// rows, which is twice the unchanged 256-row staging capacity, so the kernel
+// stages and consumes its slice in ascending 256-row PHASES (exactly two at
+// the guard); see the phase loop below.  The slices stay UNIFORM
+// (128 == 8 x 16) and every boundary stays a multiple of 32, so the
+// stage-alignment and exact-int32 contracts are untouched.  The workspace
+// holds 16 int32 planes for this shape, so 8 planes fit with room to spare and
+// the runtime clamp still covers smaller buffers.
+constexpr int kSplitKTarget = 8;
+
+// Iteration 6 staging capacity, tied to the guard launch (k == 4096): 8
+// stages x 32 K = 256 K rows of the slice are staged per phase.  Kept
+// deliberately independent of kSplitKTarget since iteration 13: the 512-row
+// slice of the 8-way split is staged as two 256-row phases, so the staging
+// capacity, the A bank-skew pad and the 8-deep B batch are the accepted
+// iteration-11 geometry (iteration 17 only re-lays the B mirror n-major).
+constexpr int kStageMaxSteps = 8;
+constexpr int kStageMaxRows = kStageMaxSteps * kDummaK;          // 256 rows
+// stage_a mirrors the block's A slice: 16 m-rows x rows bytes of x_q stored
+// m-major at kStageARowStride = rows + 16 pad bytes.  272 B (== 16 mod 128 B)
+// skews the row_major A fragment loader's 16 row reads instead of replaying
+// one bank, and 272 is a multiple of 16 so the cooperative 16-B stores stay
+// 16-B aligned.
+constexpr int kStageARowStride = kStageMaxRows + 16;             // 272 B
+// Iteration 17: stage_b is an n-MAJOR mirror of the block's 32-column B strip.
+// Element B[k][n0 + n] lives at stage_b[n * kStageBColStride + k], i.e. each
+// N column owns a contiguous run of kStageBColStride bytes (the phase's k rows
+// followed by 16 pad bytes), and the stride is 16-B aligned so every 16-B
+// staged chunk is one aligned ds_write_b128.  The library col_major matrix_b
+// fragment loader reads lane l's 8 fragment bytes as
+// p[(lane & 15) * ldm + 8 * (lane >> 4) + i] (i = 0..7) -- EIGHT CONTIGUOUS
+// bytes -- so on the n-major tile the K loop's B fragment becomes ONE 8-byte
+// LDS read per step instead of the iteration-13 row_major loader's 8 scatter
+// ds_read_u8 plus the byte-reassembly VALU that fed them.  The same logical
+// (k, n) element lands in the same v_mmac fragment register in both layouts,
+// so every k-ascending int32 partial and the whole output stay bit-identical.
+constexpr int kStageBColStride = kStageMaxRows + 16;             // 272 B
+constexpr int kStageABytes = kDummaM * kStageARowStride;         // 4,352 B
+constexpr int kStageBBytes =
+    kDummaN * kTilesPerWave * kStageBColStride;                  // 8,704 B
+
+__global__ __launch_bounds__(kDummaWaveSize * kTilesPerWave)
+void w8a8_dumma_m16_splitk_kernel(
+    const int8_t* __restrict__ a,      // x_q [M, K] row-major
+    const int8_t* __restrict__ b,      // packed_weight [N, K] n-major (guard)
+    int32_t* __restrict__ partials,    // workspace [S][M, N] int32
     int n,
-    int k) {
-  const int lane = static_cast<int>(threadIdx.x);  // blockDim == 64
-  const int n0 = static_cast<int>(blockIdx.x) * kDummaN;
-
-  __shared__ __align__(16) int32_t acc_tile[kDummaM * kDummaN];
-
-  du::dumma::DUFragment<du::dumma::matrix_a, kDummaM, kDummaN, kDummaK,
-                        signed char, du::dumma::row_major>
-      a_frag;
-  du::dumma::DUFragment<du::dumma::matrix_b, kDummaM, kDummaN, kDummaK,
-                        signed char, du::dumma::row_major>
-      b_frag;
-  du::dumma::DUFragment<du::dumma::accumulator, kDummaM, kDummaN, kDummaK,
-                        int>
-      acc_frag;
-  du::dumma::du_fill_fragment(acc_frag, 0);
-
-  // A is [16, k] (row stride k) and B is [k, 16] (row stride n); both stay
-  // row-major in their global tensors, so each 32-K step loads straight
-  // from global with the library row_major loaders.
-  for (int k0 = 0; k0 < k; k0 += kDummaK) {
-    du::dumma::du_load_matrix_sync(a_frag, a + k0, k);
-    du::dumma::du_load_matrix_sync(
-        b_frag, b + static_cast<int64_t>(k0) * n + n0, n);
-    du::dumma::du_mma_sync(acc_frag, a_frag, b_frag, acc_frag);
-  }
-
-  du::dumma::du_store_matrix_sync(acc_tile, acc_frag, kDummaN,
-                                  du::dumma::mem_row_major);
-  __syncthreads();
-
-  // 256 elements / 64 lanes: each lane scales and stores four outputs.
-#pragma unroll
-  for (int linear = lane; linear < kDummaM * kDummaN; linear += kDummaWaveSize) {
-    const int row = linear / kDummaN;
-    const int col = linear - row * kDummaN;
-    const int out_col = n0 + col;
-    const float scaled = static_cast<float>(acc_tile[linear]) *
-                         x_scale[row] * w_scale[out_col];
-    out[static_cast<int64_t>(row) * n + out_col] = f32_to_bf16_rne(scaled);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Split-K partial kernel (iteration 2 probe, widened in iteration 4 to
-// multi-N-tile reuse, B-staged in iteration 5): same m16n16k32 int8 DUMMA
-// tile as iteration 1, but gridDim = (N/(16*kTilesPerWave), SPLIT_K) so
-// every one-wave block owns kTilesPerWave adjacent 16-wide N tiles AND one
-// ascending 32-aligned K slice, and writes its exact int32 partials into
-// workspace planes partials[split][16][n].  Iteration 4: kTilesPerWave = 2,
-// so per 32-K step the wave loads the A fragment once and shares it between
-// the two du_mma_sync calls (A bytes of the step reused across both output
-// tiles; every B byte is still read exactly once).  Iteration 5 (staging
-// round, B-only): each block first stages its whole 32-column B slice
-// (my_steps*32 rows x 32 B, <= 352 x 32 = 11,264 B under the SPLIT_K=12
-// guard launch) into an LDS tile stage_b that is an EXACT byte mirror of
-// the block's global B strip (16-B int4 cooperative loads, 4-deep source
-// batching so one vmcnt drain covers 4 in-flight round trips), then after
-// one same-wave __syncthreads() the K loop reads the B0/B1 fragments from
-// LDS with du_load_matrix_sync (row stride 32) -- same fragment bytes as
-// the iteration-4 direct global loads, so the int32 partials stay
-// bit-identical -- while A stays on the direct-global path (this round
-// isolates the B side only).  BlockDim is one 64-lane wavefront: the two
-// barriers are the staging barrier above and the single same-wave
-// __syncthreads() after the LDS materialization of both partial tiles.
-// LDS per block: 11,264 B (stage_b) + 2 x 1,024 B (acc tiles) = 13,312 B
-// -> 65,536 / 13,312 = 4.9, so the 4-blocks-per-CU launch co-residency is
-// preserved (LDS is not the occupancy limiter).
-//
-// Iteration 7 (this round): A+B whole-slice LDS staging.  Each one-wave
-// block now stages BOTH operands of its whole K slice once: stage_a holds
-// the 16 m-rows x 256 slice bytes at row stride 272 (256 data + 16 pad for
-// bank skew, 4,352 B) and stage_b holds the 256 x 32 B strip (8,192 B);
-// both use 16-B int4 cooperative loads with the same 4-deep batching, one
-// same-wave __syncthreads(), and then the K loop reads every fragment from
-// LDS (A at row stride 272, B0/B1 at row stride 32) -- zero per-step global
-// loads and zero vmcnt waits on the MMA path.  Geometry moved to SPLIT_K=16
-// (uniform 8-step slices, 40 x 16 = 640 blocks): per-block LDS 4,352 +
-// 8,192 + 2,048 = 14,592 B -> floor(65,536/14,592) = 4, so the 4-blocks/CU
-// co-residency of iteration 5 is preserved.  Barriers per block stay two
-// (staging, epilogue).  Staged tiles are exact byte mirrors, so partials
-// are bit-identical to iteration 5 and the combine kernel is unchanged.
-//
-// Iteration 8 (occupancy/resource round, this round): tune the waves-per-
-// block occupancy limiter.  PMC of the accepted iteration-7 code object
-// (source digest b64e3209..., grid 640, workgroup 64, arch_vgpr 40, sgpr 48,
-// scratch 0, LDS/block 14,592 B -> floor(65,536/14,592) = 4 resident blocks/
-// CU, 5.33 waves/CU by grid) shows a per-SIMD latency-exposure wall: every
-// block is ONE wavefront, so at 4 resident blocks/CU the four waves land one
-// per SIMD and each SIMD has no second independent wave to issue while the
-// resident wave stalls on its per-step s_waitcnt lgkmcnt (lds_wait 8,359)
-// after the staged-fragment du_load_matrix_sync and on its du_mma accum
-// chain (VALU issue utilization ~3-6% of the 26.56 us profiled kernel;
-// vmem_read 7,680 = only the 12 one-time staging loads per block).  Fix:
-// blockDim 64 -> 128, i.e. TWO 64-lane wavefronts per block, and the block's
-// 32-column strip is split by ownership: wave w computes ONLY n-tile w (cols
-// [n0+16w, n0+16w+16)) over the shared 8-step slice with its own independent
-// accumulator chain, one du_mma per step per wave (same total MMA count).
-// LDS per block is UNCHANGED (stage_a 4,352 + stage_b 8,192 + 2 x 1,024 acc
-// tiles = 14,592 B), so 4 blocks/CU still fit but now carry 8 resident waves
-// = 2 per SIMD: one wave's LDS->MMA stall is filled by the other.  The
-// one-time staging is partitioned, NOT duplicated: wave 0 copies the shared
-// A slice and wave 1 copies the B strip (their iteration-7 loops unchanged),
-// so exactly the same global bytes are read once (no repeated HBM reads for
-// occupancy) and the staging barrier becomes a cross-wave __syncthreads().
-// Deliberate added cost: the A fragment is re-read from LDS by each wave
-// (lds_instructions 99,840 -> ~125-135k predicted; LDS pipe/conflicts are
-// not the wall at ~3-6% issue utilization -- the trade is LDS re-reads, not
-// HBM traffic).  Geometry, planes, combine kernel, guards and fallbacks are
-// otherwise unchanged.
-// ---------------------------------------------------------------------------
-__global__ void w8a8_dumma_m16_splitk_partial_kernel(
-    const int8_t* __restrict__ a,        // x_q [16, k] row-major
-    const int8_t* __restrict__ b,        // packed_weight [k, n] row-major
-    int32_t* __restrict__ partials,      // [gridDim.y][16][n] int32
-    int n,
-    int k) {
-  constexpr int kTilesPerWave = 2;   // two adjacent 16-wide N tiles per block
-  // Iteration 8 (occupancy round): each block is TWO 64-lane wavefronts
-  // (blockDim 128).  Wave w owns N tile w of the block's 32 columns (cols
-  // [n0 + 16*w, n0 + 16*w + 16)) and runs an independent 8-step accumulator
-  // chain over the shared K slice for that tile alone.
-  const int tid = static_cast<int>(threadIdx.x);   // blockDim == 128
-  const int w = tid >> 6;                          // wave id inside block 0/1
-  const int lane = tid & (kDummaWaveSize - 1);     // lane id within the wave
-  const int group = static_cast<int>(blockIdx.x);  // 32-wide n-group id
-  const int split = static_cast<int>(blockIdx.y);  // k-slice id
+    int k,
+    int split_k,
+    int groups /* n / (kDummaN * kTilesPerWave) */) {
+  // Iteration 8: blockDim is TWO 64-lane wavefronts.  Wave w owns N tile w of
+  // the block's 2 x 16 columns (cols [n0 + 16*w, n0 + 16*w + 16)) and runs its
+  // own independent m16n16k32 accumulator chain for that tile; the staging of
+  // each ascending 256-row phase is partitioned across the waves, not
+  // duplicated (wave 0 copies the shared A phase, wave 1 the B strip phase),
+  // so every global byte is still read exactly once per block -- no repeated
+  // HBM reads are traded for occupancy.
+  const int tid = static_cast<int>(threadIdx.x);  // blockDim == 128
+  const int w = tid / kDummaWaveSize;             // wave id inside block: 0/1
+  const int lane = tid - w * kDummaWaveSize;      // lane id within the wave
+  const int group = static_cast<int>(blockIdx.x) % groups;
+  const int split = static_cast<int>(blockIdx.x) / groups;
   const int n0 = group * (kDummaN * kTilesPerWave);
 
-  // Stage-buffer sizing is tied to the ONLY launch site of this kernel: the
-  // exact (m,n,k)==(16,1280,4096) guard with gridDim.y == 16 (iteration 7),
-  // so total_steps == 128 and every split owns exactly 8 steps = 256 rows
-  // (128 == 16 * 8; the generic slice formula below degenerates to uniform
-  // 8-step slices).  Compile-time capacities: 256 rows of B per block and
-  // 16 m-rows x (256 + 16 pad) bytes of A per block.
-  constexpr int kStageSplitCount = 16;    // gridDim.y of the guard launch
-  constexpr int kStageMaxSteps =
-      (128 + kStageSplitCount - 1) / kStageSplitCount;  // 8 (uniform)
-  constexpr int kStageMaxRows = kStageMaxSteps * kDummaK;  // 256 rows x 32
-  constexpr int kStageARowStride =
-      kStageMaxRows + 16;  // 272 B per A m-row: 256 data + 16 pad for banks
-  // Iteration 21 (DS-side bank-skew round): each staged B k-row now occupies
-  // kStageBRowStride = 36 B (32 data bytes + 4 pad bytes).  The row-major B
-  // fragment loader reads a lane's 8 fragment bytes at addresses
-  // base + (8*(lane>>4) + i) * ldm, i = 0..7: the four lane groups
-  // g = lane>>4 sit 8*ldm bytes apart, so with the old ldm == 32 every group
-  // landed 256 B (== 0 mod 128 B) apart and each of the 8 ds_read_u8 per
-  // fragment replayed the SAME LDS bank 4x (the PMC-documented
-  // lds_bank_conflicts 276,480 = ~2.57 replays/instr on this object, ~89% of
-  // it from the B-fragment byte reads: 128 per block).  ldm == 36 puts the
-  // groups 288 B (== 32 mod 128 B, 8 banks) apart, so the four groups hit
-  // banks {b, b+8, b+16, b+24} -- fully conflict-free -- while the 4-B pad
-  // per row keeps every row start 4-B aligned for the staging stores.
-  // stage_b grows 8,192 -> 9,216 B and the block total becomes 4,352
-  // (stage_a) + 9,216 (stage_b) + 2,048 (acc tiles) = 15,616 B/block:
-  // 4 x 15,616 = 62,464 <= 65,536, so the 4-resident-blocks/CU =
-  // 8-resident-waves/CU occupancy sweet spot is preserved unchanged.
-  constexpr int kStageBRowStride = kDummaN * 2 + 4;  // 36 B per staged B row
-
+  // Two LDS staging tiles, one per 16-wide N tile of this block, plus the
+  // iteration-6 whole-slice operand mirrors: stage_a (the shared A slice) and
+  // stage_b (the block's 32-column n-major B strip).  Static LDS = 2 x 1,024
+  // + 4,352 + 8,704 = 15,104 B/block, so floor(65,536 / 15,104) = 4 resident
+  // blocks/CU = 8 resident waves/CU (2 per SIMD) since iteration 8.
   __shared__ __align__(16) int32_t acc_tile0[kDummaM * kDummaN];
   __shared__ __align__(16) int32_t acc_tile1[kDummaM * kDummaN];
-  __shared__ __align__(16) int8_t stage_a[kDummaM * kStageARowStride];
-  __shared__ __align__(16) int8_t stage_b[kStageMaxRows * kStageBRowStride];
+  __shared__ __align__(16) int8_t stage_a[kStageABytes];
+  __shared__ __align__(16) int8_t stage_b[kStageBBytes];
 
   du::dumma::DUFragment<du::dumma::matrix_a, kDummaM, kDummaN, kDummaK,
                         signed char, du::dumma::row_major>
       a_frag;
+  // Iteration 17: the B fragment is col_major over the n-major stage_b, so its
+  // 8 bytes per lane are contiguous in LDS (one 8-byte read per step).
   du::dumma::DUFragment<du::dumma::matrix_b, kDummaM, kDummaN, kDummaK,
-                        signed char, du::dumma::row_major>
-      b_frag;  // this wave's B half of the strip (b_col == 16*w bytes)
+                        signed char, du::dumma::col_major>
+      b_frag;  // this wave's own 16-wide B half of the block's 32-column strip
   du::dumma::DUFragment<du::dumma::accumulator, kDummaM, kDummaN, kDummaK,
                         int>
       acc_frag;  // this wave's accumulator for its n16 tile
   du::dumma::du_fill_fragment(acc_frag, 0);
 
-  // 32-aligned non-uniform K slicing over the gridDim.y splits: split s owns
-  // my_steps ascending 32-K steps beginning at step_begin, slices are
-  // disjoint and cover [0, k) exactly once in ascending order, so the int32
-  // partial sums and the ascending combine below reproduce the scalar
-  // k-ascending sum bit-for-bit.
-  const int total_steps = k / kDummaK;
-  const int split_count = static_cast<int>(gridDim.y);
-  const int base_steps = total_steps / split_count;
-  const int rem_steps = total_steps - base_steps * split_count;
-  const int my_steps = base_steps + (split < rem_steps ? 1 : 0);
-  const int step_begin =
-      split * base_steps + (split < rem_steps ? split : rem_steps);
-  const int k_base = step_begin * kDummaK;  // first global k row of slice
-  const int rows = my_steps * kDummaK;  // slice rows: my_steps x 32
+  // Stage-aligned split: split s owns stages [s*T/S, (s+1)*T/S) of the
+  // T = k/kDummaK 32-K stages, so every k range is a multiple of 32 and the
+  // ranges tile [0, k) exactly with no gap and no overlap.
+  const int total_stages = k / kDummaK;
+  const int stage_begin = (split * total_stages) / split_k;
+  const int stage_end = ((split + 1) * total_stages) / split_k;
+  const int k_begin = stage_begin * kDummaK;
+  const int k_end = stage_end * kDummaK;
 
-  // Stage the block's operands (iteration 8: PARTITIONED across the two
-  // wavefronts, not duplicated -- the union reads exactly the same global
-  // bytes as the iteration-7 single wave, so no byte is fetched twice and
-  // HBM traffic is unchanged).  Wave 0 copies the shared A slice: the 16
-  // m-rows x rows bytes of A (global columns [k_base, k_base + rows)),
-  // stored m-major in stage_a at row stride kStageARowStride (an exact byte
-  // mirror of global a[m][k_base .. k_base + rows)).  Wave 1 copies the
-  // block's 32-column B strip: my_steps*32 rows x 32 B, stored row-major in
-  // stage_b at the 36-B row pitch kStageBRowStride (32 data + 4 pad bytes
-  // per row; iteration 21 bank skew -- an exact byte mirror of the global
-  // data rows [k_base, k_base + rows) x columns [n0, n0 + 32), pads never
-  // written or read).  Each copy uses the
-  // unchanged iteration-7 cooperative code: 64 lanes x 16 B per wavefront
-  // instruction, chunks in LDS int4 units, loads batched 4-deep in source so
-  // one vmcnt drain covers 4 in-flight global round trips (the two waves'
-  // round trips overlap further across the SIMDs).  Global m-rows are
-  // k-major at stride k and global B rows are n-major at stride n (k % 16 ==
-  // 0 and n % 16 == 0 under the guard; k_base and n0 are 32-aligned), so
-  // every 16-B global load is 16-B aligned (the wave-1 LDS stores are
-  // 4-B-granular since iteration 21: 36*row is only 4-B aligned).
-  const int a_chunks = (rows * kDummaM) / 16;      // rows/16 int4 per m-row
-  const int chunks = rows * (kDummaN * 2) / 16;    // rows*2 int4 chunks
-  if (w == 0) {
-    const int per_row = rows / 16;
-    const int4* __restrict__ a4 = reinterpret_cast<const int4*>(a);
-    int4* __restrict__ ald4 = reinterpret_cast<int4*>(stage_a);
-    const int kb4 = k_base >> 4;  // global int4 column of the slice start
-    const auto ld_chunk = [&](int e) {
-      const int m = e / per_row;
-      const int t = e - m * per_row;
-      return a4[static_cast<int64_t>(m) * (k >> 4) + kb4 + t];
-    };
-    const auto st_chunk = [&](int e, const int4& v) {
-      const int m = e / per_row;
-      const int t = e - m * per_row;
-      ald4[m * (kStageARowStride / 16) + t] = v;
-    };
-    int e = lane;
-    for (; e + 3 * kDummaWaveSize < a_chunks; e += 4 * kDummaWaveSize) {
-      const int4 v0 = ld_chunk(e);
-      const int4 v1 = ld_chunk(e + kDummaWaveSize);
-      const int4 v2 = ld_chunk(e + 2 * kDummaWaveSize);
-      const int4 v3 = ld_chunk(e + 3 * kDummaWaveSize);
-      st_chunk(e, v0);
-      st_chunk(e + kDummaWaveSize, v1);
-      st_chunk(e + 2 * kDummaWaveSize, v2);
-      st_chunk(e + 3 * kDummaWaveSize, v3);
+  // Iteration 13: split_k == 8 makes each split's slice 16 x 32-K stages = 512
+  // rows, twice the unchanged 256-row staging capacity, so the slice is staged
+  // and consumed in ascending 256-row PHASES (exactly two at the exact-shape
+  // guard).  Each phase reproduces the accepted iteration-11 staging geometry
+  // byte-for-byte -- A: 256 16-B chunks = 4 per lane on wave 0 (one 4-deep
+  // batch); B: 512 chunks = 8 per lane on wave 1 (ONE straight-line 8-deep
+  // batch behind a single vmcnt drain) -- and the phase's 8 K-steps accumulate
+  // into the SAME acc_frag in ascending k order.  The staged bytes, their LDS
+  // addresses and therefore every fragment byte are identical to what the
+  // 16-way split staged per 32-K step; only the number of int32 partial planes
+  // written and re-read by the split-K round trip halves.
+  for (int phase_begin = k_begin; phase_begin < k_end;
+       phase_begin += kStageMaxRows) {
+    const int remain = k_end - phase_begin;
+    const int phase_rows = (remain < kStageMaxRows) ? remain : kStageMaxRows;
+
+    // Iteration 6 A+B phase staging, PARTITIONED across the two wavefronts
+    // since iteration 8 (B mirror is n-major since iteration 17).  Every
+    // global operand byte of this phase is loaded exactly once, in 16-B int4
+    // granules, into an EXACT byte mirror of the operand region the fragment
+    // loaders read: stage_a holds a[m][phase_begin .. phase_begin+phase_rows)
+    // at row stride kStageARowStride, and stage_b holds the block's 32
+    // B-columns' phase as b_lds[n][k], i.e. element
+    // packed[n0 + n][phase_begin + k] at n * kStageBColStride + k (the 16 pad
+    // bytes per column are never written and never read).  Wave 0 copies the A
+    // phase and wave 1 copies the B strip -- the union reads exactly the same
+    // global bytes as the single-wave iteration-6 prologue, so no operand byte
+    // is fetched twice.  Each copy uses 64 lanes x 16 B per wavefront
+    // instruction; the A phase is one 4-deep batch and the exact-guard B strip
+    // is one 8-deep batch, so one vmcnt drain covers each wave's whole phase
+    // and the two waves' round trips overlap across the SIMDs.  n0 and
+    // phase_begin are 32-aligned under the exact-shape guard and k % 16 == 0,
+    // n % 16 == 0, so every 16-B source load is 16-B aligned, and every staged
+    // B chunk lands at a 16-B-aligned n-major address (one ds_write_b128).
+    const bool staged_fits = phase_rows <= kStageMaxRows;
+    if (staged_fits) {
+      if (w == 0) {
+        // A slice phase: 16 m-rows x phase_rows bytes = phase_rows int4
+        // chunks, per_row = phase_rows/16 chunks per m-row (phase_rows is a
+        // multiple of 32, hence of 16).
+        const int per_row = phase_rows / 16;
+        const int a_chunks = kDummaM * per_row;  // == phase_rows
+        const int4* __restrict__ a4 = reinterpret_cast<const int4*>(a);
+        int4* __restrict__ ald4 = reinterpret_cast<int4*>(stage_a);
+        const int kb4 = phase_begin >> 4;  // phase start in global int4 columns
+        const int a4_stride = k >> 4;      // global A int4 columns per m-row
+        const auto ld_a = [&](int e) {
+          const int m = e / per_row;
+          const int t = e - m * per_row;
+          return a4[static_cast<int64_t>(m) * a4_stride + kb4 + t];
+        };
+        const auto st_a = [&](int e, const int4& v) {
+          const int m = e / per_row;
+          const int t = e - m * per_row;
+          ald4[m * (kStageARowStride / 16) + t] = v;
+        };
+        int e = lane;
+        for (; e + 3 * kDummaWaveSize < a_chunks; e += 4 * kDummaWaveSize) {
+          const int4 v0 = ld_a(e);
+          const int4 v1 = ld_a(e + kDummaWaveSize);
+          const int4 v2 = ld_a(e + 2 * kDummaWaveSize);
+          const int4 v3 = ld_a(e + 3 * kDummaWaveSize);
+          st_a(e, v0);
+          st_a(e + kDummaWaveSize, v1);
+          st_a(e + 2 * kDummaWaveSize, v2);
+          st_a(e + 3 * kDummaWaveSize, v3);
+        }
+        for (; e < a_chunks; e += kDummaWaveSize) {
+          st_a(e, ld_a(e));
+        }
+      } else {
+        // Iteration 17 B strip: the n-major packed weight stores each N
+        // column's K axis contiguously, so a phase is
+        // chunks_per_n = phase_rows / 16 int4 chunks PER N column (16 at the
+        // guard) and consecutive lanes cover consecutive 16-B chunks of one
+        // column's 256-B phase run.  Each chunk is written CONTIGUOUSLY into
+        // the n-major LDS tile at stage_b[nl * kStageBColStride + t * 16], i.e.
+        // one aligned ds_write_b128 per chunk, exactly the bytes the col_major
+        // fragment loader reads back.
+        const int chunks_per_n = phase_rows / 16;  // 16 at the guard
+        const int b_chunks = (kDummaN * kTilesPerWave) * chunks_per_n;
+        const int4* __restrict__ b4 = reinterpret_cast<const int4*>(b);
+        int4* __restrict__ bld4 = reinterpret_cast<int4*>(stage_b);
+        const int b4_per_n = k >> 4;  // packed int4 chunks per N column
+        const auto ld_b = [&](int e) {
+          const int nl = e / chunks_per_n;          // local N column 0..31
+          const int t = e - nl * chunks_per_n;      // k-chunk in this phase
+          return b4[static_cast<int64_t>(n0 + nl) * b4_per_n +
+                    (phase_begin >> 4) + t];
+        };
+        // 272-B n-row stride and 16-B chunks keep every store 16-B aligned.
+        const auto st_b = [&](int e, const int4& v) {
+          const int nl = e / chunks_per_n;
+          const int t = e - nl * chunks_per_n;
+          bld4[nl * (kStageBColStride >> 4) + t] = v;
+        };
+        int e = lane;
+        // Iteration 11: the exact-guard B strip is exactly 8 chunks per lane
+        // (phase_rows == kStageMaxRows == 256 -> b_chunks == 512 == 8 x 64
+        // lanes), so that case runs as ONE straight-line 8-deep batched group:
+        // all eight 16-B source loads issue before the first LDS store, one
+        // vmcnt drain covers the whole strip, and the second dependent global
+        // round trip leaves the block's staging join.  Any other chunk count
+        // keeps the unchanged rolled 4-deep loop below.
+        if (b_chunks == 8 * kDummaWaveSize) {
+          const int4 v0 = ld_b(e + 0 * kDummaWaveSize);
+          const int4 v1 = ld_b(e + 1 * kDummaWaveSize);
+          const int4 v2 = ld_b(e + 2 * kDummaWaveSize);
+          const int4 v3 = ld_b(e + 3 * kDummaWaveSize);
+          const int4 v4 = ld_b(e + 4 * kDummaWaveSize);
+          const int4 v5 = ld_b(e + 5 * kDummaWaveSize);
+          const int4 v6 = ld_b(e + 6 * kDummaWaveSize);
+          const int4 v7 = ld_b(e + 7 * kDummaWaveSize);
+          st_b(e + 0 * kDummaWaveSize, v0);
+          st_b(e + 1 * kDummaWaveSize, v1);
+          st_b(e + 2 * kDummaWaveSize, v2);
+          st_b(e + 3 * kDummaWaveSize, v3);
+          st_b(e + 4 * kDummaWaveSize, v4);
+          st_b(e + 5 * kDummaWaveSize, v5);
+          st_b(e + 6 * kDummaWaveSize, v6);
+          st_b(e + 7 * kDummaWaveSize, v7);
+          e += 8 * kDummaWaveSize;
+        }
+        for (; e + 3 * kDummaWaveSize < b_chunks; e += 4 * kDummaWaveSize) {
+          const int4 v0 = ld_b(e);
+          const int4 v1 = ld_b(e + kDummaWaveSize);
+          const int4 v2 = ld_b(e + 2 * kDummaWaveSize);
+          const int4 v3 = ld_b(e + 3 * kDummaWaveSize);
+          st_b(e, v0);
+          st_b(e + kDummaWaveSize, v1);
+          st_b(e + 2 * kDummaWaveSize, v2);
+          st_b(e + 3 * kDummaWaveSize, v3);
+        }
+        for (; e < b_chunks; e += kDummaWaveSize) {
+          st_b(e, ld_b(e));
+        }
+      }
     }
-    for (; e < a_chunks; e += kDummaWaveSize) {
-      st_chunk(e, ld_chunk(e));
-    }
-  } else {
-    const int4* __restrict__ b4 = reinterpret_cast<const int4*>(b);
-    const auto ld_chunk = [&](int e) {
-      const int r = e >> 1;
-      // Global int4 index of (global row k_base + r, col half e&1).
-      return b4[static_cast<int64_t>(k_base + r) * (n >> 4) + (n0 >> 4) +
-                (e & 1)];
-    };
-    // Iteration 21: stage_b rows now live at the 36-B pitch
-    // kStageBRowStride (32 data bytes + 4 pad per row), so a 16-B chunk
-    // (row r = e >> 1, col half h = e & 1 of that row) can no longer be
-    // stored with one 16-B-aligned ds_write_b128 (36*r is 16-B aligned only
-    // for r % 4 == 0).  Each chunk is stored as four consecutive int32 words
-    // at word offset 9*r + 4*h + {0,1,2,3} == (36*r + 16*h)/4 + {0,1,2,3}:
-    // every data byte lands at exactly the same byte offset (row*36 + ncol)
-    // the loader reads back, so the staged data byte mirror of the global B
-    // strip is unchanged -- only the pad bytes (row*36 + 32..35) are never
-    // written and never read (the fragment loader only touches ncol < 32).
-    // LDS store bandwidth is unchanged (4 x 4-B words per chunk); the four
-    // words of one chunk are consecutive, so a lane's store stream stays
-    // dense per row half.
-    int32_t* __restrict__ lds32 = reinterpret_cast<int32_t*>(stage_b);
-    const auto st_chunk = [&](int e, const int4& v) {
-      const int word0 = (e >> 1) * (kStageBRowStride >> 2) + (e & 1) * 4;
-      lds32[word0 + 0] = v.x;
-      lds32[word0 + 1] = v.y;
-      lds32[word0 + 2] = v.z;
-      lds32[word0 + 3] = v.w;
-    };
-    // Iteration 20 (guard-slice staging latency specialization): the guard
-    // launch is the ONLY call site of this kernel and always stages the
-    // full 512-chunk B strip (chunks == rows*2 == 512 == 8 x 64 lanes, rows
-    // == 256 == kStageMaxRows, staged capacity exactly filled).  The
-    // runtime-bounded 4-deep loop below then compiles to TWO serialized
-    // 4-deep iterations (each iteration issues four 16-B source loads and
-    // drains them with vmcnt waits before the next iteration's loads can
-    // issue -- two full global round trips on the block's staging critical
-    // path, one per iteration), and wave 0's A copy finishes in a single
-    // 4-deep group and then idles at the __syncthreads() join while wave 1
-    // completes its second round trip.  When chunks == 8*kDummaWaveSize the
-    // loop now runs as ONE straight-line 8-deep batched group: all eight
-    // 16-B source loads per lane are issued before the first LDS store, so
-    // one drain window covers the whole strip and the second round trip is
-    // removed from the join's critical path.  Every chunk id [0, 512) is
-    // still loaded and stored exactly once by exactly one lane to the same
-    // stage_b byte (the chunk set, the store order and the byte mirror are
-    // identical to the rolled loop), so every staged byte, every partial
-    // and every combine output byte is bit-identical; the generic rolled
-    // loop stays verbatim as the else path for any non-guard (chunks !=
-    // 512) configuration, which never executes at the only launch site.
-    if (chunks == 8 * kDummaWaveSize) {
-      const int4 v0 = ld_chunk(lane);
-      const int4 v1 = ld_chunk(lane + kDummaWaveSize);
-      const int4 v2 = ld_chunk(lane + 2 * kDummaWaveSize);
-      const int4 v3 = ld_chunk(lane + 3 * kDummaWaveSize);
-      const int4 v4 = ld_chunk(lane + 4 * kDummaWaveSize);
-      const int4 v5 = ld_chunk(lane + 5 * kDummaWaveSize);
-      const int4 v6 = ld_chunk(lane + 6 * kDummaWaveSize);
-      const int4 v7 = ld_chunk(lane + 7 * kDummaWaveSize);
-      st_chunk(lane, v0);
-      st_chunk(lane + kDummaWaveSize, v1);
-      st_chunk(lane + 2 * kDummaWaveSize, v2);
-      st_chunk(lane + 3 * kDummaWaveSize, v3);
-      st_chunk(lane + 4 * kDummaWaveSize, v4);
-      st_chunk(lane + 5 * kDummaWaveSize, v5);
-      st_chunk(lane + 6 * kDummaWaveSize, v6);
-      st_chunk(lane + 7 * kDummaWaveSize, v7);
+    // Cross-wave barrier: wave 0's staged A phase is read by wave 1 (and vice
+    // versa for the B strip), so both tiles are ready for both waves here, and
+    // it also orders this phase's staging after every lane's previous-phase
+    // LDS reads.
+    __syncthreads();  // stage_a / stage_b ready for every lane of the block
+
+    // Iteration 8 LDS-only K loop, one independent chain per wavefront.  Each
+    // 32-K step reads the shared A fragment from the staged A mirror at row
+    // stride kStageARowStride and this wave's own 16-wide B half from the
+    // iteration-17 n-major B mirror at column stride kStageBColStride, where
+    // the library col_major loader takes the lane's 8 fragment bytes as ONE
+    // contiguous 8-byte read -- no global load and no vmcnt wait on the MMA
+    // path.  The ascending k0 order keeps each partial's int32 accumulation
+    // exact, and the staged tiles are exact byte copies of the global bytes the
+    // iteration-4 path read, so this branch is bit-identical to the direct-global
+    // loop below.
+    if (staged_fits) {
+      for (int k0 = phase_begin; k0 < phase_begin + phase_rows;
+           k0 += kDummaK) {
+        const int local_row = k0 - phase_begin;
+        du::dumma::du_load_matrix_sync(a_frag, stage_a + local_row,
+                                       kStageARowStride);
+        du::dumma::du_load_matrix_sync(
+            b_frag, stage_b + local_row + w * kDummaN * kStageBColStride,
+            kStageBColStride);
+        du::dumma::du_mma_sync(acc_frag, a_frag, b_frag, acc_frag);
+      }
     } else {
-      int e = lane;
-      for (; e + 3 * kDummaWaveSize < chunks; e += 4 * kDummaWaveSize) {
-        const int4 v0 = ld_chunk(e);
-        const int4 v1 = ld_chunk(e + kDummaWaveSize);
-        const int4 v2 = ld_chunk(e + 2 * kDummaWaveSize);
-        const int4 v3 = ld_chunk(e + 3 * kDummaWaveSize);
-        st_chunk(e, v0);
-        st_chunk(e + kDummaWaveSize, v1);
-        st_chunk(e + 2 * kDummaWaveSize, v2);
-        st_chunk(e + 3 * kDummaWaveSize, v3);
+      // Safety net kept for a runtime-clamped split whose phase would exceed
+      // the staging capacity (an undersized workspace clamps split_k < 8): the
+      // iteration-4 direct-global path, here consuming the same n-major packed
+      // weight through the col_major loader at column stride K, so a clamped
+      // launch stays bit-exact and can never overrun stage_a / stage_b.  This
+      // branch never executes at the exact-shape guard launch, where every
+      // phase is exactly kStageMaxRows rows.
+      for (int k0 = phase_begin; k0 < phase_begin + phase_rows;
+           k0 += kDummaK) {
+        du::dumma::du_load_matrix_sync(a_frag, a + k0, k);
+        du::dumma::du_load_matrix_sync(
+            b_frag, b + static_cast<int64_t>(n0 + w * kDummaN) * k + k0, k);
+        du::dumma::du_mma_sync(acc_frag, a_frag, b_frag, acc_frag);
       }
-      for (; e < chunks; e += kDummaWaveSize) {
-        st_chunk(e, ld_chunk(e));
-      }
     }
-  }
-  __syncthreads();  // stage_a and stage_b ready for every lane of both waves
-
-  // LDS-only K loop (iteration 8): every 32-K step wave w reads the A
-  // fragment from the staged A mirror at row stride kStageARowStride and its
-  // own B half from the staged B strip at the 36-B row pitch
-  // kStageBRowStride (byte column b_col; iteration 21 bank skew)
-  // -- the same fragment bytes the iteration-7 loads produced, with no
-  // global round trip and no vmcnt wait on the MMA path -- then issues ONE
-  // du_mma on its private accumulator.  The two resident wavefronts carry
-  // independent 8-step chains, so a SIMD holding both can issue one wave's
-  // instructions while the other stalls on its s_waitcnt lgkmcnt / du_mma
-  // dependency (per-SIMD latency exposure was the iteration-7 wall).
-  const int b_col = w * kDummaN;  // byte offset of this wave's n16 tile
-
-  // Iteration 18 (compile-time 8-step K-loop specialization): the guard
-  // launch is the ONLY call site of this kernel and always runs the uniform
-  // 8-step slice (k == 4096, gridDim.y == 16 -> my_steps == 8 ==
-  // kStageMaxSteps, rows == 256 == kStageMaxRows, staged capacity exactly
-  // filled).  The runtime-bounded generic loop below compiles to a ROLLED
-  // body (verified in the exact-source code object: one static v_mmac per
-  // step with per-step ds_read2_b32 + 8 x ds_read_u8 + ~25-VALU byte
-  // reassembly + 4 lgkmcnt drains on the accumulator chain and a
-  // loop-carried WAR on the single fragment set), so every step's full LDS
-  // latency sits serially on the MMA path with only 2 resident waves/SIMD
-  // to cover it (PMC of the exact object: lds_instructions 107,520,
-  // lds_wait_instructions 19,597).  Making the guard trip count
-  // compile-time 8 lets the backend fully unroll the chain, rename the
-  // fragment registers per step and hoist later steps' LDS reads across the
-  // current step's v_mmac (local exact-flag codegen check of this edit: 8
-  // static v_mmac in the specialized path with the next steps' LDS reads
-  // issued before the current v_mmac; vgpr 34 / private_segment 0 /
-  // group_segment 14,592 B unchanged -> the 4-blocks/CU = 8-waves/CU
-  // occupancy is preserved).  Both branches issue the identical
-  // ascending-s du_mma sequence into the same accumulator over the same
-  // staged byte mirrors, so every partial byte and every combine output
-  // byte is bit-identical to iteration 16; the generic rolled loop stays
-  // verbatim as the else path for any non-guard (my_steps != 8)
-  // configuration.
-  if (my_steps == kStageMaxSteps) {
-#pragma unroll
-    for (int s = 0; s < kStageMaxSteps; ++s) {
-      du::dumma::du_load_matrix_sync(
-          a_frag, stage_a + static_cast<int64_t>(s) * kDummaK,
-          kStageARowStride);
-      du::dumma::du_load_matrix_sync(
-          b_frag,
-          stage_b +
-              static_cast<int64_t>(s) * kDummaK * kStageBRowStride + b_col,
-          kStageBRowStride);
-      du::dumma::du_mma_sync(acc_frag, a_frag, b_frag, acc_frag);
-    }
-  } else {
-    for (int s = 0; s < my_steps; ++s) {
-      du::dumma::du_load_matrix_sync(
-          a_frag, stage_a + static_cast<int64_t>(s) * kDummaK,
-          kStageARowStride);
-      du::dumma::du_load_matrix_sync(
-          b_frag,
-          stage_b +
-              static_cast<int64_t>(s) * kDummaK * kStageBRowStride + b_col,
-          kStageBRowStride);
-      du::dumma::du_mma_sync(acc_frag, a_frag, b_frag, acc_frag);
-    }
+    // End-of-phase barrier: no lane may overwrite stage_a / stage_b for the
+    // next phase until every lane has consumed this phase's staged fragments.
+    __syncthreads();
   }
 
-  // Epilogue (iteration 16, barrier-decoupled): each wave materializes its
-  // own tile into its own LDS acc buffer (wave 0 -> acc_tile0, wave 1 ->
-  // acc_tile1, 1,024 B each), then its 64 lanes read back that same buffer
-  // and store the 256 int32 partials (4 stores per lane) to
-  // plane[split][m][n0 + b_col + col].  acc_tile{w} is written and read ONLY
-  // by wave w, and the two waves' plane stores touch disjoint 16-column
-  // ranges, so nothing in the epilogue needs cross-wave convergence.  The
-  // former epilogue __syncthreads() was a 128-thread cross-wave join whose
-  // release was gated by the slower of the block's two waves on a kernel
-  // that runs only 8 resident waves/CU (4 x 2-wave blocks) to hide the skew
-  // -- the same join whose five-wave form measured ~3.15 us of pure cost
-  // (iteration 13 23.764/24.086 -> iteration 15 20.613/20.641 us with the
-  // join removed, exact correctness passing in both).  It is replaced by
-  // __threadfence_block(), which only orders THIS wave's own outstanding LDS
-  // writes (the du_store_matrix_sync ds_writes of its private acc tile)
-  // before its read-back ds_reads and costs no cross-wave wait.  The staging
-  // __syncthreads() above stays (wave 0 stages the A slice and wave 1 stages
-  // the B strip; every wave reads bytes the other wave staged).  Every
-  // partial byte, the k-ascending int32 order and every plane store address
-  // are unchanged, so the output is bit-identical to iteration 9 and exact
-  // correctness must pass with 0 mismatches.
-  if (w == 0) {
-    du::dumma::du_store_matrix_sync(acc_tile0, acc_frag, kDummaN,
-                                    du::dumma::mem_row_major);
-  } else {
-    du::dumma::du_store_matrix_sync(acc_tile1, acc_frag, kDummaN,
-                                    du::dumma::mem_row_major);
-  }
-  __threadfence_block();  // iteration 16: wave-local store->read ordering
-                          // only; no cross-wave join (was __syncthreads())
+  // Each wave materializes ONLY its own n16 tile (its private acc_tile slot)
+  // and publishes that tile's 16 columns to the plane; the two waves' plane
+  // ranges are disjoint, so no cross-wave dependency exists in the epilogue
+  // (the barrier below only orders each wave's own LDS store/read-back).
+  int32_t* my_tile = (w == 0) ? acc_tile0 : acc_tile1;
+  du::dumma::du_store_matrix_sync(my_tile, acc_frag, kDummaN,
+                                  du::dumma::mem_row_major);
+  __syncthreads();
 
-  int32_t* plane = partials + static_cast<int64_t>(split) * kDummaM * n;
-  const int32_t* tile = (w == 0) ? acc_tile0 : acc_tile1;
-  const int out_col0 = n0 + b_col;
+  // 256 int32 elements / 64 lanes: each lane writes four partials of its own
+  // tile, kept row-major within the plane so the combine below reads them
+  // coalesced.  Wave 1's tile lands kDummaN columns to the right of wave 0's.
+  int32_t* plane =
+      partials + static_cast<int64_t>(split) * kDummaM * n;
 #pragma unroll
   for (int linear = lane; linear < kDummaM * kDummaN;
        linear += kDummaWaveSize) {
     const int row = linear / kDummaN;
     const int col = linear - row * kDummaN;
-    plane[static_cast<int64_t>(row) * n + out_col0 + col] = tile[linear];
+    const int64_t dst =
+        static_cast<int64_t>(row) * n + n0 + w * kDummaN + col;
+    plane[dst] = my_tile[linear];
   }
 }
 
-// ---------------------------------------------------------------------------
-// Split-K combine kernel (iteration 2, restructured in iteration 9, mapping
-// v3 in iteration 25): sums the gridDim.y int32 partial planes ascending per
-// output element (exact int32, no overflow, bit-identical to the scalar
-// k-ascending dot), applies x_scale[row] * weight_scale[col] in the scalar
-// float order and stores bf16 through f32_to_bf16_rne.  Iteration 9 added
-// the guard specialization (split_count == 16): one output element per lane,
-// all sixteen plane loads issued as INDEPENDENT reads into a 16-int register
-// array (single vmcnt drain instead of a dependent load->wait->add chain of
-// 16 DRAM round trips per element), then the ascending-s register sum and
-// the scaled bf16 store.  Iteration 25 (this round) keeps that per-lane
-// structure and changes ONLY the block-to-output mapping: every one-wave
-// block owns ONE m-row x kDummaCombineColsPerBlock = 64 consecutive columns
-// (guard grid = 20 x 16 = 320 one-wave blocks, same block count as
-// iteration 9).  In the iteration-9/23 mappings each block covered 4 rows x
-// 16/32 columns, so every per-plane wavefront load issued four 64/128-B runs
-// at the 5,120-B m-row stride -- four different DRAM rows, i.e. up to four
-// row activations per load instruction -- which is why widening the per-row
-// run 64 -> 128 B in iteration 23 could not move the combine (it never
-// reduced the rows-per-instruction scatter).  With ONE row per block every
-// per-plane load instruction is 64 lanes x 4 B = 256 B CONTIGUOUS = four
-// consecutive 64-B lines of one DRAM row (a single run: ~4x fewer DRAM row
-// activations for the identical 1.31 MB byte stream, identical 64-B sectors,
-// identical wavefront-load count).  The element set is unchanged, so every
-// element's ascending-s int32 sum, the float scale order and every output
-// bf16 word are bit-identical to the pre-iteration-25 combine; the generic
-// loop below stays verbatim for every other call site / split count / grid
-// shape.
-// ---------------------------------------------------------------------------
-__global__ void w8a8_dumma_m16_combine_kernel(
-    const int32_t* __restrict__ partials,  // [split_count][16][n] int32
-    const float* __restrict__ x_scale,     // [16]
-    const float* __restrict__ w_scale,     // [n]
-    uint16_t* __restrict__ out,            // [16, n] bf16 payload
-    int n,
-    int split_count) {
-  const int lane = static_cast<int>(threadIdx.x);  // blockDim == 64
-  const int n0 = static_cast<int>(blockIdx.x) * kDummaN;
+// Combine pass: sum the S exact int32 partial planes (order-free integer
+// addition), then apply the two fp32 scales in the same order as the scalar
+// fallback and store bf16.  Every plane is M*N int32 = 80 KiB for this shape,
+// so the whole combine is L2-resident.
+//
+// Iteration 9 (combine restructure, HIP-only): the guard launch
+// (split_k == kCombineSplits == 8 since iteration 13) now runs a 2-D grid of
+// one-wave 64-lane blocks -- (n / kCombineColsPerBlock) column groups x m rows
+// -- with exactly one output element per lane (row = blockIdx.y,
+// col = blockIdx.x * 64 + lane).  The eight plane loads are issued as
+// INDEPENDENT reads into a register array (one vmcnt drain, 8-way
+// memory-level parallelism per lane) and summed afterwards in the unchanged
+// ascending split order s = 0..7, instead of the rolled dependent load ->
+// wait -> int32 add chain of 8 DRAM round trips per element.  Each per-plane
+// wavefront load also reads 64 lanes x 4 B = 256 B contiguous (four
+// consecutive 64-B lines of one m-row).  Every output element's int32 sum,
+// fp32 scale order and bf16 conversion are unchanged, so the output is
+// bit-identical; the generic path below (any clamped split_k < 8) keeps the
+// original 128-thread linear mapping and the original dependent loop.
+constexpr int kCombineThreads = 128;
+constexpr int kCombineSplits = 8;         // == kSplitKTarget of the guard
+constexpr int kCombineWaveSize = 64;      // one gfx928 wavefront per block
+constexpr int kCombineColsPerBlock = 64;  // n-columns per one-wave block
 
-  // ---------------------------------------------------------------------
-  // Iteration 25 specialization (mapping v3; guard launch only:
-  // split_count == 16 and gridDim.y == kDummaM == 16 -> blockIdx.x =
-  // 64-column group in [0, 20), blockIdx.y = one m-row in [0, 16)).  Each
-  // lane owns output element (row, col) with row = blockIdx.y and col =
-  // blockIdx.x * 64 + lane: the sixteen independent 4-B plane reads (plane
-  // stride kDummaM * n int32) batch into one vmcnt drain, and because the
-  // 64 lanes of the block are 64 CONSECUTIVE columns of ONE row, every
-  // per-plane wavefront load covers 256 contiguous bytes (4 consecutive
-  // 64-B lines of one DRAM row) instead of four 5,120-B-strided runs; the
-  // ascending-s register sum then reproduces the exact int32 sequence for
-  // this element.
-  // ---------------------------------------------------------------------
-  if (split_count == kDummaCombineSplits && gridDim.y == kDummaM) {
+__global__ __launch_bounds__(kCombineThreads) void w8a8_splitk_combine_kernel(
+    const int32_t* __restrict__ partials,  // [S][M, N] int32
+    const float* __restrict__ x_scale,     // [M]
+    const float* __restrict__ weight_scale,  // [N]
+    __hip_bfloat16* __restrict__ out,      // [M, N] bf16
+    int total /* m * n */,
+    int n,
+    int split_k) {
+  const int lane = static_cast<int>(threadIdx.x);
+
+  // Iteration 9 guard specialization: one output element per lane, all sixteen
+  // plane reads issued as independent loads before the ascending sum.  The
+  // launcher pairs this branch with the 2-D one-wave grid (blockDim == 64,
+  // grid == (n/64, m)); the blockDim test keeps any other launch shape on the
+  // generic path.
+  if (split_k == kCombineSplits &&
+      static_cast<int>(blockDim.x) == kCombineColsPerBlock) {
     const int row = static_cast<int>(blockIdx.y);
     const int col =
-        static_cast<int>(blockIdx.x) * kDummaCombineColsPerBlock + lane;
+        static_cast<int>(blockIdx.x) * kCombineColsPerBlock + lane;
     const int64_t elem = static_cast<int64_t>(row) * n + col;
-    int32_t v[kDummaCombineSplits];
+    int32_t plane[kCombineSplits];
 #pragma unroll
-    for (int s = 0; s < kDummaCombineSplits; ++s) {
-      v[s] = partials[static_cast<int64_t>(s) * (kDummaM * n) + elem];
+    for (int s = 0; s < kCombineSplits; ++s) {
+      plane[s] = partials[static_cast<int64_t>(s) * total + elem];
     }
     int32_t acc = 0;
 #pragma unroll
-    for (int s = 0; s < kDummaCombineSplits; ++s) {
-      acc += v[s];  // ascending split order: identical int32 sum
+    for (int s = 0; s < kCombineSplits; ++s) {
+      acc += plane[s];  // ascending split order: identical exact int32 sum
     }
     const float scaled =
-        static_cast<float>(acc) * x_scale[row] * w_scale[col];
-    out[elem] = f32_to_bf16_rne(scaled);
+        static_cast<float>(acc) * x_scale[row] * weight_scale[col];
+    out[elem] = __float2bfloat16(scaled);
     return;
   }
 
-#pragma unroll
-  for (int linear = lane; linear < kDummaM * kDummaN;
-       linear += kDummaWaveSize) {
-    const int row = linear / kDummaN;
-    const int col = linear - row * kDummaN;
-    const int out_col = n0 + col;
-    int32_t acc = 0;
-    for (int s = 0; s < split_count; ++s) {
-      acc += partials[(static_cast<int64_t>(s) * kDummaM + row) * n +
-                      out_col];
-    }
-    const float scaled =
-        static_cast<float>(acc) * x_scale[row] * w_scale[out_col];
-    out[static_cast<int64_t>(row) * n + out_col] = f32_to_bf16_rne(scaled);
+  const int i = static_cast<int>(blockIdx.x) * kCombineThreads + lane;
+  if (i >= total) {
+    return;
   }
+
+  int32_t acc = 0;
+  for (int s = 0; s < split_k; ++s) {
+    acc += partials[static_cast<int64_t>(s) * total + i];
+  }
+
+  const int row = i / n;
+  const int col = i - row * n;
+  const float scaled =
+      static_cast<float>(acc) * x_scale[row] * weight_scale[col];
+  out[i] = __float2bfloat16(scaled);
 }
 
-// ---------------------------------------------------------------------------
-// Identity device-to-device packing (bootstrap): grid-stride byte copies on
-// the caller stream.  Valid for every (K, N), including unmatched shapes.
-// ---------------------------------------------------------------------------
-__global__ void w8a8_identity_copy_i8_kernel(
+// Identity pack: raw int8 weight -> packed int8 weight.
+__global__ __launch_bounds__(kBlockThreads) void identity_i8_kernel(
     const int8_t* __restrict__ src,
     int8_t* __restrict__ dst,
     int64_t count) {
-  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
-  for (int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x +
-                   static_cast<int64_t>(threadIdx.x);
-       i < count; i += stride) {
+  const int64_t i =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (i < count) {
     dst[i] = src[i];
   }
 }
 
-__global__ void w8a8_identity_copy_f32_kernel(
+// Identity pack: fp32 weight scale -> packed fp32 weight scale.
+__global__ __launch_bounds__(kBlockThreads) void identity_f32_kernel(
     const float* __restrict__ src,
     float* __restrict__ dst,
     int64_t count) {
-  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
-  for (int64_t i = static_cast<int64_t>(blockIdx.x) * blockDim.x +
-                   static_cast<int64_t>(threadIdx.x);
-       i < count; i += stride) {
+  const int64_t i =
+      static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (i < count) {
     dst[i] = src[i];
   }
 }
 
-// ---------------------------------------------------------------------------
-// Host launcher consumed by csrc/bindings.cpp (gemm_out, timed region).
-// The exact (16, 1280, 4096) guard dispatches the split-K DUMMA partial +
-// combine kernels (two wavefronts per partial block since iteration 8);
-// the scalar fallback below launches 128 threads per 128 outputs.
-// ---------------------------------------------------------------------------
+// Iteration 17 exact-guard n-major transpose pack:
+//   packed[n * K + k] = raw[k * N + n]     ((K, N) == (4096, 1280) only)
+// The pack runs once in launch_pack_w8a8_weight, outside the timed operator
+// region and outside Graph capture, so a plain 32 x 32 LDS-tiled transpose is
+// more than enough.  Same byte count and the same packed_weight buffer as the
+// identity pack; the packed layout is opaque per the API contract and every
+// consumer below decodes this permutation for the guard pair.
+__global__ __launch_bounds__(256) void pack_nmajor_i8_kernel(
+    const int8_t* __restrict__ src,  // raw weight [K, N] row-major
+    int8_t* __restrict__ dst,        // packed n-major [N, K] row-major
+    int k,
+    int n) {
+  __shared__ int8_t tile[32][33];
+  const int tx = static_cast<int>(threadIdx.x);  // 0..31
+  const int ty = static_cast<int>(threadIdx.y);  // 0..7
+  const int col0 = static_cast<int>(blockIdx.x) * 32;  // N (output row)
+  const int row0 = static_cast<int>(blockIdx.y) * 32;  // K (input row)
+  // Load tile[k_local][n_local] = src[(row0 + k_local) * n + col0 + n_local].
+  for (int j = ty; j < 32; j += 8) {
+    const int row = row0 + j;
+    if (row < k && col0 + tx < n) {
+      tile[j][tx] = src[static_cast<int64_t>(row) * n + (col0 + tx)];
+    }
+  }
+  __syncthreads();
+  // Store its transpose: dst[(col0 + n_local) * k + row0 + k_local].
+  for (int j = ty; j < 32; j += 8) {
+    const int col = col0 + j;
+    if (col < n && row0 + tx < k) {
+      dst[static_cast<int64_t>(col) * k + (row0 + tx)] = tile[tx][j];
+    }
+  }
+}
+
+void launch_identity_i8(
+    const int8_t* src,
+    int8_t* dst,
+    int64_t count,
+    hipStream_t stream) {
+  if (count <= 0) {
+    return;
+  }
+  const int64_t blocks = (count + kBlockThreads - 1) / kBlockThreads;
+  hipLaunchKernelGGL(
+      identity_i8_kernel,
+      dim3(static_cast<unsigned>(blocks)),
+      dim3(kBlockThreads),
+      0,
+      stream,
+      src,
+      dst,
+      count);
+}
+
+void launch_pack_nmajor_i8(
+    const int8_t* src,
+    int8_t* dst,
+    int k,
+    int n,
+    hipStream_t stream) {
+  if (k <= 0 || n <= 0) {
+    return;
+  }
+  const dim3 block(32, 8);
+  const dim3 grid(
+      static_cast<unsigned>((n + 31) / 32),
+      static_cast<unsigned>((k + 31) / 32));
+  hipLaunchKernelGGL(
+      pack_nmajor_i8_kernel, grid, block, 0, stream, src, dst, k, n);
+}
+
+void launch_identity_f32(
+    const float* src,
+    float* dst,
+    int64_t count,
+    hipStream_t stream) {
+  if (count <= 0) {
+    return;
+  }
+  const int64_t blocks = (count + kBlockThreads - 1) / kBlockThreads;
+  hipLaunchKernelGGL(
+      identity_f32_kernel,
+      dim3(static_cast<unsigned>(blocks)),
+      dim3(kBlockThreads),
+      0,
+      stream,
+      src,
+      dst,
+      count);
+}
+
+}  // namespace
+
 extern "C" void launch_w8a8_gemm(
     const int8_t* a,
     const int8_t* b,
@@ -1131,118 +1106,147 @@ extern "C" void launch_w8a8_gemm(
     int n,
     int k,
     hipStream_t stream) {
-  (void)workspace;
-  (void)workspace_bytes;
-  if (m <= 0 || n <= 0 || k <= 0 || a == nullptr || b == nullptr ||
-      x_scale == nullptr || weight_scale == nullptr || out == nullptr) {
+  // The timed op may only use the caller-provided out/workspace on the
+  // caller stream; no host/device sync and no allocation happen here.
+  if (a == nullptr || b == nullptr || x_scale == nullptr ||
+      weight_scale == nullptr || out == nullptr) {
+    return;
+  }
+  if (m <= 0 || n <= 0 || k <= 0) {
     return;
   }
 
-  // ---------------------------------------------------------------------
-  // Exact-shape DUMMA guard: hy3_tp8_qkv_proj_m16 (M=16, N=1280, K=4096).
-  // Lineage: iteration 4 widened each one-wave block to TWO adjacent
-  // 16-wide N tiles (32 columns) sharing one A-fragment load per 32-K step
-  // at SPLIT_K=12 (grid 40 x 12 = 480 blocks = 4/CU over 120 CUs);
-  // iteration 5 staged each block's 32-column B slice into LDS once and
-  // read the B0/B1 fragments from LDS per step, A direct-global
-  // (39.404/39.485 us official Graph median/P90, from 41.154/41.233).
-  // Iteration 7: BOTH operands are staged per K slice -- the A fragment
-  // also comes from LDS, so the K loop is global-load-free -- which forces
-  // SPLIT_K=16: sixteen UNIFORM 8-step slices (128 == 16 x 8, rows
-  // {256 x 16}, exact ascending cover of [0, 4096), every boundary a
-  // DUMMA-k multiple), grid = 40 N groups x 16 = 640 one-wave blocks
-  // (~5.33 waves/CU, 4 resident blocks/CU by LDS: 14,592 B/block ->
-  // 65,536/14,592 = 4.4), each block writing exact int32 partial planes
-  // (cols [n0, n0+16) and [n0+16, n0+32) of plane[split]), then one
-  // UNCHANGED 80-block combine kernel (generic over split_count = 16) that
-  // sums the planes ascending and emits the scaled bf16 output.  Staged
-  // tiles are exact byte mirrors of the global operands, so fragment
-  // bytes, K-slice bounds, the k-ascending int32 order and the partial
-  // plane layout are unchanged: the combine+scale output is bit-identical
-  // to iteration 5.
-  // Iteration 8 (this round): occupancy/resource change only -- the same
-  // 640-block SPLIT_K=16 geometry now runs TWO 64-lane wavefronts per block
-  // (blockDim 128): wave w computes tile w (cols [n0+16w, n0+16w+16)) of
-  // the block's 32-column strip with its own independent accumulator chain
-  // over the shared slice.  LDS per block is UNCHANGED (14,592 B -> 4
-  // resident blocks/CU), so co-residency rises from 4 to 8 resident waves
-  // per CU = 2 per SIMD, hiding each wave's per-step LDS->MMA stall behind
-  // the other wave.  Staging is partitioned across the two waves (wave 0 =
-  // A slice, wave 1 = B strip; identical global bytes read exactly once).
-  // The combine kernel, the 16-plane workspace need (1,310,720 B), the
-  // k-ascending partial order and the bit-identical output are unchanged.
-  // Both launches stay on the caller stream inside the timed API/Graph;
-  // the combine cost is part of the operator wall.  Requires 16 int32
-  // partial planes (1,310,720 B) of the caller's workspace -- the full
-  // fixed 16-plane 1,310,720 B allocation for this shape; when the
-  // workspace is missing/undersized the exact guard falls back to the
-  // iteration-1 one-wave direct geometry (still no workspace).  Every
-  // unmatched (m, n, k) -- including the paired M=2 API shapes with the
-  // same (N, K) -- keeps reaching the scalar fallback below.
-  // Iteration 9 (this round): combine-side restructure only.  PMC of the
-  // accepted iteration-8 code object profiles the combine kernel at 16.960
-  // us vs 19.361 us for the partial kernel (46.7% of the 36.321 us profiled
-  // operator aggregate) with a 6.9% L2 hit rate and only 80 one-wave blocks,
-  // so the guard now launches the SAME combine kernel on a 2-D grid (80
-  // n-tiles x 4 four-row m-groups = 320 one-wave blocks) and the kernel's
-  // split_count==16 specialization gives each lane one output element that
-  // batches all sixteen plane reads into a register array before the
-  // ascending sum.  Partials, output bytes, bit-exactness and the partial
-  // kernel launch are unchanged.
-  // ---------------------------------------------------------------------
-  if (m == 16 && n == 1280 && k == 4096) {
-    constexpr int kDummaThreads = 64;        // one wavefront (tile/combine)
-    constexpr int kPartialThreads = 2 * kDummaThreads;  // 2 waves per block
-    constexpr int kTilesPerWave = 2;   // two 16-wide N tiles per block (n32)
-    constexpr int kSplitK = 16;        // 40 groups x 16 = 640 blocks, 4/CU
-    const int ntiles = n / kDummaN;    // 1280 / 16 = 80 combine tiles
-    const int ngroups = ntiles / kTilesPerWave;  // 80 / 2 = 40 n32 groups
-    const int64_t kWorkspaceNeeded =
-        static_cast<int64_t>(kSplitK) * kDummaM * n * sizeof(int32_t);
-    auto* out_bf16 = reinterpret_cast<uint16_t*>(out);
-    if (workspace != nullptr && workspace_bytes >= kWorkspaceNeeded) {
-      auto* partials = reinterpret_cast<int32_t*>(workspace);
-      hipLaunchKernelGGL(w8a8_dumma_m16_splitk_partial_kernel,
-                         dim3(ngroups, kSplitK), dim3(kPartialThreads), 0,
-                         stream, a, b, partials, n, k);
-      // Iteration 25 (mapping v3): 2-D combine grid = 20 column-groups x 16
-      // one-row blocks = 320 one-wave blocks (one output row x 64 consecutive
-      // columns per block, one output element per lane, 16-deep independent
-      // plane-load register batch in the kernel's split_count==16 path; every
-      // per-plane wavefront load is one 256-B contiguous run of one DRAM row
-      // instead of four 5,120-B-strided runs).
-      hipLaunchKernelGGL(w8a8_dumma_m16_combine_kernel,
-                         dim3(n / kDummaCombineColsPerBlock, kDummaM),
-                         dim3(kDummaThreads), 0, stream,
-                         partials, x_scale, weight_scale, out_bf16, n,
-                         kSplitK);
+  __hip_bfloat16* out_bf16 = reinterpret_cast<__hip_bfloat16*>(out);
+
+  // Exact-shape DUMMA split-K specialization (iteration 8): the only call
+  // site of w8a8_dumma_m16_splitk_kernel.  Multi-N-tile reuse plus whole-slice
+  // A+B LDS staging, with two 64-lane wavefronts per block (iteration 8):
+  // wave w owns one of the block's kTilesPerWave = 2 adjacent 16-wide N tiles
+  // and runs its own accumulator chain, while the block stages its A slice and
+  // its whole 32-column B strip into LDS (partitioned across the two waves)
+  // and runs an LDS-only K loop; since iteration 13 a 512-row slice is staged
+  // as two ascending 256-row phases.  The K dimension is split S ways, so
+  // grid = (N/(16*T))*S blocks of 128 threads: the 8-way split gives
+  // 40*8 = 320 blocks for the 120 device CUs with uniform 16-stage (512-row)
+  // slices, each staged as two 256-row phases in the iteration-17
+  // 15,104 B/block LDS footprint (four resident blocks/CU by capacity).  S is
+  // clamped to the workspace capacity (the API guarantees 16 int32 planes) and
+  // to the number of 32-K stages; a clamped split whose phase exceeded the
+  // staging capacity would use the kernel's byte-for-byte direct-global loop
+  // instead (unreachable at the guard, where every phase is exactly 256 rows).
+  // Guarded by the exact (m, n, k)
+  // triple so every other shape -- notably the paired M=2 API shape with the
+  // same (N, K) -- keeps the scalar fallback below; if no usable workspace is
+  // supplied the exact shape also falls through.  Iteration 9 changes only the
+  // second timed dispatch: at the unclamped guard split the 8-plane combine
+  // runs as a 2-D one-wave grid (n/64 x m blocks of 64 lanes, one output
+  // element per lane, all 8 plane loads independent in registers) while any
+  // runtime-clamped split_k < 8 keeps the original generic combine launch.
+  if (m == 16 && n == 1280 && k == 4096 && workspace != nullptr) {
+    const int64_t plane_elems = static_cast<int64_t>(m) * n;
+    const int64_t plane_bytes =
+        plane_elems * static_cast<int64_t>(sizeof(int32_t));
+    const int total_stages = k / kDummaK;
+    int split_k = kSplitKTarget;
+    if (plane_bytes > 0) {
+      const int64_t max_split = workspace_bytes / plane_bytes;
+      if (split_k > max_split) {
+        split_k = static_cast<int>(max_split < 0 ? 0 : max_split);
+      }
     } else {
-      // Workspace-less fallback: iteration-1 one-wave direct geometry.
-      hipLaunchKernelGGL(w8a8_dumma_m16_tile_kernel,
-                         dim3(ntiles), dim3(kDummaThreads), 0, stream,
-                         a, b, x_scale, weight_scale, out_bf16, n, k);
+      split_k = 0;
     }
-    return;
+    if (split_k > total_stages) {
+      split_k = total_stages;
+    }
+
+    if (split_k >= 1) {
+      int32_t* partials = reinterpret_cast<int32_t*>(workspace);
+      // 32-column groups: n / 32 = 40 for the guarded exact shape.  Both
+      // factors are exact divisors of the guard's (n, k), so no tail path is
+      // needed.
+      const int groups = n / (kDummaN * kTilesPerWave);
+      const dim3 grid(static_cast<unsigned>(groups * split_k));
+      const dim3 block(static_cast<unsigned>(kDummaWaveSize * kTilesPerWave));
+      hipLaunchKernelGGL(
+          w8a8_dumma_m16_splitk_kernel,
+          grid,
+          block,
+          0,
+          stream,
+          a,
+          b,
+          partials,
+          n,
+          k,
+          split_k,
+          groups);
+
+      // Iteration 9: the unclamped guard split (split_k == 8 since iteration
+      // 13) launches the combine on the 2-D one-wave grid (20 column groups x
+      // 16 rows = 320 blocks of 64 lanes) that gives every lane one output
+      // element and all eight plane loads as independent register reads; a
+      // runtime-clamped split_k < 8 keeps the original linear 128-thread launch
+      // and the kernel's generic dependent-plane loop.
+      const int total = m * n;
+      if (split_k == kCombineSplits) {
+        hipLaunchKernelGGL(
+            w8a8_splitk_combine_kernel,
+            dim3(static_cast<unsigned>(n / kCombineColsPerBlock),
+                 static_cast<unsigned>(m)),
+            dim3(static_cast<unsigned>(kCombineWaveSize)),
+            0,
+            stream,
+            partials,
+            x_scale,
+            weight_scale,
+            out_bf16,
+            total,
+            n,
+            split_k);
+      } else {
+        const int combine_blocks =
+            (total + kCombineThreads - 1) / kCombineThreads;
+        hipLaunchKernelGGL(
+            w8a8_splitk_combine_kernel,
+            dim3(static_cast<unsigned>(combine_blocks)),
+            dim3(static_cast<unsigned>(kCombineThreads)),
+            0,
+            stream,
+            partials,
+            x_scale,
+            weight_scale,
+            out_bf16,
+            total,
+            n,
+            split_k);
+      }
+      return;
+    }
   }
 
-  // ---------------------------------------------------------------------
-  // Scalar generic fallback: every shape outside the exact guard above.
-  // ---------------------------------------------------------------------
+  const int64_t total =
+      static_cast<int64_t>(m) * static_cast<int64_t>(n);
+  const int64_t blocks = (total + kBlockThreads - 1) / kBlockThreads;
 
-  constexpr int kBlockThreads = 128;  // multiple of the gfx928 wavefront 64
-  const int total = m * n;
-  const int grid = (total + kBlockThreads - 1) / kBlockThreads;
-  auto* out_bf16 = reinterpret_cast<uint16_t*>(out);
-  hipLaunchKernelGGL(w8a8_scalar_gemm_kernel,
-                     dim3(grid), dim3(kBlockThreads), 0, stream,
-                     a, b, x_scale, weight_scale, out_bf16, m, n, k);
+  // Generic scalar fallback for every unmatched (m, n, k), including the
+  // paired M=2 API shape with the same (N, K).
+  hipLaunchKernelGGL(
+      w8a8_scalar_kernel,
+      dim3(static_cast<unsigned>(blocks)),
+      dim3(kBlockThreads),
+      0,
+      stream,
+      a,
+      b,
+      x_scale,
+      weight_scale,
+      out_bf16,
+      m,
+      n,
+      k);
 }
 
-// ---------------------------------------------------------------------------
-// Host launcher for the optional out-of-timed-region weight packing.
-// Bootstrap: identity device-to-device copy of the int8 [K, N] weight and
-// the fp32 [N, 1] scales; valid for every (K, N), unmatched shapes included.
-// ---------------------------------------------------------------------------
 extern "C" void launch_pack_w8a8_weight(
     const int8_t* raw_weight,
     const float* weight_scale,
@@ -1251,27 +1255,28 @@ extern "C" void launch_pack_w8a8_weight(
     int k,
     int n,
     hipStream_t stream) {
-  constexpr int kPackBlockThreads = 256;
-
-  const int64_t i8_count = static_cast<int64_t>(k) * n;
-  if (i8_count > 0 && raw_weight != nullptr && packed_weight != nullptr) {
-    const int i8_grid =
-        static_cast<int>((i8_count + kPackBlockThreads - 1) /
-                         kPackBlockThreads);
-    hipLaunchKernelGGL(w8a8_identity_copy_i8_kernel,
-                       dim3(i8_grid), dim3(kPackBlockThreads), 0, stream,
-                       raw_weight, packed_weight, i8_count);
+  if (raw_weight == nullptr || weight_scale == nullptr ||
+      packed_weight == nullptr || packed_weight_scale == nullptr) {
+    return;
+  }
+  if (k <= 0 || n <= 0) {
+    return;
   }
 
-  const int64_t f32_count = static_cast<int64_t>(n);
-  if (f32_count > 0 && weight_scale != nullptr &&
-      packed_weight_scale != nullptr) {
-    const int f32_grid =
-        static_cast<int>((f32_count + kPackBlockThreads - 1) /
-                         kPackBlockThreads);
-    hipLaunchKernelGGL(w8a8_identity_copy_f32_kernel,
-                       dim3(f32_grid), dim3(kPackBlockThreads), 0, stream,
-                       weight_scale, packed_weight_scale, f32_count);
+  const int64_t weight_count =
+      static_cast<int64_t>(k) * static_cast<int64_t>(n);
+  if (k == kGuardK && n == kGuardN) {
+    // Iteration 17: the exact-guard weight pair is transposed into the
+    // n-major layout packed[n*K + k] = raw[k*N + n] consumed by the guard
+    // DUMMA kernel's n-major LDS stage and by every fallback that decodes the
+    // packed buffer for this (K, N).  Same element count and buffer as the
+    // identity pack.
+    launch_pack_nmajor_i8(raw_weight, packed_weight, k, n, stream);
+  } else {
+    // Generic fallback for every unmatched (K, N): identity copy.
+    launch_identity_i8(raw_weight, packed_weight, weight_count, stream);
   }
+  launch_identity_f32(
+      weight_scale, packed_weight_scale, static_cast<int64_t>(n), stream);
 }
 // @@end

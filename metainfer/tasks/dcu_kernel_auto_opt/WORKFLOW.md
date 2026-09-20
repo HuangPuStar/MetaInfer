@@ -50,7 +50,7 @@ metainfer/tasks/dcu_kernel_auto_opt/
 ### 2.1 新建任务（表单字段，见 form.yaml）
 
 关键字段：`operator`（Quantized GEMM）、`kernel_language`（HIP C++）、`target_hardware`（K500SM_AI/gfx928）、
-`dtype`（INT8 W8A8）、`agent_framework`（ccb / dsh）、`agent_model`（ccb: Opus/Sonnet；dsh: deepseek-v4-flash）、`execution_mode`（Mock / Real INT8 W8A8 GEMM /
+`dtype`（INT8 W8A8）、`agent_framework`（ccb / dsh）、`agent_model`（ccb: Opus/Sonnet；dsh: deepseek-flash-4.1 / deepseek-v4-flash）、`execution_mode`（Mock / Real INT8 W8A8 GEMM /
 Generate & optimize / Infra smoke）、`target_repo_path`、`shape_assignment_mode`（AI automatic / Manual by GPU）、
 `shape_scope`（All API shapes / Selected shapes only）、`shape_config`、`max_iterations`、`minimum_improvement_percent`、`extra_notes`。
 
@@ -177,11 +177,25 @@ TP8 另有 wq_b/wo_b (1024,4096)、gate_up (4096,512)、down (256,4096)、indexe
   注意 TP1 目录前端可选、契约仍只收 tp_size 4/8，选 TP1 会同样在 prepare 被拒。
 - **模型目录 TP8 大 prefill 边界（2026-08-27）**：Hy3/MiniMax M3/GLM5.2 的 TP8 形状支持
   M=4096 优化（"Selected shapes only" 手动选择，如 minimax 任务）。契约加
-  `MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES=(4096,)`（**不进** `DEFAULT_OPTIMIZATION_SHAPES`，
+  `MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES`（**不进** `DEFAULT_OPTIMIZATION_SHAPES`，
   默认 42 不变，串行验证 fallback 不受影响）；前端三个模型的 TP8 topology 加
-  `mValues: [2,16,3072,4096]`；基线表 15 条 `(8,4096,…)` 已实测
+  `mValues`（用 `W8A8_MODEL_TP8_M_VALUES` 常量）；基线表 15 条 `(8,4096,…)` 已实测
   （`tools/baseline/bench_triton_tp8_m4096.py`，int8_utils.matmul_kernel + CUDA-graph replay，
   结果存 `tools/baseline/tp8_m4096_graph.json`）。DeepSeek TP8 不加 M=4096。
+- **模型目录 TP8 短 decode 边界（2026-09-20）**：Hy3/MiniMax M3/GLM5.2 的 TP8 形状再加
+  M=8，即 `MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES=(8, 4096)`；前端
+  `W8A8_MODEL_TP8_M_VALUES = [2, 8, 16, 3072, 4096]`（DeepSeek TP1/TP8 仍是
+  `W8A8_M_VALUES=[2,16,3072]`，TP4 仍是 `W8A8_TP4_M_VALUES=[2,16,3072,4096]`）。
+  基线表 15 条 `(8,8,…)` 在 worker29/gfx928 实测三次
+  （`tools/baseline/bench_triton_tp8_m8.py --m 8 --mode graph`，协议同 2026-08-12 目录：
+  CUDA-graph replay、hot cache、warmups=10/samples=20/launches=5、BM16/BN32/BK256），
+  公布值取「每次 pass median 再取 median」；原始数据
+  `tools/baseline/tp8_m8_graph_run{1,2,3}.json`，汇总 `tp8_m8_graph_merged.json`。
+  12/15 形状三次 pass 极差 ≤1.6%（共享卡上 pass 2 的 minimax shared_down_proj 被同租户
+  干扰到 33.76 µs，取 median 后为 19.98 µs）。DeepSeek TP8 不加 M=8。
+- **面板/契约/基线三层一致性测试**：`tests/test_shape_catalog_panel.py` 用 node 真实求值
+  `static/dkao-shape-input.js` 的 `MODEL_WORKLOADS`，断言面板给出的每个 TP4/TP8 shape
+  都能过契约校验且能查到基线（否则任务要到 baseline 阶段才报 ValueError）。
 - `MIN_M=1, MAX_M=4096`；`WORKSPACE_BUDGET_BYTES=16MB`。
 - **M=4096 时大部分 (N,K) 的 split-K workspace 容量为 0** → 大 M kernel 必须走 2D M-tile 路径，
   不能依赖 split-K workspace。
@@ -257,7 +271,8 @@ TP8 另有 wq_b/wo_b (1024,4096)、gate_up (4096,512)、down (256,4096)、indexe
    **规范 skill 以 `metainfer/tasks/dcu_kernel_auto_opt/skills/` 内的副本为种子**（int8-w8a8 家族，
    2026-08-27 起随插件一起维护）：新机器上 `sync_skill_libraries()`（或 WebUI 同步按钮）会自动
    把缺失的 skill 补种进 `~/.dsh/skills/`，再镜像到 `~/.claude/skills/`；已有的库 skill 不被覆盖。
-   baseline 测量工具在 `tools/baseline/`（`bench_triton_tp4/tp8_m4096.py` + `int8_utils.py`）。
+   baseline 测量工具在 `tools/baseline/`（`bench_triton_tp4_m4096.py`、
+   `bench_triton_tp8_m4096.py`、`bench_triton_tp8_m8.py` + `int8_utils.py`）。
    kernel-repos 默认在 MetaInfer 同级（`METAINFER_KERNEL_REPOS` 可改），不随插件目录走。
 5. 改动任何行为后：更新本文件相关段落 + 跑 tests + 用真实任务验证（优先在 zth_meta 里）。
 

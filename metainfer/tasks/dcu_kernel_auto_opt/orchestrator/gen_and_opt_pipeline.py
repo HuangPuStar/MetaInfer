@@ -14,7 +14,7 @@ import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from metainfer.orchestrator.state import StateStore
 from metainfer.orchestrator.subagent_manager import AgentSpec, SubAgentManager
@@ -47,6 +47,7 @@ from .prompts import (
     generate_kernel_prompt,
     shape_balanced_assignment,
 )
+from .gpu_binding import bind_worker_gpu
 from .harness_io import harness_root, load_manifest, seed_workspace
 from .real_pipeline import _run, _safe, _status
 from .result_store import SCHEMA_VERSION, write_json
@@ -55,7 +56,9 @@ from .w8a8_pipeline import (
     RealW8A8OptimizationPipeline,
     W8A8Runner,
     _SOURCE_ONLY_AGENT_ARGS,
+    _gate_preflight_enabled,
     _sha256_file,
+    ensure_any_measurement_gate,
     evaluate_final_target,
     snapshot_accepted_kernel_artifact,
 )
@@ -209,11 +212,48 @@ def _last_json_object(text: str) -> Dict[str, Any]:
     raise ValueError(f"no JSON object in output: {text[-1000:]}")
 
 
+def _gate_state_dir_for(pipeline: Any) -> "Path | None":
+    """Where the Generate probe's gate rows go: the task's own state dir.
+
+    Without it a 30-minute wait on a busy device leaves no trace in the task's
+    audit trail, which is exactly the "why did nothing happen" question this
+    gate has to answer.
+    """
+    raw = getattr(getattr(pipeline, "store", None), "task_dir", None)
+    return Path(raw) if raw else None
+
+
+def _probe_gate_devices(config: Any) -> List[int]:
+    """Devices the Generate probe may use: this task's own GPUs first.
+
+    The probe only needs *a* device that passes the gate (a device is visible and
+    HIP Graph is available). Its own assignment is preferred so a task never
+    competes for a card it does not own, but an assigned card that is currently
+    shared must not stall the whole task while a sibling device sits idle.
+    """
+    assigned: List[int] = []
+    for item in list(getattr(config, "assignments", None) or []):
+        try:
+            gpu = int(getattr(item, "gpu", -1))
+        except (TypeError, ValueError):
+            continue
+        if gpu >= 0 and gpu not in assigned:
+            assigned.append(gpu)
+    try:
+        from metainfer.orchestrator.gpu_broker import GpuBroker
+        known = [int(d) for d in GpuBroker().devices]
+    except Exception:  # noqa: BLE001 - fall back to the task's own devices
+        known = list(assigned) or [0]
+    return assigned + [d for d in known if d not in assigned]
+
+
 def _validate_generate_scaffold(
     source: Path,
     *,
     contract_sha256: str,
     shapes: Dict[str, Dict[str, Any]],
+    probe_devices: Optional[Sequence[int]] = None,
+    state_dir: "Path | None" = None,
 ) -> Dict[str, Any]:
     """Run trusted, implementation-free Generate preflight checks."""
     kernel_path = source / _GENERATED_KERNEL_FILE
@@ -253,11 +293,22 @@ def _validate_generate_scaffold(
         )
 
     probe_env = dict(os.environ)
-    probe_env.update({
-        "HIP_VISIBLE_DEVICES": "0",
-        "ROCR_VISIBLE_DEVICES": "0",
-        "PYTHONDONTWRITEBYTECODE": "1",
-    })
+    probe_gpu = 0
+    # The probe initialises a device, so it follows the same admission rule as a
+    # timed measurement (VRAM <= 90% and HCU == 0). It is not pinned to GPU 0:
+    # any device that passes the gate can answer "is a device visible and is HIP
+    # Graph available", and sleeping 24 h on a busy GPU 0 while GPU 1 is idle is
+    # how a task stalls without doing anything wrong.
+    if _gate_preflight_enabled():
+        probe_gpu = ensure_any_measurement_gate(
+            list(probe_devices or [0]), state_dir=state_dir, env=probe_env,
+            site="generate_probe")
+    # Binding goes through the task's one policy: HIP_VISIBLE_DEVICES only.
+    # Setting ROCR_VISIBLE_DEVICES to the same *non-zero* index filters twice
+    # and hides the device ("No HIP GPUs are available" at device 1, while
+    # device 0 happened to survive).
+    bind_worker_gpu(probe_env, probe_gpu)
+    probe_env["PYTHONDONTWRITEBYTECODE"] = "1"
     probe_result = _run(
         [
             "python3", str(harness),
@@ -927,7 +978,8 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
             sid: shape.params for sid, shape in config.shapes.items()
         }
         fixed_assignment: Dict[str, Dict[str, Any]]
-        if config.assignment_mode == "manual":
+        if (config.assignment_mode == "manual"
+                and getattr(config, "gpu_mode", "occupy") == "occupy"):
             actual = {
                 item.worker_id: item.gpu for item in config.assignments
             }
@@ -981,6 +1033,8 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
             agent_source_dir,
             contract_sha256=trusted_contract_digest,
             shapes=shapes_for_prompt,
+            probe_devices=_probe_gate_devices(config),
+            state_dir=_gate_state_dir_for(self),
         )
         preflight_path = seed / "generation_preflight.json"
         write_json(preflight_path, preflight)
@@ -2287,6 +2341,46 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
     # Main pipeline
     # ------------------------------------------------------------------ #
 
+    def _register_gpu_leases(self, config: Any) -> Optional[Callable[[], Any]]:
+        """调控模式: announce leased devices and return them when we exit.
+
+        The lease also has a TTL, so a hard crash still frees the devices; this
+        hook keeps the common paths prompt (a device should not sit idle for two
+        hours after a task finishes).
+        """
+        leases = dict(getattr(config, "gpu_leases", {}) or {})
+        if not leases:
+            return None
+        holder = str(leases.get("holder") or "")
+        self.store.append_timeline("gpu_leases_acquired", {
+            "holder": holder,
+            "gpus": leases.get("gpus"),
+            "mapping": leases.get("mapping"),
+            "requested_workers": leases.get("requested_workers"),
+            "mode": leases.get("mode"),
+            # production leases are visible as such, so the GPU view can tell a
+            # real operator task from an evolving-harness round
+            "profile": leases.get("profile"),
+            "priority": leases.get("priority"),
+        })
+
+        def _release() -> list:
+            try:
+                from metainfer.orchestrator.gpu_broker import GpuBroker
+                freed = GpuBroker().release_prefix(holder)
+                if freed:
+                    self.store.append_timeline("gpu_leases_released", {
+                        "holder": holder, "gpus": freed,
+                    })
+                return freed
+            except Exception:  # noqa: BLE001 - release must never raise
+                return []
+
+        import atexit
+        atexit.register(_release)
+        self.release_gpu_leases = _release
+        return _release
+
     def run(self, *, dry_run: bool = False) -> Dict[str, Any]:
         # Record the gate values this run actually used, so the harness_evolve
         # mechanism gate can verify a gates.yaml change (not just observe it).
@@ -2317,6 +2411,7 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
             # ---- PREPARE -------------------------------------------------- #
             self._phase(phases.PREPARE)
             config = load_config(self.req)
+            self._register_gpu_leases(config)
             self._validate_contract(config)
             self._prepare_worktrees(config, task_id)
             plan = self._plan(config)
