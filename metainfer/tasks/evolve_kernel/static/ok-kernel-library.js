@@ -10,7 +10,7 @@ function scoreClass(val) {
   return "ok-score-bad";
 }
 
-function formatMs(ms) {
+export function formatMs(ms) {
   if (ms == null || ms === 0) return "—";
   if (ms < 1) return (ms * 1000).toFixed(1) + " μs";
   if (ms < 1000) return ms.toFixed(3) + " ms";

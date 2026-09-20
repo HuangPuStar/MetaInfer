@@ -115,6 +115,33 @@
   color: #d29922;
 }
 
+.ok-badge.red {
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+}
+
+/* ---- Iteration progress table ---- */
+
+.ok-best-tag {
+  color: #3fb950;
+  margin-left: 0.25rem;
+}
+
+/* Goals are free-form sentences; keep rows scannable and let the full text
+   show on hover (the cell carries it as a title). */
+.ok-goal {
+  max-width: 26rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A long run logs dozens of iterations — keep the panel bounded. */
+.ok-iter-scroll {
+  max-height: 22rem;
+  overflow: auto;
+}
+
 .ok-flow-indicator {
   display: flex;
   align-items: center;
