@@ -126,7 +126,8 @@ def main():
         key = (r["model"], r["kernel_repo"], r["tp"])
         groups.setdefault(key, []).append(r)
     head2 = ["模型(任务)", "kernel_repo", "TP", "算子数", "平均加速比×",
-             "最小加速比×", "最大加速比×", "平均最终µs", "平均TOPS", "平均提升%"]
+             "最小加速比×", "最大加速比×", "平均最终µs", "平均TOPS", "平均提升%",
+             "验收状态"]
     ws2.append(head2)
     for c in range(1, len(head2) + 1):
         cell = ws2.cell(row=1, column=c)
@@ -142,19 +143,21 @@ def main():
                 sum(sp) / len(sp), min(sp), max(sp),
                 sum(fin) / len(fin),
                 sum(tops) / len(tops),
-                sum(imp) / len(imp)]
+                sum(imp) / len(imp),
+                "/".join(sorted({r["validation_state"] for r in rr}))]
         ws2.append(vals)
         for j, v in enumerate(vals, start=1):
             cell = ws2.cell(row=i, column=j)
             cell.border = border
-            if j >= 5 and j != 4:
+            if 5 <= j <= 10:
                 cell.number_format = "0.00"
+                cell.alignment = Alignment(horizontal="right")
             if j == 4:
                 cell.alignment = Alignment(horizontal="right")
         if i % 2 == 0:
             for j in range(1, len(head2) + 1):
                 ws2.cell(row=i, column=j).fill = alt_fill
-    for j, w in enumerate([26, 24, 6, 9, 13, 13, 13, 14, 12, 12], start=1):
+    for j, w in enumerate([26, 24, 6, 9, 13, 13, 13, 14, 12, 12, 34], start=1):
         ws2.column_dimensions[get_column_letter(j)].width = w
     ws2.freeze_panes = "A2"
     ws2.auto_filter.ref = f"A1:{get_column_letter(len(head2))}{ws2.max_row}"
@@ -232,7 +235,8 @@ def main():
         ["计算性能(TOPS)", "= 2×M×N×K / final_us，纯算法逻辑 INT8 运算速率（非实测带宽）"],
         ["达标/正确性", "target_met: 最终验收 ≥3% 提升门槛；passed: 最终串行验证正确性通过(CPU int64 exact reference)"],
         ["验收状态", "'最终验收通过' = 该任务串行最终验收全部 shape 通过并写出 final_report.json (status=success)；'仅worker验收(未过最终验收)' = 该任务未产出成功 final_report，本行取的是 worker 并行探索阶段已验收最优 variant 的 median（未经最终门限确认）"],
-        ["覆盖", "Hy3: TP4 M16/M4096, TP8 M4096; MiniMax-M3: TP4 M4096, TP8 M16/M4096; GLM5.2: TP8 M4096 —— 共 33 个优化 shape，全部为各任务自身 plan 的优化算子（不含默认42-shape回归项）"],
+        ["覆盖", "Hy3: TP4 M16/M4096, TP8 M4096 (+TP8 M16 见下条); MiniMax-M3: TP4 M4096, TP8 M16/M4096; GLM5.2: TP8 M4096 —— 共 37 个优化 shape 行，其中 33 行为各任务自身 plan 的最终验收通过算子，4 行为 Hy3 TP8 M16（仅 worker 验收，见下条）；不含默认 42-shape 回归项"],
+        ["Hy3 TP8 M16 (9.8 任务)", "任务 hy3-dsh-tp8-m16-9-8-0161e718 的 4 个 M=16 shape 目前无成功 final_report：2026-09-09 07:04 最终验收因性能门限失败（o_proj final 11.745 vs worker best 11.044 > 1.05×）。2026-09-10 重跑验收：qkv_proj ✅、o_proj ✅（首测 11.706 超限，第 1 次重测通过）、shared_gate_up_proj 首测 13.1295 vs 门限 13.112（超 0.13%）时按用户要求暂停，shared_down_proj 未测。本表该 4 行数值取 worker 探索期已验收最优 median"],
         ["生成时间", "2026-09（数据截至各任务 final_report.json 快照）"],
     ]
     for i, row in enumerate(notes, start=1):

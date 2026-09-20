@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
@@ -24,25 +24,57 @@ CLAUDE_MODELS = {
 # dsh routes claude_bin to bridge/dsh/dsh_agent.py (see resolve_claude_bin).
 CCB_FRAMEWORK = "ccb"
 DSH_FRAMEWORK = "dsh"
-DSH_DEFAULT_MODEL_ID = "deepseek/deepseek-v4-flash-0731"
+
+#: DSH model label -> platform model id, in form order. The first entry is the
+#: framework default. The label is what the New Task form shows (and what the
+#: frontend model widget in ``static/dkao-agent-fields.js`` mirrors); the id is
+#: what the agent binary receives through ``--model``.
+#:
+#: ``deepseek-flash-4.1`` is the 4.1 revision of the DeepSeek Flash line, served
+#: by the TokenHub gateway as ``deepseek/deepseek-flash`` (the id this host's
+#: DSH profile lists as ``dsv4-flash4.1``). ``deepseek-v4-flash`` stays
+#: selectable for runs that must reproduce the older pinned build.
+DSH_MODEL_IDS: Dict[str, str] = {
+    "deepseek-flash-4.1": "deepseek/deepseek-flash",
+    "deepseek-v4-flash": "deepseek/deepseek-v4-flash-0731",
+}
+DSH_DEFAULT_MODEL_LABEL = "deepseek-flash-4.1"
+DSH_DEFAULT_MODEL_ID = DSH_MODEL_IDS[DSH_DEFAULT_MODEL_LABEL]
+
+
+def _dsh_model_override() -> str:
+    """The DSH_AGENT_MODEL pin, stripped, or "" when unset."""
+    return (os.environ.get("DSH_AGENT_MODEL") or "").strip()
 
 
 def dsh_model_id() -> str:
-    """Model id used for the dsh framework (env DSH_AGENT_MODEL overrides)."""
-    override = os.environ.get("DSH_AGENT_MODEL")
-    return (override.strip() if override and override.strip()
-            else DSH_DEFAULT_MODEL_ID)
+    """Default model id for the dsh framework, honoring the DSH_AGENT_MODEL pin.
+
+    ``DSH_AGENT_MODEL`` is the host-level override the launcher exports: when it
+    is set, every dsh model label resolves to it. That keeps a host pinned to one
+    verified build whatever the form submits, which is what a mixed-version
+    deployment wants — the catalog still tells the operator which labels exist,
+    and an unset variable leaves each label on its own id.
+    """
+    return _dsh_model_override() or DSH_DEFAULT_MODEL_ID
 
 
 def agent_framework_models(framework: str) -> Dict[str, str]:
     """Label -> model id for one agent framework."""
     if framework == DSH_FRAMEWORK:
-        return {"deepseek-v4-flash": dsh_model_id()}
+        if _dsh_model_override():
+            # A host pin routes every dsh label to that one build; the catalog
+            # keeps its labels so an old requirements file still resolves.
+            return {label: _dsh_model_override()
+                    for label in DSH_MODEL_IDS}
+        return dict(DSH_MODEL_IDS)
     return dict(CLAUDE_MODELS)
 
 
 def agent_framework_default_model(framework: str) -> str:
-    return "deepseek-v4-flash" if framework == DSH_FRAMEWORK else "Opus"
+    if framework == DSH_FRAMEWORK:
+        return DSH_DEFAULT_MODEL_LABEL
+    return "Opus"
 
 
 def resolve_agent_framework(req: Mapping[str, Any]) -> str:
@@ -180,6 +212,18 @@ class OptimizerConfig:
     # Agent framework (ccb | dsh) that produced claude_model; the pipeline
     # uses it to pick the agent binary via resolve_claude_bin.
     agent_framework: str = CCB_FRAMEWORK
+    #: 占据模式 (occupy, default): workers keep the devices the assignment mode
+    #: picked (manual pins worker_N -> GPU N). 调控模式 (scheduled): devices are
+    #: leased from the shared GPU broker so several tasks can share the machine
+    #: without measuring on a contended card.
+    gpu_mode: str = "occupy"
+    gpu_leases: Dict[str, Any] = field(default_factory=dict)
+    #: "default" | "production". Production means: an operator-launched real
+    #: task that outranks the evolving harness in the device queue
+    #: (``PRIORITY_PRODUCTION``) and keeps waiting for a device that passes the
+    #: admission gate. It never skips the gate itself — a measurement taken on a
+    #: shared card is stale data regardless of who asked for it.
+    execution_profile: str = "default"
 
 
 def _answers(req: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -397,6 +441,37 @@ def load_config(req: Mapping[str, Any]) -> OptimizerConfig:
     if threshold < 0:
         raise ValueError("minimum_improvement_percent must be non-negative")
 
+    #: 生产模式 (``execution_profile: production``): an operator-launched real
+    #: task. It is *not* a way around the admission gate — a measurement taken on
+    #: a shared card is stale data whatever the task is — it is a **priority**
+    #: statement: production work goes through the broker at
+    #: ``PRIORITY_PRODUCTION`` so the evolving harness (priority 50) yields to
+    #: it, and it keeps waiting for a device that passes the gate instead of
+    #: giving up.
+    profile = str(answers.get("execution_profile") or "").strip().lower()
+    if profile in {"", "default", "harness", "evolve", "ahe"}:
+        profile = "default"
+    elif profile in {"production", "prod"}:
+        profile = "production"
+    else:
+        raise ValueError(
+            "execution_profile must be 'default' or 'production'")
+    production = profile == "production"
+
+    gpu_mode = str(answers.get("gpu_mode") or "occupy").strip().lower()
+    if production:
+        # production always goes through the broker (that is what carries the
+        # priority); pinning devices would step around the queue entirely.
+        gpu_mode = "scheduled"
+    if gpu_mode not in {"occupy", "scheduled"}:
+        raise ValueError("gpu_mode must be occupy or scheduled")
+    lease_info: Dict[str, Any] = {}
+    if gpu_mode == "scheduled":
+        # 调控模式 / 生产模式: devices come from the shared broker, one per worker
+        assignments, lease_info = lease_gpus_for_task(
+            assignments, answers, production=production)
+        assignment_mode = "scheduled"
+
     return OptimizerConfig(
         operator=str(answers.get("operator") or "Custom operator"),
         dtype=str(answers.get("dtype") or "Other"),
@@ -412,7 +487,93 @@ def load_config(req: Mapping[str, Any]) -> OptimizerConfig:
         mock_iterations=iterations,
         minimum_improvement_percent=threshold,
         agent_framework=agent_framework,
+        execution_profile=profile,
+        gpu_mode=gpu_mode,
+        gpu_leases=lease_info,
     )
+
+
+def rebalance_for_gpus(assignments: List[WorkerAssignment],
+                       gpus: List[int]) -> List[WorkerAssignment]:
+    """One worker per leased device, shapes spread round-robin.
+
+    With fewer leases than planned workers the shapes are merged into fewer
+    lanes instead of putting two workers on one device — the whole point of
+    scheduled mode is that a device is never shared while measuring.
+    """
+    ordered = sorted({int(g) for g in gpus})
+    if not ordered:
+        return []
+    shape_ids = [sid for assignment in assignments for sid in assignment.shape_ids]
+    buckets: Dict[int, List[str]] = {g: [] for g in ordered}
+    for index, shape_id in enumerate(shape_ids):
+        buckets[ordered[index % len(ordered)]].append(shape_id)
+    rebuilt = [
+        WorkerAssignment(worker_id=f"worker_{gpu}", gpu=gpu, shape_ids=sids)
+        for gpu, sids in sorted(buckets.items()) if sids
+    ]
+    return rebuilt or [WorkerAssignment(worker_id=f"worker_{ordered[0]}",
+                                        gpu=ordered[0], shape_ids=shape_ids)]
+
+
+def lease_gpus_for_task(assignments: List[WorkerAssignment],
+                        answers: Mapping[str, Any],
+                        *, production: bool = False,
+                        ) -> tuple[List[WorkerAssignment], Dict[str, Any]]:
+    """调控模式 / 生产模式: take GPU leases and lay the workers out on them.
+
+    Both ask the broker at ``PRIORITY_PRODUCTION`` so a real task outranks the
+    evolving harness; ``production`` additionally keeps waiting for a device that
+    passes the admission gate instead of failing after a fixed number of checks,
+    and records that intent in the lease metadata.
+    """
+    from metainfer.orchestrator.gpu_broker import (
+        PRIORITY_PRODUCTION, GpuBroker,
+    )
+
+    broker = GpuBroker()
+    task_id = str(answers.get("task_id") or "dkao-task")
+    holder = f"dkao:{task_id}"
+    want = max(1, len(assignments))
+    idle_wait = float(answers.get("gpu_lease_wait_seconds") or 1800)
+    max_waits = int(answers.get("gpu_lease_max_waits") or 48)
+    if production:
+        # waiting longer is the point: a production task yields the queue to
+        # nobody, but it still refuses to measure on a device that fails the gate
+        max_waits = max(max_waits, int(answers.get("production_max_waits") or 48))
+    leases: List[Dict[str, Any]] = []
+    for round_no in range(1, max_waits + 1):
+        leases = broker.acquire(
+            holder, want=want, priority=PRIORITY_PRODUCTION,
+            timeout_s=(0.0 if round_no == 1 else idle_wait), poll_s=30,
+            pid=os.getpid(),
+            meta={"mode": "scheduled", "task": task_id, "round": round_no,
+                  "profile": "production" if production else "default"},
+        )
+        if leases:
+            break
+    if not leases:
+        raise RuntimeError(
+            ("production: no device passed the admission gate (VRAM<=90% and "
+             f"HCU==0) after {max_waits} checks; the gate is not skipped for "
+             "production tasks because a shared card yields stale numbers")
+            if production else
+            ("gpu_mode=scheduled: no GPU lease became available after "
+             f"{max_waits} checks; switch to gpu_mode=occupy to pin devices")
+        )
+    gpus = [int(lease["gpu"]) for lease in leases]
+    rebuilt = rebalance_for_gpus(assignments, gpus)
+    info = {
+        "mode": "scheduled",
+        "profile": "production" if production else "default",
+        "priority": PRIORITY_PRODUCTION,
+        "holder": holder,
+        "gpus": gpus,
+        "lease_seconds": int(answers.get("gpu_lease_ttl_s") or 0),
+        "mapping": {a.worker_id: a.gpu for a in rebuilt},
+        "requested_workers": len(assignments),
+    }
+    return rebuilt, info
 
 
 def replace_assignments(
@@ -435,6 +596,9 @@ def replace_assignments(
         mock_iterations=config.mock_iterations,
         minimum_improvement_percent=config.minimum_improvement_percent,
         agent_framework=config.agent_framework,
+        execution_profile=config.execution_profile,
+        gpu_mode=config.gpu_mode,
+        gpu_leases=dict(getattr(config, "gpu_leases", {}) or {}),
     )
 
 

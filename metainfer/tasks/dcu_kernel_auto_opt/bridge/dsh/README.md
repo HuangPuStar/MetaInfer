@@ -32,8 +32,9 @@ prompt 从 stdin 传入，stdout 输出逐行 stream-json 事件
 WebUI new-task 表单中 dcu-kernel-auto-opt 增加 **Agent framework** 选择：
 
 - `ccb` → Claude Code（模型 `Sonnet` / `Opus`）
-- `dsh` → DeepSeek Harness（模型 `deepseek-v4-flash`，即
-  `deepseek/deepseek-v4-flash-0731`）
+- `dsh` → DeepSeek Harness：
+  - `deepseek-flash-4.1` → `deepseek/deepseek-flash`（**默认**，4.1 Flash）
+  - `deepseek-v4-flash` → `deepseek/deepseek-v4-flash-0731`（旧 pinned 构建，可复现历史运行）
 
 orchestrator CLI 在 `agent_framework=dsh` 时自动把 `claude_bin` 指向本目录的
 `dsh_agent.py`（`--claude-bin` 显式传入时优先），无需改动 MetaInfer 共享代码。
@@ -55,7 +56,8 @@ runtime 只内置 `deepseek-official` adapter（`llm-deepseek`），它通过
 
 - provider：`deepseek-official`（runtime adapter；TokenHub 经 base_url 覆盖）
 - baseURL：`https://tokenhub.tencentmaas.com/plan/v3`
-- 模型：`deepseek/deepseek-v4-flash-0731`（默认）
+- 模型：`deepseek/deepseek-flash`（默认，= 表单里的 `deepseek-flash-4.1`）；
+  旧 pinned 构建 `deepseek/deepseek-v4-flash-0731`（= `deepseek-v4-flash`）
 - API key：`~/.dsh/.credentials.yaml` 的 `TENCENT_API_KEY`
 
 `dsh_agent.py` 的环境变量：
@@ -63,7 +65,7 @@ runtime 只内置 `deepseek-official` adapter（`llm-deepseek`），它通过
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `DSH_AGENT_PROVIDER` | `deepseek-official` | DSH runtime provider（dev runtime 仅内置此 adapter） |
-| `DSH_AGENT_MODEL` | `deepseek/deepseek-v4-flash-0731` | 模型覆盖 |
+| `DSH_AGENT_MODEL` | `deepseek/deepseek-flash` | 默认模型覆盖（只改 `deepseek-flash-4.1` 这个默认标签的 id） |
 | `DSH_AGENT_BASE_URL` | `https://tokenhub.tencentmaas.com/plan/v3` | 模型端点（`DEEPSEEK_BASE_URL` 优先） |
 | `TENCENT_API_KEY` / `DEEPSEEK_API_KEY` | 凭据文件兜底 | API key |
 | `DSH_AGENT_CORDIS` | 本目录 `cordis.yml` | 自定义组合路径 |

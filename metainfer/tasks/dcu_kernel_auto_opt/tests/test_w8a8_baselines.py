@@ -86,6 +86,37 @@ def test_model_catalog_tp8_m4096_baselines(shape, expected):
     assert record["timing_scope"] == "prefill_graph_replay"
 
 
+@pytest.mark.parametrize(
+    ("shape", "expected"),
+    [
+        # Hy3 TP8 M=8 (measured 2026-09-20, CUDA-graph replay).
+        ({"tp_size": 8, "M": 8, "N": 1280, "K": 4096}, 66.432),
+        ({"tp_size": 8, "M": 8, "N": 4096, "K": 1024}, 31.472),
+        ({"tp_size": 8, "M": 8, "N": 384, "K": 4096}, 57.008),
+        ({"tp_size": 8, "M": 8, "N": 4096, "K": 192}, 14.592),
+        # MiniMax M3 TP8 M=8.
+        ({"tp_size": 8, "M": 8, "N": 1280, "K": 6144}, 98.865),
+        ({"tp_size": 8, "M": 8, "N": 1536, "K": 6144}, 99.473),
+        ({"tp_size": 8, "M": 8, "N": 6144, "K": 1024}, 32.960),
+        ({"tp_size": 8, "M": 8, "N": 768, "K": 6144}, 92.928),
+        ({"tp_size": 8, "M": 8, "N": 6144, "K": 384}, 19.984),
+        # GLM5.2 TP8 M=8.
+        ({"tp_size": 8, "M": 8, "N": 2624, "K": 6144}, 87.200),
+        ({"tp_size": 8, "M": 8, "N": 2048, "K": 2048}, 36.704),
+        ({"tp_size": 8, "M": 8, "N": 3584, "K": 512}, 15.808),
+        ({"tp_size": 8, "M": 8, "N": 6144, "K": 2048}, 58.864),
+        ({"tp_size": 8, "M": 8, "N": 512, "K": 6144}, 88.448),
+        ({"tp_size": 8, "M": 8, "N": 6144, "K": 256}, 15.136),
+    ],
+)
+def test_model_catalog_tp8_m8_baselines(shape, expected):
+    # M=8 is the model-catalog short-decode boundary added on 2026-09-20 and
+    # resolves as a decode baseline (M <= 16).
+    record = fixed_triton_graph_baseline("shape", shape)
+    assert record["median_us"] == expected
+    assert record["timing_scope"] == "decode_graph_replay"
+
+
 def test_bootstrap_metrics_are_kept_separate():
     bootstrap = {"passed": True, "median_us": 123.0}
     record = fixed_triton_graph_baseline(

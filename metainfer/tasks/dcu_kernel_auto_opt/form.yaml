@@ -66,10 +66,10 @@
     - label: "ccb"
       description: "Claude Code (claude-sonnet-5 / claude-opus-5)"
     - label: "dsh"
-      description: "DeepSeek Harness (deepseek-v4-flash)"
+      description: "DeepSeek Harness (deepseek-flash-4.1 / deepseek-v4-flash)"
 
 - key: agent_model
-  question: "Model used by the selected agent framework (ccb: Sonnet/Opus; dsh: deepseek-v4-flash)."
+  question: "Model used by the selected agent framework (ccb: Sonnet/Opus; dsh: deepseek-flash-4.1 / deepseek-v4-flash)."
   header: "Agent model"
   required: true
   multi: false
@@ -81,8 +81,10 @@
       description: "Pinned to Claude Opus 5 (claude-opus-5) for difficult kernel architecture and correctness work"
     - label: "Sonnet"
       description: "Pinned to Claude Sonnet 5 (claude-sonnet-5) for faster, lower-cost optimization runs"
+    - label: "deepseek-flash-4.1"
+      description: "DeepSeek Harness 4.1 Flash (deepseek/deepseek-flash) — current default DSH model"
     - label: "deepseek-v4-flash"
-      description: "DeepSeek Harness model (deepseek-v4-flash)"
+      description: "DeepSeek Harness V4 Flash, pinned build (deepseek/deepseek-v4-flash-0731)"
 
 - key: execution_mode
   question: "Task execution mode for this run."
@@ -224,3 +226,16 @@
   header: "Notes"
   required: false
   form: textarea
+
+- key: execution_profile
+  question: "执行画像：production = 生产任务（走 broker 的最高优先级、排在 HE 之前；仍然必须过 VRAM<=90%/HCU==0 的准入闸门，因为共享卡上的测量是脏数据）；default = 现状"
+  header: "Profile"
+  required: false
+  form: select
+  default: "default"
+  options:
+    - label: "default"
+      description: "与现状一致（调控/占据模式按 gpu_mode 决定）"
+    - label: "production"
+      description: "生产模式：优先级 100 插队、优先派发，仍过闸门、不用等 HE 的轮次"
+

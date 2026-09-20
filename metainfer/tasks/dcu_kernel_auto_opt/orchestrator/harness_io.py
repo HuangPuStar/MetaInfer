@@ -1,17 +1,19 @@
 """Harness workspace IO: locate the evolvable-harness seed, read components,
 and copy a seed workspace to a destination.
 
-This is the first piece of AHE "component observability" for dcu_kernel_auto_opt:
-harness components (gates, and later prompts/planner/skills/tools/middleware/
-memory) are seeded as files under ``harness_default/`` so they can become a
-versioned, evolvable workspace driven by the ``harness_evolve`` outer loop.
+This is the AHE "component observability" layer for dcu_kernel_auto_opt:
+harness components (gates, planner policy/catalog, systemprompt, and later
+skills/tools/middleware/memory) are seeded as files under ``harness_default/``
+so they form a versioned, evolvable workspace driven by the ``harness_evolve``
+outer loop.
 
-Slice-1 semantics (important): this module is **read-only/additive**.
-Runtime pipelines still read the current Python constants (``config.py``,
-``w8a8_pipeline.py``); ``harness_io`` only exposes the seed for inspection and
-copying. Consistency tests guard the YAML seed against the Python constants so
-the two sources cannot drift before the loader/renderer wiring lands in a later
-slice (wiring will make the harness workspace the single source of truth).
+Wiring status: ``gates.yaml`` is read through :mod:`gate_policy`,
+``planner_policy.yaml``/``planner_catalog.yaml`` through :mod:`planner`, and
+``systemprompt/round_strategy.yaml`` through :mod:`round_strategy`. Each of
+those falls back to built-in defaults when its file is absent, so an untouched
+harness behaves exactly as it did before the component was externalised.
+Consistency tests guard every YAML seed against its Python defaults so the two
+cannot drift silently.
 """
 
 from __future__ import annotations
@@ -61,6 +63,46 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle)
     return data if isinstance(data, dict) else {}
+
+
+def env_root() -> Path:
+    """The harness root as the *environment* defines it (no explicit argument).
+
+    Same resolution as :func:`harness_root`, named separately so components
+    that already accept an explicit ``root`` argument (``gate_policy``,
+    ``planner``, ``round_strategy``) can share one implementation and one
+    cache key.
+    """
+    return harness_root()
+
+
+def load_component_file(relative: str, root: Path | None = None) -> Path:
+    """Path of one component file inside a harness workspace."""
+    return (root or harness_root()) / str(relative)
+
+
+def load_component_yaml(relative: str, root: Path | None = None,
+                        ) -> tuple[Dict[str, Any], str]:
+    """Read one YAML component. Returns ``(data, error)``; never raises.
+
+    A component file that is absent yields ``({}, "")`` — "not present" is a
+    normal state that makes the caller fall back to its built-in defaults. A
+    file that exists but cannot be parsed yields ``({}, "<reason>")`` so the
+    caller can report it instead of silently ignoring a hand-edited mistake.
+    """
+    path = load_component_file(relative, root)
+    if not path.is_file():
+        return {}, ""
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        return {}, f"{relative}: {exc}"
+    if data is None:
+        return {}, ""
+    if not isinstance(data, dict):
+        return {}, f"{relative}: expected a mapping at the top level"
+    return data, ""
 
 
 def load_manifest(root: Path | None = None) -> Dict[str, Any]:

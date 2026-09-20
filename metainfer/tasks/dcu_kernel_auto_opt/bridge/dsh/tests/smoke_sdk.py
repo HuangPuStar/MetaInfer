@@ -30,7 +30,7 @@ def main() -> int:
     WORK.mkdir(parents=True, exist_ok=True)
     cfg = DeepSeekHarnessConfig(
         provider="deepseek-official",
-        model="deepseek-v4-flash",
+        model="deepseek/deepseek-flash",
         max_tokens=2048,
         cwd=str(WORK),
         session_root=str(SESSION_ROOT),

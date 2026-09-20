@@ -28,9 +28,19 @@ components:
     role: evolvable state-to-plan policy (repair / phase / bottleneck / coverage / fallback)
     wired: true
     drift_guard: tests/test_planner_policy.py
+  systemprompt:
+    path: systemprompt/round_strategy.yaml
+    kind: data
+    role: >-
+      per-round mandate wording handed to the worker (round_strategy.yaml is
+      the only file today); the branch decision stays in
+      orchestrator/round_strategy.py, only the text is data
+    wired: true
+    drift_guard: tests/test_round_strategy.py
 layout_note: >-
-  Future components land here as files: systemprompt/, planner/ (optimization
-  plan selection mechanism), tools/, middleware/, skills/, memory/. Together
-  they form the evolvable harness workspace that the harness_evolve outer loop
-  versions (git) and evolves per the evaluation protocol v2
-  (docs/dkao_harness_eval_protocol.md).
+  Future components land here as files: systemprompt/ (worker-facing
+  instruction wording; systemprompt/round_strategy.yaml is seeded),
+  planner/ (optimization plan selection mechanism), tools/, middleware/,
+  skills/, memory/. Together they form the evolvable harness workspace that
+  the harness_evolve outer loop versions (git) and evolves per the evaluation
+  protocol v2 (docs/dkao_harness_eval_protocol.md).

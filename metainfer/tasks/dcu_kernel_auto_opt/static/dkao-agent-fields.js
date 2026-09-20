@@ -4,10 +4,11 @@
 // globalThis.__metainferOverrides. The agent_framework field is a plain
 // select; this component reads its current value from allValues and shows
 // only the models valid for that framework (ccb: Sonnet/Opus; dsh:
-// deepseek-v4-flash), auto-correcting the value when the framework changes.
+// deepseek-flash-4.1 / deepseek-v4-flash), auto-correcting the value when the
+// framework changes.
 //
 // The label→model mapping must stay in sync with
-// orchestrator/config.py (AGENT_FRAMEWORKS).
+// orchestrator/config.py (CLAUDE_MODELS / DSH_MODEL_IDS).
 
 import { html } from "htm/preact";
 import { useEffect } from "preact/hooks";
@@ -15,11 +16,12 @@ import { useEffect } from "preact/hooks";
 // Framework label → allowed model labels (mirror of config.py).
 const FRAMEWORK_MODELS = {
   ccb: ["Opus", "Sonnet"],
-  dsh: ["deepseek-v4-flash"],
+  // deepseek-flash-4.1 first: it is the framework default.
+  dsh: ["deepseek-flash-4.1", "deepseek-v4-flash"],
 };
 const DEFAULT_MODEL = {
   ccb: "Opus",
-  dsh: "deepseek-v4-flash",
+  dsh: "deepseek-flash-4.1",
 };
 
 function AgentModelField({ field, value, onChange, allValues }) {

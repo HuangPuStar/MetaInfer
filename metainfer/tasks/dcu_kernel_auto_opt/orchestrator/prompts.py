@@ -7,6 +7,12 @@ import math
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .round_strategy import (
+    APPEND_GRID_WARNING as APPEND_GRID_WARNING_TEXT,
+    APPEND_SPLIT_CANDIDATES as APPEND_SPLIT_CANDIDATES_TEXT,
+    LATE_START_FLOOR,
+    load_round_strategy,
+)
 
 HARNESS_PATH = (
     Path(__file__).resolve().parent.parent / "assets" / "w8a8_bench.py"
@@ -156,6 +162,23 @@ DUMMA macro-tile with 2-D A/B reuse and tune tile/LDS/occupancy. Do not force
 one launch geometry onto all regimes."""
 
 
+def _strategy_append(suffix: str, text: str, **fields: Any) -> str:
+    """Render one evidence suffix, formatted and separated by a leading space.
+
+    A harness that renames a format field (``{cu_count}`` -> ``{cus}``) must
+    yield a weaker suffix, never a crash: a malformed harness is a performance
+    problem, not a reason to abort a round. The separator lives here so the
+    built-in text and the harness template render byte-identically.
+    """
+    if not suffix:
+        return ""
+    try:
+        rendered = str(suffix).format(**fields)
+    except (KeyError, IndexError, ValueError):
+        rendered = text
+    return " " + rendered if rendered else ""
+
+
 def w8a8_round_strategy(
     shape: Dict[str, Any],
     iteration: int,
@@ -164,10 +187,19 @@ def w8a8_round_strategy(
     max_iterations: int = 10,
     isa_policy: Dict[str, Any] | None = None,
 ) -> str:
-    """Choose an architecture-first round plan from measured evidence."""
+    """Choose an architecture-first round plan from measured evidence.
+
+    The *decision* is code (measured history, phase, PMC evidence and the M
+    region pick the branch); the *wording* of each branch is data, loaded from
+    the harness workspace's ``systemprompt/round_strategy.yaml`` and falling
+    back to the historical built-in texts. See
+    :mod:`orchestrator.round_strategy`.
+    """
     history = history or []
     pmc_evidence = pmc_evidence or {}
     isa_policy = isa_policy or {}
+
+    strategy = load_round_strategy()
 
     faster_wrong = [
         record for record in history
@@ -179,14 +211,11 @@ def w8a8_round_strategy(
         candidate = max(
             faster_wrong, key=lambda record: float(record["speedup"])
         )
-        return (
-            "Highest priority: repair the faster but incorrect candidate from "
-            f"iteration {candidate.get('iteration')} (measured speedup "
-            f"{candidate.get('speedup')}x). Read its archived source at "
-            f"`{candidate.get('artifact_dir')}` and preserve the fast mapping. "
-            "Fix only the smallest correctness defect: signed int8 unpacking, "
-            "tail bounds, scale indexing, bf16 conversion, or a race. Do not "
-            "replace it with an unrelated architecture."
+        return strategy.text(
+            "repair.faster_wrong",
+            iteration=candidate.get("iteration"),
+            speedup=candidate.get("speedup"),
+            artifact_dir=candidate.get("artifact_dir"),
         )
 
     if history:
@@ -195,198 +224,41 @@ def w8a8_round_strategy(
         if any(token in failure for token in (
             "timeout", "timed out", "killed", "no result", "exit 143",
         )):
-            return (
-                "The preceding attempt failed in the agent infrastructure. "
-                "Return to the accepted best source and start a new bounded "
-                "experiment; do not repair or replay a partially written "
-                "candidate. This failure does not count as a completed "
-                "optimization round."
-            )
+            return strategy.text("repair.infrastructure_failure")
         if latest.get("build_success") is False:
-            return (
-                "Repair the immediately preceding candidate from iteration "
-                f"{latest.get('iteration')} at `{latest.get('artifact_dir')}`. "
-                "Keep its strategy and make only the minimum compile/API/syntax "
-                "correction; do not start another redesign this round."
+            return strategy.text(
+                "repair.build_failure",
+                iteration=latest.get("iteration"),
+                artifact_dir=latest.get("artifact_dir"),
             )
 
     phase = str(isa_policy.get("phase") or "hip_only")
     if phase == "isa_guided_hip":
         completed = int(isa_policy.get("valid_isa_guided_rounds") or 0)
-        return (
-            "ISA-guided HIP round. This is successful ISA experiment "
-            f"{completed + 1} of at least 2. Select one measured memory or "
-            "compute bottleneck, compare the exact primary-kernel ISA with "
-            "the preceding code object, and make one HIP/DUMMA/intrinsic "
-            "code-shaping change. Raw inline asm remains forbidden. Record "
-            "a compiler limitation only when the before/after binary proves "
-            "it and name the exact target instructions."
-        )
+        return strategy.text("phases.isa_guided_hip", completed=completed + 1)
     if phase == "conditional_inline_asm":
-        return (
-            "Conditional inline-asm experiment. Target only the compiler "
-            "limitation and exact instructions verified by the immediately "
-            "preceding ISA-guided HIP round. Keep the asm block minimal, "
-            "preserve complete constraints/clobbers, and reject it unless "
-            "the candidate ISA, exact correctness, median, P90, and resources "
-            "all validate. Do not write raw global/buffer/flat loads or MMAC."
-        )
+        return strategy.text("phases.conditional_inline_asm")
 
-    small_m = {
-        1: "Vectorize contiguous K loads with exact signed-int8 semantics.",
-        2: (
-            "Increase instruction-level parallelism with independent int32 "
-            "accumulators or adjacent N outputs; avoid per-K-tile LDS barriers."
-        ),
-        3: (
-            "Stage all of tiny A once with at most one barrier, or tune unroll "
-            "one step if whole-A staging is not cheaper."
-        ),
-        4: (
-            "Change one launch variable only: waves per block, N columns per "
-            "wave, or unroll factor."
-        ),
-        5: (
-            "HIP-only memory round: change one vector-load width, contiguous "
-            "N mapping, or whole-A reuse decision. Raw inline asm is forbidden."
-        ),
-        6: (
-            "HIP-only pipeline round: reduce one dependency chain or barrier "
-            "using ordinary HIP/intrinsics. Raw inline asm is forbidden."
-        ),
-        7: (
-            "HIP-only resource round: tune one block size, unroll factor, or "
-            "live range while preserving coalescing. Raw inline asm is forbidden."
-        ),
-        8: (
-            "HIP-only consolidation round: revisit the fastest correct archived "
-            "mapping and make one final architecture/codegen improvement. Raw "
-            "inline asm is forbidden."
-        ),
-    }
-    m16 = {
-        1: (
-            "Establish a minimal 16x16x32 DUMMA tile with the exact API below, "
-            "one wave per output tile and explicit int32 accumulation. If the "
-            "seed already has a correct DUMMA kernel, preserve it and instead "
-            "test the smallest one-wave-per-block, one-N-tile geometry with no "
-            "cross-wave barrier; do not spend the round reimplementing it."
-        ),
-        2: (
-            "Architecture round: measure grid parallelism before polishing. "
-            "Explore one complete launch geometry among 1/2/4 waves per block "
-            "and 1/2/4 adjacent N tiles. Prefer enough independent blocks to "
-            "cover at least all device CUs; report grid_blocks, waves_per_block "
-            "and estimated_active_cus in proposal.json."
-        ),
-        3: (
-            "Architecture round: if the unsplit grid has fewer than two "
-            "blocks per device CU and K >= 1024, implement and measure "
-            "split-K=2 plus at least one CU-aligned candidate (which may be "
-            "non-power-of-two), or test a one-wave zero-barrier geometry that "
-            "reaches the same parallelism. Write int32 partials into the "
-            "caller workspace and include the combine+scale kernel in the "
-            "timed Graph."
-        ),
-        4: (
-            "Architecture/pipeline round: explore one of multi-N-tile reuse, "
-            "A-only staging, or bounded register/LDS prefetch. Retain enough "
-            "blocks to cover all CUs, state which A/B bytes are reused, and "
-            "measure whether the change improves normal median/P90."
-        ),
-        5: (
-            "HIP-only packed-weight/staging round: compare one packed layout, "
-            "A-only staging, or B-only staging design. Raw inline asm is forbidden."
-        ),
-        6: (
-            "Pipeline round: choose exactly one staging family from direct, "
-            "A-only LDS, B-only LDS, or A+B LDS using L2/VMEM evidence. Use "
-            "coalesced 8- or 16-byte cooperative loads and report HBM/LDS byte "
-            "changes; do not claim asynchronous overlap without evidence."
-        ),
-        7: (
-            "Pipeline round: compare single buffering with double buffering "
-            "only when K>=1024, L2 hit rate is below 70%, and the doubled LDS "
-            "budget stays below 48 KiB. Count barriers per K step."
-        ),
-        8: (
-            "HIP-only resource round: tune one occupancy limiter using actual "
-            "PMC evidence: waves per block, VGPR live range, LDS footprint, "
-            "or spill removal. Do not trade repeated HBM reads for occupancy."
-        ),
-        9: (
-            "Late ISA-diagnosis round. Only if the control-plane plateau gate "
-            "is open, use one selected ISA Skill and trusted disassembly to "
-            "shape compiler output through HIP/DUMMA/intrinsics. Raw inline "
-            "asm remains forbidden. Otherwise continue HIP-only exploration."
-        ),
-        10: (
-            "Final conditional inline-asm round. Raw asm is allowed only when "
-            "the control plane confirms a HIP plateau and the prior ISA-guided "
-            "round recorded one concrete compiler limitation plus target "
-            "instructions. Otherwise make one HIP-only consolidation change."
-        ),
-    }
-    large_m = {
-        1: (
-            "Establish a correct DUMMA throughput baseline using a 2-D "
-            "macro-tile. Benchmark 64x64, 64x128, and 128x64 block tiles; "
-            "record waves per block, VGPRs, LDS bytes, occupancy and TOPS."
-        ),
-        2: (
-            "Operand-reuse round: compare direct loads with cooperative "
-            "A+B LDS staging. Quantify A/B reuse per macro-tile and use "
-            "vectorized coalesced global loads with a bank-safe LDS layout."
-        ),
-        3: (
-            "Pipeline round: compare single and double buffering across K "
-            "tiles. Retain double buffering only when ISA/PMC evidence shows "
-            "reduced VMEM stalls without harmful LDS or occupancy growth."
-        ),
-        4: (
-            "Tile-shape round: tune M-tile versus N-tile aspect ratio for "
-            "this exact M/N/K, balancing B reuse, A reuse and enough blocks "
-            "to occupy every CU. Do not inherit decode launch geometry."
-        ),
-        5: (
-            "Packing round: test one weight packing/swizzle that makes each "
-            "DUMMA B tile vector-loadable and LDS-bank-safe. Include packing "
-            "outside timing and validate the graph-stable packed layout."
-        ),
-        6: (
-            "Epilogue round: fuse per-row and per-column scales, bf16 "
-            "conversion and the final coalesced store into the compute "
-            "kernel; remove any unnecessary workspace/combine pass."
-        ),
-        7: (
-            "Compute-pipeline round: tune DUMMA issue grouping, prefetch "
-            "distance and accumulator independence using ISA stall evidence. "
-            "Raw inline asm remains forbidden."
-        ),
-        8: (
-            "Resource round: tune waves per block, VGPR live ranges and LDS "
-            "footprint from measured occupancy. Recheck the best tile family "
-            "with normal median/P90 measurements."
-        ),
-        9: m16[9],
-        10: m16[10],
-    }
     m = int(shape.get("M", 0))
     if m >= 128:
-        portfolio = large_m
+        regime = "large"
     elif m < 16:
-        portfolio = small_m
+        regime = "small"
     else:
-        portfolio = m16
-    late_start = max(9, max_iterations - 1)
+        regime = "m16"
+    late_start = max(LATE_START_FLOOR, max_iterations - 1)
     if m < 16:
         if iteration < late_start:
-            return portfolio.get(iteration, portfolio[8])
-        return portfolio[9] if iteration < max_iterations else portfolio[10]
+            return strategy.mandate(regime, iteration) or strategy.slot(regime, 8)
+        # The <16 portfolio has no dedicated late slot: it keeps its final
+        # consolidation round to the end (it used to raise KeyError here for
+        # every max_iterations in 9..10 with iteration >= late_start).
+        return strategy.slot(regime, 8)
     if iteration < late_start:
-        decision = portfolio.get(iteration, portfolio[8])
+        decision = strategy.mandate(regime, iteration) or strategy.slot(regime, 8)
     else:
-        decision = portfolio[9] if iteration < max_iterations else portfolio[10]
+        decision = strategy.slot(
+            regime, LATE_START_FLOOR if iteration < max_iterations else 10)
     grid_blocks = pmc_evidence.get("grid_blocks")
     cu_count = pmc_evidence.get("device_cu_count")
     split_candidates = split_k_candidate_set(
@@ -394,26 +266,20 @@ def w8a8_round_strategy(
         cu_count=int(cu_count) if isinstance(cu_count, (int, float)) else 0,
     )
     if iteration >= 2 and split_candidates:
-        decision += (
-            " Trusted occupancy-probe split candidates for the measured CU "
-            f"count are {split_candidates}. They include non-power-of-two "
-            "values where useful, are not a whitelist, and must fit the "
-            "workspace and stage-alignment constraints. Explore outside this "
-            "set when evidence supports it."
-        )
+        decision += _strategy_append(
+            strategy.append.get("split_candidates"),
+            APPEND_SPLIT_CANDIDATES_TEXT,
+            split_candidates=split_candidates)
     if (
         iteration >= 2
         and isinstance(grid_blocks, (int, float))
         and isinstance(cu_count, (int, float))
         and grid_blocks < 2 * cu_count
     ):
-        decision += (
-            f" Trusted control-plane warning: current grid has {grid_blocks} "
-            f"blocks for {cu_count} CUs, below the two-blocks-per-CU latency-"
-            "hiding target. Before micro-optimization, benchmark a finer "
-            "one-wave zero-barrier grid or multiple legal split-K candidates "
-            "including combine cost."
-        )
+        decision += _strategy_append(
+            strategy.append.get("grid_warning"),
+            APPEND_GRID_WARNING_TEXT,
+            grid_blocks=grid_blocks, cu_count=cu_count)
     return decision
 
 
