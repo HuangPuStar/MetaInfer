@@ -9,9 +9,10 @@
 import { html } from "htm/preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { StateGraph } from "app/ok-state-graph";
-import { KernelLibrary } from "app/ok-kernel-library";
+import { KernelLibrary, formatMs } from "app/ok-kernel-library";
 import { AgentsPanel } from "app/agents-panel";
 import { Timeline } from "app/timeline";
+import { fmtDur } from "app/utils";
 import {
   getIterations, getCharts, getStateGraph,
   getKernelLibrary, getCorrectnessHarness, getPerfHarness,
@@ -125,6 +126,76 @@ function MetricCards({ library, iterations }) {
       <div class="ok-meta-value">${iterations ? iterations.length : 0}</div>
       <div class="ok-meta-label">Optimization Iterations</div>
     </div>
+  </div>`;
+}
+
+// ---- Iteration progress ----
+
+// One row per optimization iteration. The metric cards only surface the *last*
+// iteration's speedup and the library's current best, so a run that is stuck —
+// or that regressed after a good iteration — looks identical to one that is
+// climbing. This table is the per-iteration trail: what each iteration set out
+// to do (`goal`), how it ended, and what it measured. Rows that set a new best
+// exec time are marked, which is the "is it actually improving?" signal.
+// `status` is written by IterationRecord as one of running|success|failed.
+const ITER_STATUS_CLASS = {
+  success: "green",
+  failed: "red",
+  running: "yellow", // in flight — no result yet, but nothing broke either
+};
+
+function IterationProgress({ iterations }) {
+  const rows = iterations || [];
+  if (rows.length === 0) {
+    return html`<p class="muted">No iterations recorded yet.</p>`;
+  }
+
+  // Best-so-far marking. Iterations that failed or are still running carry no
+  // `perf.exec_time_ms`, so they simply never take the mark.
+  const bestIterations = new Set();
+  let best = Infinity;
+  for (const it of rows) {
+    const ms = it.perf && it.perf.exec_time_ms;
+    if (typeof ms === "number" && ms > 0 && ms < best) {
+      best = ms;
+      bestIterations.add(it.iteration);
+    }
+  }
+
+  return html`<div class="ok-iter-scroll">
+    <table class="ok-kernel-table">
+      <thead>
+        <tr>
+          <th>#</th><th>Status</th><th>Exec Time</th><th>Speedup</th>
+          <th>Library</th><th>Duration</th><th>Goal</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((it) => {
+          const perf = it.perf || {};
+          const improved = bestIterations.has(it.iteration);
+          // These numbers come out of an LLM-generated benchmark harness, so
+          // coerce rather than trusting the type (a string "1.02" is fine).
+          const speedup = perf.speedup == null ? null : Number(perf.speedup);
+          return html`
+            <tr key=${it.iteration}>
+              <td><strong>${it.iteration}</strong></td>
+              <td><span class=${"ok-badge " + (ITER_STATUS_CLASS[it.status] || "")}>
+                ${it.status || "—"}</span></td>
+              <td class=${improved ? "ok-score-good" : ""}>
+                ${perf.exec_time_ms != null ? formatMs(perf.exec_time_ms) : "—"}
+                ${improved ? html`<span class="ok-best-tag" title="new best exec time">▲</span>` : null}
+              </td>
+              <td>${Number.isFinite(speedup) ? speedup.toFixed(3) + "×" : "—"}</td>
+              <td class="muted">${it.kernel_library_size ?? "—"}</td>
+              <td class="muted">${it.duration_s ? fmtDur(it.duration_s) : "—"}</td>
+              <td class="ok-goal" title=${it.goal || ""}>
+                ${it.goal || (it.failure_reason ? "failed: " + it.failure_reason : "—")}
+              </td>
+            </tr>`;
+        })}
+      </tbody>
+    </table>
   </div>`;
 }
 
@@ -261,6 +332,15 @@ export default function OptKernelDetailView({
     <${FlowIndicator} graph=${rt.graph} />
 
     <${MetricCards} library=${rt.library} iterations=${rt.iterations} />
+
+    <section class="panel ok-panel-full">
+      <h2>Iteration Progress
+        <span class="muted" style="font-size:0.75rem;margin-left:0.5rem;">
+          (▲ = new best exec time)
+        </span>
+      </h2>
+      <${IterationProgress} iterations=${rt.iterations} />
+    </section>
 
     <div class="ok-grid">
       <section class="panel">
