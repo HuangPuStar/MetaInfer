@@ -1,0 +1,209 @@
+# harness_evolve（AHE outer loop）——真实测评任务表单。
+#
+# 考卷不由人工填写：每轮考题由单角色 Evolve Agent 的 round_plan 从注册池选择，
+# 控制面强制池内、重叠>=60%、预算封顶。评测只用真实 DKAO（dkao-cli），
+# 无 dry-run 虚拟测试选项。
+
+- key: pool_source
+  question: "考题注册池 YAML（已接入、有实测基线的 GEMM 算子；dkao-cli 禁止使用内置假池）"
+  header: "Question pool"
+  required: false
+  form: file
+  default: "/root/zth_agent/ahe-kernel-repos/registered_pool.yaml"
+
+# 协议见 FLOW.md §1.1：题数固定为 4 的倍数（4 张 HCU 一波铺满），所以这里只给
+# 4 的倍数选项；CLI/接口传非倍数时由 normalized_per_gate 向上取整。
+- key: per_round_budget
+  question: "每轮考题数（固定为 4 的倍数：4 张 HCU 一波铺满）"
+  header: "Round budget"
+  required: false
+  form: select
+  default: "4"
+  options:
+    - label: "4"
+      description: "默认：一波 4 题，正好铺满 4 张卡"
+    - label: "8"
+      description: "两波共 8 题"
+    - label: "12"
+      description: "三波共 12 题"
+    - label: "16"
+      description: "四波共 16 题"
+    - label: "20"
+      description: "五波共 20 题（池子不够时按池子大小取）"
+
+# NOTE on the two numbers below — they are different layers and used to read
+# alike, which is exactly how a run once ended up doing rounds nobody asked for:
+#   default_rounds = one question, inside DKAO: how many optimization rounds its
+#                    worker may try (this is DKAO's own "Max iters").
+#   rounds         = the whole HE task: how many iterations it may run, one
+#                    iteration = one round.
+# The select field's options are the on-screen text (the renderer shows neither
+# the question text nor per-option descriptions for a select), so the option
+# labels stay plain numbers and the meaning lives in the question text.
+- key: default_rounds
+  question: "【单题内部】每道考题交给 DKAO 后，它的 worker 最多做几轮内核优化——这是单题预算，不是任务轮次（下面 Iterations 才是）。含义：1=只做一次基线验证；3=快速试 3 轮；5=默认，与生产 DKAO 的 Max iters 一致；10/20=更充分但更慢。该值原样传给 DKAO 的 Max iters。"
+  header: "Max iters"
+  required: false
+  form: select
+  default: "5"
+  options:
+    - label: "1"
+      description: "只做一次基线验证（单题不迭代）"
+    - label: "3"
+      description: "快速试 3 轮"
+    - label: "5"
+      description: "默认：单题最多 5 轮，与生产 DKAO 一致"
+    - label: "10"
+      description: "单题最多 10 轮，更充分但更慢"
+    - label: "20"
+      description: "单题最多 20 轮，最慢"
+
+- key: rounds
+  question: "【任务上限，唯一的轮次字段】最多跑几轮，1 轮 = 1 次迭代。第 1 轮是基线轮（只测量、不判门）；之后每一轮 = 重抽一组新题判性能门，过关则用同一版 harness 重考考卷判泛化门（重考不额外占一轮）。任何一轮两门全过就立刻停下、等你批准接入生产；比如 Rounds=10 而第 5 轮就过了，任务就在第 5 轮结束。轮次用尽仍未过关则以 rounds_exhausted 结束。"
+  header: "Rounds"
+  required: false
+  form: number
+  default: "10"
+
+- key: harness_source
+  question: "Harness 起点：dcu_default = 内置种子；或指向已演化 workspace 的绝对路径"
+  header: "Harness src"
+  required: false
+  form: text
+  default: "dcu_default"
+
+- key: execution_mode
+  question: "评测方式（真实 DKAO 专用）"
+  header: "Eval mode"
+  required: false
+  form: select
+  default: "dkao-cli"
+  options:
+    - label: "dkao-cli"
+      description: "真实 DKAO GPU 评测（worker29 容器 + dsh agent）"
+
+- key: ahe_repo_root
+  question: "AHE 专用 kernel 仓库根（与人工 /root/zth_agent/kernel-repos 隔离）"
+  header: "AHE repos"
+  required: false
+  form: file
+  default: "/root/zth_agent/ahe-kernel-repos"
+
+- key: child_timeout_minutes
+  question: "单个 DKAO 考题子任务超时（分钟；0=不限）"
+  header: "Child timeout"
+  required: false
+  form: number
+  default: "0"
+
+- key: planner_enabled
+  question: "DKAO 子任务是否启用 planner（METAINFER_PLANNER=1）：只有开启后，被测 harness 的 planner_policy 才真正生效"
+  header: "Planner"
+  required: false
+  form: select
+  default: "true"
+  options:
+    - label: "true"
+      description: "注入 METAINFER_PLANNER=1：轮次指令由 harness 的 planner_policy/catalog 渲染（HE 演化 planner 的前提）"
+    - label: "false"
+      description: "使用 DKAO 默认菜单，planner_policy 改动不生效（仅用于对照/回退）"
+
+- key: validate_scope
+  question: "子任务最终验证范围：task = 只验证本题 shape（快）；api = 全量 API shape 回归（慢，生产默认）"
+  header: "Validate scope"
+  required: false
+  form: select
+  default: "task"
+  options:
+    - label: "task"
+      description: "只做本题 shape 的串行验证（HE 每题只有 1 个 shape，省去 42 个回归 shape 的固定开销）"
+    - label: "api"
+      description: "全量 API shape 验证（含未优化 shape 的回归）"
+
+- key: bench_profile
+  question: "benchmark 采样密度：quick = warmups30/samples30/replays50（稳定档）；full = 资产默认(100/30/100)"
+  header: "Bench profile"
+  required: false
+  form: select
+  default: "quick"
+  options:
+    - label: "quick"
+      description: "较快且稳定（warmups30/samples30/replays50），兼顾可比性"
+    - label: "full"
+      description: "资产默认的高密度采样"
+
+- key: mechanism_policy
+  question: "机制门严格度：lenient = 性能显著提升即可晋级（未验证记 PROMOTE_UNEXPLAINED，仅「矛盾证据」才要求复测）；strict = 无机制证据即要求复测；off = 不做机制判定"
+  header: "Mechanism gate"
+  required: false
+  form: select
+  default: "lenient"
+  options:
+    - label: "lenient"
+      description: "宽松：性能优先，机制命中/部分命中/未观测都可晋级；只有明确矛盾（如 harness 未生效、planner 被关闭）才复测一轮"
+    - label: "strict"
+      description: "保守：机制未验证就要求复测一轮"
+    - label: "off"
+      description: "关闭机制判定（只看性能）"
+
+- key: promote_kernels
+  question: "本轮评测出更快且正确的算子时，自动替换 DKAO 共享 variant（写前备份、可回滚）"
+  header: "Kernel promotion"
+  required: false
+  form: select
+  default: "true"
+  options:
+    - label: "true"
+      description: "自动把比现有 variant 快 ≥ 阈值的成品写回 DKAO variant 树"
+    - label: "false"
+      description: "只判定不写入（promotion.json 仍记录每题结果）"
+
+- key: promote_min_improvement_percent
+  question: "自动替换要求的最小提升幅度（相对现有 variant 的 median，%）"
+  header: "Promote threshold"
+  required: false
+  form: number
+  default: "3"
+
+- key: evolve_mode
+  question: "Evolve 模式：agent = 真实单角色 Evolve Agent 改 harness 并出下一轮考卷；dry-run 仅供调试占位"
+  header: "Evolve mode"
+  required: false
+  form: select
+  default: "agent"
+  options:
+    - label: "agent"
+      description: "真实 DSH Evolve Agent（改 harness + round_plan）"
+    - label: "dry-run"
+      description: "调试占位：只写 manifest、不改 harness"
+
+- key: evolve_model
+  question: "真实 Evolve Agent 模型 id（dsh 情况下可选；deepseek-flash-4.1 = 当前默认，deepseek-v4-flash = 旧 pinned 构建）"
+  header: "Evolve model"
+  required: false
+  form: select
+  default: "deepseek/deepseek-flash"
+  options:
+    - label: "deepseek/deepseek-flash"
+      description: "DeepSeek Flash 4.1（表单标签 deepseek-flash-4.1）——当前默认"
+    - label: "deepseek/deepseek-v4-flash-0731"
+      description: "DeepSeek V4 Flash 旧 pinned 构建（复现历史实验时选它）"
+
+- key: evolve_timeout_seconds
+  question: "真实 Evolve Agent 单轮超时（秒）"
+  header: "Evolve timeout"
+  required: false
+  form: number
+  default: "3600"
+
+- key: agent_framework
+  question: "DKAO 子任务的 Agent framework"
+  header: "Agent fw"
+  required: false
+  form: select
+  default: "dsh"
+  options:
+    - label: "dsh"
+      description: "DeepSeek Harness"
+    - label: "ccb"
+      description: "Claude Code"

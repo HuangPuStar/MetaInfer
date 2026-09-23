@@ -1,0 +1,166 @@
+/* harness_evolve detail view — mirrors the DKAO look & feel.
+   Reuses the dkao state-machine classes (copied into this plugin dir) and the
+   shell theme variables so the AHE outer loop reads like a DKAO task page. */
+@import url("./dkao.css");
+
+.he-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4, 10px);
+}
+
+/* summary header cards */
+.he-cards { display: flex; flex-wrap: wrap; gap: var(--sp-3, 8px); }
+.he-card {
+  flex: 1 1 160px;
+  min-width: 160px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: var(--radius, 8px);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg, #fff);
+}
+.he-card h4 { margin: 0 0 4px; font-size: var(--fs-xs, 12px);
+  text-transform: uppercase; letter-spacing: .04em; color: var(--fg-dim, #666); }
+.he-card .big { font-size: 26px; font-weight: 700; color: var(--fg, #111); }
+.he-card .sub { color: var(--fg-dim, #666); font-size: var(--fs-xs, 12px); }
+
+/* generic content panels */
+.he-section {
+  border: 1px solid var(--border, #ddd);
+  border-radius: var(--radius, 8px);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg, #fff);
+}
+.he-section > h3, .he-section > h4 { margin: 0 0 var(--sp-3); }
+.he-section h4 small { font-weight: 400; color: var(--fg-dim, #666); }
+
+/* tables */
+table.he-tbl { border-collapse: collapse; width: 100%; font-size: var(--fs-xs, 12px); }
+.he-tbl th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border, #ddd);
+  background: var(--panel-2, #f2f2f2); color: var(--fg-dim, #555); font-weight: 600; }
+.he-tbl td { padding: 6px 8px; border-bottom: 1px solid var(--border-soft, #eee);
+  vertical-align: top; }
+.he-tbl .mono { font-family: var(--fs-mono, monospace); font-size: var(--fs-xs, 12px); }
+
+/* badges (DKAO-colored) */
+.badge { display: inline-block; padding: 2px 8px; border-radius: var(--radius-sm, 6px);
+  font-size: var(--fs-xs, 11px); font-weight: 600; color: #fff; white-space: nowrap; }
+.badge.ok { background: var(--ok, #2e7d32); }
+.badge.bad { background: var(--err, #c62828); }
+.badge.warn { background: var(--warn, #ef6c00); }
+.badge.run { background: var(--accent, #1565c0); }
+
+/* details / pre */
+.he-iter summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.he-pre { background: var(--bg-elev, #f6f6f6); border: 1px solid var(--border, #ddd);
+  border-radius: var(--radius, 8px); padding: var(--sp-3) var(--sp-4);
+  white-space: pre-wrap; font-family: var(--fs-mono, monospace);
+  font-size: var(--fs-xs, 12px); max-height: 320px; overflow: auto; }
+
+/* child drill-down row */
+.he-subrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 4px 0 10px; }
+.he-subrow label { font-size: var(--fs-xs, 12px); color: var(--fg-dim, #555); }
+.he-select { padding: 4px 8px; border: 1px solid var(--border, #ddd);
+  border-radius: var(--radius-sm, 6px); background: var(--bg, #fff);
+  color: var(--fg, #111); font-size: var(--fs-xs, 12px); max-width: 640px; }
+.he-btn { padding: 4px 10px; border: 1px solid var(--border, #ddd);
+  border-radius: var(--radius-sm, 6px); background: var(--panel-2, #eee);
+  color: var(--fg, #111); cursor: pointer; font-size: var(--fs-xs, 12px); }
+.he-child-dkao { display: flex; flex-direction: column; gap: var(--sp-4, 10px); }
+
+/* read-only device cards (GPU 设备) — folded section, folded card, folded detail */
+.he-gpu-panel > summary { cursor: pointer; padding: var(--sp-2, 6px) 0; }
+.he-gpu-panel > summary small { font-weight: 400; }
+.he-gpu-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3, 8px); margin-top: var(--sp-2, 6px); }
+.he-gpu-card { min-width: 0; border: 1px solid var(--border-soft, #eee);
+  border-radius: var(--radius-sm, 6px); background: var(--bg-elev, #f6f6f6); }
+.he-gpu-card > summary { display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; padding: 7px 10px; cursor: pointer; font-size: var(--fs-xs, 12px); }
+.he-gpu-card[open] > summary { border-bottom: 1px solid var(--border-soft, #eee); }
+.he-gpu-card > summary strong { font-family: var(--fs-mono, monospace); }
+.he-gpu-card > summary small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.he-gpu-q { border-top: 1px solid var(--border-soft, #eee); }
+.he-gpu-card > .he-gpu-q:first-of-type { border-top: none; }
+.he-gpu-q > summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px;
+  padding: 6px 10px; cursor: pointer; font-size: var(--fs-xs, 12px); }
+.he-gpu-q > summary small { font-size: var(--fs-xxs, 11px); }
+.he-gpu-gate { display: flex; flex-direction: column; gap: 2px;
+  padding: 0 10px 6px; font-size: var(--fs-xs, 12px); }
+.he-gpu-sub { margin: 4px 10px 8px; font-size: var(--fs-xs, 12px); }
+.he-gpu-sub > summary { cursor: pointer; color: var(--fg-dim, #666); font-size: var(--fs-xxs, 11px); }
+.he-gpu-sub .mono { word-break: break-all; }
+.he-gpu-empty { display: grid; min-height: 38px; place-items: center;
+  font-size: var(--fs-xs, 12px); }
+
+/* live DKAO mirror inside one iteration — the DKAO page rendered read-only */
+.he-live-dkao { border-top: 1px solid var(--border-soft, #eee); padding-top: var(--sp-3, 8px); }
+.he-live-tabs { flex-wrap: wrap; gap: 6px; }
+.he-live-tab { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 5px 9px; border: 1px solid var(--border-soft, #ddd);
+  border-radius: var(--radius-sm, 6px); background: var(--bg-elev, #f6f6f6);
+  font-size: var(--fs-xs, 12px); }
+.he-live-tab.active { border-color: var(--accent, #2b6cb0); font-weight: 600; }
+.he-live-tab small { display: inline-flex; }
+.he-live-host { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px;
+  margin: var(--sp-2, 6px) 0; font-size: var(--fs-xs, 12px); }
+.he-live-host .mono { word-break: break-all; font-size: var(--fs-xxs, 11px); }
+.dkao-readonly-banner { border-left: 3px solid var(--accent, #2b6cb0); }
+
+/* Stop control: stopping is a pause, so it reads as a normal action that
+   happens to be destructive to the *process*, not to the artifacts. */
+.he-btn-stop { border-color: var(--warn, #b7791f); color: var(--warn, #b7791f); }
+.he-btn-stop:hover:not(:disabled) { background: var(--warn, #b7791f); color: #fff; }
+.he-btn-stop:disabled { opacity: 0.6; cursor: default; }
+
+/* four-card overview (四卡一览) — one column per HCU for this round's children.
+   Deliberately not `.he-cards`: that one is the flex summary-card row. */
+.he-four-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-3, 8px); margin-top: var(--sp-2, 6px); }
+@media (max-width: 1200px) {
+  .he-four-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.he-card-col { min-width: 0; border: 1px solid var(--border-soft, #eee);
+  border-radius: var(--radius-sm, 6px); background: var(--bg-elev, #f6f6f6);
+  padding: 8px 10px; }
+.he-card-col.idle { opacity: .6; }
+.he-card-col > header { display: flex; align-items: baseline; justify-content: space-between;
+  gap: 8px; margin-bottom: 6px; }
+.he-card-col > header strong { font-family: var(--fs-mono, monospace); color: var(--accent-2, #2b6cb0); }
+.he-card-empty { display: grid; min-height: 34px; place-items: center; font-size: var(--fs-xs, 12px); }
+.he-card-q { border-top: 1px solid var(--border-soft, #eee); padding-top: 6px; margin-top: 6px; }
+.he-card-q:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+.he-card-q.selected { outline: 1px solid var(--accent, #2b6cb0); }
+.he-card-q-head { display: flex; align-items: center; justify-content: space-between;
+  gap: 6px; margin-bottom: 4px; }
+.he-card-q-name { padding: 0; border: none; background: none; cursor: pointer;
+  font-family: var(--fs-mono, monospace); font-size: var(--fs-xs, 12px);
+  color: var(--fg, #111); text-align: left; word-break: break-all; }
+.he-card-q-name:hover { text-decoration: underline; }
+.he-card-metrics { display: grid; grid-template-columns: 34px minmax(0, 1fr);
+  gap: 2px 6px; margin: 0; font-size: var(--fs-xxs, 11px); }
+.he-card-metrics dt { color: var(--fg-dim, #666); }
+.he-card-metrics dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* DKAO 实时视图：同时看四个子任务（一卡一题，四个独立的 DKAO 页面）。
+   默认四宫格；窄屏自动退化为单列。每个单元格是一个只读 DKAO 页面的容器。 */
+.he-live-layout { gap: 6px; }
+.he-live-layout .he-btn.active { border-color: var(--accent, #2b6cb0); font-weight: 600; }
+.he-live-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3, 8px); align-items: start; margin-top: var(--sp-2, 6px); }
+.he-live-stack { display: grid; grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-3, 8px); margin-top: var(--sp-2, 6px); }
+@media (max-width: 1500px) { .he-live-grid { grid-template-columns: minmax(0, 1fr); } }
+.he-live-cell { min-width: 0; border: 1px solid var(--border-soft, #eee);
+  border-radius: var(--radius-sm, 6px); background: var(--bg, #fff);
+  padding: 2px 8px 8px; }
+.he-live-cell.selected { border-color: var(--accent, #2b6cb0); }
+.he-live-cell-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px;
+  padding: 5px 0 6px; border-bottom: 1px solid var(--border-soft, #eee); }
+.he-live-cell-title { padding: 0; border: none; background: none; cursor: pointer;
+  font-size: var(--fs-xs, 12px); color: var(--fg, #111); text-align: left;
+  word-break: break-all; }
+.he-live-cell-title:hover { text-decoration: underline; }
+.he-live-cell-grow { flex: 1 1 auto; }
+.he-live-cell-body { min-width: 0; overflow-x: auto; }
