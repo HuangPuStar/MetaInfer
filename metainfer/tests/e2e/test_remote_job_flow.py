@@ -40,7 +40,8 @@ def test_full_remote_job_flow_acquire_release_result(tmp_path: Path) -> None:
     def handler(handle: JobHandle, own_node_id: str) -> JobResult:
         # While the job is running, the slot must be held.
         claims = scoreboard.list_claims()
-        acquired = [c for c in claims if c["node_id"] == "w0" and c["gpu_idx"] == 0]
+        acquired = [c for c in claims if c["node_id"] == "w0" and c["gpu_idx"] == 0
+                    and c["status"] == "held"]
         captured["acquired_during_run"] = len(acquired) == 1
         # Write some stdout so tail-readers can verify
         (Path(handle.job_dir) / "stdout.log").write_text("hello e2e\n")
@@ -69,7 +70,7 @@ def test_full_remote_job_flow_acquire_release_result(tmp_path: Path) -> None:
         "GPU slot must be held while job is running"
 
     # Slot must be released after job.
-    claims_after = scoreboard.list_claims()
+    claims_after = [c for c in scoreboard.list_claims() if c["status"] == "held"]
     assert all(not (c["node_id"] == "w0" and c["gpu_idx"] == 0)
                for c in claims_after), "slot must be released"
 
