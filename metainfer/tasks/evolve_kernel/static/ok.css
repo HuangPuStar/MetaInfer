@@ -142,6 +142,16 @@
   overflow: auto;
 }
 
+/* "Retro" column: a dot marks iterations that wrote a retrospective, which is
+   also the affordance that a row opens the retrospective modal. */
+.ok-retro-cell {
+  text-align: center;
+}
+
+.ok-retro-dot {
+  color: var(--accent, #58a6ff);
+}
+
 .ok-flow-indicator {
   display: flex;
   align-items: center;

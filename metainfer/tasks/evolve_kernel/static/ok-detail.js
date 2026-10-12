@@ -10,6 +10,7 @@ import { html } from "htm/preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { StateGraph } from "app/ok-state-graph";
 import { KernelLibrary, formatMs } from "app/ok-kernel-library";
+import { RetrospectiveModal } from "app/ok-retrospective-modal";
 import { AgentsPanel } from "app/agents-panel";
 import { Timeline } from "app/timeline";
 import { fmtDur } from "app/utils";
@@ -144,7 +145,7 @@ const ITER_STATUS_CLASS = {
   running: "yellow", // in flight — no result yet, but nothing broke either
 };
 
-function IterationProgress({ iterations }) {
+function IterationProgress({ iterations, selectedN, onSelect }) {
   const rows = iterations || [];
   if (rows.length === 0) {
     return html`<p class="muted">No iterations recorded yet.</p>`;
@@ -167,7 +168,7 @@ function IterationProgress({ iterations }) {
       <thead>
         <tr>
           <th>#</th><th>Status</th><th>Exec Time</th><th>Speedup</th>
-          <th>Library</th><th>Duration</th><th>Goal</th>
+          <th>Library</th><th>Duration</th><th>Goal</th><th>Retro</th>
         </tr>
       </thead>
       <tbody>
@@ -178,7 +179,10 @@ function IterationProgress({ iterations }) {
           // coerce rather than trusting the type (a string "1.02" is fine).
           const speedup = perf.speedup == null ? null : Number(perf.speedup);
           return html`
-            <tr key=${it.iteration}>
+            <tr key=${it.iteration}
+                class=${it.iteration === selectedN ? "selected" : ""}
+                style=${{ cursor: onSelect ? "pointer" : "default" }}
+                onClick=${() => onSelect && onSelect(it.iteration)}>
               <td><strong>${it.iteration}</strong></td>
               <td><span class=${"ok-badge " + (ITER_STATUS_CLASS[it.status] || "")}>
                 ${it.status || "—"}</span></td>
@@ -191,6 +195,11 @@ function IterationProgress({ iterations }) {
               <td class="muted">${it.duration_s ? fmtDur(it.duration_s) : "—"}</td>
               <td class="ok-goal" title=${it.goal || ""}>
                 ${it.goal || (it.failure_reason ? "failed: " + it.failure_reason : "—")}
+              </td>
+              <td class="ok-retro-cell">
+                ${it.retrospective_path
+                  ? html`<span class="ok-retro-dot" title="retrospective available">●</span>`
+                  : html`<span class="muted">—</span>`}
               </td>
             </tr>`;
         })}
@@ -316,6 +325,7 @@ export default function OptKernelDetailView({
 }) {
   const [selectedKernel, setSelectedKernel] = useState(null);
   const [showHarness, setShowHarness] = useState(null); // "correctness" | "perf" | null
+  const [selectedIter, setSelectedIter] = useState(null); // iteration whose retrospective is open
   const { timeline, agents, loadState, lastErr } = data;
   const rt = useRuntimeData(taskId);
 
@@ -336,10 +346,13 @@ export default function OptKernelDetailView({
     <section class="panel ok-panel-full">
       <h2>Iteration Progress
         <span class="muted" style="font-size:0.75rem;margin-left:0.5rem;">
-          (▲ = new best exec time)
+          (▲ = new best exec time · click a row for its retrospective)
         </span>
       </h2>
-      <${IterationProgress} iterations=${rt.iterations} />
+      <${IterationProgress}
+        iterations=${rt.iterations}
+        selectedN=${selectedIter}
+        onSelect=${(n) => setSelectedIter(n)} />
     </section>
 
     <div class="ok-grid">
@@ -402,5 +415,12 @@ export default function OptKernelDetailView({
       <h2>Event Timeline</h2>
       <${Timeline} events=${timeline.events} />
     </section>
+
+    ${selectedIter != null ? html`
+      <${RetrospectiveModal}
+        taskId=${taskId}
+        iteration=${selectedIter}
+        onClose=${() => setSelectedIter(null)} />
+    ` : null}
   `;
 }
