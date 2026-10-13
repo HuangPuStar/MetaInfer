@@ -26,6 +26,7 @@ from .variant_store import (
     derive_variant_meta,
     variant_path,
 )
+from .w8a8_baselines import trusted_baseline_us
 
 #: shape-id prefix -> the model label used by the variant taxonomy.
 MODEL_LABEL_BY_PREFIX = {
@@ -75,7 +76,15 @@ def accepted_kernel_for(workspace_dir: Path,
 
 def _baseline_us(workspace_dir: Path, shape_id: str,
                  shape_params: Dict[str, Any]) -> Optional[float]:
-    """Baseline for the recorded speedup: task table first, fixed table next."""
+    """Baseline for the recorded speedup: task table first, fixed table next.
+
+    Either source is accepted **only** when the number provably came from this
+    machine's hardware profile (:func:`trusted_baseline_us`).  A task report
+    written before the profile split -- or one that fell back to the reference
+    table -- carries the other board's number, and recording a ratio against it
+    would file a cross-machine comparison as a same-machine fact.  The variant
+    is still written in that case; only ``baseline_us``/``speedup`` are omitted.
+    """
     report = workspace_dir / "final_report.json"
     if report.is_file():
         try:
@@ -84,14 +93,15 @@ def _baseline_us(workspace_dir: Path, shape_id: str,
         except (OSError, ValueError):
             initial = {}
         entry = initial.get(shape_id)
-        if isinstance(entry, dict) and entry.get("median_us"):
-            return float(entry["median_us"])
-        if isinstance(entry, (int, float)):
-            return float(entry)
+        if entry is not None:
+            trusted = trusted_baseline_us(entry)
+            if trusted is not None:
+                return trusted
     try:
         from .w8a8_baselines import fixed_triton_graph_baseline
         params = dict(shape_params or {})
-        return float(fixed_triton_graph_baseline(shape_id, params)["median_us"])
+        record = fixed_triton_graph_baseline(shape_id, params)
+        return trusted_baseline_us(record)
     except Exception:  # noqa: BLE001 - baseline is advisory
         return None
 

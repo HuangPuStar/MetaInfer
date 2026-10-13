@@ -8,22 +8,6 @@ import pytest
 
 from ..orchestrator import gpu_preflight as gp
 
-import importlib.util
-from pathlib import Path
-
-_GPU_BROKER_AVAILABLE = (
-    importlib.util.find_spec("metainfer.orchestrator.gpu_broker") is not None
-)
-requires_gpu_broker = pytest.mark.skipif(
-    not _GPU_BROKER_AVAILABLE,
-    reason="metainfer.orchestrator.gpu_broker is not available in this tree",
-)
-_DTK_HIPPROF_AVAILABLE = Path("/opt/dtk/bin/hipprof").is_file()
-requires_dtk_hipprof = pytest.mark.skipif(
-    not _DTK_HIPPROF_AVAILABLE,
-    reason="/opt/dtk/bin/hipprof is required (DCU toolchain is absent)",
-)
-
 SMI_SAMPLE = """
 ================================= System Management Interface ==================================
 ================================================================================================
@@ -322,8 +306,13 @@ def test_runner_gates_every_measurement(monkeypatch, tmp_path):
                         lambda self: {"build_key": "k"})
     monkeypatch.setattr(wp.W8A8Runner, "_ensure_reference_cache",
                         lambda self, m, n, k: None)
-    monkeypatch.setattr(wp, "_run",
-                        lambda *a, **k: type("R", (), {"stdout": "{}"})())
+    monkeypatch.setattr(
+        wp.W8A8Runner, "_run_harness_logged",
+        lambda self, command, *, timeout: "{}",
+    )
+    monkeypatch.setattr(
+        wp, "_run", lambda *a, **k: type("R", (), {"stdout": "{}"})()
+    )
     monkeypatch.setattr(wp, "_last_json", lambda out: {})
 
     runner.benchmark({"M": 16, "N": 64, "K": 32})
@@ -417,7 +406,6 @@ def _fake_scaffold(root):
     return root
 
 
-@requires_dtk_hipprof
 def test_generate_probe_runs_on_a_device_that_passed_the_gate(monkeypatch, tmp_path):
     """The probe is gated, but not pinned to GPU 0 (a busy card must not park it)."""
     from ..orchestrator import gen_and_opt_pipeline as gp
@@ -463,7 +451,6 @@ def test_generate_probe_runs_on_a_device_that_passed_the_gate(monkeypatch, tmp_p
     assert out["gpu_probe"]["visible_devices"] == 1
 
 
-@requires_gpu_broker
 def test_probe_candidates_put_the_tasks_own_devices_first():
     from ..orchestrator import gen_and_opt_pipeline as gp
 

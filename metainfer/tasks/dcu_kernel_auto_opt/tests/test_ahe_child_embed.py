@@ -21,11 +21,16 @@ from metainfer.server.tasks import TaskEntry
 
 
 def _he_task_with_child(tmp_path, *, register_owner: bool = True,
-                        task_id: str = "he-embed", question: str = "m16_wqkv_a"):
-    """One registered HE task with one evaluated question on disk."""
+                        task_id: str = "he-embed", question: str = "m16_wqkv_a",
+                        attempt_dir: str = "iteration_003"):
+    """One registered HE task with one evaluated question on disk.
+
+    ``attempt_dir`` is HE's ``children/<attempt>`` name: a plain round, a
+    retry (``_a2``) or the generalization retake (``_generalization``).
+    """
     state_dir = tmp_path / "he-state"
     workspace = tmp_path / "he-workspace"
-    child_state = (workspace / "children" / "iteration_003" / question
+    child_state = (workspace / "children" / attempt_dir / question
                    / "state")
     child_ws = child_state.parent / "workspace"
     child_state.mkdir(parents=True)
@@ -173,3 +178,35 @@ def test_a_registered_task_of_another_type_is_still_rejected(tmp_path, client):
 
     resp = client.get("/api/dcu-kernel-auto-opt/calc-1/summary")
     assert resp.status_code == 409                    # wrong type, as before
+
+
+def test_the_generalization_retake_is_viewable_like_any_other_round(
+        tmp_path, client):
+    """HE names the retake ``iteration_NNN_generalization``, retries ``_aN``.
+
+    The mirror passes the child's directory verbatim, so a stricter name check
+    here made every request for the retake's round 404: the drill-down for that
+    round rendered "returned HTTP 404" under each question instead of the run.
+    """
+    for attempt in ("iteration_003", "iteration_004_a2",
+                    "iteration_005_generalization"):
+        child_state, _, _ = _he_task_with_child(
+            tmp_path / attempt, task_id=f"he-{attempt}", question="q1",
+            attempt_dir=attempt)
+        resp = client.get("/api/dcu-kernel-auto-opt/ignored/summary",
+                          params={"state_dir": str(child_state)})
+        assert resp.status_code == 200, f"{attempt} -> {resp.status_code}"
+        assert resp.json()["run"]["current_phase"] == "parallel_explore"
+
+
+def test_a_directory_that_only_looks_like_a_round_is_still_refused(
+        tmp_path, client):
+    """The relaxed name check must not become a path-traversal hole."""
+    _, _, workspace = _he_task_with_child(tmp_path)
+    for bad in ("iteration_", "iteration_abc", "iteration_003x",
+                "round_003", "2"):
+        probe = workspace / "children" / bad / "q1" / "state"
+        probe.mkdir(parents=True)
+        resp = client.get("/api/dcu-kernel-auto-opt/x/summary",
+                          params={"state_dir": str(probe)})
+        assert resp.status_code == 404, f"{bad} was accepted"

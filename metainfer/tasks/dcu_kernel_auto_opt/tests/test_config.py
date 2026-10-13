@@ -329,3 +329,32 @@ assignments:
     cfg = load_config(req)
     assert cfg.execution_mode == "Real INT8 W8A8 GEMM"
     assert cfg.target_repo_path is None
+
+
+def test_hardware_label_is_detected_not_taken_from_the_form(monkeypatch):
+    """The form named the liquid card for tasks that ran on the air board."""
+    from metainfer.orchestrator import hw_profile
+
+    from ..orchestrator.config import detected_hardware_label
+
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "air-k100ai")
+    hw_profile.clear_cache()
+    assert detected_hardware_label(
+        {"target_hardware": "K500SM_AI / gfx928"}
+    ) == "K100_AI / gfx928"
+    hw_profile.clear_cache()
+
+
+def test_hardware_label_falls_back_to_the_form_when_unresolved(monkeypatch):
+    from metainfer.orchestrator import hw_profile
+
+    from ..orchestrator.config import detected_hardware_label
+
+    monkeypatch.setenv("METAINFER_HW_PROFILE_NO_PROBE", "1")
+    monkeypatch.setattr(hw_profile, "_hostname", lambda: "ci-runner")
+    hw_profile.clear_cache()
+    assert detected_hardware_label(
+        {"target_hardware": "K500SM_AI / gfx928"}
+    ) == "K500SM_AI / gfx928"
+    assert detected_hardware_label({}) == "Other DCU"
+    hw_profile.clear_cache()

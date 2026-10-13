@@ -4,16 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-import importlib.util
-
-_GPU_BROKER_AVAILABLE = (
-    importlib.util.find_spec("metainfer.orchestrator.gpu_broker") is not None
-)
-requires_gpu_broker = pytest.mark.skipif(
-    not _GPU_BROKER_AVAILABLE,
-    reason="metainfer.orchestrator.gpu_broker is not available in this tree",
-)
-
 
 def _assignments(spec):
     from ..orchestrator.config import WorkerAssignment
@@ -43,7 +33,6 @@ def test_rebalance_keeps_one_lane_per_worker_when_leases_are_plentiful():
     assert sorted(l.gpu for l in lanes) == [0, 1]
 
 
-@requires_gpu_broker
 def test_lease_gpus_for_task_layouts_workers_on_leases(monkeypatch):
     from ..orchestrator import config as C
     from metainfer.orchestrator import gpu_broker
@@ -69,7 +58,6 @@ def test_lease_gpus_for_task_layouts_workers_on_leases(monkeypatch):
     assert len(lanes) == 2
 
 
-@requires_gpu_broker
 def test_lease_gpus_for_task_fails_loudly_when_nothing_is_free(monkeypatch):
     from ..orchestrator import config as C
     from metainfer.orchestrator import gpu_broker

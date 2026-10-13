@@ -95,8 +95,16 @@ def resolve_operator_api(
         )
     # Reference variant HIP code lives in the plugin's variant/ directory;
     # fall back to the legacy location next to the API file. The fine-grained
-    # variant TREE (variant/<op+dtype>/<model>/<TP>/<M>/<operator>.hip) is
-    # staged alongside the legacy single file so agents can navigate both.
+    # variant TREE is staged alongside the legacy single file so agents can
+    # navigate both.
+    #
+    # Variants are stored per hardware profile
+    # (variant/<profile>/<family>/<model>/<TP>/<M>/<operator>.hip) because a
+    # median measured on one machine is meaningless on the other.  Only the
+    # CURRENT machine's profile is staged, and it is staged one level shallower
+    # (``references/<family>/...``) so the agent-facing paths the prompts
+    # advertise do not change.  A pre-split tree (families directly under
+    # variant/) is still staged as-is so an unmigrated checkout keeps working.
     variant_root = Path(__file__).resolve().parents[1] / "variant"
     legacy = next(
         (path for path in (variant_root / W8A8_VARIANTS_FILENAME,)
@@ -107,11 +115,16 @@ def resolve_operator_api(
     variant_sources: tuple = ()
     if legacy is not None:
         variant_sources += (legacy,)
-    # every subdirectory of variant/ is a fine-grained variant family tree
-    # (e.g. int8w8a8-gemm/hy3/TP4/M4096/o_proj.hip)
     if variant_root.is_dir():
+        from . import variant_store as _variant_store
+
+        staged_root = _variant_store.profile_root()
+        if not staged_root.is_dir():
+            # Legacy layout: every subdirectory of variant/ is a family tree.
+            staged_root = variant_root
         variant_sources += tuple(
-            path for path in sorted(variant_root.iterdir()) if path.is_dir()
+            path for path in sorted(staged_root.iterdir())
+            if path.is_dir() and path.name not in _variant_store.hw_profile.PROFILES
         )
     return OperatorAPIContract(
         operator=operator,

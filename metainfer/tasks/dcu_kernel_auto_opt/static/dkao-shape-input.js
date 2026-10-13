@@ -24,9 +24,13 @@ function parseCsvInts(raw) {
 var W8A8_M_VALUES = [2, 16, 3072];
 // Large-prefill boundary added on 2026-08-06 for TP4; extended to the
 // Hy3 / MiniMax M3 / GLM5.2 TP8 catalogs on 2026-08-27 via per-topology
-// mValues, plus the M=8 short-decode boundary on 2026-09-20. DeepSeek TP1/TP8
-// keep the three original M values. The backend validates shapes against the
-// contract (MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES = (8, 4096)).
+// mValues, plus the M=8 short-decode boundary on 2026-09-20. DeepSeek TP8
+// joined them on 2026-10-11 (same five M values; measured on the air board).
+// What does NOT change: the DeepSeek-only *default* workload
+// (DEFAULT_W8A8_SHAPES -> contract DEFAULT_OPTIMIZATION_SHAPES, 42 shapes,
+// M=2/16/3072) and its serial-validation fallback scope. The backend validates
+// every submitted shape against the contract
+// (MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES = (8, 4096)).
 var W8A8_TP4_M_VALUES = [2, 16, 3072, 4096];
 var W8A8_MODEL_TP8_M_VALUES = [2, 8, 16, 3072, 4096];
 
@@ -38,17 +42,6 @@ var MODEL_WORKLOADS = {
   "DeepSeek V4 Flash": {
     idPrefix: "",
     topologies: [
-      {
-        tp_size: 1,
-        operators: [
-          { operator: "wqkv_a", K: 4096, N: 1536 },
-          { operator: "wq_b", K: 1024, N: 32768 },
-          { operator: "indexer.wq_b", K: 1024, N: 8192 },
-          { operator: "wo_b", K: 8192, N: 4096 },
-          { operator: "shared_gate_up_proj", K: 4096, N: 4096 },
-          { operator: "shared_down_proj", K: 2048, N: 4096 },
-        ],
-      },
       {
         tp_size: 4,
         operators: [
@@ -62,6 +55,9 @@ var MODEL_WORKLOADS = {
       },
       {
         tp_size: 8,
+        // DeepSeek TP8 covers the same five M values as the other model
+        // catalogs since 2026-10-11 (M=8 short decode, M=4096 large prefill).
+        mValues: W8A8_MODEL_TP8_M_VALUES,
         operators: [
           { operator: "wqkv_a", K: 4096, N: 1536 },
           { operator: "wq_b", K: 1024, N: 4096 },
@@ -76,15 +72,6 @@ var MODEL_WORKLOADS = {
   "Hy3 (Hunyuan 3)": {
     idPrefix: "hy3_",
     topologies: [
-      {
-        tp_size: 1,
-        operators: [
-          { operator: "qkv_proj", K: 4096, N: 10240 },
-          { operator: "o_proj", K: 8192, N: 4096 },
-          { operator: "shared_gate_up_proj", K: 4096, N: 3072 },
-          { operator: "shared_down_proj", K: 1536, N: 4096 },
-        ],
-      },
       {
         tp_size: 4,
         operators: [
@@ -109,16 +96,6 @@ var MODEL_WORKLOADS = {
   "MiniMax M3": {
     idPrefix: "minimax_",
     topologies: [
-      {
-        tp_size: 1,
-        operators: [
-          { operator: "qkv_proj", K: 6144, N: 9216 },
-          { operator: "qkv_proj_and_indexer_qk", K: 6144, N: 9856 },
-          { operator: "o_proj", K: 8192, N: 6144 },
-          { operator: "shared_gate_up_proj", K: 6144, N: 6144 },
-          { operator: "shared_down_proj", K: 3072, N: 6144 },
-        ],
-      },
       {
         tp_size: 4,
         operators: [
@@ -145,17 +122,6 @@ var MODEL_WORKLOADS = {
   "GLM5.2": {
     idPrefix: "glm_",
     topologies: [
-      {
-        tp_size: 1,
-        operators: [
-          { operator: "fused_qkv_a_proj", K: 6144, N: 2624 },
-          { operator: "q_b_proj", K: 2048, N: 16384 },
-          { operator: "kv_b_proj", K: 512, N: 28672 },
-          { operator: "o_proj", K: 16384, N: 6144 },
-          { operator: "shared_gate_up_proj", K: 6144, N: 4096 },
-          { operator: "shared_down_proj", K: 2048, N: 6144 },
-        ],
-      },
       {
         tp_size: 4,
         operators: [
@@ -186,7 +152,14 @@ var MODEL_WORKLOADS = {
 function modelCatalog(modelLabel) {
   var model = MODEL_WORKLOADS[modelLabel] || MODEL_WORKLOADS["DeepSeek V4 Flash"];
   var shapes = [];
-  (model.topologies || []).forEach(function (topology) {
+  // The trusted API contract only defines TP 4 and TP 8 shards
+  // (int8_w8a8_gemm_api.py: "tp_size must be 4 or 8"), so a topology the
+  // contract would reject is never offered: picking one used to fail the task
+  // in `prepare` with "shape ... is outside the fixed API contract".
+  var CONTRACT_TP_SIZES = [4, 8];
+  (model.topologies || []).filter(function (topology) {
+    return CONTRACT_TP_SIZES.indexOf(topology.tp_size) !== -1;
+  }).forEach(function (topology) {
     // Per-topology M values override the defaults; TP4 and the Hy3/MiniMax/
     // GLM TP8 catalogs cover the M=8 short-decode and M=4096 large-prefill
     // boundaries.
@@ -209,8 +182,17 @@ function modelCatalog(modelLabel) {
   return shapes;
 }
 
-// Backward-compatible DeepSeek-only default catalog.
-var DEFAULT_W8A8_SHAPES = modelCatalog("DeepSeek V4 Flash");
+// Backward-compatible DeepSeek-only default catalog: it mirrors the contract's
+// DEFAULT_OPTIMIZATION_SHAPES (42 shapes; TP8 M=2/16/3072, TP4 additionally
+// M=4096). The TP8 M=8 / M=4096 boundaries above are *panel* affordances for
+// "Selected shapes only", so they are filtered out here -- a task submitted with
+// an empty shape field must still ask for exactly the contract's default set.
+// (test_shape_catalog_panel.py checks this list against the contract.)
+var DEFAULT_W8A8_SHAPES = modelCatalog("DeepSeek V4 Flash").filter(
+  function (shape) {
+    return shape.M !== 8 && !(shape.tp_size === 8 && shape.M === 4096);
+  }
+);
 
 function currentShapeId(catalog, rawId, modelLabel) {
   if (catalog.some(function (shape) { return shape.id === rawId; })) {
@@ -269,18 +251,105 @@ function parseShapeRecords(raw) {
   return shapes;
 }
 
+// ---- machine GPU inventory -------------------------------------------------
+//
+// Which cards this machine exposes is a *detected* machine fact (eight on the
+// air board, four on liquid) and lives server-side in
+// metainfer.orchestrator.gpu_inventory, surfaced through the shell's
+// /api/sys-shell/hw-profile. We fetch it once per page and cache the promise,
+// because a form control that silently assumed "0..3" is exactly how four of
+// kme6's eight cards became unselectable.
+//
+// A card number here is a host HCU ordinal: the same number hy-smi prints as
+// DCU[n] and the worker exports as HIP_VISIBLE_DEVICES=n.
+var DEFAULT_LANES = 4;
+var DEFAULT_GPU_DEVICES = [0, 1, 2, 3];
+var _gpuDevicesPromise = null;
+
+function fetchGpuDevices() {
+  if (_gpuDevicesPromise) return _gpuDevicesPromise;
+  _gpuDevicesPromise = fetch("/api/sys-shell/hw-profile", { cache: "no-store" })
+    .then(function (response) {
+      return response.ok ? response.json() : null;
+    })
+    .then(function (payload) {
+      var devices = payload && payload.gpus && payload.gpus.devices;
+      if (!Array.isArray(devices) || !devices.length) return DEFAULT_GPU_DEVICES;
+      return devices
+        .map(function (item) { return parseInt(item, 10); })
+        .filter(function (item) { return Number.isFinite(item) && item >= 0; });
+    })
+    .catch(function () { return DEFAULT_GPU_DEVICES; });
+  return _gpuDevicesPromise;
+}
+
+function useGpuDevices() {
+  var _b = useState(DEFAULT_GPU_DEVICES), devices = _b[0], setDevices = _b[1];
+  useEffect(function () {
+    var alive = true;
+    fetchGpuDevices().then(function (list) {
+      if (alive && list && list.length) setDevices(list);
+    });
+    return function () { alive = false; };
+  }, []);
+  return devices;
+}
+
+// Lane i uses cards[i]; the default is the historical 0,1,2,3 layout, so a
+// four-card board renders byte-identical to before.
+function fillLaneCards(partial, devices) {
+  var pool = (devices && devices.length ? devices : DEFAULT_GPU_DEVICES).slice();
+  var used = {};
+  var out = [];
+  for (var lane = 0; lane < DEFAULT_LANES; lane++) {
+    var card = partial && partial[lane] != null ? partial[lane] : null;
+    if (card != null) used[card] = true;
+    out.push(card);
+  }
+  for (var index = 0; index < DEFAULT_LANES; index++) {
+    if (out[index] != null) continue;
+    var pick = null;
+    for (var probe = 0; probe < pool.length; probe++) {
+      if (!used[pool[probe]]) { pick = pool[probe]; break; }
+    }
+    if (pick == null) pick = index;
+    used[pick] = true;
+    out[index] = pick;
+  }
+  return out;
+}
+
+function defaultLaneCards(devices) {
+  return fillLaneCards(null, devices);
+}
+
 function parseManualOwners(raw) {
+  // Returns {owners: shapeId -> lane, laneCards: [card per lane]}.
+  //
+  // A worker is named after the card it runs on (`worker_6: {gpu: 6, ...}`),
+  // which is the contract the pipeline validates, so the *lane* is positional:
+  // lanes are laid out in the order the entries appear. The card itself is read
+  // from `gpu:` (falling back to the number in the worker name, which is what
+  // the same entry looked like before lanes and cards could differ).
   var owners = {};
-  if (!raw) return owners;
-  var re = /worker_(\d+):\s*\{[^}]*shapes:\s*\[([^\]]*)\]/g, match;
+  var laneCards = [];
+  if (!raw) return { owners: owners, laneCards: laneCards };
+  var re = /worker_(\d+):\s*\{([^}]*)\}/g, match;
   while ((match = re.exec(raw)) !== null) {
-    var gpu = parseInt(match[1], 10);
-    match[2].split(",").forEach(function (item) {
+    var body = match[2];
+    var gpuMatch = /gpu:\s*(\d+)/.exec(body);
+    var card = gpuMatch ? parseInt(gpuMatch[1], 10) : parseInt(match[1], 10);
+    var shapesMatch = /shapes:\s*\[([^\]]*)\]/.exec(body);
+    if (!shapesMatch) continue;
+    var lane = laneCards.length;
+    if (lane >= DEFAULT_LANES) break;
+    laneCards.push(card);
+    shapesMatch[1].split(",").forEach(function (item) {
       var id = item.trim().replace(/^["']|["']$/g, "");
-      if (id) owners[id] = gpu;
+      if (id) owners[id] = lane;
     });
   }
-  return owners;
+  return { owners: owners, laneCards: laneCards };
 }
 
 function operatorGroupedOwners(shapes) {
@@ -351,16 +420,21 @@ function serializeShapesHeader(mode, scope, shapes, modelLabel) {
   return lines;
 }
 
-function serializeManualAssignment(shapes, owners, scope, modelLabel) {
+function serializeManualAssignment(shapes, owners, scope, modelLabel, laneCards) {
+  var cards = laneCards || DEFAULT_GPU_DEVICES;
   var lines = serializeShapesHeader("manual", scope, shapes, modelLabel);
   lines.push("assignments:");
-  for (var gpu = 0; gpu < 4; gpu++) {
+  for (var lane = 0; lane < DEFAULT_LANES; lane++) {
     var ids = shapes
-      .filter(function (shape) { return owners[shape.id] === gpu; })
+      .filter(function (shape) { return owners[shape.id] === lane; })
       .map(function (shape) { return shape.id; });
     if (ids.length) {
+      // Worker name == card: `_require_valid_child_assignments` and the
+      // generate-phase prompt both require worker_N on GPU N, so the lane's
+      // chosen card names the worker here rather than the lane index.
+      var card = cards[lane] != null ? cards[lane] : lane;
       lines.push(
-        "  worker_" + gpu + ": {gpu: " + gpu +
+        "  worker_" + card + ": {gpu: " + card +
         ", shapes: [" + ids.join(", ") + "]}"
       );
     }
@@ -391,6 +465,15 @@ function TpFilterBar(_a) {
       `; })}
     </div>
   `;
+}
+
+// Full-text hover hint for a shape row. The row no longer clips its text (see
+// ``.dkao-shape-choice`` in dkao.css), but the tooltip keeps the whole
+// signature readable at a glance without having to scan the wrapped line.
+function shapeTitle(shape) {
+  return "TP=" + shape.tp_size + " · " + shape.operator
+    + " · M=" + shape.M + " · N=" + shape.N + " · K=" + shape.K
+    + " · " + shape.id;
 }
 
 function ShapeCatalog(_a) {
@@ -424,7 +507,8 @@ function ShapeCatalog(_a) {
         ${visible.map(function (shape) {
           var checked = Boolean(selected[shape.id]);
           return html`
-            <label class="dkao-shape-choice ${checked ? "selected" : ""}">
+            <label class="dkao-shape-choice ${checked ? "selected" : ""}"
+              title=${shapeTitle(shape)}>
               <input type="checkbox"
                 checked=${checked}
                 disabled=${readOnly || (checked && selectedCount === 1)}
@@ -512,7 +596,10 @@ function ApiDefaultsPreview(_a) {
               <div class="dkao-gpu-shapes">
                 ${operators.map(function (item) {
                   return html`
-                    <div class="dkao-gpu-shape">
+                    <div class="dkao-gpu-shape"
+                      title=${"TP=" + tp + " · " + item.operator
+                        + " · (M," + item.K + ") @ (" + item.K + "," + item.N + ")"
+                        + " · M=" + mValues.join(",")}>
                       <div>
                         <strong>${item.operator}</strong>
                         <small>(M,${item.K}) @ (${item.K},${item.N}) · M=${mValues.join(",")}</small>
@@ -626,35 +713,57 @@ function ManualGpuAssignment(_a) {
         return shape.id;
       }));
   }), selected = _b[0], setSelected = _b[1];
+  var gpuDevices = useGpuDevices();
   var _c = useState(function () {
     var parsed = parseManualOwners(value || "");
     var migrated = operatorGroupedOwners(catalog);
-    Object.keys(parsed).forEach(function (shapeId) {
+    Object.keys(parsed.owners).forEach(function (shapeId) {
       var current = currentShapeId(catalog, shapeId, model);
-      if (current) migrated[current] = parsed[shapeId];
+      if (current) migrated[current] = parsed.owners[shapeId];
     });
     return migrated;
   }), owners = _c[0], setOwners = _c[1];
+  var _d = useState(function () {
+    var parsedCards = parseManualOwners(value || "").laneCards;
+    return parsedCards && parsedCards.length
+      ? fillLaneCards(parsedCards, DEFAULT_GPU_DEVICES)
+      : null;
+  }), explicitLaneCards = _d[0], setExplicitLaneCards = _d[1];
+  // Until the operator picks a card for a lane, follow the detected list (so a
+  // four-card board keeps the historical 0,1,2,3 and an eight-card board offers
+  // all eight without silently placing anything on a new card).
+  var laneCards = explicitLaneCards || defaultLaneCards(gpuDevices);
 
-  var emitState = useCallback(function (nextOwners, nextSelected) {
+  var emitState = useCallback(function (nextOwners, nextSelected, nextLaneCards) {
     var shapes = catalog.filter(function (shape) {
       return !subset || nextSelected[shape.id];
     });
+    var cards = nextLaneCards || laneCards;
     setOwners(nextOwners);
     setSelected(nextSelected);
     onChange(serializeManualAssignment(
-      shapes, nextOwners, subset ? "subset" : "all", model
+      shapes, nextOwners, subset ? "subset" : "all", model, cards
     ));
-  }, [onChange, subset, catalog, model]);
+  }, [onChange, subset, catalog, model, laneCards]);
 
   useEffect(function () {
     emitState(owners, selected);
   }, [subset]);
 
-  var moveShape = function (shapeId, gpu) {
+  var moveShape = function (shapeId, lane) {
     var next = Object.assign({}, owners);
-    next[shapeId] = gpu;
+    next[shapeId] = lane;
     emitState(next, selected);
+  };
+  // Two lanes on one card would silently measure on a shared device, so
+  // choosing a card another lane holds swaps the two lanes instead.
+  var setLaneCard = function (lane, card) {
+    var next = laneCards.slice();
+    var other = next.indexOf(card);
+    if (other >= 0 && other !== lane) next[other] = next[lane];
+    next[lane] = card;
+    setExplicitLaneCards(next);
+    emitState(owners, selected, next);
   };
   var shapes = catalog.filter(function (shape) {
     return !subset || selected[shape.id];
@@ -720,35 +829,55 @@ function ManualGpuAssignment(_a) {
         </button>
       </div>
       <div class="dkao-gpu-grid">
-        ${[0, 1, 2, 3].map(function (gpu) {
+        ${[0, 1, 2, 3].map(function (lane) {
+          var card = laneCards[lane] != null ? laneCards[lane] : lane;
           var assigned = shapes.filter(function (shape) {
-            return owners[shape.id] === gpu;
+            return owners[shape.id] === lane;
           });
           return html`
             <section class="dkao-gpu-card">
               <header>
-                <strong>GPU ${gpu}</strong>
+                <strong>GPU ${card}</strong>
+                <select
+                  class="dkao-gpu-pick"
+                  aria-label=${"Card for GPU lane " + lane}
+                  title=${"This lane runs on card " + card + " of " +
+                    gpuDevices.length + " (HIP_VISIBLE_DEVICES=" + card + ")"}
+                  value=${String(card)}
+                  onChange=${function (event) {
+                    setLaneCard(lane, parseInt(event.target.value, 10));
+                  }}>
+                  ${gpuDevices.map(function (device) {
+                    return html`
+                      <option value=${String(device)}>GPU ${device}</option>
+                    `;
+                  })}
+                </select>
                 <span>${assigned.length} shapes</span>
               </header>
               <div class="dkao-gpu-shapes">
                 ${assigned.length
                   ? assigned.map(function (shape) {
                     return html`
-                      <div class="dkao-gpu-shape" key=${shape.id}>
+                      <div class="dkao-gpu-shape" key=${shape.id}
+                        title=${shapeTitle(shape)}>
                         <div>
                           <strong>${shape.id}</strong>
                           <small>TP=${shape.tp_size} · ${shape.operator} · M=${shape.M} · N=${shape.N} · K=${shape.K}</small>
                         </div>
                         <select
                           aria-label=${"Move " + shape.id + " to GPU"}
-                          value=${String(gpu)}
+                          value=${String(lane)}
                           onChange=${function (event) {
                             moveShape(shape.id, parseInt(event.target.value, 10));
                           }}>
-                          ${[0, 1, 2, 3].map(function (targetGpu) {
+                          ${[0, 1, 2, 3].map(function (targetLane) {
+                            var targetCard = laneCards[targetLane] != null
+                              ? laneCards[targetLane]
+                              : targetLane;
                             return html`
-                              <option value=${String(targetGpu)}>
-                                GPU ${targetGpu}
+                              <option value=${String(targetLane)}>
+                                GPU ${targetCard}
                               </option>
                             `;
                           })}

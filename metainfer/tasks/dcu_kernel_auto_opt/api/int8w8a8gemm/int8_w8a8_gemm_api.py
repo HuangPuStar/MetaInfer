@@ -37,24 +37,7 @@ from __future__ import annotations
 
 from typing import Final, Mapping
 
-try:
-    import torch
-except ModuleNotFoundError:  # Metadata validation runs in CPU-only CI.
-    torch = None  # type: ignore[assignment]
-
-
-def _torch_no_grad():
-    """Return PyTorch's decorator, or an import-only CI fallback."""
-    if torch is None:
-        return lambda function: function
-    return torch.no_grad()
-
-
-def _require_torch() -> None:
-    if torch is None:
-        raise RuntimeError(
-            "the INT8 W8A8 runtime API requires PyTorch in the DCU environment"
-        )
+import torch
 
 
 # These are logical (K, N) dimensions after TP partitioning, not checkpoint
@@ -193,18 +176,26 @@ DEFAULT_OPTIMIZATION_M_VALUES: Final[tuple[int, ...]] = (2, 16, 3072)
 # the original three M values, so each TP4 operator gets exactly one M=4096
 # shape while TP8 defaults are unchanged.
 TP4_EXTRA_OPTIMIZATION_M_VALUES: Final[tuple[int, ...]] = (4096,)
-# Model-catalog TP8 extra M values. The DeepSeek TP8 default workload keeps
-# the original three M values; Hy3 / MiniMax M3 / GLM5.2 TP8 operators are
-# additionally optimizable at these M values via "Selected shapes only"
-# (their (K,N) pairs are already in the allowed sets and their Triton
-# CUDA-graph baselines are measured). This constant is not applied by
-# _default_optimization_shapes(), so DEFAULT_OPTIMIZATION_SHAPES
-# (DeepSeek-only) and its serial-validation fallback scope are unchanged.
+# Model-catalog TP8 extra M values. The DeepSeek TP8 *default* workload keeps
+# the original three M values; the Hy3 / MiniMax M3 / GLM5.2 TP8 operators (and,
+# since 2026-10-11, the DeepSeek V4 Flash TP8 operators) are additionally
+# optimizable at these M values via "Selected shapes only" (their (K,N) pairs
+# are already in the allowed sets and their Triton CUDA-graph baselines are
+# measured). This constant is not applied by _default_optimization_shapes(), so
+# DEFAULT_OPTIMIZATION_SHAPES (DeepSeek-only) and its serial-validation fallback
+# scope are unchanged.
 #   M=4096: model-catalog large-prefill boundary added on 2026-08-27.
 #   M=8:    model-catalog short decode boundary added on 2026-09-20; the
 #           Triton Graph baselines for the 15 catalog (K, N) pairs were
 #           measured on worker29/gfx928 with tools/baseline/
 #           bench_triton_tp8_m8.py (raw passes in tp8_m8_graph_run{1,2,3}.json).
+#   DeepSeek TP8 (2026-10-11): the same two boundaries for the DeepSeek V4 Flash
+#           TP8 catalog -- 4 new (N,K) keys per M (wqkv_a 1536x4096,
+#           indexer.wq_b 8192x1024, shared_gate_up_proj 512x4096,
+#           shared_down_proj 4096x256; the (1024,4096) key already existed for
+#           wq_b/wo_b). Measured on the *air* board (kme6) with the same two
+#           tools; raw passes in tools/baseline/
+#           tp8_{m8,m4096}_graph_deepseek_air_20261011_run{1,2,3}.json.
 MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES: Final[tuple[int, ...]] = (8, 4096)
 
 
@@ -264,7 +255,6 @@ def _check_cuda_tensor(
     *,
     contiguous: bool = True,
 ) -> None:
-    _require_torch()
     if not isinstance(tensor, torch.Tensor):
         raise TypeError(f"{name} must be a torch.Tensor")
     if not tensor.is_cuda:
@@ -327,7 +317,6 @@ def validate_optimization_shape(shape: Mapping[str, object]) -> None:
 
 
 def _optional_op(namespace: str, name: str):
-    _require_torch()
     try:
         return getattr(getattr(torch.ops, namespace), name)
     except AttributeError:
@@ -344,7 +333,7 @@ def _required_op(namespace: str, name: str):
     return op
 
 
-@_torch_no_grad()
+@torch.no_grad()
 def prepare_weight(
     raw_weight: torch.Tensor,
     weight_scale: torch.Tensor,
@@ -485,7 +474,7 @@ def validate_gemm_out_inputs(
     return m, n, k
 
 
-@_torch_no_grad()
+@torch.no_grad()
 def w8a8_gemm_out(
     x_q: torch.Tensor,
     packed_weight: torch.Tensor,

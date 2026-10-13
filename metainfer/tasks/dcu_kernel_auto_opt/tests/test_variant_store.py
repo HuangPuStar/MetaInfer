@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from ..orchestrator import variant_store as vs
+from metainfer.orchestrator import hw_profile
 from ..orchestrator.variant_store import (
     derive_variant_meta,
     dtype_slug,
@@ -10,6 +13,25 @@ from ..orchestrator.variant_store import (
     operator_type_slug,
     parse_shape_meta,
 )
+
+
+@pytest.fixture
+def pinned_profile(monkeypatch):
+    """Pin the detected hardware profile so paths do not depend on the host.
+
+    Variant leaves live under the profile of the machine that measured them, so
+    an unpinned test would assert different paths here (kme6 = air) and on a
+    GPU-less CI host (unresolved = ``unmigrated``).
+    """
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "air-k100ai")
+    hw_profile.clear_cache()
+    yield "air-k100ai"
+    hw_profile.clear_cache()
+
+
+def _answers():
+    return {"operator": "Quantized GEMM", "dtype": "INT8 W8A8",
+            "model": "Hy3 (Hunyuan 3)"}
 
 
 def test_slugs():
@@ -45,12 +67,80 @@ def test_derive_variant_meta():
     assert meta["m"] == 4096
 
 
-def test_variant_path_matches_requested_layout(tmp_path, monkeypatch):
+def test_variant_path_carries_the_hardware_profile(tmp_path, monkeypatch, pinned_profile):
+    """A variant leaf must live under the profile that measured it.
+
+    Regression: one shared leaf per shape meant an air-measured kernel could
+    overwrite the liquid variant for the same shape (happened 2026-09-25).
+    """
     monkeypatch.setattr(vs, "variant_root", lambda: tmp_path)
-    answers = {"operator": "Quantized GEMM", "dtype": "INT8 W8A8", "model": "Hy3 (Hunyuan 3)"}
-    meta = derive_variant_meta(answers, "hy3_tp4_o_proj_m4096")
+    meta = derive_variant_meta(_answers(), "hy3_tp4_o_proj_m4096")
     path = vs.variant_path(meta)
-    assert path == tmp_path / "int8w8a8-gemm" / "hy3" / "TP4" / "M4096" / "o_proj.hip"
+    assert path == (
+        tmp_path / "air-k100ai" / "int8w8a8-gemm" / "hy3" / "TP4" / "M4096"
+        / "o_proj.hip"
+    )
+    # An explicit profile overrides the detected one (used by migration tools).
+    other = vs.variant_path(meta, profile="liquid-k500sm")
+    assert other.parts[len(tmp_path.parts)] == "liquid-k500sm"
+
+
+def test_variant_header_records_profile_machine_and_date(tmp_path, monkeypatch, pinned_profile):
+    monkeypatch.setattr(vs, "variant_root", lambda: tmp_path)
+    meta = derive_variant_meta(_answers(), "hy3_tp4_o_proj_m16")
+    vs.add_variant(meta=meta, kernel_source="K", commit="abc",
+                   metrics={"median_us": 20.0}, source_task="t-1")
+    text = vs.variant_path(meta).read_text()
+    assert "hw_profile=air-k100ai" in text
+    assert "measured_on=" in text and "machine=" in text
+    entry = next(e for e in vs.list_variant_index() if e["shape"] == meta["shape"])
+    assert entry["profile"] == "air-k100ai"
+    assert entry["hw_profile"] == "air-k100ai"
+    assert entry["machine"]
+    assert entry["measured_on"]
+
+
+def test_index_reports_legacy_layout_as_unmigrated(tmp_path, monkeypatch):
+    """A pre-split checkout must be visible, not silently mislabelled."""
+    monkeypatch.setattr(vs, "variant_root", lambda: tmp_path)
+    target = tmp_path / "int8w8a8-gemm" / "hy3" / "TP4" / "M16" / "qkv_proj.hip"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        "// @@variant shape=hy3_tp4_qkv_proj_m16 commit=abc added=2026-08-26\n"
+        "//   median_us=26.05\n// @@end\nkernel\n",
+        encoding="utf-8",
+    )
+    entry = vs.list_variant_index()[0]
+    assert entry["profile"] == vs.UNMIGRATED_PROFILE
+    assert entry["family"] == "int8w8a8-gemm"  # offsets still resolved
+
+
+def test_cross_profile_write_is_refused(tmp_path, monkeypatch, pinned_profile):
+    """Writing into another machine's profile must fail loudly."""
+    monkeypatch.setattr(vs, "variant_root", lambda: tmp_path)
+    meta = derive_variant_meta(_answers(), "hy3_tp4_o_proj_m16")
+    with pytest.raises(ValueError, match="cross-profile"):
+        vs.add_variant(
+            meta=meta, kernel_source="K", commit="abc",
+            metrics={"median_us": 20.0}, profile="liquid-k500sm",
+            require_profile=True,
+        )
+    assert not (tmp_path / "liquid-k500sm").exists()
+
+
+def test_slower_replacement_guard_skips_across_profiles(tmp_path, monkeypatch):
+    """The recorded median is only comparable within one profile."""
+    monkeypatch.setattr(vs, "variant_root", lambda: tmp_path)
+    meta = derive_variant_meta(_answers(), "hy3_tp4_qkv_proj_m16")
+    vs.add_variant(meta=meta, kernel_source="OLD", commit="a",
+                   metrics={"median_us": 10.0}, profile="liquid-k500sm")
+    target = vs.variant_path(meta, profile="liquid-k500sm")
+    # same shape, different profile: the guard must not apply the other
+    # profile's median to this candidate
+    vs._reject_slower_replacement(target, {"median_us": 999.0}, profile="air-k100ai")
+    with pytest.raises(ValueError):
+        vs._reject_slower_replacement(target, {"median_us": 999.0},
+                                      profile="liquid-k500sm")
 
 
 def test_add_variant_writes_and_replaces(tmp_path, monkeypatch):
@@ -199,6 +289,10 @@ def test_reject_slower_guard_skips_when_median_unknown(tmp_path, monkeypatch):
 
 
 def test_backfill_variant_baselines(tmp_path, monkeypatch):
+    # Pinned to the profile whose table holds this shape's baseline: a backfill
+    # never borrows the other profile's number (see the next test).
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "liquid-k500sm")
+    hw_profile.clear_cache()
     monkeypatch.setattr(vs, "variant_root", lambda: tmp_path)
     target = (
         tmp_path / "int8w8a8-gemm" / "deepseek-v4" / "TP4" / "M16"
@@ -224,3 +318,73 @@ def test_backfill_variant_baselines(tmp_path, monkeypatch):
     v = vs.list_variant_index()[0]
     assert v["speedup"] is not None
     assert abs(v["baseline_us"] - 66.597) < 1e-3
+
+
+def test_backfill_never_borrows_another_profiles_baseline(tmp_path, monkeypatch):
+    """A shape the current profile has not measured gets no backfilled ratio.
+
+    Baselines are per hardware profile: on the air board the reference (liquid)
+    number is 1.06x-1.40x optimistic, so writing it into a variant header would
+    record a cross-machine comparison as fact.
+    """
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "air-k100ai")
+    hw_profile.clear_cache()
+    monkeypatch.setattr(vs, "variant_root", lambda: tmp_path)
+    # M=4 is in no catalogue: the reference cannot answer either, so no ratio is
+    # recorded (the same code path as "this profile has not measured it").
+    target = (
+        tmp_path / "int8w8a8-gemm" / "deepseek-v4" / "TP4" / "M4"
+        / "wqkv_a.hip"
+    )
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        "// @@variant shape=tp4_wqkv_a_m4 commit=abc added=2026-08-26\n"
+        "//   median_us=20.0 p90_us=21.0\n"
+        "//   source=task-1\n"
+        "// @@end\nkernel\n",
+        encoding="utf-8",
+    )
+    r = vs.backfill_variant_baselines()
+    assert r["updated"] == []
+    assert r["skipped"]["no_baseline"] == 1
+    assert "baseline_us" not in target.read_text()
+
+
+# --------------------------------------------------------------------------- #
+# Shipped data: no variant may advertise a ratio from the other board
+# --------------------------------------------------------------------------- #
+
+
+def test_the_air_variant_records_a_baseline_from_its_own_profile():
+    """Regression on the one air variant in the tree.
+
+    It was promoted on 2026-09-25 from the pre-split air task
+    (``minimax-tp8-m8-1-1e22df66``), whose report baseline was the hardcoded
+    reference table: the header carried ``baseline_us=19.98 speedup=1.967``
+    while this board's own value for the shape is 25.936 us.  Both numbers are
+    pinned here, so the wrong one cannot come back unnoticed.
+    """
+    from ..orchestrator.w8a8_baselines import fixed_triton_graph_baseline
+
+    leaf = (Path(__file__).resolve().parents[1] / "variant" / "air-k100ai"
+            / "int8w8a8-gemm" / "minimax-m3" / "TP8" / "M8"
+            / "shared_down_proj.hip")
+    if not leaf.is_file():                       # tree moved/absent: nothing to pin
+        pytest.skip("air variant not present in this checkout")
+    header = vs._parse_variant_header(leaf.read_text(encoding="utf-8"))
+    assert header.get("hw_profile") == "air-k100ai"
+
+    own = fixed_triton_graph_baseline(
+        header["shape"], {"tp_size": 8, "M": 8, "N": 6144, "K": 384},
+        hw_profile="air-k100ai",
+    )
+    reference = fixed_triton_graph_baseline(
+        header["shape"], {"tp_size": 8, "M": 8, "N": 6144, "K": 384},
+        hw_profile="liquid-k500sm",
+    )
+    assert own["median_us"] == 25.936
+    assert reference["median_us"] == 19.984
+    # The header writer renders metrics with 4 significant digits.
+    assert header["baseline_us"] == float(f"{own['median_us']:.4g}") == 25.94
+    assert header["baseline_us"] != float(f"{reference['median_us']:.4g}")
+    assert header["speedup"] == pytest.approx(25.94 / header["median_us"], rel=1e-3)

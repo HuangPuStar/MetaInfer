@@ -3,6 +3,11 @@
 > 维护说明：本文档由人工/AI 维护，内容基于 2026-08 的实际代码与现场任务。
 > 代码演进后请同步更新；涉及版本、容器名、具体数值的地方会标注“以实际为准”。
 > 遇到不确定的信息，先查代码/任务现场，不要凭记忆下结论。
+>
+> **报错查询**：任务失败时先看 [`error_catalog/`](error_catalog/README.md) —— 那里按类别收了
+> DKAO 真实出现过的报错（原文 / 判定 / 根因 / 处置 / 是否已修），一条命令即可重新收集：
+> `python3 -m metainfer.tasks.dcu_kernel_auto_opt.error_catalog.collect_errors`。
+> 遇到新报错请补进那里（规则加在 `collect_errors.py` 的 `CLASSES`，解释写在对应 `NN-*.md`）。
 
 ## 0. 这个功能是什么
 
@@ -114,11 +119,28 @@ wo_b 19882、gate_up 8790、down 5546；wq_b 与 indexer.wq_b 共用一条）。
 1. 用 worker 的 accepted objects 重建 `final/source`：`git restore` → 拷贝 object/HIP →
    `llvm-objcopy` 符号命名（`mi_<shape_id>_` 前缀）→ 渲染 `csrc/w8a8_dispatch.cpp` →
    写 `artifact_manifest.json`。
-2. **dispatch 只按 (N,K) 路由、忽略 M**（见 w8a8_dispatch.cpp），所以回归 shape 也会走自定义 object。
-3. 验证集合 = 6 个优化 shape（默认 protocol）+ 全部 API fallback shapes（`warmups=2, samples=3`）。
-   优化 shape 还有 `final ≤ 1.05× worker best` 的性能门。
-4. 任一 shape 正确性失败 → `Final prebuilt-object W8A8 validation failed: correctness failed for <shape>: <json>`。
-5. 全部通过 → 提交 final worktree、cherry-pick 回 seed、写 `final_report.json`，任务 finished/success。
+2. **dispatch 按整个 shape `(m,n,k)` 路由**（见 `_render_prebuilt_dispatch` 的 docstring）：族内形成递减 M 链，
+   精确 M 命中自己的 kernel，没优化过的 M 退到不超过它的最大 M；**pack 路由只能按 `(N,K)` 一条**
+   （`launch_pack_w8a8_weight` 的 ABI 里没有 `m`，真实模型里一份权重只 pack 一次），
+   取族内最小 M 的 pack 内核。
+3. **合并前的布局门（`final_layout_gate`）**：对每个 `(N,K)` 族用**成员各自的 pack 内核**在**真实 (N,K)** 上
+   打一次包（字节计数图），取 SHA256 当布局指纹。指纹不同 = 不能证明互相读得懂 → 按指纹分组、
+   打成最少的批（`pack_batches`），每批自己的 dispatch + prebuilt，串行验收一批一批来；
+   **批 0 渲染进 `final/source` 并发布，其余留在 `final/layout_batches/batchN`**。
+   - 探针**可运行**且所有成员指纹相同 → 单批（历史行为，零代价）。
+   - 探针**测不到任何成员**（无对象 / 无 GPU / 子进程失败）→ 一致性**未被证明**，
+     多成员族**按成员逐个拆批**（`unproven_groups`），并发 `final_layout_probe_failed` 事件。
+     探针失败**不废任务**，但也**不再被当成"没有冲突"**——它只多花一批的时间。
+   - 探针子进程必须用 `metainfer.orchestrator.interpreter.python_executable()` 解析解释器：
+     WebUI 起的 orchestrator 里 `sys.executable` 是**空串**（launcher 把 `argv[0]` 写成
+     `metainfer-orchestrator`），`subprocess.run([''])` 会抛
+     `PermissionError: [Errno 13] Permission denied: ''`。2026-10-11 前这道门因此对
+     WebUI 起的任务**全程失效**（见 `wiki-metainfer/gotchas/layout-gate-probe-blind-under-webui.md`）。
+4. 验证集合 = 6 个优化 shape（默认 protocol）+ 全部 API fallback shapes（`warmups=2, samples=3`）。
+   优化 shape 还有 `final ≤ worker best + max(5%, 2 µs)` 的性能门（5% 与 2 µs 取更宽：
+   40 µs 以下由 2 µs 绝对下限兜底，40 µs 以上与旧规则完全一致）。
+5. 任一 shape 正确性失败 → `Final prebuilt-object W8A8 validation failed: correctness failed for <shape>: <json>`。
+6. 全部通过 → 提交 final worktree、cherry-pick 回 seed、写 `final_report.json`，任务 finished/success。
 
 ### 2.6 主 agent 与子 agent 的职责边界（严格区分，不是靠自觉）
 
@@ -181,10 +203,11 @@ TP8 另有 wq_b/wo_b (1024,4096)、gate_up (4096,512)、down (256,4096)、indexe
   默认 42 不变，串行验证 fallback 不受影响）；前端三个模型的 TP8 topology 加
   `mValues`（用 `W8A8_MODEL_TP8_M_VALUES` 常量）；基线表 15 条 `(8,4096,…)` 已实测
   （`tools/baseline/bench_triton_tp8_m4096.py`，int8_utils.matmul_kernel + CUDA-graph replay，
-  结果存 `tools/baseline/tp8_m4096_graph.json`）。DeepSeek TP8 不加 M=4096。
+  结果存 `tools/baseline/tp8_m4096_graph.json`）。当时 DeepSeek TP8 不加 M=4096
+  （2026-10-11 已放开，见下条）。
 - **模型目录 TP8 短 decode 边界（2026-09-20）**：Hy3/MiniMax M3/GLM5.2 的 TP8 形状再加
   M=8，即 `MODEL_TP8_EXTRA_OPTIMIZATION_M_VALUES=(8, 4096)`；前端
-  `W8A8_MODEL_TP8_M_VALUES = [2, 8, 16, 3072, 4096]`（DeepSeek TP1/TP8 仍是
+  `W8A8_MODEL_TP8_M_VALUES = [2, 8, 16, 3072, 4096]`（当时 DeepSeek TP1/TP8 仍是
   `W8A8_M_VALUES=[2,16,3072]`，TP4 仍是 `W8A8_TP4_M_VALUES=[2,16,3072,4096]`）。
   基线表 15 条 `(8,8,…)` 在 worker29/gfx928 实测三次
   （`tools/baseline/bench_triton_tp8_m8.py --m 8 --mode graph`，协议同 2026-08-12 目录：
@@ -192,10 +215,24 @@ TP8 另有 wq_b/wo_b (1024,4096)、gate_up (4096,512)、down (256,4096)、indexe
   公布值取「每次 pass median 再取 median」；原始数据
   `tools/baseline/tp8_m8_graph_run{1,2,3}.json`，汇总 `tp8_m8_graph_merged.json`。
   12/15 形状三次 pass 极差 ≤1.6%（共享卡上 pass 2 的 minimax shared_down_proj 被同租户
-  干扰到 33.76 µs，取 median 后为 19.98 µs）。DeepSeek TP8 不加 M=8。
+  干扰到 33.76 µs，取 median 后为 19.98 µs）。当时 DeepSeek TP8 不加 M=8。
+- **DeepSeek V4 Flash TP8 并入 M=8 / M=4096（2026-10-11）**：DeepSeek TP8 topology 加
+  `mValues: W8A8_MODEL_TP8_M_VALUES`（四个模型目录现在同一套 5 个 M 值）。
+  **默认 workload 不变**：契约 `DEFAULT_OPTIMIZATION_SHAPES` 仍 42 条（M=2/16/3072，
+  TP4 另加 4096），前端的空字段默认列表用同一集合 —— `tests/test_shape_catalog_panel.py`
+  现在会**逐一比对**前端默认列表与契约默认集合，别再让面板扩 M 顺手改掉默认集。
+  基线在**本机风冷档**实测（DeepSeek TP8 的 4 个新 (N,K) × 2 个 M；`(1024,4096)` 键本来
+  就有 = Hy3 TP8 o_proj / wq_b_or_wo_b，只复核未覆盖）：
+  `baselines/air-k100ai.json` 的 8 条新键，原始 pass 存
+  `tools/baseline/tp8_{m8,m4096}_graph_deepseek_air_20261011_run{1,2,3}.json`。
+  实测自检（同卡、同协议）：M=16 `wqkv_a` 复现 79.084→80.064 µs；
+  `(1024,4096)` M=4096 复现 16403.5→16397.738 µs。
+  ⚠️ **液冷档（j20r1n08 / liquid-k500sm）表里没有这 8 条** —— 在那边选这些 shape 会在
+  `baseline` 阶段 `BaselineUnavailable`，需要在液冷机按同一协议补测（不要跨档抄数）。
 - **面板/契约/基线三层一致性测试**：`tests/test_shape_catalog_panel.py` 用 node 真实求值
   `static/dkao-shape-input.js` 的 `MODEL_WORKLOADS`，断言面板给出的每个 TP4/TP8 shape
-  都能过契约校验且能查到基线（否则任务要到 baseline 阶段才报 ValueError）。
+  都能过契约校验且能查到基线（否则任务要到 baseline 阶段才报 ValueError），
+  并要求 M=8/M=4096 的基线**来自本机档位**（`profile_mismatch is False`）。
 - `MIN_M=1, MAX_M=4096`；`WORKSPACE_BUDGET_BYTES=16MB`。
 - **M=4096 时大部分 (N,K) 的 split-K workspace 容量为 0** → 大 M kernel 必须走 2D M-tile 路径，
   不能依赖 split-K workspace。
@@ -215,10 +252,13 @@ TP8 另有 wq_b/wo_b (1024,4096)、gate_up (4096,512)、down (256,4096)、indexe
 ## 5. 常见坑（都是真实踩过的）
 
 1. **布局一致性（最容易翻车）**：object 的 `pack_weight` 如果重排了 B（例：down_proj (512,4096)
-   打成 N-blocked 64 列），它内部**所有按 M 分发的路径必须读同一个布局**。dispatch 按 (N,K) 忽略 M，
-   回归 M（2/16/3072）会走进通用路径；通用 DUMMA 若按 row-major 读 N-blocked B 就全错。
+   打成 N-blocked 64 列），它内部**所有按 M 分发的路径必须读同一个布局**。回归 M（2/16/3072）
+   会走进族内递减 M 链里不超过它的那条路由；若该 kernel 按 row-major 读 N-blocked B 就全错。
    修复示例：`dumma_eligible && (n,k)==(4096,512)` 时改用 N-blocked-aware 的 64x64 tile kernel，
    精确 M=4096 的 128x64 路径保持不变。
+   **注意**：合并时 `(N,K)` 族只有一条 pack 路由，所以**同一权重的多个 M 必须共享一份 packed 布局** ——
+   这既是 §2.5 那道布局门在查的东西，也是"一个任务里放同一算子的多个 M"最容易死在第 5 步的原因。
+   **根治（未做）**：让 worker 从契约层就遵守"一份权重一份布局"，而不是靠合并期拆批兜。
 2. **worker 只验证分配到的 M** → 回归 bug 拖到 serial validate 才暴露。
    建议：worker 验收时对每个 (K,N) 额外跑 M=2/16/3072 正确性（M-sweep）。
 3. **不要手改任务仓库的 API 快照**（digest mismatch）；改
@@ -253,6 +293,13 @@ TP8 另有 wq_b/wo_b (1024,4096)、gate_up (4096,512)、down (256,4096)、indexe
 7. **角色越界会自动判失败**：`generate_role_violation` / `changed files outside its HIP ownership`
    / `agent changed control-plane-owned extension infrastructure` 都是控制面在 agent 返回后
    用 git diff/digest 检出的。修复方式是恢复被改文件、重试该 attempt，**不要绕过检查**。
+8. **合并期的门可能是"瞎的"，而瞎和"没冲突"在页面上长得一样**：布局探针失败时
+   `final_artifact_link_launch.layout_groups.probed=false`、`probe_error` 里才是原因
+   （2026-10-11 前是 `PermissionError: [Errno 13] Permission denied: ''` —— WebUI 起的
+   orchestrator 里 `sys.executable` 是空串，探针子进程起不来）。
+   现已在 `final_layout_gate` 修掉（统一走 `metainfer.orchestrator.interpreter.python_executable()`），
+   并且**探针测不到东西时按成员拆批**、另发 `final_layout_probe_failed` 事件。
+   看一个任务的合并行为：查这两个事件的 `batches` / `probe_error`，别只看最后那行 error。
 
 ## 6. 新 AI 快速开始 checklist
 
