@@ -48,6 +48,15 @@ TP8_CASES = [
     ("glm52_tp8_o_proj", "o_proj", 2048, 6144),
     ("glm52_tp8_shared_gate_up_proj", "shared_gate_up_proj", 6144, 512),
     ("glm52_tp8_shared_down_proj", "shared_down_proj", 256, 6144),
+    # DeepSeek V4 Flash TP8 short-decode boundary (2026-10-11). ``wo_b`` is the
+    # same (K, N)=(1024, 4096) GEMM as ``wq_b``, so one measurement serves both
+    # (the published table labels that key ``wq_b_or_wo_b``); the same key is
+    # also Hy3 TP8 ``o_proj``.
+    ("deepseek_tp8_wqkv_a", "wqkv_a", 4096, 1536),
+    ("deepseek_tp8_wq_b", "wq_b", 1024, 4096),
+    ("deepseek_tp8_indexer_wq_b", "indexer.wq_b", 1024, 8192),
+    ("deepseek_tp8_shared_gate_up_proj", "shared_gate_up_proj", 4096, 512),
+    ("deepseek_tp8_shared_down_proj", "shared_down_proj", 256, 4096),
 ]
 
 # Exact default config used by matmul_int8 when M <= 32.

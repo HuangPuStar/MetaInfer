@@ -1,5 +1,14 @@
 import { html } from "htm/preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
+// Shell-owned plumbing shared by every auto-refreshing panel:
+//   pollWhileVisible — stop polling while the tab is hidden, and let a panel
+//     that describes finished history switch itself off (the AHE page mounts
+//     this view once per iteration, so a finished round used to keep pulling
+//     megabytes that could not change);
+//   fetchJsonCached — coalesce the same URL across mounts and skip unchanged
+//     bodies, so a poll that changes nothing costs a header exchange.
+import { fetchJsonCached, UNCHANGED } from "app/api";
+import { usePollWhileVisible as pollWhileVisible } from "app/utils";
 
 async function fetchJson(url) {
   const response = await fetch(url, { cache: "no-store" });
@@ -32,9 +41,94 @@ async function postJson(url, body) {
 //
 // Every component below takes `ctx = { taskId, stateDir, readOnly }` so both
 // the standalone page and the embedded one share one code path.
-export function apiBase({ taskId, stateDir }) {
-  const base = `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId || "")}`;
-  return stateDir ? `${base}?state_dir=${encodeURIComponent(stateDir)}` : base;
+//
+// The state dir is a *query parameter*, so it must stay at the END of the
+// URL: every endpoint below is `<base>/<endpoint>` and FastAPI routes on the
+// path alone. Handing callers a base that already carries `?state_dir=…`
+// turns `${base}/summary` into `…?state_dir=<dir>/summary`, i.e. the endpoint
+// is appended to the query value -- no route matches and the embedded view
+// 404s on every lane (the standalone page is unaffected, since it passes no
+// state dir). ``apiUrl`` therefore builds the whole URL and always appends
+// the query last; keep it the single place that knows this rule.
+export function apiBase({ taskId }) {
+  return `/api/dcu-kernel-auto-opt/${encodeURIComponent(taskId || "")}`;
+}
+
+export function apiUrl(ctx, endpoint = "") {
+  const base = apiBase(ctx);
+  const query = ctx && ctx.stateDir
+    ? `state_dir=${encodeURIComponent(ctx.stateDir)}`
+    : "";
+  if (!query) return `${base}${endpoint}`;
+  // `endpoint` may carry its own query string already (e.g.
+  // "/iterations?view=lanes"), so choose the separator rather than assuming
+  // there is no "?" yet.
+  const sep = endpoint.includes("?") ? "&" : "?";
+  return `${base}${endpoint}${sep}${query}`;
+}
+
+// The variant that may be shown as "current" for one shape: **this machine's
+// own hardware profile only**. A variant measured on the other board is not
+// comparable (air boards have no HBM address hashing, so read-heavy operators
+// are 1.06-1.70x off), so a task on this board must show 无 -- exactly as the
+// page did before the profile split -- rather than another profile's number.
+// Writes are guarded server-side (``require_profile``); this is the read side
+// of the same rule. ``index`` is a ``Map(shape -> variant record)``.
+export function currentProfileVariant(index, shape, hwProfileId) {
+  const variant = index ? index.get(shape) : null;
+  if (!variant || !variant.profile || !hwProfileId) return null;
+  return variant.profile === hwProfileId ? variant : null;
+}
+
+// The variant library that belongs to **this task**: the board the task's
+// numbers were measured on, falling back to this machine's board only when the
+// task carries no record of its own.
+//
+// This is not the same question as "which board is this machine": the task list
+// lets an operator open any task, including one from the other board, and that
+// page must show *that* board's library.  Filtering by the machine's profile
+// made every liquid task look empty here.
+export function displayProfile(taskHwProfile, machineHwProfile) {
+  return taskHwProfile || machineHwProfile || null;
+}
+
+// Whether this page may write into the variant library.  The write lands in
+// *this machine's* profile, so it is only meaningful when the task's numbers
+// came from this board; the server enforces the same rule (409) -- this is the
+// visible half, so the button is not offered at all.
+export function canPromote(taskHwProfile, machineHwProfile) {
+  if (!machineHwProfile) return false;
+  return taskHwProfile === machineHwProfile;
+}
+
+// The same rule for the skill library: fusion and publishing write into
+// ``~/.dsh/skills`` (this machine's edition, mirrored to Claude) while the
+// pending skill's numbers were measured on the task's board, so a write may only
+// be offered when the two agree -- a liquid task's findings fused on the air
+// machine would be read as air knowledge. The server refuses the same thing with
+// a 409; this is the visible half, so the button is not offered at all.
+export function canWriteSkills(taskHwProfile, machineHwProfile) {
+  return canPromote(taskHwProfile, machineHwProfile);
+}
+
+// ``Map(shape -> variant record)`` for ONE board, built from the raw index the
+// route returns.
+//
+// Filtering here -- not only at render time -- is what makes the button and the
+// "当前" column agree with reality: the route lists *both* profiles' records for
+// the same shape (air first, liquid later), so a Map built straight from that
+// list keeps the **liquid** record for every shared shape. Every row then still
+// read "当前: 无" after this board's variant was added, and the same rows kept
+// offering "加入 variant" instead of "更新 variant".
+export function profileVariantIndex(variants, hwProfileId) {
+  const index = new Map();
+  if (!hwProfileId) return index;
+  for (const variant of variants || []) {
+    if (!variant || !variant.shape) continue;
+    if (variant.profile !== hwProfileId) continue;
+    index.set(variant.shape, variant);
+  }
+  return index;
 }
 
 function ctxOf(props) {
@@ -360,9 +454,8 @@ function WorkerLane({ lane, ctx, onSaved }) {
     setSaving(true);
     setMessage("");
     try {
-      const base = apiBase(ctx);
       await postJson(
-        `${base}/workers/${encodeURIComponent(lane.worker_id)}/guidance`,
+        apiUrl(ctx, `/workers/${encodeURIComponent(lane.worker_id)}/guidance`),
         { text: text.trim() },
       );
       setText("");
@@ -382,9 +475,9 @@ function WorkerLane({ lane, ctx, onSaved }) {
     setRestarting(true);
     setMessage("");
     try {
-      const base = apiBase(ctx);
       await postJson(
-        `${base}/workers/${encodeURIComponent(lane.worker_id)}/restart`, {},
+        apiUrl(ctx, `/workers/${encodeURIComponent(lane.worker_id)}/restart`),
+        {},
       );
       setMessage(`Restarted on GPU ${lane.gpu}; sibling workers were not interrupted.`);
       await onSaved();
@@ -496,7 +589,7 @@ function WorkerLane({ lane, ctx, onSaved }) {
   `;
 }
 
-function SkillFile({ skill, canPublish, canFuse, onPublish, onFuse, busy }) {
+function SkillFile({ skill, canPublish, canFuse, onPublish, onFuse, busy, pending }) {
   return html`
     <details class="dkao-skill-file">
       <summary>
@@ -527,7 +620,7 @@ function SkillFile({ skill, canPublish, canFuse, onPublish, onFuse, busy }) {
               onPublish(skill);
             }}
           >${busy === `publish-${skill.name}` ? "Adding…" : "Add to existing"}</button>
-        ` : html`<span class="pill success">existing</span>`}
+        ` : (pending ? null : html`<span class="pill success">existing</span>`)}
       </summary>
       <pre>${skill.content}</pre>
     </details>
@@ -564,10 +657,25 @@ function SkillLibrary({ ctx, onClose }) {
   const [library, setLibrary] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  // Writes land in *this machine's* edition of the library, so the task's own
+  // board must be the same one (``write_blocked_reason`` is the server's verdict
+  // and outranks this comparison; the server also returns 409).
+  const machineProfile = library?.hw_profile || "";
+  const taskProfile = library?.task_hw_profile || "";
+  const canWrite = Boolean(library) && !ctx.readOnly
+    && !library.write_blocked_reason
+    && canWriteSkills(taskProfile, machineProfile);
+  const profileName = (id) => {
+    if (!id) return "未知";
+    const found = (library?.profiles || []).find((item) => item.id === id);
+    if (!found) return id;
+    if (found.cooled === "air") return "风冷";
+    if (found.cooled === "liquid") return "液冷";
+    return found.label || id;
+  };
   const load = useCallback(async () => {
     try {
-      const base = apiBase(ctx);
-      setLibrary(await fetchJson(`${base}/skills`));
+      setLibrary(await fetchJson(apiUrl(ctx, "/skills")));
       setError("");
     } catch (err) {
       setError(String(err));
@@ -585,9 +693,8 @@ function SkillLibrary({ ctx, onClose }) {
     if (!window.confirm(`Add "${skill.name}" to the existing skill library (dsh, mirrored to Claude)?`)) return;
     setBusy(`publish-${skill.name}`);
     try {
-      const base = apiBase(ctx);
       await postJson(
-        `${base}/skills/${encodeURIComponent(skill.name)}/publish`, {},
+        apiUrl(ctx, `/skills/${encodeURIComponent(skill.name)}/publish`), {},
       );
       await load();
     } catch (err) {
@@ -602,8 +709,8 @@ function SkillLibrary({ ctx, onClose }) {
     )) return;
     setBusy(`fuse-${skill.name}`);
     try {
-      const base = apiBase(ctx);
-      await postJson(`${base}/skills/fuse`, { skill_name: skill.name });
+      await postJson(apiUrl(ctx, "/skills/fuse"),
+                     { skill_name: skill.name });
       await load();
     } catch (err) {
       setError(String(err));
@@ -614,8 +721,7 @@ function SkillLibrary({ ctx, onClose }) {
   const syncNow = async () => {
     setBusy("sync");
     try {
-      const base = apiBase(ctx);
-      await postJson(`${base}/skills/sync`, {});
+      await postJson(apiUrl(ctx, "/skills/sync"), {});
       await load();
     } catch (err) {
       setError(String(err));
@@ -627,8 +733,8 @@ function SkillLibrary({ ctx, onClose }) {
     if (!window.confirm(`Restore the last backup of skill "${name}"?`)) return;
     setBusy(`rollback-${name}`);
     try {
-      const base = apiBase(ctx);
-      await postJson(`${base}/skills/${encodeURIComponent(name)}/rollback`, {});
+      await postJson(apiUrl(ctx, `/skills/${encodeURIComponent(name)}/rollback`),
+                     {});
       await load();
     } catch (err) {
       setError(String(err));
@@ -649,7 +755,7 @@ function SkillLibrary({ ctx, onClose }) {
         <button class="btn" type="button" onClick=${onClose}>Close</button>
       </div>
       ${error ? html`<div class="task-banner task-banner-err">${error}</div>` : null}
-      ${readOnly ? html`
+      ${ctx.readOnly ? html`
         <div class="task-banner dkao-readonly-banner">
           只读镜像 —— 该 DKAO 运行是 harness_evolve 的一轮考题，由 HE 编排器调度；
           本页不提供引导 / 重启 / 发布等写操作。
@@ -660,6 +766,13 @@ function SkillLibrary({ ctx, onClose }) {
           ${library.publish_disabled_reason}
           ${library.quarantined_count
             ? ` (${library.quarantined_count} pending files quarantined)` : ""}
+        </div>
+      ` : null}
+      ${!ctx.readOnly && library && !canWrite ? html`
+        <div class="task-banner task-banner-err">
+          ${taskProfile
+            ? `不可写入：此任务是【${profileName(taskProfile)}档】，本机是【${profileName(machineProfile)}档】 —— 融合/发布只会写进本机档的 skill 库，会把别档的数值当成这一档的知识。请在【${profileName(taskProfile)}档】的机器上操作。`
+            : "不可写入：此任务没有档位记录（先跑一次 backfill_task_hw_profile）。"}
         </div>
       ` : null}
       <${SkillFuseStatus} status=${library?.fuse_status}
@@ -682,8 +795,9 @@ function SkillLibrary({ ctx, onClose }) {
               ${(library.pending || []).map((skill) => html`
                 <${SkillFile}
                   skill=${skill}
-                  canPublish=${!ctx.readOnly}
-                  canFuse=${!ctx.readOnly}
+                  pending=${true}
+                  canPublish=${canWrite}
+                  canFuse=${canWrite}
                   busy=${busy}
                   onPublish=${publish}
                   onFuse=${fuse}
@@ -709,13 +823,40 @@ export default function DcuKernelAutoOptDetail(props) {
   const refresh = useCallback(async () => {
     if (!taskId) return;
     try {
-      const base = apiBase(ctx);
+      // Poll the cheap change detector first.  fetchJsonCached returns
+      // UNCHANGED when the body is byte-identical, so an unchanged signature
+      // short-circuits the heavy payloads (/summary ~0.6 MB + /iterations
+      // ~5.7 MB on a multi-worker task).  Before this gate the panel pulled
+      // ~6 MB every 3 s, which is what made the page feel stuck.
+      //
+      // The gate and the server agree by construction: /iterations is tagged
+      // with the very same signature, so "signature unchanged" and "the lane
+      // payload is unchanged" are now the same statement -- and it covers the
+      // round feeds (workers/*/runs/*/experiments.jsonl) that decide whether
+      // the list is actually current.
+      const signature = await fetchJsonCached(apiUrl(ctx, "/state-signature"));
+      if (signature === UNCHANGED) return;
       const [summary, graph, iterations] = await Promise.all([
-        fetchJson(`${base}/summary`),
-        fetchJson(`${base}/state-graph`),
-        fetchJson(`${base}/iterations`),
+        fetchJsonCached(apiUrl(ctx, "/summary")),
+        fetchJsonCached(apiUrl(ctx, "/state-graph")),
+        // `view=lanes` drops the per-round fields no browser code reads
+        // (candidate_isa and friends): 19.7 -> 6.0 MB on the heaviest task.
+        // The server still serves the full body by default, so this is the
+        // list view opting into a smaller cut, not a contract change.
+        fetchJsonCached(apiUrl(ctx, "/iterations?view=lanes")),
       ]);
-      setRuntime({ summary, graph, lanes: iterations.workers || [] });
+      // 304 for all three: nothing to re-render, and no state churn.
+      if (summary === UNCHANGED && graph === UNCHANGED
+          && iterations === UNCHANGED) {
+        setError(null);
+        return;
+      }
+      setRuntime((prev) => ({
+        summary: summary === UNCHANGED ? prev.summary : summary,
+        graph: graph === UNCHANGED ? prev.graph : graph,
+        lanes: iterations === UNCHANGED ? prev.lanes
+                                        : (iterations.workers || []),
+      }));
       setError(null);
     } catch (err) {
       setError(String(err));
@@ -723,60 +864,139 @@ export default function DcuKernelAutoOptDetail(props) {
   }, [ctx.taskId, ctx.stateDir]);
 
   useEffect(() => { refresh(); }, [refresh]);
-  useEffect(() => {
-    const timer = setInterval(refresh, 3000);
-    return () => clearInterval(timer);
-  }, [refresh]);
+
+  // A finished run is immutable history: keep the panel live only while the
+  // run can still move, and never while the tab is in the background.
+  const innerRun = runtime.summary && runtime.summary.run;
+  pollWhileVisible(refresh, 3000, {
+    enabled: !innerRun || !innerRun.finished,
+  });
 
   // ---- variant library (加入 variant 按钮) ------------------------------ //
   const [variantBusy, setVariantBusy] = useState("");
   const [variantMsg, setVariantMsg] = useState("");
   const [variantIndex, setVariantIndex] = useState(null); // null = loading
+  // Two different profiles are in play, and conflating them was a bug:
+  //   * this machine's board (``hwProfileId``) -- where a write would land;
+  //   * the board **this task** was measured on (``taskHwProfileId``) -- whose
+  //     library this page must show.
+  // Variants live per profile (variant/<profile>/…) because a median measured
+  // on an air board is not comparable with one measured on a liquid board: air
+  // boards lack HBM address hashing, so read-heavy operators are 40-87% slower
+  // there.
+  const [currentProfile, setCurrentProfile] = useState(null);
+  const [taskProfile, setTaskProfile] = useState(null);
+  const [variantProfiles, setVariantProfiles] = useState(null);
+  const hwProfileId = currentProfile ? currentProfile.hw_profile : null;
+  const taskHwProfileId = taskProfile ? taskProfile.task_hw_profile : null;
+  // Which library the rows describe: the task's own board.
+  const shownProfileId = displayProfile(taskHwProfileId, hwProfileId);
+  const mayPromote = canPromote(taskHwProfileId, hwProfileId);
+  const profileName = (id) => {
+    if (!id) return "未知";
+    if (id === "unmigrated") return "未分档";
+    const p = variantProfiles ? variantProfiles.get(id) : null;
+    if (!p) return id;
+    if (p.cooled === "air") return "风冷";
+    if (p.cooled === "liquid") return "液冷";
+    return p.label || id;
+  };
+  // Display lookup: the task's own board -- see ``currentProfileVariant``.
+  const variantFor = (shape) => currentProfileVariant(
+    variantIndex, shape, shownProfileId
+  );
   const loadVariants = useCallback(async () => {
     if (!taskId) return;
     try {
-      const base = apiBase(ctx);
-      const data = await fetchJson(`${base}/variants`);
-      // Map shape -> variant record (incl. median_us/speedup/source) so the
-      // update flow can compare the existing variant against this task.
-      setVariantIndex(new Map((data.variants || []).map((v) => [v.shape, v])));
+      const data = await fetchJsonCached(apiUrl(ctx, "/variants"));
+      if (data === UNCHANGED) return;
+      // Map shape -> variant record (incl. median_us/speedup/source/profile)
+      // so the update flow can compare the existing variant against this task.
+      // Only the shown board's records go in (see ``profileVariantIndex``): the
+      // list holds both boards' records for the same shape.
+      const machine = data.hw_profile ? data.hw_profile.hw_profile : null;
+      const shown = displayProfile(
+        data.task_hw_profile, machine
+      );
+      setVariantIndex(profileVariantIndex(data.variants, shown));
+      setVariantProfiles(new Map((data.profiles || []).map((p) => [p.id, p])));
+      setCurrentProfile(data.hw_profile || null);
+      setTaskProfile({
+        task_hw_profile: data.task_hw_profile || "",
+        task_hw_profile_source: data.task_hw_profile_source || "",
+      });
     } catch (err) { /* non-fatal */ }
   }, [ctx.taskId, ctx.stateDir]);
   useEffect(() => { loadVariants(); }, [loadVariants]);
+  // The library changes only when a round promotes a kernel, so no reason to
+  // ask every 3s; a minute keeps the "已有 variant" hint honest.
+  pollWhileVisible(loadVariants, 60000);
+  // "加入 variant" follows the liquid board's mechanism: this profile's existing
+  // variant is replaced only by a **faster** candidate, and a slower one is not
+  // added at all. The server enforces the same rule (``add_variant``'s
+  // ``reject_slower_than_existing``); checking it here as well means the
+  // operator gets the verdict immediately instead of after a round trip, and a
+  // refusal reads as a decision rather than as an error.
   const addVariant = async (shape) => {
-    const existing = variantIndex ? variantIndex.get(shape) : null;
+    if (!mayPromote) {
+      // The write would land in this machine's profile while the numbers came
+      // from the task's board (server-side 409 for the same reason).
+      setVariantMsg(
+        taskHwProfileId
+          ? `未加入：此任务是【${profileName(taskHwProfileId)}档】，`
+            + `本机是【${profileName(hwProfileId)}档】—— 它的数字不能写进本机档。`
+          : "未加入：此任务没有档位记录，先跑一次 "
+            + "`python3 -m metainfer.server.tools.backfill_task_hw_profile --apply`。"
+      );
+      return;
+    }
+    const existing = variantFor(shape);
+    const candidate = bestRoundPerShape(runtime.lanes).get(shape) || {};
+    const newUs = candidate.median_us;
+    const oldUs = existing ? existing.median_us : null;
+    const profileLabel = `${profileName(hwProfileId)}档`;
+    if (existing && newUs != null && oldUs != null && newUs > oldUs) {
+      setVariantMsg(
+        `未加入：本次 ${metric(newUs)} µs 慢于本档已有 variant 的`
+        + ` ${metric(oldUs)} µs —— ${profileLabel}保留更快的那一条。`
+      );
+      return;
+    }
     if (existing) {
-      const candidate = bestRoundPerShape(runtime.lanes).get(shape) || {};
-      const newUs = candidate.median_us;
-      const oldUs = existing.median_us;
-      let verdict = "";
-      if (newUs != null && oldUs != null) {
-        verdict = newUs < oldUs
-          ? "（本次更快）"
-          : newUs > oldUs ? "（本次更慢）" : "（持平）";
-      }
+      const verdict = newUs == null || oldUs == null
+        ? ""
+        : newUs < oldUs ? "（本次更快）" : "（持平）";
       const ok = window.confirm(
         `该算子已有 variant：median ${oldUs ?? "?"} µs`
         + `（来源 ${existing.source || "?"}）。\n`
         + `本次候选：median ${newUs ?? "?"} µs ${verdict}。\n`
-        + `用本次候选替换？旧文件会备份（.bak-*）。`
+        + "用本次候选替换？旧文件会备份（.bak-*）。"
       );
       if (!ok) return;
     }
     setVariantBusy(shape);
     setVariantMsg("");
     try {
-      const base = apiBase(ctx);
-      const res = await postJson(`${base}/variants`, { shape_id: shape });
+      const res = await postJson(apiUrl(ctx, "/variants"),
+                                 { shape_id: shape });
       const meta = res.meta || {};
       const tp = meta.tp != null ? `tp${meta.tp}` : "tp?";
       setVariantMsg(
         `已加入 variant: ${meta.type} | ${meta.model} | ${tp} | ${meta.operator}`
-        + `（${res.action === "updated" ? "更新已有分区" : "新增分区"}）`
+        + `（${res.action === "updated" ? "更替本档更慢的那一条" : "新增"}）`
       );
       await loadVariants();
     } catch (err) {
-      setVariantMsg(`加入 variant 失败: ${String(err)}`);
+      const detail = String(err && err.message ? err.message : err);
+      setVariantMsg(
+        // The server refuses a slower candidate (the guard above may not see
+        // it: the candidate number shown here is the lane's best round, the
+        // server reads the accepted kernel's own manifest).
+        /slower variant replacement/i.test(detail)
+          ? `未加入：服务端判定本次候选不优于${profileLabel}已有 variant`
+            + `（保留更快的那一条）。`
+          : `加入 variant 失败: ${detail}`
+      );
     } finally {
       setVariantBusy("");
     }
@@ -803,8 +1023,7 @@ export default function DcuKernelAutoOptDetail(props) {
     setRenameBusy(true);
     setRenameMsg("");
     try {
-      const base = apiBase(ctx);
-      const res = await postJson(`${base}/rename-repo`, {
+      const res = await postJson(apiUrl(ctx, "/rename-repo"), {
         new_name: target.trim(),
       });
       setRenameMsg(`已重命名: ${res.old_name} → ${res.new_name}`);
@@ -821,6 +1040,12 @@ export default function DcuKernelAutoOptDetail(props) {
   );
   const bestRoundEntries = Array.from(bestRounds.entries())
     .sort(([a], [b]) => (shapeOrder.get(a) ?? 1e9) - (shapeOrder.get(b) ?? 1e9));
+  // Rounds whose speedup had to be recomputed against this board's baseline
+  // (the run itself used another hardware profile's number). Shown as a
+  // footnote rather than silently swapped numbers.
+  const rebasedRows = bestRoundEntries.filter(
+    ([, item]) => item.recorded_speedup != null
+  );
   return html`
     <div class="dkao-detail">
       ${error ? html`<div class="task-banner task-banner-err">${error}</div>` : null}
@@ -930,6 +1155,15 @@ export default function DcuKernelAutoOptDetail(props) {
             Best optimization round per shape
             <span>accepted “best” round from each worker lane</span>
           </h3>
+          <p class="dkao-hw-note">
+            本机硬件档：<span class="dkao-hw-chip ${hwProfileId === "air-k100ai" ? "air" : hwProfileId === "liquid-k500sm" ? "liquid" : "unknown"}">${profileName(hwProfileId)}</span>
+            ${hwProfileId ? html`<span class="muted">（${hwProfileId}${currentProfile && currentProfile.machine ? " @ " + currentProfile.machine : ""}）</span>` : html`<span class="muted">（未识别：写入会被拒绝，见 wiki-metainfer/knowledge-packs.md §3）</span>`}
+            ${shownProfileId && shownProfileId !== hwProfileId ? html`
+              <br />此任务硬件档：<span class="dkao-hw-chip ${shownProfileId === "air-k100ai" ? "air" : shownProfileId === "liquid-k500sm" ? "liquid" : "unknown"}">${profileName(shownProfileId)}</span>
+              <span class="muted">（${shownProfileId}；下面的 variant 与超基线数字都是这一档测的，**不可**与本机档比较，本机也不能把它的结果写进本机档）</span>
+            ` : null}
+            ${shownProfileId ? html`<span class="muted">　variant 按档存放，跨档数字不可比较</span>` : null}
+          </p>
           <table class="iter-table">
             <thead>
               <tr><th>Shape</th><th>Worker</th><th>Best round</th><th>Performance</th><th>Speedup</th><th>INT8 TOPS</th><th>Algorithmic BW</th><th>Variant</th></tr>
@@ -941,38 +1175,56 @@ export default function DcuKernelAutoOptDetail(props) {
                   <td>${item.worker_id}</td>
                   <td class="perf-cell">${item.iteration ?? "—"}</td>
                   <td class="perf-cell">${metric(item.median_us)} µs</td>
-                  <td>${metric(item.speedup, 3)}×</td>
+                  <td>${metric(item.speedup, 3)}×${item.recorded_speedup != null
+                    ? html`<span class="muted" title=${item.baseline_note || ""}> *</span>`
+                    : null}</td>
                   <td>${metric(item.metrics.logical_tops ?? item.metrics.tflops, 3)}</td>
                   <td>${metric(item.metrics.algorithmic_bandwidth_gb_s ?? item.metrics.bandwidth_gb_s, 2)} GB/s</td>
                   <td>
-                    ${readOnly ? null : html`
+                    ${readOnly ? null : !mayPromote ? html`
+                      <div class="dkao-variant-status muted">
+                        ${taskHwProfileId
+                          ? `不可写入：此任务是【${profileName(taskHwProfileId)}档】，本机是【${profileName(hwProfileId)}档】`
+                          : "不可写入：此任务没有档位记录（先跑一次 backfill_task_hw_profile）"}
+                      </div>
+                    ` : html`
                     <button class="btn" type="button"
                       disabled=${variantBusy === shape}
                       onClick=${() => addVariant(shape)}>
                       ${variantBusy === shape
                         ? "处理中…"
-                        : (variantIndex && variantIndex.has(shape))
-                          ? "更新 variant"
-                          : "加入 variant"}
+                        : variantFor(shape)
+                          ? `更新 variant（${profileName(hwProfileId)}档）`
+                          : `加入 variant（${profileName(hwProfileId)}档）`}
                     </button>`}
                     ${(() => {
-                      const v = variantIndex ? variantIndex.get(shape) : null;
+                      const v = variantFor(shape);
                       if (!v) {
                         return html`<div class="dkao-variant-status muted">当前: 无</div>`;
                       }
-                      if (v.speedup != null) {
-                        return html`<div class="dkao-variant-status">当前: 超基线 ${metric(v.speedup, 2)}x</div>`;
-                      }
-                      if (v.median_us != null) {
-                        return html`<div class="dkao-variant-status muted">当前: ${metric(v.median_us)} µs</div>`;
-                      }
-                      return html`<div class="dkao-variant-status muted">当前: —</div>`;
+                      const value = v.speedup != null
+                        ? html`超基线 ${metric(v.speedup, 2)}x`
+                        : v.median_us != null ? html`${metric(v.median_us)} µs` : "—";
+                      return html`<div class="dkao-variant-status">当前: ${value}</div>`;
                     })()}
                   </td>
                 </tr>
               `)}
             </tbody>
           </table>
+          ${rebasedRows.length ? html`
+            <p class="muted dkao-baseline-note">
+              * 带 * 的 speedup 已按【本机档】baseline 重算（与 variant 同一把尺，
+              所以"当前: 超基线"应与它一致）。本任务运行时用的判据是另一档的 baseline：
+              ${rebasedRows.map(([shape, item]) => html`
+                <span class="dkao-rebased">
+                  ${shape} ${item.recorded_speedup != null ? metric(item.recorded_speedup, 3) : "—"}×
+                  （${metric(item.recorded_baseline_us)} µs）
+                </span>
+              `)}
+              —— 两档数字不可比较；历史报告文件未被改动。
+            </p>
+          ` : null}
           ${variantMsg ? html`<p class="muted dkao-variant-msg">${variantMsg}</p>` : null}
         ` : null}
         ${report ? html`

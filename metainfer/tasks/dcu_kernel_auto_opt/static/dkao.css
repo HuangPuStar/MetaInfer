@@ -563,6 +563,19 @@
 
 /* ---- shape input component ------------------------------------------------ */
 
+/* The Workload field must span both columns of the shell's ``.form-grid``:
+   the catalog renders full operator signatures, and in a half-width column
+   every row was clipped — which made picking a shape guesswork.
+
+   This is the static half of the fix (a CSS edit is live on page reload, a
+   Python edit would need a WebUI restart). ``form.yaml`` also sets
+   ``full_row: true`` on this field, which the form renderer turns into the
+   ``.full-row`` class — that keeps the layout correct even in a browser
+   without ``:has()``. Both produce the same grid-column. */
+.form-field:has(> .dkao-shape-input) {
+  grid-column: 1 / -1;
+}
+
 .dkao-shape-input {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -743,14 +756,17 @@
 
 .dkao-shape-catalog-items {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* One column on purpose: the catalog sits in a half-width form field, so a
+     two-column grid gave every row ~1/4 of the form width and the operator
+     signature was unreadable. Full-width rows wrap instead. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
   padding: 7px;
 }
 
 .dkao-shape-choice {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   min-width: 0;
   gap: 7px;
   padding: 7px 8px;
@@ -773,11 +789,13 @@
   gap: 2px;
 }
 
+/* Wrap instead of ellipsis: a truncated operator signature is unrecoverable
+   from the UI (the row carries a title= hint as a second way in, but the text
+   itself must be complete). */
 .dkao-shape-choice strong,
 .dkao-shape-choice small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .dkao-shape-choice strong {
@@ -819,6 +837,19 @@
   font-size: var(--fs-xxs);
 }
 
+/* Card picker in a manual GPU lane: which physical card this lane runs on.
+   The number is a host HCU ordinal, so an eight-card board offers 0..7. */
+.dkao-gpu-card > header .dkao-gpu-pick {
+  margin-left: 6px;
+  padding: 1px 2px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: inherit;
+  font-family: inherit;
+  font-size: var(--fs-xxs);
+}
+
 .dkao-gpu-shapes {
   display: flex;
   min-height: 54px;
@@ -848,9 +879,8 @@
 
 .dkao-gpu-shape strong,
 .dkao-gpu-shape small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .dkao-gpu-shape strong {
@@ -941,4 +971,45 @@
 .dkao-subset-hint {
   color: var(--muted);
   font-size: var(--fs-xxs);
+}
+
+/* Hardware profile (air vs liquid). Variants are stored per profile because a
+   median measured on an air-cooled board (no HBM address hashing) is 40-87%
+   slower on read-heavy operators; cross-profile numbers must never be compared. */
+.dkao-hw-note {
+  color: var(--muted);
+  font-size: var(--fs-xxs);
+  margin: 2px 0 8px;
+}
+.dkao-hw-chip {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid currentColor;
+  font-size: var(--fs-xxs);
+  line-height: 16px;
+  vertical-align: middle;
+}
+.dkao-hw-chip.air { color: #d97706; }
+.dkao-hw-chip.liquid { color: #2563eb; }
+.dkao-hw-chip.unknown { color: var(--muted); }
+.dkao-variant-status {
+  font-size: var(--fs-xxs);
+  margin-top: 2px;
+}
+.dkao-variant-status.muted { color: var(--muted); }
+
+/* Footnote for rows whose speedup had to be recomputed against this board's
+   baseline (the run itself used another hardware profile's number). */
+.dkao-baseline-note {
+  margin: 8px 0 0;
+  line-height: 1.7;
+}
+.dkao-baseline-note .dkao-rebased {
+  display: inline-block;
+  margin-right: 10px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.16);
+  white-space: nowrap;
 }

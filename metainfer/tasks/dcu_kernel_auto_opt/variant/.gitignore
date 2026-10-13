@@ -1,0 +1,12 @@
+# Locally-measured accepted kernels live here but are NOT tracked.
+#
+# The variant library is a per-machine measurement record: each leaf carries a
+# `// @@variant ... median_us=.. hw_profile=..` provenance header, and a number
+# is only meaningful against the board that produced it. Committing them made
+# every DKAO PR ~160k lines of generated HIP, so the tree is kept local and the
+# repository only carries the layout plus the upstream samples.
+#
+# A machine that wants the library populates it by running DKAO; the tree is
+# staged read-only into generated kernel repositories at runtime.
+*
+!.gitignore

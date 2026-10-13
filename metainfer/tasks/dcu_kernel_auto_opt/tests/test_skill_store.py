@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from metainfer.orchestrator import hw_profile
+
 from ..orchestrator.config import load_config
 from ..orchestrator import skill_store as skill_store_mod
 from ..orchestrator.skill_store import (
@@ -125,13 +127,19 @@ def test_rollback_skill_restores_backup(tmp_path, monkeypatch):
     (dsh_root / "alpha" / "SKILL.md").write_text("# v2\n", encoding="utf-8")
     monkeypatch.setenv("DSH_SKILLS_DIR", str(dsh_root))
     monkeypatch.setenv("METAINFER_CLAUDE_SKILLS_DIR", str(ccb_root))
+    # The restored body is re-stamped with this board, so pin the board instead
+    # of reading the host's (see tests/test_skill_edition_stamping.py).
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "air-k100ai")
+    hw_profile.clear_cache()
     (dsh_root / "alpha" / "SKILL.md.bak-1").write_text("# v1\n", encoding="utf-8")
     sync_skill_libraries(workspace_dir=tmp_path / "ws")
 
     result = rollback_skill("alpha", workspace_dir=tmp_path / "ws")
     assert result["restored_from"].endswith("SKILL.md.bak-1")
-    assert (dsh_root / "alpha" / "SKILL.md").read_text() == "# v1\n"
-    assert (ccb_root / "alpha" / "SKILL.md").read_text() == "# v1\n"
+    restored = (dsh_root / "alpha" / "SKILL.md").read_text()
+    assert "# v1" in restored
+    assert "metainfer-edition: air-k100ai" in restored
+    assert (ccb_root / "alpha" / "SKILL.md").read_text() == restored
 
     with pytest.raises(FileNotFoundError):
         rollback_skill("alpha", workspace_dir=tmp_path / "ws")
@@ -141,12 +149,17 @@ def test_fuse_decision_parse_and_apply(tmp_path, monkeypatch):
     dsh_root = tmp_path / "dsh"
     ccb_root = tmp_path / "ccb"
     (dsh_root / "existing-skill").mkdir(parents=True)
+    # A merge target is this board's operator knowledge, so it declares its
+    # board; merging into an unmarked (shared) skill is refused on purpose.
     (dsh_root / "existing-skill" / "SKILL.md").write_text(
-        "---\nname: existing-skill\ndescription: Old scope.\n---\n# old body\n",
+        "---\nname: existing-skill\ndescription: Old scope.\n---\n\n"
+        "<!-- metainfer-edition: air-k100ai -->\n\n# old body\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DSH_SKILLS_DIR", str(dsh_root))
     monkeypatch.setenv("METAINFER_CLAUDE_SKILLS_DIR", str(ccb_root))
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "air-k100ai")
+    hw_profile.clear_cache()
 
     # a "new" decision
     decision = _parse_fuse_decision(
@@ -154,10 +167,12 @@ def test_fuse_decision_parse_and_apply(tmp_path, monkeypatch):
         '"description": "New scope", "content": "# new body"}'
     )
     assert decision["action"] == "new"
-    applied = _apply_fuse_decision(decision)
+    applied = _apply_fuse_decision(decision, profile="air-k100ai")
     assert applied["name"] == "my-new-skill"
+    assert applied["edition"] == "air-k100ai"
     text = (dsh_root / "my-new-skill" / "SKILL.md").read_text(encoding="utf-8")
     assert text.startswith("---\nname: my-new-skill\n")
+    assert "metainfer-edition: air-k100ai" in text
     assert "# new body" in text
 
     # a "merge" decision backs up + replaces the body, keeping frontmatter
@@ -165,12 +180,13 @@ def test_fuse_decision_parse_and_apply(tmp_path, monkeypatch):
         '{"action": "merge", "name": "existing-skill", '
         '"content": "# merged body"}'
     )
-    applied = _apply_fuse_decision(merge)
+    applied = _apply_fuse_decision(merge, profile="air-k100ai")
     assert applied["action"] == "merge"
     assert applied["backup"] is not None
     assert "old body" in applied["diff"]
     text = (dsh_root / "existing-skill" / "SKILL.md").read_text(encoding="utf-8")
     assert text.startswith("---\nname: existing-skill\n")
+    assert "metainfer-edition: air-k100ai" in text
     assert "# merged body" in text
 
     # fenced JSON also parses

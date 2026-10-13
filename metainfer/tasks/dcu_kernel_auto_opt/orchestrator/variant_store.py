@@ -1,24 +1,34 @@
 """Fine-grained implementation variants for agent reference.
 
 Variants are accepted kernels stored as a directory tree that mirrors the
-form taxonomy:
+form taxonomy, **under a hardware-profile directory**:
 
-    variant/<operator+dtype>/<model>/<TP>/<M>/<operator>.hip
+    variant/<profile>/<operator+dtype>/<model>/<TP>/<M>/<operator>.hip
 
-e.g. ``variant/int8w8a8-gemm/hy3/TP4/M4096/o_proj.hip``.
+e.g. ``variant/air-k100ai/int8w8a8-gemm/hy3/TP4/M4096/o_proj.hip``.
+
+Why the profile level exists: two machines share one chip and one codebase but
+differ in board firmware behaviour (air-cooled boards have no HBM address
+hashing, so read-heavy operators are 40-87% slower there).  A variant's
+``median_us`` is only meaningful against the machine that produced it, so
+air-measured and liquid-measured kernels must never share a leaf.  The profile
+id comes from :mod:`hw_profile` (detected, never typed in); see
+``wiki-metainfer/knowledge-packs.md``.
 
 Each leaf file carries a machine-parseable header:
 
     // @@variant shape=<shape_id> commit=<git sha> added=<YYYY-MM-DD>
     //   median_us=.. p90_us=.. tops=.. bandwidth_gb_s=.. speedup=.. baseline_us=..
     //   source=<task id>
+    //   hw_profile=<profile id> machine=<host> measured_on=<YYYY-MM-DD>
     <kernel source>
 
 Semantics (kept in sync with prompts.py): variants are evidence, not policy —
 agents may read and adapt the file matching their (operator/dtype, model, TP,
 M, operator) family, but must not be locked into it, and any reuse requires
 full re-validation. The tree is staged read-only into generated kernel
-repositories under ``references/variants/`` and is not part of the build.
+repositories under ``references/<family>/`` (only the profile of the machine
+that stages it) and is not part of the build.
 """
 
 from __future__ import annotations
@@ -28,6 +38,35 @@ import shutil
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from metainfer.orchestrator import hw_profile
+
+#: Directory name shown for entries that predate the profile split (a legacy
+#: ``variant/<family>/...`` layout).  Never written to; it exists so an
+#: unmigrated checkout is *visible* in the index instead of silently
+#: masquerading as the current machine's profile.
+UNMIGRATED_PROFILE = "unmigrated"
+
+
+def profile_ids() -> tuple:
+    """Registered profile ids, in a stable order."""
+    return tuple(sorted(hw_profile.PROFILES))
+
+
+def current_profile_id() -> str:
+    """The profile of *this* machine, or ``UNMIGRATED_PROFILE`` if unresolved."""
+    try:
+        return hw_profile.profile_id() or UNMIGRATED_PROFILE
+    except hw_profile.HardwareProfileError:
+        return UNMIGRATED_PROFILE
+
+
+def _split_profile(rel_parts: tuple) -> tuple:
+    """Return ``(profile, rest)`` for one tree-relative path tuple."""
+    if rel_parts and rel_parts[0] in hw_profile.PROFILES:
+        return rel_parts[0], rel_parts[1:]
+    return UNMIGRATED_PROFILE, rel_parts
+
 
 _HEADER_RE = re.compile(r"(?m)^// @@variant shape=(\S+)(.*?)\n(?:.*?\n)*?// @@end")
 # Captures the whole header block (first line tail + ``//   key=value`` lines)
@@ -112,14 +151,26 @@ def variant_root() -> Path:
     return Path(__file__).resolve().parents[1] / "variant"
 
 
-def variant_path(meta: Dict[str, Any]) -> Path:
-    """The leaf file path for one specific operator's variant."""
+def variant_path(meta: Dict[str, Any], *, profile: Optional[str] = None) -> Path:
+    """The leaf file path for one specific operator's variant.
+
+    ``profile`` defaults to the profile detected for *this* machine: variants
+    are per-hardware evidence, so writing must land in the current profile's
+    subtree (an unresolved machine gets ``unmigrated``, which is visible in the
+    index rather than silently wrong).
+    """
+    profile = profile or current_profile_id()
     tp = f"TP{meta['tp']}" if meta.get("tp") is not None else "TP?"
     m = f"M{meta['m']}" if meta.get("m") is not None else "M?"
     return (
-        variant_root() / meta["family"] / meta["model"] / tp / m
+        variant_root() / profile / meta["family"] / meta["model"] / tp / m
         / f"{meta['operator_name']}.hip"
     )
+
+
+def profile_root(profile: Optional[str] = None) -> Path:
+    """The per-profile subtree that staging copies into agent workspaces."""
+    return variant_root() / (profile or current_profile_id())
 
 
 def section_header(
@@ -128,6 +179,9 @@ def section_header(
     commit: str,
     metrics: Dict[str, Any],
     source_task: str = "",
+    profile: Optional[str] = None,
+    machine: str = "",
+    measured_on: str = "",
 ) -> str:
     lines = [
         f"// @@variant shape={meta['shape']} commit={commit or '?'} "
@@ -151,8 +205,25 @@ def section_header(
         lines.append("//   " + " ".join(metric_parts))
     if source_task:
         lines.append(f"//   source={source_task}")
+    # Which machine produced these numbers. Read by the variant index and the
+    # WebUI so a liquid variant can never be mistaken for an air measurement.
+    lines.append(
+        "//   hw_profile={} machine={} measured_on={}".format(
+            profile or current_profile_id(),
+            machine or _hostname(),
+            measured_on or time.strftime("%Y-%m-%d"),
+        )
+    )
     lines.append("")
     return "\n".join(lines)
+
+
+def _hostname() -> str:
+    import os
+    try:
+        return os.uname().nodename
+    except AttributeError:  # pragma: no cover - non-POSIX
+        return "unknown"
 
 
 def add_variant(
@@ -164,6 +235,8 @@ def add_variant(
     source_task: str = "",
     backup: bool = True,
     reject_slower_than_existing: bool = False,
+    profile: Optional[str] = None,
+    require_profile: bool = False,
 ) -> Dict[str, Any]:
     """Write one specific operator's accepted kernel into the variant tree.
 
@@ -172,13 +245,28 @@ def add_variant(
     and ``metrics`` carry a ``median_us``, a candidate that is strictly slower
     than the existing variant is rejected with ``ValueError`` (equal or faster
     may replace).
+
+    The leaf lives under the detected hardware profile, so a kernel measured on
+    one machine can never overwrite another machine's variant.  Pass
+    ``require_profile=True`` at user-facing write boundaries to fail fast when
+    the machine cannot be identified (instead of writing into ``unmigrated``).
     """
-    target = variant_path(meta)
+    if require_profile:
+        detected = hw_profile.require().id
+        if profile is not None and profile != detected:
+            raise ValueError(
+                f"refusing cross-profile variant write: requested profile "
+                f"{profile!r} but this machine is {detected!r}"
+            )
+        profile = detected
+    profile = profile or current_profile_id()
+    target = variant_path(meta, profile=profile)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists() and reject_slower_than_existing:
-        _reject_slower_replacement(target, metrics)
+        _reject_slower_replacement(target, metrics, profile=profile)
     header = section_header(
-        meta, commit=commit, metrics=metrics, source_task=source_task
+        meta, commit=commit, metrics=metrics, source_task=source_task,
+        profile=profile,
     )
     content = header + kernel_source.rstrip() + "\n// @@end\n"
     action = "updated" if target.exists() else "added"
@@ -187,19 +275,33 @@ def add_variant(
         backup_path = target.with_name(f"{target.name}.bak-{int(time.time() * 1000)}")
         shutil.copy2(target, backup_path)
     target.write_text(content, encoding="utf-8")
+    # The reader caches the index; a promotion must be visible at once rather
+    # than after the cache expires (see list_variant_index).
+    invalidate_variant_index()
     return {
         "action": action,
         "shape": meta["shape"],
         "path": str(target),
         "backup": str(backup_path) if backup_path else None,
+        "profile": profile,
         "meta": meta,
     }
 
 
-def _reject_slower_replacement(target: Path, metrics: Dict[str, Any]) -> None:
+def _reject_slower_replacement(
+    target: Path, metrics: Dict[str, Any], *, profile: Optional[str] = None
+) -> None:
     """Raise ValueError when the candidate is strictly slower than the
-    existing variant's recorded median (both must be known)."""
+    existing variant's recorded median (both must be known).
+
+    Only meaningful within one profile: the recorded median was measured on a
+    specific machine, so a mismatch means the numbers are not comparable and
+    the guard is skipped rather than applied to the wrong baseline.
+    """
     existing = _parse_variant_header(target.read_text(encoding="utf-8", errors="replace"))
+    existing_profile = existing.get("hw_profile")
+    if profile and existing_profile and str(existing_profile) != str(profile):
+        return
     existing_median = existing.get("median_us")
     new_median = metrics.get("median_us")
     if existing_median is None or new_median is None:
@@ -214,13 +316,59 @@ def _reject_slower_replacement(target: Path, metrics: Dict[str, Any]) -> None:
         )
 
 
+# The index is a full walk + parse of every variant kernel (tens of files, a
+# few hundred KB of .hip), which measures at ~0.4s. It is also read by *every*
+# DKAO detail view on a timer, and each of those reads is synchronous inside
+# the single WebUI event loop -- three open task tabs were enough to keep the
+# whole UI (including the task list) waiting behind it. The library only
+# changes when a round promotes a kernel, so the index is cached and the cache
+# is invalidated by a cheap signature (file count + newest mtime) instead of
+# being rebuilt per request.
+_INDEX_CACHE: Dict[str, Any] = {}
+_INDEX_TTL_S = 60.0
+
+
+def _tree_signature(root: Path) -> tuple:
+    count = 0
+    newest = 0.0
+    for file in root.rglob("*.hip"):
+        try:
+            st = file.stat()
+        except OSError:
+            continue
+        count += 1
+        newest = max(newest, st.st_mtime)
+    return (count, round(newest, 3), str(root))
+
+
 def list_variant_index() -> List[Dict[str, Any]]:
     """Walk the variant tree and return the section index (path-derived
-    taxonomy + header fields)."""
-    out: List[Dict[str, Any]] = []
+    taxonomy + header fields).
+
+    Cached: see ``_INDEX_CACHE``. A caller that just added a variant must call
+    ``invalidate_variant_index()`` (the write path does), and the signature
+    check catches any change made outside this process.
+    """
     root = variant_root()
     if not root.exists():
-        return out
+        return []
+    signature = _tree_signature(root)
+    cached = _INDEX_CACHE.get("entry")
+    if cached and cached[0] == signature \
+            and (time.monotonic() - cached[1]) < _INDEX_TTL_S:
+        return cached[2]
+    out = _build_variant_index(root)
+    _INDEX_CACHE["entry"] = (signature, time.monotonic(), out)
+    return out
+
+
+def invalidate_variant_index() -> None:
+    """Drop the cached index (called by every write path)."""
+    _INDEX_CACHE.clear()
+
+
+def _build_variant_index(root: Path) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
     # skip the legacy single-file variant (kept for historical reference)
     for file in sorted(root.rglob("*.hip")):
         if file.name.startswith("w8a8_gemm_variants"):
@@ -229,13 +377,23 @@ def list_variant_index() -> List[Dict[str, Any]]:
         header = _parse_variant_header(text)
         shape = header.get("shape") or file.stem
         rel = file.relative_to(root).parts
+        # variant/<profile>/<family>/<model>/<TP>/<M>/<op>.hip  (pre-split trees
+        # have no profile level and report UNMIGRATED_PROFILE instead).
+        path_profile, rest = _split_profile(rel)
         out.append({
             "path": str(file.relative_to(root)),
+            # Layout profile (where the file lives) and the recorded profile
+            # (what the header claims) are reported separately: a disagreement
+            # means someone moved a file by hand.
+            "profile": path_profile,
+            "hw_profile": header.get("hw_profile", ""),
+            "machine": header.get("machine", ""),
+            "measured_on": header.get("measured_on", ""),
             "shape": shape,
-            "family": rel[0] if len(rel) > 0 else "",
-            "model": rel[1] if len(rel) > 1 else "",
-            "tp": rel[2] if len(rel) > 2 else "",
-            "m": rel[3] if len(rel) > 3 else "",
+            "family": rest[0] if len(rest) > 0 else "",
+            "model": rest[1] if len(rest) > 1 else "",
+            "tp": rest[2] if len(rest) > 2 else "",
+            "m": rest[3] if len(rest) > 3 else "",
             "operator": file.stem,
             "commit": header.get("commit", ""),
             "added": header.get("added", ""),
@@ -254,7 +412,9 @@ def list_variant_index() -> List[Dict[str, Any]]:
 _HEADER_NUMERIC_FIELDS = frozenset({
     "median_us", "p90_us", "tops", "bandwidth_gb_s", "speedup", "baseline_us",
 })
-_HEADER_TEXT_FIELDS = frozenset({"commit", "added", "source"})
+_HEADER_TEXT_FIELDS = frozenset({
+    "commit", "added", "source", "hw_profile", "machine", "measured_on",
+})
 
 
 def _parse_variant_header(text: str) -> Dict[str, Any]:
@@ -302,6 +462,7 @@ def backfill_variant_baselines() -> Dict[str, Any]:
     )
     from metainfer.tasks.dcu_kernel_auto_opt.orchestrator.w8a8_baselines import (  # noqa: PLC0415
         fixed_triton_graph_baseline,
+        trusted_baseline_us,
     )
 
     tables: Dict[tuple, Dict[str, tuple]] = {
@@ -356,7 +517,7 @@ def backfill_variant_baselines() -> Dict[str, Any]:
         k, n = kn
         m = int(m_dir[1:])
         try:
-            baseline = fixed_triton_graph_baseline(
+            record = fixed_triton_graph_baseline(
                 header.get("shape") or file.stem,
                 {
                     "tp_size": int(tp[2:]),
@@ -364,7 +525,10 @@ def backfill_variant_baselines() -> Dict[str, Any]:
                     "N": n,
                     "K": k,
                 },
-            ).get("median_us")
+            )
+            # Only backfill from this machine's own profile: the reference table
+            # belongs to the other board, so the ratio would not be reproducible.
+            baseline = trusted_baseline_us(record)
         except ValueError:
             baseline = None
         if baseline is None:

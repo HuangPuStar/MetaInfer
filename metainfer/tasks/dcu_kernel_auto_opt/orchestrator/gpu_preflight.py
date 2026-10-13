@@ -45,10 +45,14 @@ DEFAULT_UTIL_SUSPECT_PERCENT = 20.0
 DEFAULT_POWER_SUSPECT_W = 230.0
 
 KFD_PROC_ROOT = Path("/sys/class/kfd/kfd/proc")
-#: Driver sysfs used when ``hy-smi`` cannot report HCU%/VRAM.
-DRM_ROOT = Path("/sys/class/drm")
-#: DRM drivers that mean "this card is a Hygon HCU".
-_HCU_DRM_DRIVERS = ("hycu", "amdgpu", "hydcu")
+from metainfer.orchestrator.gpu_inventory import (
+    DRM_ROOT,
+    HCU_DRM_DRIVERS,
+    hcu_device_dirs,
+)
+
+#: Kept for callers/tests that referenced the old private name.
+_HCU_DRM_DRIVERS = HCU_DRM_DRIVERS
 #: ``N/A`` (or ``-``) where a number is expected: the device is present but the
 #: management interface cannot be read. Such a field is recorded as unknown
 #: instead of dropping the whole row, which used to make every card look idle.
@@ -128,26 +132,12 @@ def read_sysfs_gpu_state(
     filtered to the HCU driver and ordered by card index (``card1`` is the
     first HCU on the K500SM_AI machines, since ``card0`` is the BMC VGA), which
     matches the ``hy-smi``/KFD device numbering the tasks use.
+
+    The enumeration itself now lives in
+    :mod:`metainfer.orchestrator.gpu_inventory`, so this index space and the
+    one the task form offers the operator cannot drift apart.
     """
-    cards: List[Path] = []
-    try:
-        entries = list(drm_root.iterdir())
-    except OSError:
-        return {}
-    for entry in sorted(entries, key=lambda p: p.name):
-        match = re.fullmatch(r"card(\d+)", entry.name)
-        if not match:
-            continue
-        device = entry / "device"
-        try:
-            uevent = (device / "uevent").read_text(encoding="utf-8")
-        except OSError:
-            continue
-        if not any(driver in uevent for driver in _HCU_DRM_DRIVERS):
-            continue
-        if not (device / "mem_info_vram_total").is_file():
-            continue
-        cards.append(device)
+    cards: List[Path] = list(hcu_device_dirs(drm_root))
     out: Dict[int, Dict[str, float]] = {}
     for index, device in enumerate(cards):
         row: Dict[str, float] = {}

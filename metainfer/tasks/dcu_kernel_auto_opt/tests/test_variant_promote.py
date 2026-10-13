@@ -147,3 +147,120 @@ def test_model_label_and_accepted_lookup(tmp_path):
     found = accepted_kernel_for(ws, SHAPE)
     assert found and found["metrics"]["median_us"] == 5.0
     assert accepted_kernel_for(ws, "nope") is None
+
+
+# --------------------------------------------------------------------------- #
+# Which baseline may a recorded speedup use?
+# --------------------------------------------------------------------------- #
+
+# A shape the fixed table has no entry for, so the *task report* is the only
+# candidate baseline and the provenance rule is what decides.
+OFF_CATALOG = "hy3_tp4_o_proj_m99"
+
+
+def _pin(monkeypatch, profile: str):
+    from metainfer.orchestrator import hw_profile
+
+    monkeypatch.setenv("METAINFER_HW_PROFILE", profile)
+    hw_profile.clear_cache()
+
+
+def _workspace_with_report(tmp_path: Path, median_us: float, *, shape: str,
+                           report_baseline) -> Path:
+    ws = tmp_path / "ws"
+    leaf = ws / "workers" / "worker_0" / "accepted" / shape
+    leaf.mkdir(parents=True, exist_ok=True)
+    (leaf / "kernel.hip").write_text("// kernel source\n", encoding="utf-8")
+    (leaf / "manifest.json").write_text(json.dumps({
+        "commit": "cafe",
+        "shape": {"M": 99, "N": 4096, "K": 2048},
+        "metrics": {"median_us": median_us, "p90_us": median_us * 1.02},
+    }), encoding="utf-8")
+    ws.joinpath("final_report.json").write_text(json.dumps({
+        "initial_metrics": {shape: report_baseline},
+    }), encoding="utf-8")
+    return ws
+
+
+def test_a_pre_split_report_baseline_is_not_used_for_speedup_on_air(
+    tmp_path, variant_root, monkeypatch,
+):
+    """The regression that produced a cross-profile ratio in the variant tree.
+
+    ``minimax-tp8-m8-1-1e22df66`` ran before the profile split: its report's
+    ``initial_metrics`` are the hardcoded (reference-board) table with no
+    provenance field, so 19.98 us was recorded next to an air measurement whose
+    own baseline is 25.936 us.  Now the kernel is still recorded and the ratio
+    is simply omitted.
+    """
+    _pin(monkeypatch, "air-k100ai")
+    ws = _workspace_with_report(
+        tmp_path, 10.16, shape=OFF_CATALOG,
+        report_baseline={"median_us": 19.984, "baseline_us": 19.984,
+                         "source": "user_supplied_fixed_table"},
+    )
+    out = promote_variant(workspace_dir=ws, answers=ANSWERS,
+                          shape_id=OFF_CATALOG, correctness_ok=True,
+                          min_improvement_percent=3.0, source_task="air-task")
+    assert out["action"] == "added"
+    assert out["baseline_us"] is None
+    written = Path(out["path"]).read_text(encoding="utf-8")
+    assert "speedup=" not in written
+    assert "baseline_us=" not in written
+    assert "median_us=10.16" in written
+
+
+def test_a_report_baseline_from_this_board_is_used(
+    tmp_path, variant_root, monkeypatch,
+):
+    _pin(monkeypatch, "air-k100ai")
+    ws = _workspace_with_report(
+        tmp_path, 10.16, shape=OFF_CATALOG,
+        report_baseline={"median_us": 25.936, "baseline_us": 25.936,
+                          "baseline_profile": "air-k100ai",
+                          "profile_mismatch": False,
+                          "source": "profile_table:air-k100ai"},
+    )
+    out = promote_variant(workspace_dir=ws, answers=ANSWERS,
+                          shape_id=OFF_CATALOG, correctness_ok=True,
+                          min_improvement_percent=3.0, source_task="air-task")
+    assert out["action"] == "added"
+    assert out["baseline_us"] == 25.936
+    assert out["speedup"] == pytest.approx(2.5528, rel=1e-3)
+
+
+def test_a_flagged_reference_fallback_is_never_a_speedup(
+    tmp_path, variant_root, monkeypatch,
+):
+    """Explicit fallback records (the shape the new lookup produces) too."""
+    _pin(monkeypatch, "air-k100ai")
+    ws = _workspace_with_report(
+        tmp_path, 10.16, shape=OFF_CATALOG,
+        report_baseline={"median_us": 19.984, "baseline_profile": "liquid-k500sm",
+                          "profile_mismatch": True,
+                          "source": "profile_table:liquid-k500sm"},
+    )
+    out = promote_variant(workspace_dir=ws, answers=ANSWERS,
+                          shape_id=OFF_CATALOG, correctness_ok=True,
+                          min_improvement_percent=3.0, source_task="air-task")
+    assert out["baseline_us"] is None
+    assert "speedup=" not in Path(out["path"]).read_text(encoding="utf-8")
+
+
+def test_the_speedup_uses_this_boards_table_not_the_other_one(
+    tmp_path, variant_root, monkeypatch,
+):
+    """Same shape, both tables: the air table must win on the air board."""
+    _pin(monkeypatch, "air-k100ai")
+    ws = _workspace(tmp_path, 10.16)          # hy3_tp4_o_proj_m16, no report
+    out = promote_variant(workspace_dir=ws, answers=ANSWERS, shape_id=SHAPE,
+                          correctness_ok=True, min_improvement_percent=3.0)
+    from ..orchestrator.w8a8_baselines import fixed_triton_graph_baseline
+
+    own = fixed_triton_graph_baseline(
+        SHAPE, {"tp_size": 4, "M": 16, "N": 4096, "K": 2048}
+    )
+    assert own["baseline_profile"] == "air-k100ai"
+    assert own["profile_mismatch"] is False
+    assert out["baseline_us"] == own["median_us"]
+    assert out["speedup"] == pytest.approx(own["median_us"] / 10.16, rel=1e-3)
