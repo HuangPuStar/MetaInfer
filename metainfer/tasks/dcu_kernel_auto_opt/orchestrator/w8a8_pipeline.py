@@ -6,6 +6,7 @@ import json
 import hashlib
 import os
 import shutil
+import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -357,6 +358,7 @@ from .pmc_profile import (
     parse_memory_traffic_csv,
     parse_pmc_csv,
 )
+from .gpu_probe import run_gpu_probe
 from .real_pipeline import _last_json, _run, _safe, _status
 from .contention import discard_contaminated_round
 from .result_store import SCHEMA_VERSION, append_jsonl, write_json
@@ -1083,24 +1085,43 @@ def _check_required_files(repo: Path) -> bool:
 
 
 class W8A8Runner:
-    def __init__(self, worker_root: Path, gpu: int) -> None:
-        self.worker_root = worker_root
+    def __init__(self, worker_root: Path, gpu: int, *,
+                 allowed: Optional[Sequence[int]] = None,
+                 source: Optional[Path] = None) -> None:
+        # Absolute from here on: the harness is launched as a subprocess with a
+        # ``cwd`` of its own source dir, so a relative harness path would be
+        # resolved *against that dir* and looked up twice.  (df6fb501 recovery:
+        # ``can't open file '.../final/source/nodes/worker29/.../w8a8_bench.py'``.)
+        self.worker_root = Path(worker_root).resolve()
         self.gpu = int(gpu)
-        self.source = worker_root / "source"
+        # ``source`` overrides the tree under test; ``worker_root`` still owns the
+        # caches (references, torch extensions, logs).  Layout batching renders
+        # each batch into its own tree (``final/layout_batches/batchN``), and
+        # benchmarking a batch's shapes against *another* batch's tree validates
+        # the wrong extension: in glm-tp8-m8-16-4096-2663a78f the M=4096 shape of
+        # a later batch fell through batch 0's M-chain to the m16 kernel -- correct
+        # but 2721 us, against the 1191 us its own kernel measures.
+        self.source = (
+            Path(source).resolve() if source is not None
+            else self.worker_root / "source"
+        )
         staged_harness = self.source / "w8a8_bench.py"
         self.harness = (
-            staged_harness if staged_harness.is_file() else HARNESS
+            staged_harness if staged_harness.is_file() else Path(HARNESS)
         )
+        self.harness = Path(self.harness).resolve()
         self.env = dict(os.environ)
-        bind_worker_gpu(self.env, gpu)
+        # The task's own device set, when the caller knows it: a card outside it
+        # is a bug here, not something to run on somebody else's device.
+        bind_worker_gpu(self.env, gpu, allowed=allowed)
         self.env.update({
             "MAX_JOBS": "2",
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTORCH_ROCM_ARCH": "gfx928",
-            "TORCH_EXTENSIONS_DIR": str(worker_root / "cache" / "torch"),
-            "TRITON_CACHE_DIR": str(worker_root / "cache" / "triton"),
-            "XDG_CACHE_HOME": str(worker_root / "cache" / "xdg"),
-            "TMPDIR": str(worker_root / "cache" / "tmp"),
+            "TORCH_EXTENSIONS_DIR": str(self.worker_root / "cache" / "torch"),
+            "TRITON_CACHE_DIR": str(self.worker_root / "cache" / "triton"),
+            "XDG_CACHE_HOME": str(self.worker_root / "cache" / "xdg"),
+            "TMPDIR": str(self.worker_root / "cache" / "tmp"),
         })
         for key in (
             "TORCH_EXTENSIONS_DIR", "TRITON_CACHE_DIR", "XDG_CACHE_HOME",
@@ -1185,10 +1206,14 @@ class W8A8Runner:
         return metadata
 
     def probe(self) -> Dict[str, Any]:
-        result = _run([
-            "python3", str(self.harness), "--source", str(self.source),
-            "--m", "1", "--n", "1", "--k", "1", "--probe",
-        ], cwd=self.source, env=self.env, timeout=60)
+        # Same transient-stack protection as the Generate preflight: a worker's
+        # probe is the first thing that touches the device, and the container's
+        # GPU stack can be briefly unusable.
+        result = run_gpu_probe(
+            harness=self.harness, source=self.source, env=self.env,
+            runner=_run, timeout=60,
+            state_dir=getattr(self, "state_dir", None),
+        )
         return _last_json(result.stdout)
 
     def benchmark(
@@ -1230,13 +1255,44 @@ class W8A8Runner:
             command.append("--skip-correctness")
         build = self._prepare_compile_cache()
         self._ensure_gate("benchmark")
-        result = _run(
-            command, cwd=self.source, env=self.env,
-            timeout=_BENCHMARK_TIMEOUT_S,
+        metrics = _last_json(
+            self._run_harness_logged(command, timeout=_BENCHMARK_TIMEOUT_S)
         )
-        metrics = _last_json(result.stdout)
         metrics["compile_cache_key"] = build["build_key"]
         return metrics
+
+    def _run_harness_logged(self, command: list[str], *, timeout: int) -> str:
+        """Run the benchmark with its output on disk instead of a pipe.
+
+        ``subprocess.run(capture_output=True)`` reads the pipe until EOF, and a
+        *grandchild* that inherited it keeps EOF away for as long as it lives:
+        the timeout then applies to the direct child only and the caller blocks
+        indefinitely (measured: a merge-and-validate sat 14 minutes past its last
+        timeline row, with the recovery process sleeping and no benchmark
+        process of its own).  Files cannot deadlock, and the harness log is worth
+        keeping next to the run anyway.
+        """
+        logs = self.worker_root / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        log_path = logs / "bench_harness.log"
+        with log_path.open("w", encoding="utf-8") as sink:
+            completed = subprocess.run(
+                command,
+                cwd=self.source,
+                env=self.env,
+                stdout=sink,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        output = log_path.read_text(encoding="utf-8", errors="replace")
+        if completed.returncode != 0:
+            raise RuntimeError(
+                f"{' '.join(command)} failed ({completed.returncode}): "
+                f"{output[-2000:]}"
+            )
+        return output
 
     def _reference_cache_path(self, m: int, n: int, k: int) -> Path:
         """Path of the exact int64 reference cache for one (M, N, K)."""
@@ -1390,7 +1446,7 @@ class RealW8A8OptimizationPipeline:
 
     def run(self, *, dry_run: bool = False) -> Dict[str, Any]:
         task_id = str(self.req.get("task_id", "task"))
-        self.store.init_or_resume(task_id)
+        self.store.init_or_resume(task_id, "dcu-kernel-auto-opt")
         self.store.update_run(
             current_iteration=0,
             finished=False,
@@ -1613,7 +1669,10 @@ class RealW8A8OptimizationPipeline:
             assignment: WorkerAssignment,
         ) -> Dict[str, Dict[str, Any]]:
             root = self.workspace_dir / "workers" / assignment.worker_id
-            runner = W8A8Runner(root, assignment.gpu)
+            runner = W8A8Runner(
+                root, assignment.gpu,
+                allowed=[item.gpu for item in config.assignments],
+            )
             _status(
                 root, assignment, state="building",
                 iteration=0, shape_id=None,
@@ -1988,7 +2047,10 @@ acceptance rules to the phase section.
     ) -> Dict[str, Any]:
         root = self.workspace_dir / "workers" / assignment.worker_id
         source = root / "source"
-        runner = W8A8Runner(root, assignment.gpu)
+        runner = W8A8Runner(
+            root, assignment.gpu,
+            allowed=[item.gpu for item in config.assignments],
+        )
         probe = runner.probe()
         result: Dict[str, Any] = {
             "worker_id": assignment.worker_id,

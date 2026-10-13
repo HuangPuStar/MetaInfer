@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import time
 import uuid
 from contextlib import contextmanager
@@ -12,11 +13,17 @@ from pathlib import Path
 from typing import Any, Dict, Iterator
 
 
+#: Default lane names, used when a caller has no plan yet.
 WORKER_IDS = tuple(f"worker_{index}" for index in range(4))
+#: A worker is named after the card it runs on (``worker_6`` is GPU 6), so ids
+#: are no longer restricted to 0..3: an eight-card machine may place its four
+#: workers on any cards. Callers that own a plan already check the id against
+#: that plan's assignments; this is the shape check underneath.
+_WORKER_ID_RE = re.compile(r"worker_\d+")
 
 
 def _validate_worker(worker_id: str) -> None:
-    if worker_id not in WORKER_IDS:
+    if not _WORKER_ID_RE.fullmatch(str(worker_id)):
         raise ValueError(f"unknown worker: {worker_id}")
 
 

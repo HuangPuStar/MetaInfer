@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 import metainfer.tasks  # noqa: F401
 from metainfer.orchestrator.registry import get_orchestrator
 from metainfer.server.forms import load_form_schema
@@ -34,6 +36,9 @@ def test_form_schema_is_available():
     assert shape["required"] is False
     assert shape["default"] == ""
     assert shape["override_component"] == "shape-input"
+    # The catalog must span the form's full width: in a half-width column the
+    # operator signatures were clipped and picking a shape was guesswork.
+    assert shape["full_row"] is True
     framework = next(
         field for field in schema["fields"]
         if field["key"] == "agent_framework"
@@ -48,6 +53,7 @@ def test_form_schema_is_available():
     )
     assert model["default"] == "Opus"
     assert model["override_component"] == "agent-model"
+    assert model["override_module"] == "app/dkao-agent-fields"
     assert [option["label"] for option in model["options"]] == [
         "Opus", "Sonnet", "deepseek-flash-4.1", "deepseek-v4-flash"
     ]
@@ -305,3 +311,113 @@ def test_worker_lanes_surface_bootstrap_iteration_snapshot(tmp_path):
     assert attempt["error"] == "trusted compile failed"
     assert attempt["artifact_dir"] == "iterations/bootstrap/iteration1"
     assert attempt["candidate_files"] == ["csrc/w8a8_gemm_hip.hip"]
+
+
+# --------------------------------------------------------------------------- #
+# The row's speedup must use this board's baseline
+# --------------------------------------------------------------------------- #
+
+
+def test_a_pre_split_baseline_is_rebased_for_display(monkeypatch):
+    """The reported confusion: task row 1.967x vs variant 超基线 2.55x.
+
+    ``1.967`` is ``19.984 / 10.16`` -- the reference board's baseline, which is
+    what the task ran against before the profile split.  The page must show the
+    same ratio as the variant (this board's baseline), while keeping the
+    recorded pair so nothing is hidden.
+    """
+    from metainfer.orchestrator import hw_profile
+    from ..server.routes import localize_experiment_baseline
+
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "air-k100ai")
+    hw_profile.clear_cache()
+    row = {"shape_id": "minimax_tp8_shared_down_proj_m8", "median_us": 10.16,
+           "baseline_us": 19.984, "speedup": 1.967086}
+    out = localize_experiment_baseline(
+        row, row["shape_id"], {"M": 8, "N": 6144, "K": 384, "tp_size": 8}
+    )
+    assert out["baseline_us"] == 25.936              # this board's table
+    assert out["speedup"] == pytest.approx(2.55296, rel=1e-4)
+    assert out["recorded_baseline_us"] == 19.984     # history kept, not hidden
+    assert out["recorded_speedup"] == 1.967086
+    assert out["baseline_profile"] == "air-k100ai"
+    assert row["speedup"] == 1.967086                # the input is not mutated
+    hw_profile.clear_cache()
+
+
+def test_a_baseline_that_is_already_local_is_left_alone(monkeypatch):
+    from metainfer.orchestrator import hw_profile
+    from ..server.routes import localize_experiment_baseline
+
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "air-k100ai")
+    hw_profile.clear_cache()
+    row = {"shape_id": "s", "median_us": 10.16, "baseline_us": 25.936,
+           "speedup": 2.553}
+    out = localize_experiment_baseline(row, "s", {"M": 8, "N": 6144, "K": 384})
+    assert out is row and "recorded_speedup" not in out
+    hw_profile.clear_cache()
+
+
+def test_the_reference_machine_keeps_its_own_numbers(monkeypatch):
+    """On the liquid board those baselines ARE local: no rewriting."""
+    from metainfer.orchestrator import hw_profile
+    from ..server.routes import localize_experiment_baseline
+
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "liquid-k500sm")
+    hw_profile.clear_cache()
+    row = {"shape_id": "s", "median_us": 10.16, "baseline_us": 19.984,
+           "speedup": 1.967086}
+    out = localize_experiment_baseline(row, "s", {"M": 8, "N": 6144, "K": 384})
+    assert out is row
+    hw_profile.clear_cache()
+
+
+def test_an_unmeasured_shape_or_missing_numbers_are_left_alone(monkeypatch):
+    from metainfer.orchestrator import hw_profile
+    from ..server.routes import localize_experiment_baseline
+
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "air-k100ai")
+    hw_profile.clear_cache()
+    row = {"shape_id": "s", "median_us": 10.16, "baseline_us": 19.984,
+           "speedup": 1.967086}
+    # No shape params -> cannot look this board's number up.
+    assert localize_experiment_baseline(row, "s", None) is row
+    # Not in this board's table -> nothing to rebase onto.
+    assert localize_experiment_baseline(row, "s", {"M": 8, "N": 1, "K": 1}) is row
+    # No median -> no ratio to compute.
+    assert localize_experiment_baseline(
+        {"shape_id": "s", "baseline_us": 19.984}, "s", {"M": 8, "N": 6144, "K": 384}
+    ) is not None
+    hw_profile.clear_cache()
+
+
+def test_read_worker_lanes_rebases_the_rows_it_serves(tmp_path, monkeypatch):
+    """End of the wire: what the page gets is already on this board's scale."""
+    import json
+
+    from metainfer.orchestrator import hw_profile
+    from ..server.routes import read_worker_lanes
+
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "air-k100ai")
+    hw_profile.clear_cache()
+    workspace = tmp_path / "ws"
+    run = workspace / "workers" / "worker_0" / "runs" / "001"
+    run.mkdir(parents=True)
+    (workspace / "plan.json").write_text(json.dumps({
+        "shapes": [{"id": "minimax_tp8_shared_down_proj_m8", "M": 8, "N": 6144,
+                    "K": 384, "tp_size": 8}],
+        "assignments": [{"worker_id": "worker_0",
+                         "shapes": ["minimax_tp8_shared_down_proj_m8"]}],
+    }), encoding="utf-8")
+    (run / "experiments.jsonl").write_text(json.dumps({
+        "shape_id": "minimax_tp8_shared_down_proj_m8", "iteration": 3,
+        "accepted": True, "median_us": 10.16, "baseline_us": 19.984,
+        "speedup": 1.967086, "metrics": {"median_us": 10.16},
+    }) + "\n", encoding="utf-8")
+
+    lane = read_worker_lanes(workspace)["workers"][0]
+    row = lane["experiments"][0]
+    assert row["speedup"] == pytest.approx(2.55296, rel=1e-4)
+    assert row["baseline_us"] == 25.936
+    assert row["recorded_speedup"] == 1.967086
+    hw_profile.clear_cache()

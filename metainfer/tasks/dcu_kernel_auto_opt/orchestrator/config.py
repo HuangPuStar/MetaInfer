@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Mapping
 
 import yaml
 
+from metainfer.orchestrator import gpu_inventory
+
 MOCK_MODE = "Mock (no GPU)"
 LEGACY_SMOKE_MODE = "Real agents + DCU (smoke harness)"
 SMOKE_MODE = "Infrastructure smoke (not operator optimization)"
@@ -283,6 +285,40 @@ def _parse_shape_config(raw: Any) -> Dict[str, Any]:
     return parsed
 
 
+def detected_hardware_label(answers: Mapping[str, Any]) -> str:
+    """The board this task runs on -- detected, not taken from the form.
+
+    ``target_hardware`` is a form field, and it was wrong in exactly the way
+    that matters: every task launched by HE on the air board carried
+    ``K500SM_AI / gfx928`` (the liquid card), so generated skills, task records
+    and reports named the wrong machine -- and the hardware-dependent knowledge
+    they fed was filed under the wrong profile.  The resolver's label is
+    authoritative; the form value survives only as a fallback for a machine
+    whose fingerprint is not registered yet.
+    """
+    try:
+        from metainfer.orchestrator import hw_profile
+
+        detected = hw_profile.label(fallback="")
+    except Exception:  # pragma: no cover - config must load regardless
+        detected = ""
+    return detected or str(answers.get("target_hardware") or "Other DCU")
+
+
+def _gpu_range_error(gpu: int) -> str:
+    """One message for an unusable card number, shared by both parsers.
+
+    ``gpu`` is a host HCU ordinal (``hy-smi`` ``DCU[n]`` == the worker's
+    ``HIP_VISIBLE_DEVICES=n``), so the allowed set is this machine's detected
+    device list: eight entries on the air board, four on liquid.
+    """
+    listed = ",".join(str(d) for d in gpu_inventory.devices())
+    return (
+        f"gpu must be one of {listed} "
+        f"({gpu_inventory.count()} HCU on this machine), got {gpu}"
+    )
+
+
 def load_config(req: Mapping[str, Any]) -> OptimizerConfig:
     answers = _answers(req)
     agent_framework = resolve_agent_framework(req)
@@ -381,6 +417,9 @@ def load_config(req: Mapping[str, Any]) -> OptimizerConfig:
     if not assignments_omitted:
         if not isinstance(raw_assignments, Mapping) or not raw_assignments:
             raise ValueError("shape_config.assignments must be a non-empty object")
+    # At most four workers (unchanged): the worker count is policy, not a
+    # hardware fact. Which four *cards* they may use is discovered instead --
+    # see gpu_inventory.
     if isinstance(raw_assignments, Mapping) and len(raw_assignments) > 4:
         raise ValueError("worker29 MVP supports at most four workers")
 
@@ -402,8 +441,10 @@ def load_config(req: Mapping[str, Any]) -> OptimizerConfig:
             if not isinstance(item, Mapping):
                 raise ValueError(f"assignment {worker_id!r} must be an object")
             gpu = int(item.get("gpu", -1))
-            if gpu not in range(4):
-                raise ValueError(f"{worker_id}: gpu must be one of 0,1,2,3")
+            if not gpu_inventory.is_addressable(gpu):
+                raise ValueError(
+                    f"{worker_id}: {_gpu_range_error(gpu)}"
+                )
             if gpu in seen_gpus:
                 raise ValueError(f"physical GPU {gpu} is assigned more than once")
             seen_gpus.add(gpu)
@@ -471,11 +512,32 @@ def load_config(req: Mapping[str, Any]) -> OptimizerConfig:
         assignments, lease_info = lease_gpus_for_task(
             assignments, answers, production=production)
         assignment_mode = "scheduled"
+    elif assignment_mode == "manual":
+        # Occupy + manual is the mode where the operator's placement is
+        # authoritative, and the generate phase honours it by **name**: every
+        # worker it creates is `worker_<gpu>` and it rejects anything else
+        # (``gen_and_opt_pipeline._require_valid_child_assignments``), which is
+        # also how harness_evolve names its children.  An assignment that does
+        # not follow the rule used to die inside generate_kernel_repo, minutes
+        # in; refusing it here says what to fix instead.
+        invalid = {
+            item.worker_id: item.gpu
+            for item in assignments
+            if item.worker_id != f"worker_{item.gpu}"
+        }
+        if invalid:
+            expected = {
+                f"worker_{item.gpu}": item.gpu for item in assignments
+            }
+            raise ValueError(
+                "manual assignments must name each worker after the card it "
+                f"runs on (worker_<gpu>): {invalid} -> expected {expected}"
+            )
 
     return OptimizerConfig(
         operator=str(answers.get("operator") or "Custom operator"),
         dtype=str(answers.get("dtype") or "Other"),
-        hardware=str(answers.get("target_hardware") or "Other DCU"),
+        hardware=detected_hardware_label(answers),
         kernel_language=str(answers.get("kernel_language") or "HIP C++"),
         claude_model=claude_model,
         execution_mode=mode,
@@ -628,8 +690,8 @@ def validate_gpu_assignment(
         if not isinstance(item, dict):
             raise ValueError(f"{worker_id}: must be an object")
         gpu = int(item.get("gpu", -1))
-        if gpu not in range(4):
-            raise ValueError(f"{worker_id}: gpu must be 0-3, got {gpu}")
+        if not gpu_inventory.is_addressable(gpu):
+            raise ValueError(f"{worker_id}: {_gpu_range_error(gpu)}")
         if gpu in seen_gpus:
             raise ValueError(f"GPU {gpu} assigned to more than one worker")
         seen_gpus.add(gpu)

@@ -23,20 +23,6 @@ from ..orchestrator import round_strategy as rs
 from ..orchestrator.harness_io import default_harness_dir
 from ..orchestrator.prompts import w8a8_round_strategy
 
-import importlib.util
-
-import pytest
-_HARNESS_EVOLVE_AVAILABLE = (
-    importlib.util.find_spec(
-        "metainfer.tasks.harness_evolve.orchestrator.pipeline"
-    )
-    is not None
-)
-requires_harness_evolve = pytest.mark.skipif(
-    not _HARNESS_EVOLVE_AVAILABLE,
-    reason="metainfer.tasks.harness_evolve is not available in this tree",
-)
-
 M16 = {"model": "hy3", "M": 16, "N": 2048, "K": 256}
 SMALL = {"model": "hy3", "M": 2, "N": 2048, "K": 256}
 PREFILL = {"model": "hy3", "M": 3072, "N": 2048, "K": 256}
@@ -459,7 +445,6 @@ def test_rendered_mandates_match_the_frozen_digest():
         "intentionally and describe the new wording in the change manifest")
 
 
-@requires_harness_evolve
 def test_ahe_wired_scope_check_covers_the_systemprompt_component(tmp_path):
     """An edit to the component while it is wired:false is reported by AHE.
 

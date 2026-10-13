@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import subprocess
 from pathlib import Path
@@ -23,11 +22,14 @@ from ..orchestrator.gen_and_opt_pipeline import (
     GenAndOptPipeline,
     _COORDINATOR_AGENT_ARGS,
     _PERF_GATE_MAX_RETRIES,
+    _PERF_GATE_MIN_SLACK_US,
     _PERF_GATE_RETRY_INTERVAL_S,
     _artifact_symbol_prefix,
+    _dispatch_family_plan,
     _final_performance_gate,
     _final_synthesis_prompt,
     _is_control_plane_artifact,
+    _perf_gate_limit,
     _render_prebuilt_dispatch,
     _require_valid_child_assignments,
 )
@@ -44,9 +46,6 @@ from ..orchestrator.w8a8_pipeline import (
     publish_iteration_candidate,
     snapshot_accepted_kernel_artifact,
 )
-
-
-TORCH_AVAILABLE = importlib.util.find_spec("torch") is not None
 
 
 def test_generated_repo_is_valid_existing_repo_seed(tmp_path):
@@ -149,6 +148,12 @@ def test_real_continuation_keeps_fixed_triton_comparison_baseline(
 ):
     from ..orchestrator import w8a8_pipeline as pipeline_module
 
+    # Baselines are per hardware profile now, and these expectations are the
+    # reference (liquid) catalogue values: pin the lookup rather than the host.
+    from metainfer.orchestrator import hw_profile as _hw_profile
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "liquid-k500sm")
+    _hw_profile.clear_cache()
+
     req = _gen_req("""
 shapes:
   - {id: m16_wo_b, M: 16, N: 4096, K: 2048}
@@ -169,8 +174,8 @@ assignments:
     )
 
     class FakeRunner:
-        def __init__(self, worker_root, gpu):
-            pass
+        def __init__(self, worker_root, gpu, *, allowed=None):
+            self.allowed = allowed
 
         def probe(self):
             return {"visible_devices": 1}
@@ -307,7 +312,7 @@ assignments:
     req["answers"]["mock_iterations"] = "2"
     config = load_config(req)
     pipeline = _make_pipeline(req, tmp_path)
-    pipeline.store.init_or_resume("iteration-timeout-test")
+    pipeline.store.init_or_resume("iteration-timeout-test", "dcu-kernel-auto-opt")
     root = pipeline.workspace_dir / "workers" / "worker_0"
     source = root / "source"
     source.joinpath("csrc").mkdir(parents=True)
@@ -338,7 +343,8 @@ assignments:
     )
 
     class FakeRunner:
-        def __init__(self, worker_root, gpu):
+        def __init__(self, worker_root, gpu, *, allowed=None):
+            self.allowed = allowed
             self.env = {}
             object_path = (
                 worker_root / "cache" / "torch"
@@ -400,7 +406,6 @@ def test_control_plane_artifacts_are_not_attributed_to_agent():
     assert not _is_control_plane_artifact("csrc/w8a8_gemm_hip.hip")
 
 
-@pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch is not installed")
 def test_trusted_harness_pytorch_reference_self_test():
     harness = (
         Path(__file__).resolve().parent.parent
@@ -520,6 +525,12 @@ def test_parallel_explore_child_generates_initial_hip(
     tmp_path, monkeypatch
 ):
     from ..orchestrator import gen_and_opt_pipeline as pipeline_module
+
+    # Baselines are per hardware profile now, and these expectations are the
+    # reference (liquid) catalogue values: pin the lookup rather than the host.
+    from metainfer.orchestrator import hw_profile as _hw_profile
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "liquid-k500sm")
+    _hw_profile.clear_cache()
 
     kernel_root = tmp_path / "kernel repos"
     monkeypatch.setenv("METAINFER_KERNEL_REPOS", str(kernel_root))
@@ -1311,20 +1322,19 @@ def test_final_synthesis_prompt_requires_one_all_shape_extension():
     assert "Previous trusted synthesis failure" in prompt
 
 
+def _artifact(shape_id, m, n, k):
+    return {
+        "shape_id": shape_id,
+        "shape": {"M": m, "N": n, "K": k},
+        "launch_symbol": f"mi_{shape_id}_launch_w8a8_gemm",
+        "pack_symbol": f"mi_{shape_id}_launch_pack_w8a8_weight",
+    }
+
+
 def test_prebuilt_dispatch_routes_shape_family_without_hip_code():
     dispatch = _render_prebuilt_dispatch([
-        {
-            "shape_id": "m16_wq_b",
-            "shape": {"M": 16, "N": 8192, "K": 1024},
-            "launch_symbol": "mi_m16_wq_b_launch_w8a8_gemm",
-            "pack_symbol": "mi_m16_wq_b_launch_pack_w8a8_weight",
-        },
-        {
-            "shape_id": "m16_wo_b",
-            "shape": {"M": 16, "N": 4096, "K": 2048},
-            "launch_symbol": "mi_m16_wo_b_launch_w8a8_gemm",
-            "pack_symbol": "mi_m16_wo_b_launch_pack_w8a8_weight",
-        },
+        _artifact("m16_wq_b", 16, 8192, 1024),
+        _artifact("m16_wo_b", 16, 4096, 2048),
     ])
 
     assert "if (n == 8192 && k == 1024)" in dispatch
@@ -1333,6 +1343,104 @@ def test_prebuilt_dispatch_routes_shape_family_without_hip_code():
     assert "launch_w8a8_gemm(" in dispatch
     assert "__global__" not in dispatch
     assert "hipLaunchKernelGGL" not in dispatch
+
+
+def test_prebuilt_dispatch_distinguishes_the_m_variants_of_one_weight():
+    """Regression: routing on (n, k) alone sent M=4096 to the M=16 kernel.
+
+    One weight optimized at M=8/16/4096 has three identical (n, k) pairs; the
+    measured M=4096 kernel was unreachable and the final gate saw the M=16
+    kernel's 2.5x slower number (see error_catalog/04-kernel-quality.md).
+    """
+    dispatch = _render_prebuilt_dispatch([
+        _artifact("qkv_m16", 16, 1280, 4096),
+        _artifact("qkv_m4096", 4096, 1280, 4096),
+        _artifact("qkv_m8", 8, 1280, 4096),
+    ])
+
+    # Every optimized kernel is reachable ...
+    for shape_id in ("qkv_m8", "qkv_m16", "qkv_m4096"):
+        assert f"mi_{shape_id}_launch_w8a8_gemm(" in dispatch
+    # ... and the exact shapes are decided by m, largest first.
+    body = dispatch[dispatch.index('extern "C" void launch_w8a8_gemm('):]
+    body = body[:body.index('extern "C" void launch_pack_w8a8_weight(')]
+    assert body.index("if (m >= 4096)") < body.index("if (m >= 16)")
+    assert body.index("if (m >= 16)") < body.index("if (m >= 8)")
+    # One family route, so (n, k) is tested once for the gemm chain.
+    assert dispatch.count("if (n == 1280 && k == 4096)") == 2  # gemm + pack
+
+
+def test_prebuilt_dispatch_falls_back_within_the_family_for_an_untuned_m():
+    """An M nobody optimized must not fall through to another weight.
+
+    Unoptimized API shapes are benchmarked by the regression sweep, so they have
+    to land in their own (n, k) family: the largest tuned M that does not exceed
+    the request, else the family's smallest M.
+    """
+    dispatch = _render_prebuilt_dispatch([
+        _artifact("down_m8", 8, 4096, 192),
+        _artifact("down_m4096", 4096, 4096, 192),
+        _artifact("other_m16", 16, 8192, 1024),
+    ])
+    gemm = dispatch[dispatch.index('extern "C" void launch_w8a8_gemm('):]
+    gemm = gemm[:gemm.index('extern "C" void launch_pack_w8a8_weight(')]
+    blocks = {
+        block.split(")")[0]: block
+        for block in gemm.split("  if (n == ")[1:]
+    }
+    family = blocks["4096 && k == 192"]
+    # m >= 4096 -> the 4096 kernel, 8 <= m < 4096 -> the m8 kernel,
+    # m < 8 -> the family's smallest member (again m8).
+    assert family.count("mi_down_m4096_launch_w8a8_gemm(") == 1
+    assert family.count("mi_down_m8_launch_w8a8_gemm(") == 2
+    assert "mi_other_m16_launch_w8a8_gemm(" not in family
+
+
+def test_prebuilt_dispatch_packs_once_per_weight_from_the_smallest_m():
+    """``pack`` has no m in its ABI, so it is a per-weight decision."""
+    dispatch = _render_prebuilt_dispatch([
+        _artifact("qkv_m16", 16, 1280, 4096),
+        _artifact("qkv_m4096", 4096, 1280, 4096),
+        _artifact("qkv_m8", 8, 1280, 4096),
+    ])
+    pack_body = dispatch[dispatch.index('extern "C" void launch_pack_w8a8_weight('):]
+    assert pack_body.count("if (n == 1280 && k == 4096)") == 1
+    assert "mi_qkv_m8_launch_pack_w8a8_weight(" in pack_body
+    assert "mi_qkv_m16_launch_pack_w8a8_weight(" not in pack_body
+
+
+def test_prebuilt_dispatch_is_order_independent():
+    artifacts = [
+        _artifact("qkv_m8", 8, 1280, 4096),
+        _artifact("qkv_m4096", 4096, 1280, 4096),
+        _artifact("o_m16", 16, 4096, 1024),
+    ]
+    assert _render_prebuilt_dispatch(artifacts) == _render_prebuilt_dispatch(
+        list(reversed(artifacts))
+    )
+
+
+def test_prebuilt_dispatch_rejects_two_artifacts_for_one_shape():
+    with pytest.raises(RuntimeError, match="same shape"):
+        _render_prebuilt_dispatch([
+            _artifact("a", 16, 1280, 4096),
+            _artifact("b", 16, 1280, 4096),
+        ])
+
+
+def test_dispatch_family_plan_matches_the_rendered_routes():
+    plan = _dispatch_family_plan([
+        _artifact("qkv_m16", 16, 1280, 4096),
+        _artifact("qkv_m8", 8, 1280, 4096),
+        _artifact("o_m16", 16, 4096, 1024),
+    ])
+    assert plan == [
+        {"n": 1280, "k": 4096, "pack_from": "qkv_m8",
+         "gemm_route": [{"m": 16, "shape_id": "qkv_m16"},
+                        {"m": 8, "shape_id": "qkv_m8"}]},
+        {"n": 4096, "k": 1024, "pack_from": "o_m16",
+         "gemm_route": [{"m": 16, "shape_id": "o_m16"}]},
+    ]
 
 
 def test_artifact_symbol_prefix_is_valid_c_identifier():
@@ -1390,6 +1498,42 @@ def test_compile_cache_is_content_addressed(tmp_path):
     ).read_text() == "// candidate one\n"
 
 
+def test_runner_can_point_at_a_layout_batch_tree(tmp_path):
+    """A batch's shapes must be measured against that batch's own tree.
+
+    ``W8A8Runner`` used to resolve ``worker_root/source`` unconditionally, so a
+    multi-batch merge built and loaded *batch 0's* extension while validating
+    every later batch.  In ``glm-tp8-m8-16-4096-2663a78f`` the M=4096 shape of
+    batch 1 then fell through batch 0's M-chain to the m16 kernel -- numerically
+    correct, but 2721 us against the 1191 us its own kernel measures -- and the
+    perf gate reported that as a regression of an artifact nobody had measured.
+    """
+    worker = tmp_path / "worker"
+    batch = worker / "profile" / "batch1"
+    csrc = batch / "csrc"
+    csrc.mkdir(parents=True)
+    csrc.joinpath("bindings.cpp").write_text("// binding\n")
+    csrc.joinpath("w8a8_gemm_hip.hip").write_text("// batch kernel\n")
+    batch.joinpath("w8a8_bench.py").write_text("// harness\n")
+
+    default = W8A8Runner(worker, 0)
+    bound = W8A8Runner(worker, 0, source=batch)
+
+    # Defaults are unchanged: the seed tree under the worker root.
+    assert default.source == (worker / "source").resolve()
+    # The override points the build *and* the harness at the batch tree...
+    assert bound.source == batch.resolve()
+    assert bound.harness == (batch / "w8a8_bench.py").resolve()
+    # ... while the caches stay shared, so the build key still content-addresses
+    # this batch's inputs.
+    assert bound.worker_root == worker.resolve()
+    build = bound._prepare_compile_cache()
+    staged = Path(build["compile_source_dir"])
+    assert staged.joinpath("csrc/w8a8_gemm_hip.hip").read_text() == (
+        "// batch kernel\n"
+    )
+
+
 def _runner_with_source(tmp_path: Path) -> tuple[W8A8Runner, Path]:
     worker = tmp_path / "worker"
     csrc = worker / "source" / "csrc"
@@ -1427,12 +1571,34 @@ def _fake_run_for_reference(records: list):
     return fake_run
 
 
+def _patch_harness_run(monkeypatch, run_like) -> None:
+    """Route benchmark()'s harness launch through a fake.
+
+    ``benchmark()`` runs the trusted harness with its output on a file rather
+    than a pipe (a grandchild holding the pipe open could block the caller past
+    its own timeout), so the tests patch that method and the reference-prep
+    ``_run`` together.
+    """
+    monkeypatch.setattr(
+        pipeline_module.W8A8Runner,
+        "_run_harness_logged",
+        lambda self, command, *, timeout: run_like(
+            command, cwd=None, env=None, timeout=timeout
+        ).stdout,
+    )
+    monkeypatch.setattr(
+        pipeline_module,
+        "_run",
+        lambda command, **kwargs: run_like(command, **kwargs),
+    )
+
+
 def test_benchmark_prepares_reference_cache_when_missing(
     tmp_path, monkeypatch
 ):
     runner, worker = _runner_with_source(tmp_path)
     records: list = []
-    monkeypatch.setattr(pipeline_module, "_run", _fake_run_for_reference(records))
+    _patch_harness_run(monkeypatch, _fake_run_for_reference(records))
 
     metrics = runner.benchmark(
         {"M": 4096, "N": 2304, "K": 6144}, check_correctness=True
@@ -1456,7 +1622,7 @@ def test_benchmark_reuses_existing_reference_cache(tmp_path, monkeypatch):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"ref")
     records: list = []
-    monkeypatch.setattr(pipeline_module, "_run", _fake_run_for_reference(records))
+    _patch_harness_run(monkeypatch, _fake_run_for_reference(records))
 
     runner.benchmark(
         {"M": 4096, "N": 2304, "K": 6144}, check_correctness=True
@@ -1471,7 +1637,7 @@ def test_benchmark_skips_reference_prep_when_correctness_disabled(
 ):
     runner, worker = _runner_with_source(tmp_path)
     records: list = []
-    monkeypatch.setattr(pipeline_module, "_run", _fake_run_for_reference(records))
+    _patch_harness_run(monkeypatch, _fake_run_for_reference(records))
 
     runner.benchmark(
         {"M": 4096, "N": 2304, "K": 6144}, check_correctness=False
@@ -1495,7 +1661,7 @@ def test_reference_prep_failure_raises(tmp_path, monkeypatch):
             stderr="",
         )
 
-    monkeypatch.setattr(pipeline_module, "_run", failing_run)
+    _patch_harness_run(monkeypatch, failing_run)
 
     with pytest.raises(RuntimeError, match="reference cache preparation failed"):
         runner.benchmark(
@@ -1567,6 +1733,50 @@ def test_perf_gate_retry_correctness_failure_raises(monkeypatch):
             lambda: {"passed": False, "median_us": 999.0},
             median_us=200.0,
         )
+
+
+# ------------------------------------------------- the acceptance window's floor
+#
+# At µs scale a 5%-only window is below what this box can resolve: one and the
+# same accepted object measured 9.638 us during EXPLORE and 10.866 us in the
+# serial validation. The window is therefore "5%, or 2 µs, whichever is wider".
+
+@pytest.mark.parametrize("best,expected", [
+    (9.638389945030212, 11.638389945030212),   # absolute term wins (+2 µs)
+    (20.0, 22.0),
+    (40.0, 42.0),                              # crossover: 5% == 2 µs exactly
+    (81.3324499130249, 85.39907240867615),     # percentage term wins
+    (102.18122959136963, 107.29029107093811),
+    (1000.0, 1050.0),                          # and larger shapes: unchanged
+])
+def test_perf_gate_limit_is_the_wider_of_5_percent_and_2us(best, expected):
+    assert _perf_gate_limit(best) == pytest.approx(expected, rel=1e-12)
+
+
+def test_perf_gate_limit_never_tightens_the_old_5_percent_window():
+    """The floor may only widen: a band boundary must not make a shape stricter."""
+    for best in (1.0, 9.6, 20.0, 39.99, 40.0, 81.33, 100.0, 10_000.0):
+        limit = _perf_gate_limit(best)
+        assert limit >= best * 1.05, "must never be stricter than the old window"
+        if best < 40.0:
+            assert limit == pytest.approx(best + _PERF_GATE_MIN_SLACK_US)
+
+
+def test_perf_gate_accepts_the_us_scale_case_that_used_to_fail(monkeypatch):
+    """The case that motivated the floor: 9.638 µs best, 10.866 µs serial."""
+    monkeypatch.setattr("time.sleep", lambda s: pytest.fail("must not retry"))
+    store = _FakeTimelineStore()
+    result = _perf_gate(lambda: None, median_us=10.866,
+                        best=9.638389945030212, store=store)
+    assert result["median_us"] == 10.866
+    assert store.events == []
+
+
+def test_perf_gate_still_fails_past_the_floor(monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    with pytest.raises(RuntimeError, match=r"limit 11\.638"):
+        _perf_gate(lambda: {"passed": True, "median_us": 12.0},
+                   median_us=12.0, best=9.638389945030212)
 
 
 def test_iteration_archive_keeps_kernel_but_shares_api(tmp_path):
@@ -1797,3 +2007,89 @@ def test_mock_mode_can_also_use_api_default_shapes(
     cfg = load_config(req)
     assert set(cfg.shapes) == {"m2", "m16"}
     assert cfg.assignments[0].worker_id == "worker_0"
+
+
+def test_prepare_syncs_this_boards_skill_edition(tmp_path, monkeypatch):
+    """PREPARE must leave the agent's skill library on this board's edition.
+
+    Skills are knowledge and are bundled per hardware profile; a machine whose
+    library still holds the other board's edition (a fresh container, a board
+    change) would otherwise hand the agent the wrong numbers for the whole run.
+    """
+    from metainfer.orchestrator import hw_profile
+    from ..orchestrator import skill_store
+
+    api_root = tmp_path / "API"
+    contract = _write_test_api_contract(api_root)
+    monkeypatch.setenv("METAINFER_OPERATOR_API_ROOT", str(api_root))
+    monkeypatch.setenv("METAINFER_KERNEL_REPOS", str(tmp_path / "kernel-repos"))
+    # Never touch the real ~/.dsh: the library and mirror live in tmp.
+    monkeypatch.setattr(skill_store, "dsh_skills_root",
+                        lambda: tmp_path / "dsh" / "skills")
+    monkeypatch.setattr(skill_store, "ccb_skills_root",
+                        lambda: tmp_path / "claude" / "skills")
+    monkeypatch.setenv("METAINFER_HW_PROFILE", "air-k100ai")
+    hw_profile.clear_cache()
+
+    req = _gen_req()
+    pipeline = _make_pipeline(req, tmp_path)
+    cfg = load_config(req)
+    pipeline._validate_contract(cfg)
+    pipeline._prepare_worktrees(cfg, "gen-test")
+
+    installed = tmp_path / "dsh" / "skills" / "int8-w8a8-gemm-decode" / "SKILL.md"
+    assert installed.is_file(), "the bundled edition was not installed"
+    assert skill_store.skill_edition(installed.parent) == "air-k100ai"
+    assert "K100_AI" in installed.read_text(encoding="utf-8")
+    assert contract.is_file()                       # staging still happened
+
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "state" / "timeline.jsonl")
+        .read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
+    synced = [e for e in events if e["type"] == "skills_profile_synced"]
+    assert len(synced) == 1, [e["type"] for e in events]
+    assert synced[0]["payload"]["hw_profile"] == "air-k100ai"
+    hw_profile.clear_cache()
+
+def test_namespace_prebuilt_object_resolves_relative_paths(tmp_path, monkeypatch):
+    """``nm`` runs in a subprocess: a relative artifact path must not be used.
+
+    The df6fb501 recovery died with
+    ``nm: 'nodes/worker29/.../prebuilt/x.o': No such file`` right after the copy
+    had succeeded, because the path was resolved against the *process* directory
+    while ``cwd`` was the object's own parent.
+    """
+    import subprocess
+    from ..orchestrator import gen_and_opt_pipeline as gp
+
+    c_source = tmp_path / "src.c"
+    c_source.write_text(
+        "#include <stdint.h>\n"
+        "void launch_w8a8_gemm(const int8_t*a,const int8_t*b,const float*x,"
+        "const float*w,void*o,void*ws,int64_t wsb,int m,int n,int k,"
+        "void*s){(void)a;(void)b;(void)x;(void)w;(void)o;(void)ws;(void)wsb;"
+        "(void)m;(void)n;(void)k;(void)s;}\n"
+        "void launch_pack_w8a8_weight(const int8_t*r,const float*s,int8_t*p,"
+        "float*ps,int k,int n,void*st){(void)r;(void)s;(void)p;(void)ps;"
+        "(void)k;(void)n;(void)st;}\n",
+        encoding="utf-8",
+    )
+    object_path = tmp_path / "src.o"
+    subprocess.run(
+        ["cc", "-c", "-fPIC", "-o", str(object_path), str(c_source)],
+        check=True,
+        capture_output=True,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    result = gp._namespace_prebuilt_object(
+        object_path.relative_to(tmp_path),
+        (tmp_path / "tree" / "prebuilt" / "shape.o").relative_to(tmp_path),
+        "shape_m8",
+    )
+
+    assert (tmp_path / "tree" / "prebuilt" / "shape.o").is_file()
+    assert result["defined_symbols_namespaced"] == 2
+    assert result["launch_symbol"] == "mi_shape_m8_launch_w8a8_gemm"

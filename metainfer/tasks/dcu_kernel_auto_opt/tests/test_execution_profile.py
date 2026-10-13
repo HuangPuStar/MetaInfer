@@ -12,17 +12,6 @@ import json
 
 from ..orchestrator import config as cfg
 
-import importlib.util
-
-import pytest
-_GPU_BROKER_AVAILABLE = (
-    importlib.util.find_spec("metainfer.orchestrator.gpu_broker") is not None
-)
-requires_gpu_broker = pytest.mark.skipif(
-    not _GPU_BROKER_AVAILABLE,
-    reason="metainfer.orchestrator.gpu_broker is not available in this tree",
-)
-
 
 def _lease(monkeypatch, *, grants, profile, answers=None):
     """Run lease_gpus_for_task against a fake broker and report the call."""
@@ -45,7 +34,6 @@ def _lease(monkeypatch, *, grants, profile, answers=None):
     return calls, rebuilt, info
 
 
-@requires_gpu_broker
 def test_production_leases_at_the_highest_priority(monkeypatch):
     calls, rebuilt, info = _lease(monkeypatch, grants=[2], profile="production")
     assert calls and calls[0]["priority"] == 100          # PRIORITY_PRODUCTION
@@ -54,7 +42,6 @@ def test_production_leases_at_the_highest_priority(monkeypatch):
     assert rebuilt[0].gpu == 2
 
 
-@requires_gpu_broker
 def test_default_profile_still_uses_production_priority_on_the_broker(monkeypatch):
     """DKAO has always asked at priority 100; the profile makes it explicit."""
     calls, _, info = _lease(monkeypatch, grants=[0], profile="default")
@@ -63,7 +50,6 @@ def test_default_profile_still_uses_production_priority_on_the_broker(monkeypatc
     assert info["profile"] == "default"
 
 
-@requires_gpu_broker
 def test_production_waits_longer_for_a_device_that_passes_the_gate(monkeypatch):
     """Nothing passing the gate: production keeps waiting instead of giving up."""
     calls, _, _ = _lease(monkeypatch, grants=[0], profile="production",
@@ -73,7 +59,6 @@ def test_production_waits_longer_for_a_device_that_passes_the_gate(monkeypatch):
     assert calls[0]["priority"] == 100
 
 
-@requires_gpu_broker
 def test_no_device_after_the_budget_reports_the_gate_honestly(monkeypatch):
     import pytest
 
@@ -96,7 +81,6 @@ def test_no_device_after_the_budget_reports_the_gate_honestly(monkeypatch):
     assert "not skipped" in message and "shared card" in message
 
 
-@requires_gpu_broker
 def test_load_config_accepts_the_profile_and_forces_the_broker(monkeypatch):
     """``production`` implies broker-mediated scheduling (that is the queue)."""
     from metainfer.orchestrator import gpu_broker
@@ -149,7 +133,6 @@ def test_an_unknown_profile_is_rejected():
         cfg.load_config(req)
 
 
-@requires_gpu_broker
 def test_replace_assignments_keeps_the_profile(monkeypatch):
     """Re-planning the workers must not silently downgrade a production task."""
     from metainfer.orchestrator import gpu_broker

@@ -153,7 +153,7 @@
     - label: "AI automatic"
       description: "The control plane deterministically balances exact shapes across available GPUs"
     - label: "Manual by GPU"
-      description: "Use four GPU cards below to explicitly choose where every shape is optimized"
+      description: "Use up to four lanes below and pick the card each one runs on (any card this machine exposes)"
 
 - key: shape_scope
   question: "Choose whether this task optimizes the complete API workload or only a selected subset."
@@ -173,6 +173,9 @@
   required: false
   form: textarea
   default: ""
+  # The catalog renders full operator signatures; in a half-width column every
+  # row was clipped, which made picking a shape guesswork.
+  full_row: true
   override_component: "shape-input"
   override_module: "app/dkao-shape-input"
 

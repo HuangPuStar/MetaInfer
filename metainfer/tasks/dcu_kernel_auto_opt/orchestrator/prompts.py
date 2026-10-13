@@ -283,6 +283,62 @@ def w8a8_round_strategy(
     return decision
 
 
+def hw_profile_guidance() -> str:
+    """Board-specific guidance, or ``""`` on any profile but the air board.
+
+    Deliberately empty for liquid: the requirement is that the liquid prompt
+    stays byte-identical, and it is the air board whose memory behaviour the
+    generic guidance does not cover.  Variants, the fixed baseline and the
+    staged reference tree are all per profile, so the agent has to know which
+    board produced the numbers it is reading (see
+    ``wiki-metainfer/knowledge-packs.md`` and
+    ``gotchas/air-machine-no-address-hashing.md``).
+    """
+    try:
+        from metainfer.orchestrator import hw_profile
+
+        resolution = hw_profile.resolve()
+    except Exception:  # pragma: no cover - prompts must build regardless
+        return ""
+    profile = resolution.profile
+    if profile is None or profile.cooled != "air":
+        return ""
+    return f"""
+## Hardware profile of this machine: AIR-COOLED ({profile.label})
+
+This board has **no HBM address hashing**. When many threads read strided — a few
+rows per pass, rows 4 KiB apart — the requests collapse onto the same memory
+channels, so concurrent-read bandwidth is roughly half of the liquid board's
+(370 vs 627 GB/s measured) and the operators that read most (MoE, decode) run
+**1.06-1.40x slower** on the M=8 family; the gap is operator dependent (it is
+widest on small-K, read-heavy shapes and smallest on large-K compute shapes).
+
+What that means for your rounds:
+
+- **Prefer longer, contiguous reads** (chunked or contiguous weight layouts,
+  merged/wider vector loads, one block resident and reused) over occupancy,
+  tile-size or LDS micro-tuning: the strided-read penalty is not something those
+  levers can buy back.
+- Clock, NUMA, affinity and co-tenant effects **do not** explain this lane's
+  numbers; do not spend rounds on them.
+- The staged `references/` variants and the fixed Triton baseline for this task
+  were measured **on this board** (each variant header carries
+  `hw_profile=air-k100ai machine=... measured_on=...`). Never compare against
+  numbers from the liquid board, and do not present a speedup computed against
+  another profile's baseline as a result.
+- **One staged file is the exception**: the legacy flat bundle
+  `references/w8a8_gemm_variants.hip` predates the per-profile split and every
+  measurement in it comes from the **liquid** board. Read it for code ideas
+  only; its bandwidth/latency/occupancy figures do not hold on this board and
+  must be re-measured here before you rely on them.
+- Treat the four air-side techniques (MoE block re-ordering, matmul solution
+  table re-selection, larger GDN convolution block parameters, decode dense
+  projection packing) as **reference ideas**, not a checklist; choose whichever
+  your measurements justify.
+
+"""
+
+
 def generate_kernel_prompt(
     *,
     operator: str,
@@ -424,7 +480,7 @@ Every target shape must appear exactly once. Every emitted worker must receive
 at least one shape. Use up to four GPUs; a subset task may use fewer when its
 operator-family grouping does not provide four independent units of work.
 Do not change any other file.
-"""
+{hw_profile_guidance()}"""
 
 
 def bootstrap_worker_prompt(
@@ -578,7 +634,7 @@ installed package.
 ## Correctness-first bootstrap strategy
 
 {bootstrap_strategy}
-
+{hw_profile_guidance()}
 Include `<hip/hip_bfloat16.h>`, use `hip_bfloat16`, and use its supported
 float conversion; alternatively use the existing proven manual uint16 store
 without switching type families.

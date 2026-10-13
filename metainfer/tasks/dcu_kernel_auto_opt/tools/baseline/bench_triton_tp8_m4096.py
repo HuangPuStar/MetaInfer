@@ -46,6 +46,15 @@ TP8_CASES = [
     ("glm52_tp8_o_proj_m4096", "o_proj", 2048, 6144),
     ("glm52_tp8_shared_gate_up_proj_m4096", "shared_gate_up_proj", 6144, 512),
     ("glm52_tp8_shared_down_proj_m4096", "shared_down_proj", 256, 6144),
+    # DeepSeek V4 Flash TP8 large-prefill boundary (2026-10-11). ``wo_b`` is the
+    # same (K, N)=(1024, 4096) GEMM as ``wq_b``, so one measurement serves both
+    # (the published table labels that key ``wq_b_or_wo_b``); the same key is
+    # also Hy3 TP8 ``o_proj``.
+    ("deepseek_tp8_wqkv_a_m4096", "wqkv_a", 4096, 1536),
+    ("deepseek_tp8_wq_b_m4096", "wq_b", 1024, 4096),
+    ("deepseek_tp8_indexer_wq_b_m4096", "indexer.wq_b", 1024, 8192),
+    ("deepseek_tp8_shared_gate_up_proj_m4096", "shared_gate_up_proj", 4096, 512),
+    ("deepseek_tp8_shared_down_proj_m4096", "shared_down_proj", 256, 4096),
 ]
 
 # Exact default config used by matmul_int8 when M > 1024.
@@ -183,9 +192,15 @@ def main() -> int:
     parser.add_argument("--mode", choices=["eager", "graph", "both"],
                         default="graph")
     parser.add_argument("--json", type=str, default="")
+    parser.add_argument("--only", type=str, default="",
+                        help="comma-separated case-id substrings to keep")
     args = parser.parse_args()
 
     utils = load_int8_utils(args.utils)
+    cases = TP8_CASES
+    if args.only:
+        needles = [s.strip() for s in args.only.split(",") if s.strip()]
+        cases = [c for c in cases if any(x in c[0] for x in needles)]
     print(
         "BENCHMARK triton=int8_utils.matmul_kernel output=preallocated "
         f"quantization=excluded allocation=excluded epilogue=included "
@@ -198,7 +213,7 @@ def main() -> int:
         flush=True,
     )
     results = []
-    for case_id, operator, k, n in TP8_CASES:
+    for case_id, operator, k, n in cases:
         res = run_case(
             utils,
             case_id,

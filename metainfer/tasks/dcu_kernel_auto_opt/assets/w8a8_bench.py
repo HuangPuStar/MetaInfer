@@ -15,10 +15,7 @@ import sys
 import time
 from pathlib import Path
 
-try:
-    import torch
-except ModuleNotFoundError:  # Allow CPU-only CI to import pure helpers.
-    torch = None  # type: ignore[assignment]
+import torch
 
 
 #: Device admission rule for anything that measures: VRAM <= 90% and HCU == 0.
@@ -338,10 +335,6 @@ def prepare_reference(m: int, n: int, k: int, cache_dir: Path) -> Path:
 
 
 def main() -> int:
-    if torch is None:
-        raise RuntimeError(
-            "w8a8_bench.py requires PyTorch in the DCU benchmark environment"
-        )
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path)
     parser.add_argument("--m", type=int)

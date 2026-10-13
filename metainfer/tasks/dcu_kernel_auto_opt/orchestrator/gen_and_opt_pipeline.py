@@ -49,9 +49,14 @@ from .prompts import (
 )
 from .gpu_binding import bind_worker_gpu
 from .harness_io import harness_root, load_manifest, seed_workspace
+from .gpu_probe import run_gpu_probe
 from .real_pipeline import _run, _safe, _status
 from .result_store import SCHEMA_VERSION, write_json
-from .skill_store import generate_merged_skill, generate_worker_skill
+from .skill_store import (
+    generate_merged_skill,
+    generate_worker_skill,
+    sync_skill_libraries,
+)
 from .w8a8_pipeline import (
     RealW8A8OptimizationPipeline,
     W8A8Runner,
@@ -63,6 +68,7 @@ from .w8a8_pipeline import (
     snapshot_accepted_kernel_artifact,
 )
 from . import gate_policy as _gates
+from . import final_layout_gate
 from .validation_budget import (
     resolve_bench_kwargs, resolve_validation_scope,
 )
@@ -75,12 +81,34 @@ _MAX_BOOTSTRAP_RETRIES = 3
 _MAX_SYNTHESIS_RETRIES = 3
 # µs-scale decode kernels are one-sided noisy on shared GPUs: transient
 # co-tenant load / clock / thermal state only inflates the median, never
-# deflates it. When the final performance gate (final <= 1.05 x worker best)
-# trips with no source change, re-measure up to _PERF_GATE_MAX_RETRIES times,
-# waiting _PERF_GATE_RETRY_INTERVAL_S between attempts, and accept the best
-# (min) median; only fail when every attempt still exceeds the gate.
+# deflates it. When the final performance gate (final <= _perf_gate_limit(worker
+# best), i.e. best + max(5%, _PERF_GATE_MIN_SLACK_US)) trips with no source
+# change, re-measure up to _PERF_GATE_MAX_RETRIES times, waiting
+# _PERF_GATE_RETRY_INTERVAL_S between attempts, and accept the best (min)
+# median; only fail when every attempt still exceeds the gate.
 _PERF_GATE_MAX_RETRIES = 3
 _PERF_GATE_RETRY_INTERVAL_S = 300
+
+#: Absolute floor under the acceptance window: "5%, or this, whichever is wider".
+#:
+#: A percentage alone is wrong at µs scale. 5% of a 9.6 µs decode kernel is
+#: 0.48 µs, which is below what this box can resolve: one and the same accepted
+#: object was measured 9.638 µs during EXPLORE and 10.866/10.998 µs in the
+#: serial validation (+12.7%/+14.1%), so a 5%-only window turns the machine's
+#: own measurement spread into a failed task. The floor fixes the small end and
+#: leaves everything else alone: the absolute term only wins below a best of
+#: 40 µs (where 5% < 2 µs), so every larger shape keeps exactly the old window
+#: — and because the crossover falls out of the two terms there is no band
+#: boundary to straddle.
+_PERF_GATE_MIN_SLACK_US = 2.0
+
+
+def _perf_gate_limit(best_median: float) -> float:
+    """Largest serial median accepted for one shape against its worker best."""
+    return float(best_median) + max(
+        0.05 * float(best_median), _PERF_GATE_MIN_SLACK_US
+    )
+
 _PMC_PLAN = {
     "script": "profile_pmc.sh",
     "mode": "hipprof_pmc_csv",
@@ -309,16 +337,17 @@ def _validate_generate_scaffold(
     # device 0 happened to survive).
     bind_worker_gpu(probe_env, probe_gpu)
     probe_env["PYTHONDONTWRITEBYTECODE"] = "1"
-    probe_result = _run(
-        [
-            "python3", str(harness),
-            "--source", str(source),
-            "--m", "1", "--n", "1", "--k", "1",
-            "--probe",
-        ],
-        cwd=source,
+    # A broken ROCm/amdsmi handshake makes this probe fail for a few seconds at
+    # a time ("shm_open: Permission denied"). One such blip must not kill a
+    # multi-hour task, so the probe is retried here; the assertions below are
+    # unchanged, so a genuinely unusable device still fails the preflight.
+    probe_result = run_gpu_probe(
+        harness=harness,
+        source=source,
         env=probe_env,
+        runner=_run,
         timeout=120,
+        state_dir=state_dir,
     )
     gpu_probe = _last_json_object(probe_result.stdout)
     if gpu_probe.get("visible_devices") != 1:
@@ -461,7 +490,8 @@ Hard constraints:
 - wavefront=64, blockDim a multiple of 64, current stream only;
 - DUMMA INT8 is m16n16k32 with int32 accumulation on gfx928; installed DTK
   uses `<du_mma.h>` and namespace `du::dumma`;
-- final per-shape median must stay within 5% of that worker's measured best;
+- final per-shape median must stay within 5% of that worker's measured best
+  (or 2 µs, whichever is wider, for shapes under 40 µs);
 - do not run Docker, the harness, compilation, benchmarks, or environment
   probes; trusted control plane validation runs after you return.
 {failure_block}
@@ -484,6 +514,11 @@ def _namespace_prebuilt_object(
     shape_id: str,
 ) -> Dict[str, Any]:
     """Give every defined host symbol a shape namespace without recompiling."""
+    # ``subprocess`` resolves ``cwd`` against the *process* directory, so a
+    # relative artifact path would be looked up inside the wrong tree.  Every
+    # path handed to nm/objcopy is absolute for that reason.
+    source_object = Path(source_object).resolve()
+    destination_object = Path(destination_object).resolve()
     destination_object.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_object, destination_object)
     nm_output = _run(
@@ -537,51 +572,267 @@ def _namespace_prebuilt_object(
     }
 
 
+def _artifact_families(
+    artifacts: list[Dict[str, Any]],
+) -> list[tuple[tuple[int, int], list[Dict[str, Any]]]]:
+    """Group artifacts by weight family ``(N, K)``, members sorted by ``M``.
+
+    One operator requested at several M values produces several artifacts that
+    share ``(N, K)`` -- Hy3 TP8 qkv_proj is one weight at M=8, 16 and 4096 -- so
+    ``(N, K)`` identifies a *weight* and ``M`` picks the kernel for one request.
+    Only M=2/8/16/4096 are ever in a catalog.
+    """
+    families: Dict[tuple, list] = {}
+    for artifact in artifacts:
+        shape = artifact["shape"]
+        families.setdefault((int(shape["N"]), int(shape["K"])), []).append(
+            artifact
+        )
+    return [
+        (pair, sorted(members, key=lambda item: int(item["shape"]["M"])))
+        for pair, members in sorted(families.items())
+    ]
+
+
+def _dispatch_family_plan(
+    artifacts: list[Dict[str, Any]],
+) -> list[Dict[str, Any]]:
+    """What the rendered dispatch will do, for the task timeline.
+
+    Cheap to record and the first thing worth looking at when a final
+    validation disagrees with the worker numbers.
+    """
+    plan = []
+    for (n, k), members in _artifact_families(artifacts):
+        plan.append({
+            "n": n,
+            "k": k,
+            "pack_from": members[0]["shape_id"],
+            "gemm_route": [
+                {"m": int(item["shape"]["M"]), "shape_id": item["shape_id"]}
+                for item in sorted(
+                    members, key=lambda entry: -int(entry["shape"]["M"])
+                )
+            ],
+        })
+    return plan
+
+
+def plan_layout_batches(
+    artifacts: list[Dict[str, Any]],
+    source: Path,
+) -> tuple["final_layout_gate.LayoutCheck", list[list[Dict[str, Any]]]]:
+    """Probe the ``(N, K)`` families and plan the validation batches.
+
+    Returns the probe result (recorded in the timeline, so a final validation
+    that disagrees with worker numbers can be read off the event stream) and the
+    batches to validate -- one containing everything when every family shares a
+    usable packed image, otherwise one per group that has to pack for itself.
+    """
+    return final_layout_gate.plan(artifacts, source)
+
+
+def sync_prebuilt_artifacts(
+    source: Path,
+    artifacts: list[Dict[str, Any]],
+) -> None:
+    """Make the staged ``prebuilt`` set exactly this batch's artifacts.
+
+    A merged extension that carries objects for shapes it never dispatches is
+    not wrong, but it is not the artifact either: stashing them keeps every
+    batch's extension minimal and its build key a pure function of what it
+    actually links.  The cache source dir (when the runner already staged one)
+    is synced too, because it is a snapshot the loader would otherwise keep
+    serving with the previous dispatch.
+    """
+    prebuilt = source / "prebuilt"
+    prebuilt.mkdir(parents=True, exist_ok=True)
+    wanted = {
+        str(item["final_object"]).split("/", 1)[-1] for item in artifacts
+    }
+    # The stash lives *beside* prebuilt, never inside it: a nested stash is
+    # itself matched by ``prebuilt/*.o`` and would be shuffled on every call.
+    stash = source / ".prebuilt_unused"
+    for path in sorted(prebuilt.glob("*.o")):
+        if path.name not in wanted:
+            stash.mkdir(parents=True, exist_ok=True)
+            path.replace(stash / path.name)
+    for name in wanted:
+        stashed = stash / name
+        if stashed.is_file() and not (prebuilt / name).exists():
+            stashed.replace(prebuilt / name)
+    _sync_prebuilt_into_compile_cache(source, wanted)
+
+
+def _sync_prebuilt_into_compile_cache(source: Path, wanted: set) -> None:
+    raw = os.environ.get("METAINFER_W8A8_COMPILE_SOURCE_DIR", "").strip()
+    if not raw:
+        return
+    cache = Path(raw)
+    cache_prebuilt = cache / "prebuilt"
+    if not cache_prebuilt.is_dir():
+        return
+    try:
+        if cache.resolve() == (source / "prebuilt").resolve():
+            return
+    except OSError:
+        return
+    for path in sorted(cache_prebuilt.glob("*.o")):
+        if path.name not in wanted:
+            path.unlink()
+    for name in wanted:
+        origin = source / "prebuilt" / name
+        destination = cache_prebuilt / name
+        if origin.is_file() and not destination.is_file():
+            try:
+                os.link(origin, destination)
+            except OSError:
+                shutil.copy2(origin, destination)
+
+
+def _layout_batch_source(
+    source: Path,
+    workspace_dir: Path,
+    batch_index: int,
+    batch_count: int,
+) -> Path:
+    """Where one layout batch's extension is rendered.
+
+    Batch 0 *is* the published tree, and its dispatch has to be in place before
+    anything compiles against it: batching used to rewrite batch 0's dispatch
+    only after validation, and the first benchmark then died with
+    ``FileNotFoundError: compile inputs are missing: .../w8a8_dispatch.cpp``.
+    Later batches never touch ``final/source``; they get their own copy under
+    ``final/layout_batches/batchN``.
+    """
+    if batch_count <= 1 or batch_index == 0:
+        return source
+    return workspace_dir / "final" / "layout_batches" / f"batch{batch_index}"
+
+
+def _copy_final_source(source: Path, destination: Path) -> None:
+    """Copy the merged extension tree so one batch can rewrite its own dispatch.
+
+    ``prebuilt`` and the caches are deliberately left behind: every batch copies
+    in exactly the objects it dispatches.
+    """
+    destination.mkdir(parents=True, exist_ok=True)
+    for entry in sorted(source.iterdir()):
+        if entry.name in {"prebuilt", "cache", ".git", "__pycache__"}:
+            continue
+        target = destination / entry.name
+        if entry.is_dir():
+            shutil.copytree(
+                entry, target,
+                ignore=shutil.ignore_patterns("__pycache__"),
+                dirs_exist_ok=True,
+            )
+        elif entry.is_file():
+            shutil.copy2(entry, target)
+
+
 def _render_prebuilt_dispatch(
     artifacts: list[Dict[str, Any]],
 ) -> str:
-    """Render control-plane C++ dispatch; this file contains no HIP kernel."""
+    """Render control-plane C++ dispatch; this file contains no HIP kernel.
+
+    Routing keys on the **whole shape** ``(m, n, k)``.  Keying on ``(n, k)``
+    alone collapsed every M variant of one operator onto a single artifact: the
+    three M variants of one weight share ``(n, k)``, so the M=4096 prefill ran
+    whichever member the shape-id sort put first -- the M=16 kernel.  That is
+    numerically correct but 2.5x slower (1026 us vs 410 us measured), which is
+    what failed the final performance gate; see
+    ``error_catalog/04-kernel-quality.md``.
+
+    Inside one ``(n, k)`` family the routes form a descending-M chain, so the
+    exact shape always wins and an M nobody optimized falls to the largest tuned
+    M that does not exceed it -- the conservative direction, since small-tile
+    kernels are the proven-generic end (the M=16 kernel handled M=4096 rows
+    correctly) -- or to the family's smallest M when the request is below every
+    tuned value.  A family with a single member therefore routes exactly as it
+    did before.  ``artifacts[0]`` stays the last resort.
+
+    ``launch_pack_w8a8_weight`` cannot see ``m``: its ABI is ``(k, n)``, and in
+    the real model one packed weight feeds every M of that weight.  Packing is
+    therefore one route per family, taken from the family's smallest M.  That is
+    only sound when the family agrees on the packed layout, and the final
+    validation is what proves it: it packs and then benches every shape through
+    these routes, so a disagreement fails correctness instead of producing a
+    plausible wrong number.
+    """
+    if not artifacts:
+        raise RuntimeError("cannot render dispatch without worker artifacts")
+
+    families = _artifact_families(artifacts)
+    seen_shapes: set[tuple[int, int, int]] = set()
+
     declarations: list[str] = []
     gemm_routes: list[str] = []
     pack_routes: list[str] = []
-    seen_pairs: set[tuple[int, int]] = set()
-    for artifact in artifacts:
-        launch = artifact["launch_symbol"]
-        pack = artifact["pack_symbol"]
-        shape = artifact["shape"]
-        n = int(shape["N"])
-        k = int(shape["K"])
-        declarations.extend([
-            f'extern "C" void {launch}(',
-            "    const int8_t*, const int8_t*, const float*, const float*,",
-            "    void*, void*, int64_t, int, int, int, hipStream_t);",
-            f'extern "C" void {pack}(',
-            "    const int8_t*, const float*, int8_t*, float*,",
-            "    int, int, hipStream_t);",
-            "",
-        ])
-        pair = (n, k)
-        if pair in seen_pairs:
-            continue
-        seen_pairs.add(pair)
-        gemm_routes.extend([
-            f"  if (n == {n} && k == {k}) {{",
-            f"    {launch}(a, b, x_scale, weight_scale, out, workspace,",
-            "        workspace_bytes, m, n, k, stream);",
-            "    return;",
-            "  }",
-        ])
+    for (n, k), members in families:
+        for artifact in members:
+            shape = artifact["shape"]
+            key = (int(shape["M"]), n, k)
+            if key in seen_shapes:
+                raise RuntimeError(
+                    "two artifacts claim the same shape "
+                    f"(m, n, k)={key}: "
+                    + ", ".join(
+                        item["shape_id"] for item in members
+                        if int(item["shape"]["M"]) == key[0]
+                    )
+                )
+            seen_shapes.add(key)
+            declarations.extend([
+                f'extern "C" void {artifact["launch_symbol"]}(',
+                "    const int8_t*, const int8_t*, const float*, const float*,",
+                "    void*, void*, int64_t, int, int, int, hipStream_t);",
+                f'extern "C" void {artifact["pack_symbol"]}(',
+                "    const int8_t*, const float*, int8_t*, float*,",
+                "    int, int, hipStream_t);",
+                "",
+            ])
+
+        # Packed layout is a property of the weight, not of M (see docstring).
         pack_routes.extend([
             f"  if (n == {n} && k == {k}) {{",
-            f"    {pack}(raw_weight, weight_scale, packed_weight,",
+            f"    {members[0]['pack_symbol']}(raw_weight, weight_scale, "
+            "packed_weight,",
             "        packed_weight_scale, k, n, stream);",
             "    return;",
             "  }",
         ])
-    if not artifacts:
-        raise RuntimeError("cannot render dispatch without worker artifacts")
-    fallback_launch = artifacts[0]["launch_symbol"]
-    fallback_pack = artifacts[0]["pack_symbol"]
+
+        routed_ms = [int(item["shape"]["M"]) for item in members]
+        gemm_routes.append(
+            f"  // {n}x{k}: optimized at M="
+            + ", ".join(str(item) for item in routed_ms)
+        )
+        gemm_routes.append(f"  if (n == {n} && k == {k}) {{")
+        for artifact in sorted(
+            members, key=lambda entry: -int(entry["shape"]["M"])
+        ):
+            gemm_routes.extend([
+                f"    if (m >= {int(artifact['shape']['M'])}) {{",
+                f"      {artifact['launch_symbol']}(a, b, x_scale, "
+                "weight_scale, out, workspace,",
+                "          workspace_bytes, m, n, k, stream);",
+                "      return;",
+                "    }",
+            ])
+        gemm_routes.extend([
+            f"    {members[0]['launch_symbol']}(a, b, x_scale, weight_scale, "
+            "out, workspace,",
+            "        workspace_bytes, m, n, k, stream);",
+            "    return;",
+            "  }",
+        ])
+
+    # Last resort for a request whose (n, k) matches no family at all. Taken from
+    # the sorted families rather than ``artifacts[0]`` so the rendered file does
+    # not depend on the order the artifacts were collected in.
+    fallback_launch = families[0][1][0]["launch_symbol"]
+    fallback_pack = families[0][1][0]["pack_symbol"]
     return "\n".join([
         "// Generated by the trusted control plane. Contains no HIP kernel.",
         "#include <hip/hip_runtime.h>",
@@ -639,17 +890,21 @@ def _final_performance_gate(
 
     µs-scale decode kernels are one-sided noisy on shared GPUs: transient
     co-tenant load / clock / thermal state only inflates the median, never
-    deflates it (decode skill §5). When ``median > 1.05 x best`` with no
-    source change, re-measure with the same protocol up to ``max_retries``
-    times, waiting ``retry_interval_s`` between attempts, and accept the best
-    (min) median. Raise only when every attempt still exceeds the gate.
+    deflates it (decode skill §5). When ``median`` exceeds the acceptance
+    window (``_perf_gate_limit``: the worker best plus 5%, or plus
+    ``_PERF_GATE_MIN_SLACK_US`` µs when that is wider) with no source change,
+    re-measure with the same protocol up to ``max_retries`` times, waiting
+    ``retry_interval_s`` between attempts, and accept the best (min) median.
+    Raise only when every attempt still exceeds the gate.
 
     Returns the metrics dict of the accepted (best) measurement.
     """
+    limit = _perf_gate_limit(best_median)
+    slack = max(0.05 * float(best_median), _PERF_GATE_MIN_SLACK_US)
     final_median = float(metrics.get("median_us") or float("inf"))
     accepted = metrics
     retries_left = max_retries
-    while final_median > best_median * 1.05 and retries_left > 0:
+    while final_median > limit and retries_left > 0:
         retries_left -= 1
         attempt = max_retries - retries_left
         store.append_timeline(
@@ -657,8 +912,12 @@ def _final_performance_gate(
             {
                 "shape_id": shape_id,
                 "attempt": attempt,
+                # The running best so far (the value this retry has to beat),
+                # not the measurement the retry is about to take.
                 "median_us": final_median,
                 "best_median_us": best_median,
+                "limit_us": limit,
+                "slack_us": slack,
                 "wait_s": retry_interval_s,
             },
         )
@@ -672,10 +931,11 @@ def _final_performance_gate(
         final_median = min(
             final_median, float(retry.get("median_us") or float("inf"))
         )
-    if final_median > best_median * 1.05:
+    if final_median > limit:
         raise RuntimeError(
             f"performance regressed for {shape_id}: final "
             f"{final_median:.3f} us vs worker best {best_median:.3f} us "
+            f"(limit {limit:.3f} us = best + {slack:.3f} us) "
             f"after {max_retries} re-measures"
         )
     return accepted
@@ -841,6 +1101,17 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
 
         staged_contract = stage_operator_api(contract, seed)
         staged_references = stage_operator_references(contract, seed)
+        # Skills are knowledge, so they are bundled per hardware profile and the
+        # agent must read THIS board's edition: sync now, before any worker is
+        # spawned, so a library still holding the other board's edition (a fresh
+        # container, a machine whose board changed) is corrected first. Recorded
+        # in the timeline because it decides which numbers the agent can read.
+        skills_sync = sync_skill_libraries(workspace_dir=self.workspace_dir)
+        self.store.append_timeline("skills_profile_synced", {
+            "hw_profile": skills_sync.get("hw_profile"),
+            "seeded": skills_sync.get("seeded"),
+            "quarantined": skills_sync.get("quarantined"),
+        })
         staged_operator_files = [staged_contract, *staged_references]
         staged_operator_relatives = [
             str(path.relative_to(seed)) for path in staged_operator_files
@@ -2036,6 +2307,187 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
         )
         return baseline, dict(sorted(workers.items()))
 
+    def _validate_layout_batch(
+        self,
+        *,
+        source: Path,
+        batch: List[Dict[str, Any]],
+        batch_index: int,
+        batch_count: int,
+        layout_check: "final_layout_gate.LayoutCheck",
+        serial_gpu: int,
+        config: OptimizerConfig,
+        optimized_ids: set,
+        best_by_shape: Dict[str, Dict[str, Any]],
+        validation: Dict[str, Dict[str, Any]],
+        validation_shapes: List[Dict[str, Any]],
+        validation_scope: str,
+        bench_kwargs: Dict[str, int],
+    ) -> Dict[str, Any]:
+        """Render, link and serially validate one layout batch.
+
+        With a single batch this is exactly the historical merge.  With several
+        (packed layouts disagreed inside a family) each batch is a self-contained
+        extension: its own ``dispatch``, its own ``prebuilt`` set, its own
+        sequential validation -- so every ``(N, K)`` in a batch is packed and
+        interpreted by the same member, and nothing is ever handed an image its
+        own kernel cannot read.
+
+        Batch 0 renders directly into ``final/source`` (so the published tree is
+        a batch that was actually validated); later batches live under
+        ``final/layout_batches/batchN``.
+
+        Every batch is benchmarked against **its own** tree (``batch_source``):
+        the shared runner used to keep pointing at ``final/source``, so a later
+        batch's shapes were served by batch 0's dispatch -- in
+        glm-tp8-m8-16-4096-2663a78f the M=4096 shape fell to batch 0's m16 route,
+        which is numerically correct and 2.28x slower, and the perf gate read that
+        as a regression of an artifact that was never measured.
+        """
+        batch_source = _layout_batch_source(
+            source, self.workspace_dir, batch_index, batch_count
+        )
+        if batch_source != source:
+            shutil.rmtree(batch_source, ignore_errors=True)
+            _copy_final_source(source, batch_source)
+        # Shrink the tree to exactly this batch (its objects *and* its dispatch)
+        # before anything compiles against it.
+        sync_prebuilt_artifacts(batch_source, batch)
+
+        dispatch_path = batch_source / "csrc" / "w8a8_dispatch.cpp"
+        dispatch_path.parent.mkdir(parents=True, exist_ok=True)
+        dispatch_path.write_text(
+            _render_prebuilt_dispatch(batch), encoding="utf-8"
+        )
+        # The benchmark must build and load *this* batch's extension: the caches
+        # (references, torch extensions, logs) stay under ``final/``, but the tree
+        # under test is ``batch_source``.  Reusing one runner across batches left
+        # every later batch measured through batch 0's dispatch.
+        runner = W8A8Runner(
+            self.workspace_dir / "final", serial_gpu, source=batch_source,
+        )
+        self.store.append_timeline(
+            "final_artifact_link_launch",
+            {
+                "artifacts": [
+                    {
+                        "shape_id": item["shape_id"],
+                        "worker_id": item["worker_id"],
+                        "object_sha256": item["object_sha256"],
+                    }
+                    for item in batch
+                ],
+                "gpu": serial_gpu,
+                # Which kernel serves which request, decided above. Recorded
+                # because a final validation that disagrees with the worker
+                # numbers is usually a routing question, not a kernel one.
+                "dispatch_families": _dispatch_family_plan(batch),
+                "layout_batch": {
+                    "index": batch_index,
+                    "count": batch_count,
+                    "source": str(batch_source),
+                },
+                # Which member's pack kernel the family's weight image really
+                # comes from, for every (N, K) family.
+                "layout_groups": layout_check.as_json(),
+            },
+        )
+        # Only the shapes this batch carries: an extension that does not
+        # contain a shape cannot dispatch it, so validating one would fall
+        # through to the last-resort route and report a failure that says
+        # nothing about this batch.  (Measured: batch 0 of df6fb501 lists 7
+        # artifacts, so it validates 7 shapes, not the task's 10.)
+        batch_shape_ids = {
+            str(item["shape_id"]) for item in batch
+        }
+        validation_shapes = [
+            shape for shape in validation_shapes
+            if str(shape["id"]) in batch_shape_ids
+        ]
+        self.store.append_timeline(
+            "final_validation_plan",
+            {
+                "scope": validation_scope,
+                "shapes": [str(shape["id"]) for shape in validation_shapes],
+                "bench": dict(bench_kwargs),
+                "layout_batch": {
+                    "index": batch_index,
+                    "count": batch_count,
+                },
+            },
+        )
+
+        try:
+            for shape in validation_shapes:
+                shape_id = str(shape["id"])
+                params = {
+                    key: value for key, value in shape.items()
+                    if key != "id"
+                }
+                if shape_id in optimized_ids:
+                    metrics = runner.benchmark(params, **bench_kwargs)
+                else:
+                    # Regression shapes stay on the light sampling; only the
+                    # replay count follows the configured budget.
+                    regression_kwargs = {"warmups": 2, "samples": 3}
+                    if "replays_per_sample" in bench_kwargs:
+                        regression_kwargs["replays_per_sample"] = (
+                            bench_kwargs["replays_per_sample"]
+                        )
+                    metrics = runner.benchmark(params, **regression_kwargs)
+                validation[shape_id] = metrics
+                if not metrics.get("passed"):
+                    raise RuntimeError(
+                        f"correctness failed for {shape_id}: "
+                        f"{json.dumps(metrics)}"
+                    )
+                if shape_id not in optimized_ids:
+                    continue
+                best_median = float(
+                    best_by_shape[shape_id].get("median_us")
+                    or float("inf")
+                )
+                metrics = _final_performance_gate(
+                    shape_id=shape_id,
+                    best_median=best_median,
+                    metrics=metrics,
+                    benchmark=lambda: runner.benchmark(
+                        params, **bench_kwargs
+                    ),
+                    max_retries=_PERF_GATE_MAX_RETRIES,
+                    retry_interval_s=_PERF_GATE_RETRY_INTERVAL_S,
+                    store=self.store,
+                )
+                validation[shape_id] = metrics
+        except Exception as exc:
+            self.store.append_timeline(
+                "final_artifact_link_rejected",
+                {
+                    "error": str(exc),
+                    "layout_batch": {
+                        "index": batch_index,
+                        "count": batch_count,
+                        "shapes": [
+                            str(item["shape_id"]) for item in batch
+                        ],
+                    },
+                },
+            )
+            raise RuntimeError(
+                "Final prebuilt-object W8A8 validation failed: "
+                f"{exc}"
+            ) from exc
+
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "strategy": "link_exact_accepted_worker_objects",
+            "hip_recompiled_by_main": False,
+            "hip_rewritten_by_main": False,
+            "dispatch_language": "C++",
+            "dispatch": str(dispatch_path),
+            "artifacts": batch,
+        }
+
     def _synthesize_final_candidate(
         self,
         config: OptimizerConfig,
@@ -2098,7 +2550,6 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
                 "serial validation GPU must be one of the completed worker "
                 f"GPUs {sorted(assigned_gpus)}, got {serial_gpu}"
             )
-        runner = W8A8Runner(root, serial_gpu)
         best_by_shape = {
             shape_id: workers[assignment.worker_id]["shapes"][shape_id][
                 "metrics"
@@ -2184,35 +2635,78 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
                     ),
                 })
         artifacts.sort(key=lambda item: str(item["shape_id"]))
-        dispatch_path = source / "csrc" / "w8a8_dispatch.cpp"
-        dispatch_path.write_text(
-            _render_prebuilt_dispatch(artifacts), encoding="utf-8"
-        )
-        proposal = {
-            "schema_version": SCHEMA_VERSION,
-            "strategy": "link_exact_accepted_worker_objects",
-            "hip_recompiled_by_main": False,
-            "hip_rewritten_by_main": False,
-            "dispatch_language": "C++",
-            "artifacts": artifacts,
-        }
-        write_json(source / "artifact_manifest.json", proposal)
-        self.store.append_timeline(
-            "final_artifact_link_launch",
-            {
-                "artifacts": [
-                    {
-                        "shape_id": item["shape_id"],
-                        "worker_id": item["worker_id"],
-                        "object_sha256": item["object_sha256"],
-                    }
-                    for item in artifacts
-                ],
-                "gpu": serial_gpu,
-            },
-        )
 
-        validation: Dict[str, Dict[str, Any]] = {}
+        # A ``(N, K)`` weight is packed once and interpreted by every M of that
+        # weight, but the frozen ``prepare_weight`` ABI has no M -- so the
+        # family's members must agree on the packed image.  Fingerprint each
+        # member's pack kernel and, when they disagree, validate one layout
+        # batch at a time instead of handing every M to one shared image.
+        layout_check, batches = plan_layout_batches(artifacts, source)
+        if layout_check.conflicts:
+            # The families disagree about the packed image: pack them per layout
+            # instead.  Nothing is re-optimized and no kernel is rewritten --
+            # each batch simply gets the packing its own GEMM expects.
+            offending = ", ".join(
+                f"{family.n}x{family.k} ("
+                + "; ".join(
+                    f"{sorted(group)}"
+                    for group in final_layout_gate.family_groups(family)
+                )
+                + ")"
+                for family in layout_check.conflicts
+            )
+            self.store.append_timeline(
+                "final_layout_conflict",
+                {
+                    "reason": (
+                        "members of one (N, K) family pack the weight "
+                        "differently; the frozen prepare_weight ABI has no M, "
+                        "so the merge cannot share one image"
+                    ),
+                    "conflicts": offending,
+                    "batches": [
+                        sorted(str(item["shape_id"]) for item in batch)
+                        for batch in batches
+                    ],
+                    "layout_groups": layout_check.as_json(),
+                },
+            )
+        elif layout_check.unproven:
+            # Some family's packed image was never measured, so "no conflict" is
+            # not a finding there -- it is the absence of a measurement.  Say so
+            # loudly: a silent single batch here is exactly how a packed-layout
+            # conflict reached serial validation in glm-tp8-m8-16-4096-2663a78f
+            # (the probe child was spawned with an empty ``sys.executable``).
+            multi_member = [
+                f"{family.n}x{family.k}"
+                for family in layout_check.unproven
+                if len(family.members) > 1
+            ]
+            self.store.append_timeline(
+                "final_layout_probe_failed",
+                {
+                    "reason": (
+                        "the packed-image probe could not measure every member "
+                        "of a (N, K) family, so agreement there is unproven"
+                    ),
+                    "probe_error": layout_check.probe_error,
+                    "unproven_families": [
+                        f"{family.n}x{family.k}"
+                        for family in layout_check.unproven
+                    ],
+                    "multi_member_families": multi_member,
+                    "fallback": (
+                        "split_unproven_members" if len(batches) > 1
+                        else "single_batch"
+                    ),
+                    "batch_count": len(batches),
+                    "batches": [
+                        sorted(str(item["shape_id"]) for item in batch)
+                        for batch in batches
+                    ],
+                    "layout_groups": layout_check.as_json(),
+                },
+            )
         _answers = self.req.get("answers")
         if not isinstance(_answers, dict):
             _answers = self.req
@@ -2226,65 +2720,48 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
         validation_shapes = _validation_shape_list(
             optimized_shapes, fallback_shapes, validation_scope
         )
-        self.store.append_timeline(
-            "final_validation_plan",
-            {
-                "scope": validation_scope,
-                "shapes": [str(shape["id"]) for shape in validation_shapes],
-                "bench": dict(bench_kwargs),
-            },
-        )
-        try:
-            for shape in validation_shapes:
-                shape_id = str(shape["id"])
-                params = {
-                    key: value for key, value in shape.items()
-                    if key != "id"
-                }
-                if shape_id in optimized_ids:
-                    metrics = runner.benchmark(params, **bench_kwargs)
-                else:
-                    # Regression shapes stay on the light sampling; only the
-                    # replay count follows the configured budget.
-                    regression_kwargs = {"warmups": 2, "samples": 3}
-                    if "replays_per_sample" in bench_kwargs:
-                        regression_kwargs["replays_per_sample"] = (
-                            bench_kwargs["replays_per_sample"]
-                        )
-                    metrics = runner.benchmark(params, **regression_kwargs)
-                validation[shape_id] = metrics
-                if not metrics.get("passed"):
-                    raise RuntimeError(
-                        f"correctness failed for {shape_id}: "
-                        f"{json.dumps(metrics)}"
-                    )
-                if shape_id not in optimized_ids:
-                    continue
-                best_median = float(
-                    best_by_shape[shape_id].get("median_us")
-                    or float("inf")
-                )
-                metrics = _final_performance_gate(
-                    shape_id=shape_id,
-                    best_median=best_median,
-                    metrics=metrics,
-                    benchmark=lambda: runner.benchmark(
-                        params, **bench_kwargs
-                    ),
-                    max_retries=_PERF_GATE_MAX_RETRIES,
-                    retry_interval_s=_PERF_GATE_RETRY_INTERVAL_S,
-                    store=self.store,
-                )
-                validation[shape_id] = metrics
-        except Exception as exc:
-            self.store.append_timeline(
-                "final_artifact_link_rejected",
-                {"error": str(exc)},
+
+        validation: Dict[str, Dict[str, Any]] = {}
+        proposals: List[Dict[str, Any]] = []
+        original_source = source
+        for batch_index, batch in enumerate(batches):
+            proposal = self._validate_layout_batch(
+                source=original_source,
+                batch=batch,
+                batch_index=batch_index,
+                batch_count=len(batches),
+                layout_check=layout_check,
+                serial_gpu=serial_gpu,
+                config=config,
+                optimized_ids=optimized_ids,
+                best_by_shape=best_by_shape,
+                validation=validation,
+                validation_shapes=validation_shapes,
+                validation_scope=validation_scope,
+                bench_kwargs=bench_kwargs,
             )
-            raise RuntimeError(
-                "Final prebuilt-object W8A8 validation failed: "
-                f"{exc}"
-            ) from exc
+            proposals.append(proposal)
+        proposal = proposals[0] if proposals else {}
+        if len(proposals) > 1:
+            # The published tree is batch 0, which was rendered and validated
+            # there; every other batch stays complete under
+            # final/layout_batches/batchN and is listed here.
+            proposal = {
+                **proposal,
+                "layout_batches": [
+                    {
+                        "index": index,
+                        "artifacts": [
+                            item["shape_id"] for item in artifact_batch
+                        ],
+                        "dispatch": item.get("dispatch"),
+                    }
+                    for index, (item, artifact_batch) in enumerate(
+                        zip(proposals, batches)
+                    )
+                ],
+            }
+        write_json(original_source / "artifact_manifest.json", proposal)
 
         changed_paths = sorted(
             line[3:].strip()
@@ -2398,7 +2875,7 @@ class GenAndOptPipeline(RealW8A8OptimizationPipeline):
         5. SYNTHESIZE → VALIDATE → REPORT.
         """
         task_id = str(self.req.get("task_id", "task"))
-        self.store.init_or_resume(task_id)
+        self.store.init_or_resume(task_id, "dcu-kernel-auto-opt")
         self.store.update_run(
             finished=False,
             final_status=None,

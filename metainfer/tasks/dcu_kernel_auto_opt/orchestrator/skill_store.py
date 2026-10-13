@@ -36,9 +36,19 @@ def _write_candidate(
     source: str,
     content: str,
 ) -> Dict[str, Any]:
+    """Write one pending skill, stamped with this board.
+
+    A worker/merged skill is **operator knowledge** -- its numbers were measured
+    on this machine -- so it carries the edition marker from the moment it is
+    written.  That makes its provenance visible in the UI, and it means the
+    marker survives publication into the live library even if nothing else
+    stamps it.
+    """
     target = pending_root / name
     target.mkdir(parents=True, exist_ok=True)
-    (target / "SKILL.md").write_text(content, encoding="utf-8")
+    (target / "SKILL.md").write_text(
+        stamp_edition(content, active_profile_id()), encoding="utf-8"
+    )
     manifest = {
         "name": name,
         "kind": kind,
@@ -268,29 +278,357 @@ def ccb_skills_root() -> Path:
     )
 
 
-def bundled_skills_root() -> Path:
-    """Skills bundled with this task plugin (seed content).
+def plugin_skills_dir() -> Path:
+    """The plugin's vendored skill library, one directory per hardware profile.
 
-    The canonical skills this plugin curates (the INT8 W8A8 GEMM family) are
-    vendored under ``metainfer/tasks/dcu_kernel_auto_opt/skills/`` so a fresh
-    checkout carries them; ``seed_bundled_skills()`` installs any that are
-    missing from the live dsh library.
+    ``skills/<profile>/<name>/SKILL.md``.  Skills are knowledge, and knowledge
+    here is hardware dependent (an air board's kernel numbers are 1.06-1.70x off
+    the liquid board's, per operator), so each profile gets its own edition of
+    the same skill names -- see ``wiki-metainfer/knowledge-packs.md``.
     """
     return Path(__file__).resolve().parents[1] / "skills"
 
 
-def seed_bundled_skills() -> Dict[str, Any]:
-    """Copy bundled plugin skills into the dsh library when missing.
+def bundled_profile_dirs() -> Dict[str, Path]:
+    """``{profile_id: dir}`` for every profile the plugin bundles."""
+    root = plugin_skills_dir()
+    found: Dict[str, Path] = {}
+    if not root.is_dir():
+        return found
+    for child in sorted(root.iterdir()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        if (child / "SKILL.md").is_file():
+            continue                    # itself a skill: this is the flat layout
+        if any((skill / "SKILL.md").is_file() for skill in child.glob("*/")):
+            found[child.name] = child
+    return found
 
-    Idempotent and never overwrites: the live library is the authoritative
-    copy once an operator publishes/fuses over it, so only absent skills are
-    seeded. Mirrors to ccb are handled by ``sync_skill_libraries()``.
+
+def active_profile_id() -> str:
+    """This machine's hardware profile, or ``""`` when it cannot be resolved.
+
+    Lazy import: ``skill_store`` must stay importable when the DKAO plugin is
+    loaded somewhere the resolver is not available (tests, a bare checkout).
     """
-    source = bundled_skills_root()
+    try:
+        from metainfer.orchestrator import hw_profile
+
+        return hw_profile.profile_id() or ""
+    except Exception:  # noqa: BLE001 - an unknown machine is a normal state
+        return ""
+
+
+def _board_label() -> str:
+    """Human-readable board label (``K100_AI / gfx928``), or ``""``.
+
+    Used only for prompt/prose; the *id* is what decides ownership.
+    """
+    try:
+        from metainfer.orchestrator import hw_profile
+
+        return hw_profile.label(fallback="")
+    except Exception:  # noqa: BLE001 - an unknown machine is a normal state
+        return ""
+
+
+def bundled_skills_root() -> Path:
+    """Seed content for **this machine's** profile.
+
+    Falls back to the root itself for a pre-split checkout (skills stored flat),
+    so an unmigrated tree still seeds instead of silently seeding nothing.
+    """
+    root = plugin_skills_dir()
+    profile = active_profile_id()
+    if profile:
+        candidate = root / profile
+        if candidate.is_dir():
+            return candidate
+    return root
+
+
+def skills_manifest_path() -> Path:
+    """Which profile's edition is installed, and with what content.
+
+    Lives next to the library (never inside it): the skill provider treats every
+    direct child of the skills root as a skill, so bookkeeping files must stay
+    out of that directory.
+    """
+    return dsh_skills_root().parent / ".metainfer-skills.json"
+
+
+def skills_archive_root() -> Path:
+    """Where the other profile's editions are parked, one directory per profile."""
+    return dsh_skills_root().parent / ".metainfer-skill-libraries"
+
+
+def read_skills_manifest() -> Dict[str, Any]:
+    try:
+        payload = json.loads(skills_manifest_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _write_skills_manifest(profile: str, skills: Dict[str, str]) -> None:
+    path = skills_manifest_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "hw_profile": profile,
+        "skills": skills,          # name -> sha256(SKILL.md) as installed
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _skill_fingerprint(skill_dir: Path) -> str:
+    import hashlib
+
+    skill_md = skill_dir / "SKILL.md"
+    try:
+        return hashlib.sha256(skill_md.read_bytes()).hexdigest()[:16]
+    except OSError:
+        return ""
+
+
+#: Editions carry ``<!-- metainfer-edition: <profile> -->`` as the first body
+#: line.  Ownership by marker (not by content hash) is what makes a swap safe:
+#: an operator may edit or a round may publish into an edition, and it still
+#: belongs to the board it was written for.
+_EDITION_RE = re.compile(r"<!--\s*metainfer-edition:\s*([A-Za-z0-9._-]+)\s*-->")
+
+
+def skill_edition(skill_dir: Path) -> str:
+    """The profile an installed skill declares, or ``""`` when unmarked."""
+    try:
+        text = (skill_dir / "SKILL.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    match = _EDITION_RE.search(text)
+    return match.group(1) if match else ""
+
+
+def is_profile_owned(skill_dir: Path) -> bool:
+    """True when a skill declares a board, i.e. it is somebody's *operator*
+    knowledge.
+
+    The marker is the split's only ownership signal and it means "operator
+    findings measured on <board>".  A skill **without** one is shared knowledge
+    -- the DSH-provided ``hygon-dcu-kernel`` / ``dumma-dcu`` and friends describe
+    gfx928 itself, not this board's numbers -- so both boards may read it and no
+    swap may move it.  That distinction is the whole point of the marker: only
+    operator findings split per board.
+    """
+    return bool(skill_edition(skill_dir))
+
+
+def _edition_marker(profile: str) -> str:
+    return f"<!-- metainfer-edition: {profile} -->"
+
+
+def stamp_edition(text: str, profile: str) -> str:
+    """Return ``text`` carrying exactly one ``metainfer-edition`` marker.
+
+    Written as the first body line (right after the YAML frontmatter), the layout
+    the vendored editions use.  Any previous marker is dropped, so a merge can
+    never leave the *other* board's declaration behind -- ownership is decided by
+    this marker and nothing else.
+
+    ``profile == ""`` returns the text unchanged: a machine whose board cannot be
+    resolved must not claim one (``seed_bundled_skills`` refuses to seed in that
+    state for the same reason).
+    """
+    if not profile:
+        return text
+    match = re.match(r"^(---\n.*?\n---\n)", text, flags=re.DOTALL)
+    head = match.group(1) if match else ""
+    body = _EDITION_RE.sub("", text[len(head):]).strip("\n")
+    marker = _edition_marker(profile)
+    if not head:
+        return f"{marker}\n\n{body}\n" if body else f"{marker}\n"
+    return f"{head}\n{marker}\n\n{body}\n" if body else f"{head}\n{marker}\n"
+
+
+def _stamp_skill_file(skill_dir: Path, profile: str) -> bool:
+    """Stamp ``<skill_dir>/SKILL.md`` in place; ``True`` when it changed."""
+    skill_md = skill_dir / "SKILL.md"
+    try:
+        original = skill_md.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    stamped = stamp_edition(original, profile)
+    if stamped == original:
+        return False
+    skill_md.write_text(stamped, encoding="utf-8")
+    return True
+
+
+def _marked_skill_names(root: Path | None) -> set:
+    """Names in ``root`` that declare a board (see ``is_profile_owned``)."""
+    if root is None or not root.is_dir():
+        return set()
+    names = set()
+    for skill in sorted(root.glob("*/")):
+        if (skill / "SKILL.md").is_file() and is_profile_owned(skill):
+            names.add(skill.name)
+    return names
+
+
+def _bundled_fingerprints() -> Dict[str, Dict[str, str]]:
+    """``{profile: {skill_name: fingerprint}}`` over every bundled edition."""
+    out: Dict[str, Dict[str, str]] = {}
+    for profile, directory in bundled_profile_dirs().items():
+        out[profile] = {
+            skill.name: _skill_fingerprint(skill)
+            for skill in sorted(directory.glob("*/"))
+            if (skill / "SKILL.md").is_file()
+        }
+    return out
+
+
+def _managed_skill_names(root: Path | None = None) -> set:
+    """Skill names this plugin's split owns, in ``root`` too.
+
+    Ownership: what the plugin vendors (any profile's edition), what the manifest
+    records, and -- the part that makes fusion safe -- **anything that declares a
+    board**, wherever it sits.  A fused or published operator skill is one of
+    ours even though the plugin never vendored it, so it has to be swept by a
+    profile swap like the vendored ones.  Shared knowledge (no marker) stays out
+    of this set on purpose: both boards read it and nothing may move it.
+    """
+    names = set()
+    for skills in _bundled_fingerprints().values():
+        names.update(skills)
+    names.update(read_skills_manifest().get("skills") or {})
+    names.update(_marked_skill_names(dsh_skills_root()))
+    names.update(_marked_skill_names(root))
+    return names
+
+
+def quarantine_foreign_skills(*, root: Path | None = None) -> Dict[str, Any]:
+    """Move the *other* board's editions out of a live library.
+
+    Requirement (operator, 2026-10-06): the air board must read air skills, and
+    the two libraries stay separated.
+
+    Scope (operator, 2026-10-07): **only operator knowledge splits.**  A skill
+    that declares a board is this board's measured findings and is swapped like
+    the vendored editions; a skill without a marker is shared knowledge
+    (``hygon-dcu-kernel``, ``dumma-dcu``, ...) which both boards read and which
+    is never moved.  That is what ``_managed_skill_names(root)`` encodes.
+
+    Ownership is decided in this order:
+
+    1. the ``<!-- metainfer-edition: <profile> -->`` marker inside the skill --
+       authoritative, and stable even after the edition is edited or published
+       into, so a swap never leaves the other board's knowledge behind;
+    2. failing that, the content fingerprint: only a skill whose ``SKILL.md``
+       matches another profile's bundled edition byte-for-byte is recognised as
+       that board's (this is how the pre-marker libraries are classified).
+
+    Anything else is the operator's/history's own business and is reported, not
+    moved: the live library is authoritative once a human has touched it.
+
+    Moved, never deleted: ``~/.dsh/.metainfer-skill-libraries/<profile>/<name>``.
+    """
+    root = root or dsh_skills_root()
+    profile = active_profile_id()
+    bundled = _bundled_fingerprints()
+    moved: list = []
+    foreign_kept: list = []
+    local: list = []
+    current: list = []
+    if not root.is_dir():
+        return {"quarantined": moved, "foreign_unmodified": foreign_kept,
+                "local": local, "current": current, "profile": profile}
+    for name in sorted(_managed_skill_names(root=root)):
+        live = root / name
+        if not (live / "SKILL.md").is_file():
+            continue
+        declared = skill_edition(live)
+        if declared == profile and declared:
+            current.append(name)                       # already this board's
+            continue
+        if declared:
+            owner = declared                           # the marker is decisive
+        else:
+            fingerprint = _skill_fingerprint(live)
+            if profile and fingerprint == (bundled.get(profile) or {}).get(name):
+                current.append(name)
+                continue                               # this profile's edition
+            owner = next(
+                (other for other, skills in bundled.items()
+                 if other != profile and skills.get(name) == fingerprint),
+                None,
+            )
+        if owner is None:
+            local.append(name)                         # edited/published here
+            continue
+        archive = skills_archive_root() / owner / name
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        if archive.exists():
+            shutil.rmtree(archive)
+        shutil.move(str(live), str(archive))
+        moved.append({"name": name, "from_profile": owner, "archived_at": str(archive)})
+    return {"quarantined": moved, "foreign_unmodified": foreign_kept,
+            "local": local, "current": current, "profile": profile}
+
+
+def _restore_archived_owned_skills(root: Path, profile: str) -> list[str]:
+    """Move **this board's own** operator skills back out of the archive.
+
+    A swap parks the other board's editions; when the library comes back to this
+    board, the operator skills this board wrote (fused or published, so *not*
+    vendored) have to come back too -- otherwise an air -> liquid -> air round
+    trip would silently drop merged knowledge out of the live library, and the
+    agent would read a library that is missing its own findings.
+
+    Vendored names are deliberately skipped: those are the plugin's to seed, and
+    an older parked copy must not shadow a newer edition.  Shared knowledge (no
+    marker) was never parked in the first place.
+    """
+    archive = skills_archive_root() / profile
+    if not archive.is_dir():
+        return []
+    vendored: set = set()
+    for skills in _bundled_fingerprints().values():
+        vendored.update(skills)
+    restored: list[str] = []
+    for entry in sorted(archive.glob("*/")):
+        if entry.name in vendored or not (entry / "SKILL.md").is_file():
+            continue
+        if (root / entry.name).exists():
+            continue                       # a newer local copy wins
+        shutil.move(str(entry), str(root / entry.name))
+        restored.append(entry.name)
+    return restored
+
+
+def seed_bundled_skills() -> Dict[str, Any]:
+    """Install this profile's edition, after parking the other board's.
+
+    Order matters: the foreign edition has to leave the library **before** the
+    seed step, or the (identical) skill name would be considered already
+    installed and the agent would keep reading the other board's numbers.
+
+    Within one profile the old behaviour is kept: an existing skill is never
+    overwritten, so a published or hand-edited skill survives.
+    """
     root = dsh_skills_root()
+    profile = active_profile_id()
+    source = bundled_skills_root()
+    quarantine = quarantine_foreign_skills(root=root)
+    if not profile:
+        # An unidentifiable machine gets no hardware-dependent knowledge: both
+        # editions are wrong somewhere.  Say so instead of guessing.
+        return {"added": [], "root": str(root), "profile": "",
+                "quarantined": quarantine["quarantined"],
+                "reason": "hardware profile unresolved; refusing to seed "
+                          "hardware-dependent skills"}
     if not source.exists():
-        return {"added": [], "root": str(root)}
+        return {"added": [], "root": str(root), "profile": profile,
+                "quarantined": quarantine["quarantined"]}
     root.mkdir(parents=True, exist_ok=True)
+    restored = _restore_archived_owned_skills(root, profile)
     added: list[str] = []
     for src_dir in sorted(source.glob("*/")):
         if not (src_dir / "SKILL.md").is_file():
@@ -303,7 +641,20 @@ def seed_bundled_skills() -> Dict[str, Any]:
             src_dir, dst, ignore=shutil.ignore_patterns("*.bak-*")
         )
         added.append(name)
-    return {"added": added, "root": str(root)}
+    profile_dir = bundled_profile_dirs().get(profile)
+    bundled_names = (
+        {skill.name for skill in profile_dir.glob("*/")} if profile_dir else set()
+    )
+    installed = {
+        skill.name: _skill_fingerprint(skill)
+        for skill in sorted(root.glob("*/"))
+        if (skill / "SKILL.md").is_file() and skill.name in bundled_names
+    }
+    _write_skills_manifest(profile, installed)
+    return {"added": added, "root": str(root), "profile": profile,
+            "restored": restored,
+            "quarantined": quarantine["quarantined"],
+            "local_edits_kept": quarantine["local"]}
 
 
 def existing_skills_root() -> Path:
@@ -396,13 +747,15 @@ def _write_sync_summary(workspace_dir: Path, summary: Dict[str, Any]) -> None:
 
 
 def sync_skill_libraries(*, workspace_dir: Path | None = None) -> Dict[str, Any]:
-    """Seed bundled plugin skills, then mirror dsh into ccb (one-way).
+    """Seed this profile's skills, then mirror dsh into ccb (one-way).
 
     First installs any bundled plugin skills (metainfer/.../dcu_kernel_auto_opt/
-    skills) that are missing from the dsh library, then copies skills that are
-    new or changed in dsh into ccb; never deletes ccb-only skills. A ccb
-    SKILL.md is backed up before being overwritten so a bad mirror can be
-    rolled back. Idempotent and safe to call repeatedly.
+    skills/<profile>) that are missing from the dsh library -- after parking the
+    *other* profile's editions, so this machine never reads the other board's
+    numbers (``quarantine_foreign_skills``) -- then copies skills that are new or
+    changed in dsh into ccb; never deletes ccb-only skills. A ccb SKILL.md is
+    backed up before being overwritten so a bad mirror can be rolled back.
+    Idempotent and safe to call repeatedly.
     """
     seeded = seed_bundled_skills()
     source = dsh_skills_root()
@@ -412,6 +765,9 @@ def sync_skill_libraries(*, workspace_dir: Path | None = None) -> Dict[str, Any]
     skipped: list[str] = []
     if source.exists():
         target.mkdir(parents=True, exist_ok=True)
+        # The mirror must be profile-clean too, or a ccb agent would read the
+        # other board's edition of a skill the dsh library no longer has.
+        ccb_quarantine = quarantine_foreign_skills(root=target)
         for src_dir in sorted(source.glob("*/")):
             src_skill = src_dir / "SKILL.md"
             if not src_skill.is_file():
@@ -428,13 +784,21 @@ def sync_skill_libraries(*, workspace_dir: Path | None = None) -> Dict[str, Any]
                 updated.append(name)
             else:
                 skipped.append(name)
+    else:
+        ccb_quarantine = {"quarantined": []}
     summary = {
         "source": str(source),
         "target": str(target),
+        "hw_profile": seeded.get("profile", ""),
+        "quarantined": list(seeded.get("quarantined") or [])
+                       + list(ccb_quarantine.get("quarantined") or []),
         "added": added,
         "updated": updated,
         "skipped": skipped,
         "seeded": sorted(seeded.get("added") or []),
+        # This board's own operator skills that came back out of the archive
+        # (a swap away and back must not lose fused findings).
+        "restored": sorted(seeded.get("restored") or []),
         "ccb_only": sorted(_skill_name_set(target) - _skill_name_set(source)),
         "ts": time.time(),
     }
@@ -444,7 +808,12 @@ def sync_skill_libraries(*, workspace_dir: Path | None = None) -> Dict[str, Any]
 
 
 def rollback_skill(name: str, *, workspace_dir: Path) -> Dict[str, Any]:
-    """Restore the latest SKILL.md backup in the dsh library, then re-mirror."""
+    """Restore the latest SKILL.md backup in the dsh library, then re-mirror.
+
+    The restored body is re-stamped with this board: a backup taken before the
+    edition markers existed (or before fusion stamped them) must not come back
+    unmarked, or it would drop out of the profile split.
+    """
     skill_dir = dsh_skills_root() / name
     if not skill_dir.is_dir():
         raise FileNotFoundError(f"skill not found in dsh library: {name}")
@@ -454,6 +823,7 @@ def rollback_skill(name: str, *, workspace_dir: Path) -> Dict[str, Any]:
     latest = backups[-1]
     shutil.copy2(latest, skill_dir / "SKILL.md")
     latest.unlink()
+    _stamp_skill_file(skill_dir, active_profile_id())
     sync = sync_skill_libraries(workspace_dir=workspace_dir)
     return {
         "name": name,
@@ -501,7 +871,21 @@ def _build_fuse_prompt(
     existing: list[Dict[str, Any]],
     pending_content: str,
     decision_path: Path,
+    *,
+    profile: str = "",
+    board_label: str = "",
 ) -> str:
+    """The fusion agent's instructions.
+
+    Two things the agent cannot infer and must be told, because getting them
+    wrong files one board's measurements under the other:
+
+    * **which board this is** -- the library holds that board's editions and the
+      write lands there, so only findings measured here may be folded in;
+    * **which existing skills are this board's operator knowledge** (marked) and
+      which are shared knowledge both boards read (unmarked, never merged into).
+    """
+    board = f"{profile} ({board_label})" if board_label else (profile or "unknown")
     lines = [
         "You are the skill-fusion agent for DCU kernel optimization.",
         "",
@@ -510,13 +894,36 @@ def _build_fuse_prompt(
         "is mirrored to Claude Code automatically, so this one decision applies",
         "to both frameworks.",
         "",
-        "## Existing skills in the library (name, description, body excerpt)",
+        "## This machine's board",
+        "",
+        f"This machine is **{board}**, and the library holds that board's editions",
+        "(``~/.dsh/skills``). Air boards lack HBM address hashing, so the same",
+        "kernel measures 1.06-1.70x apart between boards -- a number measured on",
+        "one board is wrong on the other. Fold in only material measured on this",
+        "board; nothing else is offered to you.",
+        "",
+        "Each existing skill below is labelled with its ownership:",
+        "",
+        "* ``operator knowledge [<board>]`` -- board-specific measured findings,",
+        "  i.e. the same kind of material as the new skill. Merging is allowed",
+        "  here (and only here).",
+        "* ``shared knowledge [no board]`` -- describes gfx928/DTK itself and is",
+        "  read by **both** boards. Never merge board-specific numbers into one:",
+        "  a refusal is raised server-side. If the new material is really generic",
+        "  the operator will promote it separately.",
+        "",
+        "## Existing skills in the library (name, ownership, body excerpt)",
         "",
     ]
     if not existing:
         lines.append("(the library is empty — add a new skill)")
     for item in existing:
-        lines.append(f"### {item.get('name')}")
+        declared = str(item.get("edition") or "")
+        ownership = (
+            f"operator knowledge [{declared}]" if declared
+            else "shared knowledge [no board]"
+        )
+        lines.append(f"### {item.get('name')} — {ownership}")
         lines.append(f"description: {item.get('description') or ''}")
         body = item.get("content") or ""
         if body.count("---\n") >= 2:
@@ -544,8 +951,11 @@ def _build_fuse_prompt(
         "",
         '- action "new": name must be a short kebab-case id (<=63 chars) that does',
         "  not collide with an existing skill; content is the complete body.",
-        '- action "merge": name must be EXACTLY an existing skill\'s name; content is',
-        "  the complete UPDATED body after folding the new material in.",
+        '- action "merge": name must be EXACTLY an existing skill\'s name **that is',
+        "  labelled operator knowledge**; content is the complete UPDATED body after",
+        "  folding the new material in.",
+        "- A skill files the board automatically: write the body only, no",
+        "  ``metainfer-edition`` marker (the server stamps the machine's board).",
         "- Preserve all existing working knowledge; add the new evidence/rules where",
         "  they fit.",
         "- The body must be concise, actionable Markdown for a kernel-optimization",
@@ -596,14 +1006,32 @@ def _parse_fuse_decision(text: str) -> Dict[str, Any]:
     }
 
 
-def _apply_fuse_decision(decision: Dict[str, Any]) -> Dict[str, Any]:
-    """Apply a parsed fusion decision into the dsh library."""
+def _apply_fuse_decision(
+    decision: Dict[str, Any], *, profile: str
+) -> Dict[str, Any]:
+    """Apply a parsed fusion decision into the dsh library.
+
+    Everything written here is **this board's operator knowledge**, so it is
+    stamped with ``profile`` -- the marker is what makes a later profile swap
+    move it (``quarantine_foreign_skills``) instead of leaving this board's
+    numbers in the other board's library.
+
+    A merge into shared knowledge is refused rather than stamped: ``hygon-dcu-
+    kernel`` and friends carry no board and are read by both boards, so folding
+    this board's measured numbers into one would either mislabel shared truth or
+    silently un-share it.  Board-specific findings belong in a ``new`` skill.
+    """
     root = dsh_skills_root()
     root.mkdir(parents=True, exist_ok=True)
     action = decision["action"]
     name = decision["name"]
     content = decision["content"]
     description = decision["description"]
+    if not profile:
+        raise RuntimeError(
+            "hardware profile unresolved: refusing to file operator knowledge "
+            "that cannot be attributed to a board"
+        )
 
     if action == "new":
         target = root / name
@@ -613,23 +1041,48 @@ def _apply_fuse_decision(decision: Dict[str, Any]) -> Dict[str, Any]:
                 "choose merge or a new name"
             )
         target.mkdir(parents=True, exist_ok=True)
-        body = _frontmatter(
-            name, description or f"{name} optimization skill"
-        ) + content + "\n"
+        body = stamp_edition(
+            _frontmatter(name, description or f"{name} optimization skill")
+            + content + "\n",
+            profile,
+        )
         (target / "SKILL.md").write_text(body, encoding="utf-8")
-        return {"action": "new", "name": name, "path": str(target / "SKILL.md")}
+        return {
+            "action": "new", "name": name, "path": str(target / "SKILL.md"),
+            "edition": profile,
+        }
 
     target = root / name
     if not (target / "SKILL.md").is_file():
         raise FileNotFoundError(
             f"merge target skill {name} does not exist in the dsh library"
         )
+    declared = skill_edition(target)
+    if not declared:
+        raise ValueError(
+            f"refusing to merge {profile!r} findings into {name!r}: that skill "
+            "is shared knowledge (no metainfer-edition marker), so both boards "
+            "read it and this board's numbers must not be folded into it. Ask "
+            "for a new skill instead."
+        )
+    if declared != profile:
+        raise ValueError(
+            f"refusing to merge into {name!r}: it is the {declared!r} edition "
+            f"while this machine is {profile!r}; the library still holds the "
+            "other board's knowledge -- run 「同步 Skill 库」 first"
+        )
     previous = (target / "SKILL.md").read_text(encoding="utf-8", errors="replace")
     backup = _backup_skill(target)
-    # Keep the existing frontmatter (the dir name is the skill identity);
-    # only the body is replaced.
+    # Keep the existing frontmatter (the dir name is the skill identity) and the
+    # board; only the body is replaced.  Re-stamping also repairs an edition
+    # whose marker the agent failed to reproduce.
     fm = re.match(r"^(---\n.*?\n---\n)", previous, flags=re.DOTALL)
-    body = (fm.group(1) if fm else _frontmatter(name, description or f"{name} optimization skill")) + content + "\n"
+    body = stamp_edition(
+        (fm.group(1) if fm else _frontmatter(
+            name, description or f"{name} optimization skill"
+        )) + content + "\n",
+        profile,
+    )
     (target / "SKILL.md").write_text(body, encoding="utf-8")
     diff = "".join(difflib.unified_diff(
         previous.splitlines(keepends=True),
@@ -643,6 +1096,7 @@ def _apply_fuse_decision(decision: Dict[str, Any]) -> Dict[str, Any]:
         "path": str(target / "SKILL.md"),
         "backup": str(backup) if backup else None,
         "diff": diff,
+        "edition": profile,
     }
 
 
@@ -659,7 +1113,17 @@ def fuse_skill(
     The agent scans the existing dsh library, writes a JSON decision
     (new file vs merge into an existing skill), the decision is applied to
     the dsh library, and the result is mirrored to the ccb library.
+
+    The result is **this board's** operator knowledge: it is stamped with the
+    machine's edition so a later profile swap carries it along, and a machine
+    whose board cannot be resolved refuses to fuse at all.
     """
+    profile = active_profile_id()
+    if not profile:
+        raise RuntimeError(
+            "hardware profile unresolved: refusing to fuse operator knowledge "
+            "that cannot be attributed to a board"
+        )
     pending = workspace_dir / "skills" / "pending" / skill_name
     if not (pending / "SKILL.md").is_file():
         raise FileNotFoundError(f"pending skill not found: {skill_name}")
@@ -667,13 +1131,17 @@ def fuse_skill(
         encoding="utf-8", errors="replace"
     )
 
+    library_root = dsh_skills_root()
     existing = [
         {
             "name": item["name"],
             "description": _frontmatter_description(item["content"]),
             "content": item["content"],
+            # Ownership, so the agent knows which targets are this board's
+            # operator knowledge and which are shared and untouchable.
+            "edition": skill_edition(library_root / item["name"]),
         }
-        for item in _skill_entries(dsh_skills_root(), status="existing")
+        for item in _skill_entries(library_root, status="existing")
     ]
 
     fuse_dir = workspace_dir / "skills" / "fuse"
@@ -682,7 +1150,10 @@ def fuse_skill(
     decision_path.unlink(missing_ok=True)
     prompt_file = fuse_dir / "prompt.txt"
     prompt_file.write_text(
-        _build_fuse_prompt(existing, pending_content, decision_path),
+        _build_fuse_prompt(
+            existing, pending_content, decision_path,
+            profile=profile, board_label=_board_label(),
+        ),
         encoding="utf-8",
     )
 
@@ -722,7 +1193,7 @@ def fuse_skill(
         decision = _parse_fuse_decision(
             decision_path.read_text(encoding="utf-8", errors="replace")
         )
-        applied = _apply_fuse_decision(decision)
+        applied = _apply_fuse_decision(decision, profile=profile)
         sync = sync_skill_libraries(workspace_dir=workspace_dir)
         outcome = {
             **applied,
@@ -747,9 +1218,13 @@ def fuse_skill(
 
 def list_skill_library(workspace_dir: Path) -> Dict[str, Any]:
     pending_root = workspace_dir / "skills" / "pending"
+    manifest = read_skills_manifest()
     return {
         "existing_root": str(dsh_skills_root()),
         "ccb_mirror_root": str(ccb_skills_root()),
+        # Which board's editions this library holds (see ``seed_bundled_skills``).
+        "hw_profile": active_profile_id(),
+        "installed_profile": manifest.get("hw_profile", ""),
         "existing": _skill_entries(dsh_skills_root(), status="existing"),
         "pending": _skill_entries(pending_root, status="pending"),
         "fuse_status": read_fuse_status(workspace_dir),
@@ -759,7 +1234,18 @@ def list_skill_library(workspace_dir: Path) -> Dict[str, Any]:
 
 def publish_skill(workspace_dir: Path, name: str) -> Dict[str, Any]:
     """Publish one exact pending directory into the dsh library, then mirror
-    the result to the ccb library. Never overwrites an existing skill."""
+    the result to the ccb library. Never overwrites an existing skill.
+
+    The published skill is operator knowledge measured on this machine, so it is
+    stamped with this board's edition: without the marker a profile swap would
+    leave it in the other board's library (see ``_managed_skill_names``).
+    """
+    profile = active_profile_id()
+    if not profile:
+        raise ValueError(
+            "hardware profile unresolved: refusing to publish operator "
+            "knowledge that cannot be attributed to a board"
+        )
     if _slug(name) != name:
         raise ValueError("invalid skill name")
     source = workspace_dir / "skills" / "pending" / name
@@ -773,6 +1259,7 @@ def publish_skill(workspace_dir: Path, name: str) -> Dict[str, Any]:
     shutil.copytree(
         source, target, ignore=shutil.ignore_patterns("manifest.json")
     )
+    _stamp_skill_file(target, profile)
     published = workspace_dir / "skills" / "published" / name
     published.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(source), str(published))
@@ -781,5 +1268,6 @@ def publish_skill(workspace_dir: Path, name: str) -> Dict[str, Any]:
         "name": name,
         "path": str(target),
         "status": "existing",
+        "edition": profile,
         "synced_to_ccb": {"added": sync["added"], "updated": sync["updated"]},
     }

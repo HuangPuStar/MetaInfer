@@ -16,8 +16,10 @@ disk (accepted manifests + ``shared_baseline/results.json``).
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -39,8 +41,51 @@ def _load_json(path: Path) -> dict:
     return value if isinstance(value, dict) else {}
 
 
+def select_shape_ids(
+    config,
+    *,
+    m_values: str = "",
+    shape_ids: str = "",
+) -> "set[str] | None":
+    """Shapes one merge-and-validate batch covers, or ``None`` for all of them.
+
+    A batch exists because a **weight** may only be packed once: the frozen API's
+    ``prepare_weight(raw_weight, weight_scale)`` has no ``M``, so every M variant
+    of one ``(N, K)`` must share a packed layout, while the worker contract lets
+    each shape's kernel bring its own.  Merging one M at a time -- the way DKAO
+    tasks were always submitted before multi-M catalogs -- keeps every ``(N, K)``
+    unique inside a batch, so each shape is served by its own kernel *and* its own
+    packing.  See ``error_catalog/04-kernel-quality.md``.
+    """
+    known = {str(shape.id): shape for shape in config.shapes.values()}
+    wanted: "set[str]" = set()
+    if m_values.strip():
+        wanted_m = {
+            int(token) for token in re.split(r"[,\s]+", m_values.strip()) if token
+        }
+        for shape_id, shape in known.items():
+            try:
+                value = int((shape.params or {}).get("M"))
+            except (TypeError, ValueError):
+                continue
+            if value in wanted_m:
+                wanted.add(shape_id)
+        if not wanted:
+            raise SystemExit(f"no shape has M in {sorted(wanted_m)}")
+    if shape_ids.strip():
+        wanted |= {
+            token for token in re.split(r"[,\s]+", shape_ids.strip()) if token
+        }
+    if not wanted:
+        return None
+    unknown = sorted(wanted - set(known))
+    if unknown:
+        raise SystemExit(f"unknown shape id(s): {unknown}")
+    return wanted
+
+
 def reconstruct_workers(
-    workspace_dir: Path, config
+    workspace_dir: Path, config, wanted: "set[str] | None" = None
 ) -> dict[str, dict]:
     """Rebuild ``workers[worker_id] = {"shapes": {shape_id: {...}}}`` from the
     accepted artifact manifests written by the (possibly restarted) lanes."""
@@ -50,6 +95,8 @@ def reconstruct_workers(
         root = workspace_dir / "workers" / assignment.worker_id
         lane_shapes: dict[str, dict] = {}
         for shape_id in assignment.shape_ids:
+            if wanted is not None and shape_id not in wanted:
+                continue
             manifest_path = root / "accepted" / shape_id / "manifest.json"
             if not manifest_path.is_file():
                 continue
@@ -72,6 +119,20 @@ def reconstruct_workers(
     return workers
 
 
+def restrict_to_batch(config, completed_assignments):
+    """The config as this batch sees it: only the batch's lanes and shapes.
+
+    ``_synthesize_final_candidate`` re-derives the completed assignments from
+    ``config.assignments`` instead of taking them as an argument, so a batch that
+    only reconstructed some shapes has to be visible there too -- otherwise it
+    looks up a shape's metrics under a lane this batch never rebuilt (KeyError on
+    the first shape of another M).
+    """
+    return dataclasses.replace(
+        config, assignments=list(completed_assignments)
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="dcu-kernel-auto-opt-recover-serial-validate"
@@ -86,6 +147,21 @@ def main() -> int:
             "Agent binary override for the skill-synthesis agent; defaults "
             "resolved from agent_framework."
         ),
+    )
+    parser.add_argument(
+        "--m-values",
+        default="",
+        help=(
+            "Comma-separated M values to merge and validate in this batch "
+            "(e.g. '8'). One M per batch keeps every (N, K) unique, which is "
+            "what the frozen pack-once-per-weight API requires; empty means "
+            "every accepted shape."
+        ),
+    )
+    parser.add_argument(
+        "--shape-ids",
+        default="",
+        help="Explicit shape ids for this batch (comma-separated).",
     )
     args = parser.parse_args()
 
@@ -104,17 +180,39 @@ def main() -> int:
     workspace = args.workspace_dir
     baseline = _load_json(workspace / "shared_baseline" / "results.json")
     initial_metrics = dict(baseline.get("shapes") or {})
-    workers = reconstruct_workers(workspace, config)
+    wanted = select_shape_ids(
+        config, m_values=args.m_values, shape_ids=args.shape_ids
+    )
+    if wanted is not None:
+        initial_metrics = {
+            key: value
+            for key, value in initial_metrics.items()
+            if key in wanted
+        }
+    workers = reconstruct_workers(workspace, config, wanted=wanted)
     if not workers:
         raise RuntimeError(
             "no accepted artifacts found under workers/*/accepted; "
             "cannot recover serial validation"
         )
-    completed_assignments = [
-        assignment
-        for assignment in config.assignments
-        if assignment.worker_id in workers
-    ]
+    completed_assignments = []
+    for assignment in config.assignments:
+        shape_ids = [
+            shape_id for shape_id in assignment.shape_ids
+            if wanted is None or shape_id in wanted
+        ]
+        if assignment.worker_id in workers and shape_ids:
+            completed_assignments.append(
+                dataclasses.replace(assignment, shape_ids=shape_ids)
+            )
+    if not completed_assignments:
+        raise RuntimeError("no completed worker covers this batch")
+    print(
+        f"batch: M={args.m_values or 'all'} shapes="
+        f"{sorted(s for w in workers.values() for s in w['shapes'])}",
+        flush=True,
+    )
+    batch_config = restrict_to_batch(config, completed_assignments)
     print(
         f"recovered workers: {sorted(workers)} "
         f"({sum(len(w['shapes']) for w in workers.values())} shapes)",
@@ -146,7 +244,7 @@ def main() -> int:
         )
         try:
             merged_skill = pipeline._author_merged_skill(
-                config, completed_assignments
+                batch_config, completed_assignments
             )
         except Exception as exc:  # noqa: BLE001 - skill is documentation only
             print(
@@ -161,7 +259,7 @@ def main() -> int:
                 "reason": "recovery: skill synthesis agent unavailable",
             }
         synthesis = pipeline._synthesize_final_candidate(
-            config, workers, initial_metrics, task_id
+            batch_config, workers, initial_metrics, task_id
         )
         validation = synthesis["validation"]
         worker_validation = {
