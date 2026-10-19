@@ -206,6 +206,20 @@ metainfer-cluster tail stdout gpu-worker-1 <job_id>   # 读取某 job 的 stdout
 见 `docs/multi-node-architecture.md`；agent-facing SDK 食谱见
 `docs/agent-sdk-guide.md`。
 
+## 原子技能库
+
+`atomic-skills/` 目录内置了一套技能库，支撑 **long-running 模式下自主端到端优化推理框架性能**：
+
+- **`perf-loop-orchestrator`**：编排 agent 技能，把优化工作组织成无限循环——用户定目标 →
+  正确性门 → Profiling 瓶颈分析 → 优化最显著的瓶颈，每轮产出一份性能分析报告和一套代码提交。
+- **55 个原子子技能**：每条只覆盖一个易错点（先基线后改动、先诊断后修复、中位数优于单次采样、
+  有界等待……），全部来自实际优化任务的踩坑过程——蒸馏自约 1 万条真实优化轨迹、4 万余条失败
+  证据与约 1200 条人工纠偏。
+
+技能采用 Claude 技能格式（`SKILL.md` + YAML frontmatter），可装入 `~/.claude/skills/`、
+项目 `.claude/skills/`，或在任务书中按名引用。完整索引见
+[`atomic-skills/README.md`](atomic-skills/README.md)。
+
 ## License
 
 MIT
