@@ -207,6 +207,27 @@ See `docs/multi-node-architecture.md` for the NFS-safe claim algorithm,
 lease/reaper rules, and the single-reap-path invariant, and
 `docs/agent-sdk-guide.md` for the SDK cookbook.
 
+## Atomic skills library
+
+The `atomic-skills/` directory ships a battle-tested skill library for
+**long-running, autonomous, end-to-end inference-framework performance
+optimization**:
+
+- **`perf-loop-orchestrator`** — an orchestrating agent skill that drives
+  optimization as an unbounded loop: user sets the goal → correctness gate →
+  profiling bottleneck analysis → optimize the most significant bottleneck,
+  producing a performance report and a code commit every iteration.
+- **55 atomic sub-skills** — each covers exactly one error-prone point
+  (baseline before change, diagnose before fix, median over singleton, bounded
+  waiting, …). They all come from real optimization work: distilled from
+  ~10k real optimization trajectories, 40k+ failure evidences and ~1.2k human
+  corrections collected during actual optimization tasks.
+
+Skills use the Claude skill format (`SKILL.md` with YAML frontmatter) and can
+be installed into `~/.claude/skills/`, a project's `.claude/skills/`, or
+referenced by name from task briefs. See
+[`atomic-skills/README.md`](atomic-skills/README.md) for the full index.
+
 ## License
 
 MIT
