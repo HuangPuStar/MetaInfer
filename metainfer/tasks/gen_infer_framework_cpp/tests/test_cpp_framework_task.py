@@ -693,7 +693,7 @@ class CppFrameworkTaskTest(unittest.TestCase):
             root = Path(td)
             state_dir = root / "state"
             store = StateStore(state_dir)
-            store.init_or_resume(task_id="bounded", task_type=TASK_TYPE)
+            store.init_or_resume(task_id="bounded")
             cfg = OrchestratorConfig(
                 workdir=state_dir,
                 repo_root=root,
@@ -738,7 +738,7 @@ class CppFrameworkTaskTest(unittest.TestCase):
             root = Path(td)
             state_dir = root / "state"
             store = StateStore(state_dir)
-            store.init_or_resume(task_id="target", task_type=TASK_TYPE)
+            store.init_or_resume(task_id="target")
             cfg = OrchestratorConfig(
                 workdir=state_dir,
                 repo_root=root,

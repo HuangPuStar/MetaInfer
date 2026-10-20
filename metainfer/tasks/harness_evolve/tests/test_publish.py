@@ -14,8 +14,8 @@ from ..orchestrator.publish import (
     publish_kernels,
 )
 
-_DCU_SEED = Path("/root/zth_agent/MetaInfer/metainfer/tasks/"
-                 "dcu_kernel_auto_opt/harness_default")
+_DCU_SEED = (Path(__file__).resolve().parents[2]
+             / "dcu_kernel_auto_opt" / "harness_default")
 
 
 def _fake_experiment(tmp_path, *, verdict="PROMOTE", held="PASS"):

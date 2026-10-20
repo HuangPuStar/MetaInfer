@@ -74,6 +74,9 @@ def _map_one(
             confidence = "low"
     elif layer is None:
         confidence = "medium"
+    else:
+        # Call stack present and the layer was resolved from it.
+        confidence = "high"
 
     return {
         "kernel_name": kernel_name,

@@ -56,5 +56,6 @@ def test_pp2_contention_no_deadlock(tmp_path: Path) -> None:
     assert len(winners_per_round) == rounds, \
         "all rounds must complete (no deadlock)"
     # After all rounds done, no slots remain held.
-    remaining = scoreboard.list_claims()
+    # list_claims() reports every GPU (free or held); only held rows count.
+    remaining = [c for c in scoreboard.list_claims() if c["status"] == "held"]
     assert remaining == [], f"no slot should remain held, got {remaining}"
