@@ -570,16 +570,28 @@ def usage_from_result_event(
     cache_read = usage.get("cache_read_input_tokens")
     if cache_read is None:
         cache_read = usage.get("cached_input_tokens", 0)
+    # pi reports usage under its own camelCase names (input / output /
+    # cacheRead / cacheWrite). Tolerate them so a raw pi event also works.
+    input_tokens = usage.get("input_tokens", usage.get("input", 0))
+    output_tokens = usage.get("output_tokens", usage.get("output", 0))
+    cache_creation = usage.get(
+        "cache_creation_input_tokens", usage.get("cacheWrite", 0)
+    )
+    total_cost = event.get("total_cost_usd")
+    if total_cost is None:
+        cost = usage.get("cost")
+        if isinstance(cost, dict):
+            total_cost = cost.get("total", 0.0)
     return UsageRecord(
         agent=str(agent),
         source=str(source),
         phase=phase,
         ended_at=time.time(),
-        input_tokens=int(usage.get("input_tokens", 0) or 0),
-        output_tokens=int(usage.get("output_tokens", 0) or 0),
+        input_tokens=int(input_tokens or 0),
+        output_tokens=int(output_tokens or 0),
         cache_read_input_tokens=int(cache_read or 0),
-        cache_creation_input_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
-        total_cost_usd=float(event.get("total_cost_usd", 0.0) or 0.0),
+        cache_creation_input_tokens=int(cache_creation or 0),
+        total_cost_usd=float(total_cost or 0.0),
         session_id=event.get("session_id") or event.get("thread_id"),
     )
 

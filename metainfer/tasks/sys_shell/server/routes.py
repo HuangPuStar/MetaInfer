@@ -215,6 +215,23 @@ def build_router(plugin):
                 raise HTTPException(400, "no requirements.json to restart from")
             prior_status = launcher.status(task_id).to_dict()
             prior_run = _sr.read_run(sd) or {}
+            wd = _workspace_dir_for(entry)
+            if prior_status.get("running"):
+                launcher.kill(task_id, force=True)
+                await asyncio.sleep(0.5)
+            # A *finished* task has already reached its terminal state (hit
+            # the iteration cap or completed); resuming it (preserve_state)
+            # just re-terminates instantly, so "restart" would appear to do
+            # nothing. For a finished task, restart means re-run from scratch:
+            # reset state + workspace, then start fresh. An interrupted (not
+            # finished) task resumes from its last phase as before. Reset is
+            # the single source of truth for wiping a task (CLAUDE.md): we
+            # call ``reset_state_dir`` rather than ad-hoc file deletion.
+            already_finished = bool(prior_run.get("finished"))
+            reset_summary = None
+            if already_finished:
+                tid = prior_run.get("task_id") or task_id
+                reset_summary = _sr.reset_state_dir(sd, wd, tid)
             _sr.append_timeline_event(sd, "restart_initiated", {
                 "task_id": task_id,
                 "prior_pid": prior_status.get("pid"),
@@ -223,16 +240,18 @@ def build_router(plugin):
                 "prior_iteration": prior_run.get("iteration_count")
                                 or prior_run.get("iteration"),
                 "prior_outcome": prior_run.get("outcome"),
-                "resume_mode": "preserve_state",
+                "resume_mode": "fresh_run" if already_finished
+                               else "preserve_state",
+                **({"reason": "task was finished; reset before re-run"}
+                   if already_finished else {}),
             })
-            if prior_status.get("running"):
-                launcher.kill(task_id, force=True)
-                await asyncio.sleep(0.5)
-            wd = _workspace_dir_for(entry)
             pid = launcher.start(task_id, req, sd, wd)
             return {
                 "ok": True, "action": "restart", "pid": pid,
                 "prior_status": prior_status,
+                **({"restarted_from_scratch": True,
+                    "reset_summary": reset_summary}
+                   if already_finished else {}),
             }
         if action == "reset":
             if launcher.status(task_id).running:

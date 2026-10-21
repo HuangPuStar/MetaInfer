@@ -10,6 +10,8 @@
       description: "MHA / MQA / GQA / MLA, with or without KV cache"
     - label: "Quantized GEMM"
       description: "int4/int8/fp8 weight GEMM"
+    - label: "W8A8 GEMM"
+      description: "int8 weight × int8 activation scaled GEMM (per-token/per-channel scale, CUDA Graph compatible)"
     - label: "RMSNorm / LayerNorm"
       description: "Normalization layers"
     - label: "RoPE"
@@ -52,20 +54,56 @@
   question: "What are the primary input shapes the kernel must be tuned for? (free text, e.g. M=4096,N=4096,K=4096 or batch=8,seq=2048,heads=32,head_dim=128)"
   header: "Shapes"
   required: true
+  default: "K=4096,N=4096 (decode M≤32 + prefill M=4096)"
+
+- key: gemm_config
+  question: "GEMM configuration (for W8A8 / Quantized GEMM)"
+  header: "GEMM config"
+  required: false
+  multi: true
+  options:
+    - label: "CUDA Graph compatible"
+      description: "Kernel must be capturable into a CUDA Graph (no host-side allocation, static shapes)"
+    - label: "Python callable"
+      description: "Kernel exposed as a Python function (torch extension or Triton JIT)"
+    - label: "TP=4"
+      description: "Optimize for tensor-parallel=4 (per-rank N is split by 4)"
+    - label: "TP=8"
+      description: "Optimize for tensor-parallel=8 (per-rank N is split by 8)"
+    - label: "Decode path (M≤32)"
+      description: "Latency-critical small-batch regime (M=1,8,16,32)"
+    - label: "Prefill path (M=4096)"
+      description: "Throughput-critical large-batch regime (M=4096)"
+
+- key: baseline
+  question: "What is the performance baseline to beat?"
+  header: "Baseline"
+  required: false
+  multi: false
+  default: "lmslim matmul_int8"
+  options:
+    - label: "lmslim matmul_int8"
+      description: "lmslim.layers.gemm.int8_utils.matmul_int8 (Triton w8a8 baseline)"
+    - label: "torch._scaled_mm"
+      description: "PyTorch native scaled_mm (CUDA/ROCm backend)"
+    - label: "rocBLAS"
+      description: "AMD rocBLAS int8 GEMM"
+    - label: "Hand-written ref"
+      description: "A reference provided in notebooks/"
 
 - key: dtype
   question: "Compute / storage dtype?"
   header: "Dtype"
   required: true
   multi: false
-  default: "fp16"
+  default: "int8"
   options:
     - label: "fp16/bf16"
       description: "Half precision"
     - label: "fp8 (e4m3/e5m2)"
       description: "Hopper native"
     - label: "int8"
-      description: "W8A16 or W8A8"
+      description: "W8A8: int8 weight × int8 activation, bf16 output"
     - label: "int4"
       description: "W4A16"
 
@@ -102,6 +140,20 @@
       description: "Balanced (recommended)"
     - label: "50"
       description: "Deep tuning, multi-day"
+
+- key: flow
+  question: "Which Humanize-style search flow? (see docs.humanfia.ai/humanize)"
+  header: "Flow"
+  required: false
+  multi: false
+  default: "flame_chase"
+  options:
+    - label: "flame_chase"
+      description: "Perf optimization: plateau -> structural REWRITE, else fine-tune. Default."
+    - label: "ralph_loop"
+      description: "Same task round after round in a fresh session until budget stops; no auto-rewrite."
+    - label: "rlar"
+      description: "Actor + fresh reviewer loop; reviewer notes drive the next plan."
 
 - key: extra_notes
   question: "Extra constraints (e.g. must not use cublas, must be deterministic)?"

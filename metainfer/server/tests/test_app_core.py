@@ -110,6 +110,104 @@ def test_control_reset_stamps_timeline(client, isolated_env):
     assert "task_reset" in types
 
 
+def _register_task_with_workspace(state_dir, workspace_dir, task_id,
+                                  task_type="calc-theoretical-value"):
+    state_dir.mkdir(parents=True, exist_ok=True)
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+    entry = TaskEntry(
+        id=task_id, type=task_type, label="test task",
+        state_dir=str(state_dir), created_at=0.0,
+        workspace_dir=str(workspace_dir),
+    )
+    _tasks.add_task(entry)
+    return entry
+
+
+def _timeline_events(state_dir):
+    lines = [ln for ln in (state_dir / "timeline.jsonl").read_text().splitlines()
+             if ln.strip()]
+    return [json.loads(ln) for ln in lines]
+
+
+def test_control_restart_resets_finished_task_and_reruns(client, isolated_env):
+    """Restart on a FINISHED task re-runs from scratch: state + workspace
+    are reset, then the orchestrator starts fresh. Resuming a finished
+    task would just re-terminate instantly (iteration cap reached), so
+    'restart' must mean re-run, not resume."""
+    home = isolated_env["home"]
+    state_dir = home / "tasks" / "ct-1"
+    workspace_dir = home.parent / "workspaces" / "ct-1"
+    _register_task_with_workspace(state_dir, workspace_dir, "ct-1")
+    (state_dir / "requirements.json").write_text(json.dumps({
+        "task_id": "ct-1", "task_type": "calc-theoretical-value",
+        "max_iterations": 3,
+    }), encoding="utf-8")
+    (state_dir / "run.json").write_text(json.dumps({
+        "task_id": "ct-1", "current_phase": "finished",
+        "current_iteration": 3, "finished": True, "final_status": "success",
+    }), encoding="utf-8")
+    (state_dir / "iterations").mkdir()
+    (workspace_dir / "001").mkdir()
+
+    resp = client.post("/api/sys-shell/ct-1/control", json={"action": "restart"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["action"] == "restart"
+    assert body["restarted_from_scratch"] is True
+
+    # state wiped: fresh idle run.json (reset_state_dir wrote it)
+    run = json.loads((state_dir / "run.json").read_text())
+    assert run["current_phase"] == "idle"
+    assert run["current_iteration"] == 0
+    assert run["finished"] is False
+    # prior iterations dir + workspace artifacts gone
+    assert not (state_dir / "iterations").exists()
+    assert not (workspace_dir / "001").exists()
+    # orchestrator was started
+    assert "ct-1" in isolated_env["launcher"].started
+    # timeline records fresh_run mode + the reset
+    ev = _timeline_events(state_dir)
+    types = [e["type"] for e in ev]
+    assert "task_reset" in types
+    ri = [e for e in ev if e["type"] == "restart_initiated"]
+    assert ri and ri[0]["payload"]["resume_mode"] == "fresh_run"
+
+
+def test_control_restart_resumes_interrupted_task(client, isolated_env):
+    """Restart on an interrupted (NOT finished) task resumes from its
+    last phase — state is preserved, no reset."""
+    home = isolated_env["home"]
+    state_dir = home / "tasks" / "ct-2"
+    workspace_dir = home.parent / "workspaces" / "ct-2"
+    _register_task_with_workspace(state_dir, workspace_dir, "ct-2")
+    (state_dir / "requirements.json").write_text(json.dumps({
+        "task_id": "ct-2", "task_type": "calc-theoretical-value",
+        "max_iterations": 50,
+    }), encoding="utf-8")
+    (state_dir / "run.json").write_text(json.dumps({
+        "task_id": "ct-2",
+        "current_phase": "C_correctness", "current_iteration": 2,
+        "finished": False, "final_status": None,
+    }), encoding="utf-8")
+    (state_dir / "iterations").mkdir()
+
+    resp = client.post("/api/sys-shell/ct-2/control", json={"action": "restart"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert "restarted_from_scratch" not in body  # not reset
+    # run.json preserved (NOT wiped to idle)
+    run = json.loads((state_dir / "run.json").read_text())
+    assert run["current_phase"] == "C_correctness"
+    assert run["current_iteration"] == 2
+    assert "ct-2" in isolated_env["launcher"].started
+    ev = _timeline_events(state_dir)
+    assert "task_reset" not in [e["type"] for e in ev]
+    ri = [e for e in ev if e["type"] == "restart_initiated"]
+    assert ri and ri[0]["payload"]["resume_mode"] == "preserve_state"
+
+
 def test_control_kill_calls_launcher(client, isolated_env):
     state_dir = isolated_env["home"] / "tasks" / "ct-1"
     _register_task(state_dir, "ct-1")

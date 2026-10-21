@@ -347,6 +347,15 @@ body {
   font-size: 12px;
   font-family: monospace;
 }
+.control-info {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: #1f6feb33;
+  color: #79c0ff;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: monospace;
+}
 
 .task-grid {
   display: grid;

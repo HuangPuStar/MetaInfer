@@ -17,10 +17,12 @@ plugin = WebPlugin(
         "for a specific shape and platform."
     ),
     detail_view_module="app/ok-detail",
+    detail_view_export="default",
     qa_config=_QA_CONFIG,
     build_router=build_router,
     frontend_dir=Path(__file__).resolve().parent.parent / "static",
     importmap_entries={},
+    extra_stylesheets=["ok.css"],
 )
 
 register(plugin)

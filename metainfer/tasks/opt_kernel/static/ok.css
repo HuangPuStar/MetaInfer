@@ -1,0 +1,335 @@
+/* opt-kernel phase pills.
+ *
+ * Same ABCDEF cycle as gen-cpp-infer-framework. All in-progress phases
+ * share the accent color.
+ */
+.pill.A_plan,
+.pill.B_implement,
+.pill.C_test,
+.pill.D_review,
+.pill.E_perf_test,
+.pill.F_perf_plan {
+  background: rgba(88, 166, 255, 0.15);
+  color: #58a6ff;
+}
+
+/* Reviewer panel: dual-card layout for correctness + performance reviews */
+.reviewers-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.reviewer-card {
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 12px;
+  background: #0d1117;
+}
+
+.reviewer-card h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reviewer-card .reviewer-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(88, 166, 255, 0.15);
+  color: #58a6ff;
+}
+
+.reviewer-card .reviewer-tag.perf {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+}
+
+.reviewer-card .review-md {
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.reviewer-card .review-md h1,
+.reviewer-card .review-md h2,
+.reviewer-card .review-md h3 {
+  font-size: 13px;
+  margin: 8px 0 4px 0;
+}
+
+.reviewer-card .review-md p {
+  margin: 4px 0;
+}
+
+.reviewer-card .review-md ul {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+/* Profile panel */
+.profile-panel {
+  margin-top: 8px;
+}
+
+.profile-section {
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: #0d1117;
+}
+
+.profile-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+}
+
+.profile-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.metric-tile {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 8px;
+  text-align: center;
+}
+
+.metric-tile .metric-label {
+  font-size: 11px;
+  color: #8b949e;
+  margin-bottom: 2px;
+}
+
+.metric-tile .metric-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #58a6ff;
+}
+
+.metric-tile .metric-value.good {
+  color: #3fb950;
+}
+
+.metric-tile .metric-value.bad {
+  color: #f85149;
+}
+
+.kernel-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.kernel-stats-table th,
+.kernel-stats-table td {
+  border: 1px solid #30363d;
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.kernel-stats-table th {
+  background: #161b22;
+  color: #8b949e;
+}
+
+.profile-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.artifact-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  color: #8b949e;
+}
+
+.artifact-badge.collected {
+  color: #3fb950;
+  border-color: #238636;
+}
+
+.artifact-badge.missing {
+  color: #8b949e;
+}
+
+.shape-results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.shape-results-table th,
+.shape-results-table td {
+  border: 1px solid #30363d;
+  padding: 4px 8px;
+  text-align: right;
+}
+
+.shape-results-table th {
+  background: #161b22;
+  color: #8b949e;
+}
+
+.shape-results-table td:first-child {
+  text-align: left;
+}
+
+.speedup-cell {
+  font-weight: 600;
+}
+
+.speedup-cell.fast {
+  color: #3fb950;
+}
+
+.speedup-cell.slow {
+  color: #f85149;
+}
+
+/* Operator feedback panel (persistent guidance injected into every planner) */
+.feedback-panel .feedback-form {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.feedback-panel textarea {
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #c9d1d9;
+  padding: 8px;
+  font: inherit;
+  resize: vertical;
+}
+.feedback-panel button {
+  align-self: flex-start;
+  padding: 8px 14px;
+  background: #238636;
+  color: #fff;
+  border: 1px solid #2ea043;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.feedback-panel button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.feedback-thread {
+  margin-top: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.feedback-item {
+  border-left: 2px solid #30363d;
+  padding: 4px 0 4px 10px;
+  margin-bottom: 8px;
+}
+.feedback-item-text {
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Correctness oracle verdict banner in the reviewers panel */
+.correctness-banner {
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.correctness-banner.pass {
+  background: rgba(63, 185, 80, 0.12);
+  border: 1px solid rgba(63, 185, 80, 0.4);
+  color: #3fb950;
+}
+.correctness-banner.fail {
+  background: rgba(248, 81, 73, 0.12);
+  border: 1px solid rgba(248, 81, 73, 0.4);
+  color: #f85149;
+}
+
+/* AHE panel: falsifiable predictions + agent debugger.
+ * confirmed = green, falsified = red, inconclusive = muted. */
+.ahe-panel-wrap { grid-column: 1 / -1; }
+.ahe-panel .ahe-legend { margin: 4px 0 10px; font-size: 12px; line-height: 1.5; }
+.ahe-panel .ahe-legend .ahe-pill { margin-left: 6px; }
+.ahe-pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  vertical-align: middle;
+}
+.ahe-confirmed { background: rgba(63, 185, 80, 0.15); border-color: rgba(63, 185, 80, 0.4); color: #3fb950; }
+.ahe-falsified { background: rgba(248, 81, 73, 0.15); border-color: rgba(248, 81, 73, 0.4); color: #f85149; }
+.ahe-inconclusive { background: rgba(139, 148, 158, 0.15); border-color: rgba(139, 148, 158, 0.4); color: #8b949e; }
+
+.ahe-overview { margin: 6px 0 14px; border: 1px solid var(--border, #30363d); border-radius: 6px; background: var(--bg-elev, #161b22); }
+.ahe-overview > summary { padding: 8px 12px; cursor: pointer; font-size: 13px; }
+.ahe-overview-md { padding: 0 14px 12px; font-size: 13px; line-height: 1.55; max-height: 420px; overflow: auto; }
+.ahe-overview-md h1, .ahe-overview-md h2, .ahe-overview-md h3 { margin: 10px 0 4px; }
+.ahe-overview-md p { margin: 6px 0; }
+.ahe-overview-md ul { margin: 6px 0; padding-left: 20px; }
+.ahe-overview-md code { background: rgba(110,118,129,0.2); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+
+.ahe-cards { display: flex; flex-direction: column; gap: 10px; }
+.ahe-card { border: 1px solid var(--border, #30363d); border-radius: 6px; padding: 10px 12px; background: var(--bg-elev, #161b22); }
+.ahe-card.ahe-regressed { border-color: rgba(248, 81, 73, 0.5); }
+.ahe-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ahe-card-head h3 { margin: 0; font-size: 14px; }
+.ahe-verdict-text { font-size: 12px; }
+.ahe-summary { margin: 6px 0; font-size: 12px; line-height: 1.5; }
+.ahe-perf-row { font-size: 12px; margin: 4px 0 8px; }
+.ahe-perf-row code { background: rgba(110,118,129,0.2); padding: 1px 5px; border-radius: 3px; }
+
+.ahe-table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 12px; }
+.ahe-table th { text-align: left; padding: 4px 8px; color: var(--fg-dim, #b9c2cc); font-weight: 600; border-bottom: 1px solid var(--border, #30363d); }
+.ahe-table td { padding: 4px 8px; border-bottom: 1px solid rgba(48,54,61,0.5); vertical-align: top; }
+.ahe-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ahe-id { font-family: monospace; color: var(--fg-dim, #b9c2cc); white-space: nowrap; }
+.ahe-metric { font-family: monospace; white-space: nowrap; }
+
+.ahe-change { margin: 6px 0 2px; font-size: 12px; }
+.ahe-change > summary { cursor: pointer; color: var(--fg-dim, #b9c2cc); }
+.ahe-change > summary code { background: rgba(110,118,129,0.2); padding: 1px 4px; border-radius: 3px; }
+.ahe-change-body {
+  margin: 6px 0 8px;
+  padding: 8px 10px;
+  background: rgba(110,118,129,0.08);
+  border-left: 2px solid var(--border, #30363d);
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.ahe-detail-toggle { margin-top: 6px; }
+.ahe-detail-btn { font-size: 12px; padding: 2px 10px; }
+.ahe-detail-md { margin-top: 8px; padding: 10px 12px; background: rgba(110,118,129,0.06); border-radius: 4px; font-size: 12px; line-height: 1.55; max-height: 360px; overflow: auto; }
+.ahe-detail-md h1, .ahe-detail-md h2, .ahe-detail-md h3 { margin: 10px 0 4px; }
+.ahe-detail-md p { margin: 6px 0; }
+.ahe-detail-md ul { margin: 6px 0; padding-left: 20px; }
+.ahe-detail-md code { background: rgba(110,118,129,0.2); padding: 1px 4px; border-radius: 3px; font-size: 12px; }

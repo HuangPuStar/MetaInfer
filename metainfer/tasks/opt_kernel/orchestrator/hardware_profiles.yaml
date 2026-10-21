@@ -1,0 +1,184 @@
+# Executable hardware profiles for opt-kernel.
+#
+# The selected form value (target_hardware) is the key under `profiles`.
+# The orchestrator renders the matching profile into agent prompts and
+# the perf oracle uses it to launch rocprof with the right counters.
+#
+# Unlike gen-cpp-infer-framework (which builds a C++ server), opt-kernel
+# benchmarks a single kernel callable. The profile's `build` section is
+# therefore minimal — the agent writes Python/Triton/HIP code that the
+# oracle imports directly. The `profiling` section drives rocprof.
+schema_version: 1
+
+profiles:
+  K100AI / K500SM (DCU):
+    id: hygon-k100ai-gfx928
+    status: initial-validation
+    source_notebook: notebooks/01_hygon_dcu_arch.md
+
+    detection:
+      required_commands:
+        - hipcc
+        - rocminfo
+        - rocprof
+        - rocm-smi
+      expected_device:
+        vendor: HYGON
+        marketing_name: K100_AI
+        device_type: DCU
+        target_id_prefix: gfx928
+
+    build:
+      build_system: python
+      languages: [Python, Triton, HIP]
+      artifact: kernel.py
+      compiler:
+        command: hipcc
+        release_args: ["-O3", "--offload-arch=gfx928"]
+        inspection_args: ["-gline-tables-only", "-save-temps"]
+      env:
+        AMDGPU_TARGETS: gfx928
+        HIP_VISIBLE_DEVICES: "0"
+
+    runtime:
+      backend: hip
+      device_select_api: hipSetDevice
+      target_arch: gfx928
+      wavefront_size: 64
+      compute_units: 128
+      lds_per_cu_kib: 64
+      # gfx928 (CDNA2-class) has matrix instructions via MFMA (not WMMA).
+      # Triton's tl.dot maps to MFMA for int8 on this arch.
+      matrix_instructions: MFMA
+      max_workgroup_size: 1024
+
+    operators:
+      gemm:
+        baseline: lmslim.layers.gemm.int8_utils.matmul_int8
+        baseline_type: triton
+        custom_route: Triton tl.dot int8→int32 accumulator with per-token/per-channel scale fusion
+        do_not_assume: [WMMA, CUDA cp.async, Hopper TMA, NVIDIA Warp32 mapping]
+      attention:
+        route: Wave64 online softmax with explicit LDS sizing
+        do_not_assume: [CUDA cp.async, Hopper TMA, NVIDIA Warp32 mapping]
+      reductions:
+        wave_route: HIP __shfl_* with width=warpSize
+        block_route: wave reduction followed by LDS plus __syncthreads
+      memory:
+        vector_load_types: [float4, int4, uint4, char4]
+        alignment_bytes: 16
+
+    profiling:
+      telemetry_commands: [rocm-smi, rocminfo]
+      profiler: rocprof
+      launch_args: ["--stats"]
+      artifact_globs: ["results*.csv", "*.stats.csv", "results.json"]
+      captures:
+        kernel_stats: ["--stats"]
+        hip_api_trace: ["--hip-trace"]
+        counter_discovery: ["--list-basic", "--list-derived"]
+        counter_capture: ["-i", "<counters-file>"]
+      # Key counters for GEMM optimization on gfx928
+      key_counters:
+        - SQ_BUSY_CYCLES
+        - GPUBusy
+        - L2CacheHit
+        - LDSBankConflicts
+        - WaveCount
+        - InstrSALU
+        - InstrVALU
+        - InstrVALU_MFMA
+      clock_policy:
+        automatic_change: false
+        optional_manual_command: "rocm-smi --setperflevel high"
+        verify_after_change: ["rocm-smi --showclocks", "rocm-smi --showperflevel"]
+
+    validation_rules:
+      - Reject a device whose rocminfo target is not gfx928-compatible.
+      - Do not select unsupported profiler counters without first querying rocprof.
+      - Do not assume NVIDIA-specific async-copy or warp-shuffle-32 semantics.
+      - wavefront_size is 64 on gfx928; all wave-level code must use width=64.
+
+  H100 (SM 90):
+    id: nvidia-h100-sm90
+    status: placeholder
+    source_notebook: ""
+    detection:
+      required_commands: [nvcc, nvidia-smi]
+      expected_device:
+        vendor: NVIDIA
+        marketing_name: H100
+        device_type: GPU
+        target_id_prefix: sm_90
+    build:
+      build_system: python
+      languages: [Python, Triton, CUDA]
+      artifact: kernel.py
+      compiler:
+        command: nvcc
+        release_args: ["-O3", "-arch=sm_90"]
+      env: {}
+    runtime:
+      backend: cuda
+      target_arch: sm_90
+      wavefront_size: 32
+      compute_units: 132
+      matrix_instructions: WGMMA
+      max_workgroup_size: 1024
+    operators:
+      gemm:
+        baseline: torch._scaled_mm
+        custom_route: Triton tl.dot with TMA + WGMMA
+    profiling:
+      telemetry_commands: [nvidia-smi]
+      profiler: nsys
+      launch_args: ["stats", "--report", "csv"]
+      artifact_globs: ["*.csv"]
+      captures: {}
+      key_counters: []
+      clock_policy:
+        automatic_change: false
+    validation_rules:
+      - Reject a device whose compute capability is not sm_90-compatible.
+
+  A100 (SM 80):
+    id: nvidia-a100-sm80
+    status: placeholder
+    source_notebook: ""
+    detection:
+      required_commands: [nvcc, nvidia-smi]
+      expected_device:
+        vendor: NVIDIA
+        marketing_name: A100
+        device_type: GPU
+        target_id_prefix: sm_80
+    build:
+      build_system: python
+      languages: [Python, Triton, CUDA]
+      artifact: kernel.py
+      compiler:
+        command: nvcc
+        release_args: ["-O3", "-arch=sm_80"]
+      env: {}
+    runtime:
+      backend: cuda
+      target_arch: sm_80
+      wavefront_size: 32
+      compute_units: 108
+      matrix_instructions: WMMA
+      max_workgroup_size: 1024
+    operators:
+      gemm:
+        baseline: torch._scaled_mm
+        custom_route: Triton tl.dot with async cp.async
+    profiling:
+      telemetry_commands: [nvidia-smi]
+      profiler: nsys
+      launch_args: ["stats", "--report", "csv"]
+      artifact_globs: ["*.csv"]
+      captures: {}
+      key_counters: []
+      clock_policy:
+        automatic_change: false
+    validation_rules:
+      - Reject a device whose compute capability is not sm_80-compatible.

@@ -191,6 +191,16 @@ class IterationWorkspace:
         for entry in src.iterdir():
             if _should_skip_on_copy(entry.name) or entry.name.startswith("."):
                 continue
+            # Skip symlinks outright. An agent may link out of its
+            # workspace into the repo (e.g. ``nodes -> /repo/nodes`` to reach
+            # the root); following that link here would copy an external tree
+            # into the next iteration. When the link target contains the
+            # workspace itself (``nodes/.../workspaces/<id>/001/``), the
+            # recursion nests infinitely and blows the path-length limit
+            # (OSError [Errno 36]). The agent recreates any link it needs in
+            # the new iteration, so dropping it at copy time is safe.
+            if entry.is_symlink():
+                continue
             target_entry = dst / entry.name
             if entry.is_dir():
                 # Recurse, applying the same skip filter inside the subtree.

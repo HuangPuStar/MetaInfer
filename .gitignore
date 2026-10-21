@@ -18,3 +18,8 @@ iterations/
 .vscode/
 .idea/
 .DS_Store
+
+# Runtime / per-node artifacts (do not commit)
+nodes/
+logs/
+.tid

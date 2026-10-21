@@ -121,6 +121,34 @@ METAINFER_AGENT_BACKEND=codex ./serve.py
 METAINFER_AGENT_BACKEND=codex METAINFER_CODEX_BIN=/path/to/codex ./serve.py
 ```
 
+#### pi 后端
+
+如果使用 [pi](https://pi.dev) 后端，需要先在本机安装 pi 编码代理 CLI
+并配置好 provider。MetaInfer 不会保存或传递 API key；它只调用
+`pi --mode json -p`，复用你本机已有的 `~/.pi` 设置和环境变量
+（`PI_PROVIDER`、`PI_MODEL`、各 provider 的 API key 等）。
+
+```bash
+npm i -g @earendil-works/pi-coding-agent
+pi auth status   # 确认已配置某个 provider
+```
+
+然后用 pi 后端启动 MetaInfer：
+
+```bash
+METAINFER_AGENT_BACKEND=pi ./serve.py
+```
+
+如果 pi 二进制不叫 `pi`，或者不在 `PATH` 里，可以显式指定：
+
+```bash
+METAINFER_AGENT_BACKEND=pi METAINFER_PI_BIN=/path/to/pi ./serve.py
+```
+
+pi 后端会把 orchestrator 的 `effort` 旋钮映射到 pi 的 `--thinking` 等级
+（`low` / `medium` / `high` / `max`）。会话续接使用 `--session <id> --continue`；
+session id 从 pi 流首的 `session` 事件中捕获，供后续轮次续接。
+
 ### 第二步，安装MetaInfer
 ```bash
 git clone https://github.com/MetaInfer/MetaInfer.git

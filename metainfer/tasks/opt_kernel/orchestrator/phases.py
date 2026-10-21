@@ -99,6 +99,17 @@ TRANSITIONS: Dict[Tuple[Phase, Outcome], Transition] = {
                                           label="C fail → redo", consume_iteration=True),
     ("E_perf_test", OK): Transition("E_perf_test", OK, "F_perf_plan",
                                      label="ok", carry_failure=False, carry_perf=True, consume_iteration=False),
+    # Perf regression: the oracle already computed report.regression
+    # (drop vs prev iter's primary metric). Route back to B_implement so the
+    # implementer re-does the kernel to undo the regression — the plan is
+    # still valid, only this revision's implementation regressed. carry_perf
+    # arms the next E with the regressed metric as the comparison baseline;
+    # carry_failure surfaces the regression description to the implementer
+    # via prev_failure. consume_iteration closes the regressed iteration.
+    ("E_perf_test", PERF_REGRESSION): Transition("E_perf_test", PERF_REGRESSION, "B_implement",
+                                                   label="regress→redo impl",
+                                                   carry_failure=True, carry_perf=True,
+                                                   consume_iteration=True),
     ("F_perf_plan", OK): Transition("F_perf_plan", OK, "A_plan",
                                      label="new iter", carry_failure=False, consume_iteration=True),
 

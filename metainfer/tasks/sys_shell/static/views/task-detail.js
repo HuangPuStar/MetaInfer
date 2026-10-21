@@ -108,6 +108,7 @@ export function TaskDetailView({ taskId, taskType, run, status, onChange, label,
   }, [taskId, refreshAll]);
 
   const [controlError, setControlError] = useState(null);
+  const [controlInfo, setControlInfo] = useState(null);
 
   // Auto-clear control error after 5 seconds.
   useEffect(() => {
@@ -115,6 +116,11 @@ export function TaskDetailView({ taskId, taskType, run, status, onChange, label,
     const id = setTimeout(() => setControlError(null), 5000);
     return () => clearTimeout(id);
   }, [controlError]);
+  useEffect(() => {
+    if (!controlInfo) return;
+    const id = setTimeout(() => setControlInfo(null), 6000);
+    return () => clearTimeout(id);
+  }, [controlInfo]);
 
   const onControl = async (action, extra = {}) => {
     setControlError(null);
@@ -129,6 +135,13 @@ export function TaskDetailView({ taskId, taskType, run, status, onChange, label,
       // will flip to Restart on the next poll cycle.
       if (action === "kill" && result && !result.ok) {
         setControlError("Process was already stopped. Refreshing…");
+      }
+      // restart on a *finished* task re-runs from scratch (the backend
+      // reset state + workspace first, since resuming a finished task
+      // would just re-terminate instantly). Surface this so the user
+      // knows prior results were cleared.
+      if (action === "restart" && result && result.restarted_from_scratch) {
+        setControlInfo("任务已完成，已重置并从第 1 轮重新开始（原结果已清除）");
       }
     } catch (e) {
       console.error(e);
@@ -193,6 +206,9 @@ export function TaskDetailView({ taskId, taskType, run, status, onChange, label,
         </div>
         ${controlError
           ? html`<div class="control-error">${controlError}</div>`
+          : null}
+        ${controlInfo
+          ? html`<div class="control-info">${controlInfo}</div>`
           : null}
       </header>
 
