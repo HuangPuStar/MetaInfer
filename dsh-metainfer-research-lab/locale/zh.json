@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MetaInfer Research Lab · 科研实验台",
+    "description": "用动态 DAG 组织科研实验：每个节点绑定独立 git worktree 与 subagent，专家组生长计划、调度器分配资源，支持手动 Step 与自动挡。"
+  }
+}

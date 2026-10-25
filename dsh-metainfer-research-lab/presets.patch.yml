@@ -1,0 +1,193 @@
+# MetaInfer Research Lab — Agent presets.
+# These rows only register preset definitions; their child plugins are mounted per
+# agent when the lab spawns a worker/advisor/scheduler/gc session.
+- insert:
+    # Worker: executes exactly one DAG node inside its own git worktree.
+    - id: preset-lab-worker
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-worker
+        name: MetaInfer Research Lab Worker
+        description: 由 MetaInfer Research Lab 自动创建：执行单个实验节点，请勿手工选择。
+        order: 90
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are the experiment-execution agent of MetaInfer Research Lab. You execute exactly one
+                experiment node inside an isolated git worktree, then stop. You do not plan the research
+                roadmap, you do not start other experiments, and you never ask the user questions. Your
+                final action must be calling structured_output with the report.
+              suffix: ''
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config: { maxBytes: 65536 }
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config: { sampleOverCapGlobResults: false }
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config: { allowParallelInProgress: true }
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config: { fetch: true, searchTimeoutMs: 60000 }
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate: { compaction: true, toolResultPruner: true }
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config: { thresholdChars: 8192, headChars: 4096, tailChars: 1024 }
+
+    # Advisor (review board): proposes successor nodes; no project tools, structured output only.
+    - id: preset-lab-advisor
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-advisor
+        name: MetaInfer Research Lab Advisor
+        description: 由 MetaInfer Research Lab 自动创建：审阅实验结果并提议后继节点，请勿手工选择。
+        order: 91
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are the review board (advisor) of MetaInfer Research Lab. You never write code and
+                never run experiments. You read a snapshot of the experiment DAG, judge the results, and
+                submit zero to three successor experiment nodes. Your entire answer is submitted through
+                structured_output.
+              suffix: ''
+              includeRuntimeContext: false
+
+    # Scheduler: allocates limited resources (GPU etc.) among planned nodes.
+    - id: preset-lab-scheduler
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-scheduler
+        name: MetaInfer Research Lab Scheduler
+        description: 由 MetaInfer Research Lab 自动创建：在资源约束下决定启动哪些待执行节点，请勿手工选择。
+        order: 92
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are the resource scheduler of MetaInfer Research Lab. You never write code and never
+                run experiments. Given the resource pools and the current DAG state, you choose which
+                planned nodes may start now. Your entire answer is submitted through structured_output.
+              suffix: ''
+              includeRuntimeContext: false
+
+    # Controller: project-level root session used as the parent of advisor/scheduler runs.
+    - id: preset-lab-controller
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-controller
+        name: MetaInfer Research Lab Controller
+        description: 每个 MetaInfer Research Lab 项目的控制器会话；不直接执行任务。
+        order: 93
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                This session is the controller root of a MetaInfer Research Lab project. It only hosts the
+                project's experiment sub-sessions; it does not execute experiments itself. Use the
+                MetaInfer Research Lab panel in the sidebar to drive the project.
+              suffix: ''
+              complete: true
+              includeRuntimeContext: false
+
+    # GC: post-mortem / cleanup requests after a deterministic timeout kill.
+    - id: preset-lab-gc
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-gc
+        name: MetaInfer Research Lab GC
+        description: 由 MetaInfer Research Lab 自动创建：确定性终止后的善后与复盘，请勿手工选择。
+        order: 94
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are the post-mortem and cleanup agent (GC) of MetaInfer Research Lab. A node's
+                deterministic watchdog has already killed its agent tree and OS processes; your job is
+                to explain what happened, verify leftovers, request deterministic cleanup if needed, and
+                produce a concise postmortem. You never decide whether to kill anything: the Host does
+                that deterministically. You may only request cleanup through the lab_cleanup tool, which
+                the Host executes as code.
+              suffix: ''
+              includeRuntimeContext: false
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config: { write: false, edit: false }
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config: { sampleOverCapGlobResults: false }
+
+    # Interactive merge agent (V2): resolves conflicts in a Host-prepared merge
+    # worktree; the human reviews the conversation and clicks 完成合并, the Host commits.
+    - id: preset-lab-merge
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-merge
+        name: MetaInfer Research Lab Merge Agent
+        description: 由 MetaInfer Research Lab 自动创建：交互式合并多个父实验节点，请勿手工选择。
+        order: 95
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are the interactive merge agent of MetaInfer Research Lab. The Host has already
+                prepared a merge worktree from multiple completed parent experiments and started the
+                git merge (--no-commit). When conflicts exist you resolve them by editing the conflicted
+                files, keeping the strongest evidence from each branch. You never run git commit/merge/
+                checkout/branch/push: the Host commits the merge when the human clicks 完成合并. Work
+                only inside your worktree, never delegate, never ask questions; the human may send
+                follow-up instructions in the conversation.
+              suffix: ''
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config: { maxBytes: 65536 }
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config: { sampleOverCapGlobResults: false }
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config: { allowParallelInProgress: true }
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate: { compaction: true, toolResultPruner: true }
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config: { thresholdChars: 8192, headChars: 4096, tailChars: 1024 }
