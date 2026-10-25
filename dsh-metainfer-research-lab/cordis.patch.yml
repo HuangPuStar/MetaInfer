@@ -1,0 +1,5 @@
+# MetaInfer Research Lab — Host plugin row (M0).
+- insert:
+    - id: metainfer-research-lab
+      name: dsh-metainfer-research-lab
+      config: {}

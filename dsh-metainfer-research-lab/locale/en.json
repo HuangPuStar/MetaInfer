@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MetaInfer Research Lab",
+    "description": "Research-experiment DAG IDE for DeepSeek Harness: organise experiments as a living directed acyclic graph, with each node owning its git worktree and subagent session."
+  }
+}

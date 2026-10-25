@@ -1,0 +1,23 @@
+{
+  "enabled": false,
+  "role": "both",
+  "clusterId": "lab-gpu-cluster",
+  "instanceId": "dsh-gpu-a",
+  "machineId": "gpu-node-a",
+  "coordinatorId": "coordinator-gpu-a",
+  "userId": "alice",
+  "url": "http://10.0.0.10:8794",
+  "listen": {
+    "host": "0.0.0.0",
+    "port": 8794
+  },
+  "token": "replace-with-a-long-random-token",
+  "heartbeatMs": 10000,
+  "leaseTtlMs": 900000,
+  "devices": null,
+  "priority": 0,
+  "dashboard": true,
+  "allowMultipleCoordinators": false,
+  "claimDir": null,
+  "stateFile": null
+}

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="MetaInfer Research Lab">
+  <defs>
+    <linearGradient id="mirl-node-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9db8ff"/>
+      <stop offset="1" stop-color="#5b7cfa"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="#7b9cff" stroke-width="2.5" stroke-linecap="round" opacity="0.9">
+    <path d="M32 13 L16 36"/>
+    <path d="M32 13 L48 36"/>
+    <path d="M16 36 L32 54"/>
+    <path d="M48 36 L32 54"/>
+    <path d="M21 36 H43" stroke-dasharray="3 5" opacity="0.55"/>
+  </g>
+  <circle cx="32" cy="13" r="7" fill="url(#mirl-node-accent)"/>
+  <circle cx="16" cy="36" r="6" fill="#6f8ffc"/>
+  <circle cx="48" cy="36" r="6" fill="#6f8ffc"/>
+  <circle cx="32" cy="54" r="7" fill="url(#mirl-node-accent)"/>
+  <circle cx="32" cy="13" r="2.4" fill="#eef3ff"/>
+  <circle cx="32" cy="54" r="2.4" fill="#eef3ff"/>
+</svg>
