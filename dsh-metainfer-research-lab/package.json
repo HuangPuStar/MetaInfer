@@ -1,9 +1,9 @@
 {
   "name": "dsh-metainfer-research-lab",
-  "version": "0.8.0",
+  "version": "0.11.0",
   "private": true,
   "type": "module",
-  "description": "DSH research-experiment IDE plugin: DAG of editable prompt + git worktree + subagent sessions; advisor/scheduler, auto/confirm modes, GC, multi-parent merge, reviewer panel, per-node model/effort+attempts+cost, token/cost budgets, lightweight multi-instance whole-GPU cluster coordinator, push (M0–V3). remote GPU fleet over SSH/containers/NFS (V6). natural-language GPU placement policy (V7). native DSH trajectory reuse (V8). Windows host/fleet compatibility (V9).",
+  "description": "DSH research-experiment IDE plugin: DAG of editable prompt + git worktree + subagent sessions; advisor/scheduler, auto/confirm modes, GC, multi-parent merge, reviewer panel, per-node model/effort+attempts+cost, token/cost budgets, lightweight multi-instance whole-GPU cluster coordinator, push (M0–V3). remote GPU fleet over SSH/containers/NFS (V6). natural-language GPU placement policy (V7). native DSH trajectory reuse (V8). Windows host/fleet compatibility (V9). UI return/default prompts/dropdowns (V10). background expert live visibility + project Copilot (V11). embedded native Copilot drawer (V12).",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

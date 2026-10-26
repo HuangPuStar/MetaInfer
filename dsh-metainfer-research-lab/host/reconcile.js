@@ -51,3 +51,34 @@ export async function reconcileRunningNodes({ store }) {
   }
   return reconciled;
 }
+
+/**
+ * Startup reconciliation for background expert runs. No advisor/scheduler/gc
+ * activation survives a Host reload, so a run still marked running is stale and
+ * must not keep showing as a live expert in the UI.
+ */
+export async function reconcileRunningRuns({ store }) {
+  const reconciled = [];
+  for (const project of store.listProjects()) {
+    const runs = store.listRuns(project.id, 500);
+    let changed = false;
+    for (const run of runs) {
+      if (run.status !== 'running') continue;
+      const now = Date.now();
+      run.status = 'failed';
+      run.stopReason = 'restart';
+      run.endedAt = now;
+      run.error = 'host restarted or plugin reloaded while this expert run was active';
+      await store.saveRun(project.id, run);
+      changed = true;
+      reconciled.push(`${project.id}/${run.id}`);
+    }
+    if (changed) {
+      project.revision = (project.revision ?? 0) + 1;
+      project.updatedAt = Date.now();
+      await store.appendEvent(project, 'expert/runs_reconciled', { data: { count: reconciled.length } });
+      await store.saveProject(project);
+    }
+  }
+  return reconciled;
+}

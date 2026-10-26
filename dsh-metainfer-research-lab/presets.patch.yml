@@ -140,6 +140,42 @@
             name: '@deepseek-ai/dsh-tool-fs-search'
             config: { sampleOverCapGlobResults: false }
 
+    # Project copilot: interactive sidebar chat with full project-state access.
+    - id: preset-lab-chat
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-chat
+        name: MetaInfer Research Lab Copilot
+        description: 项目全局对话 Copilot：只读分析整个项目的 DAG、运行记录、事件与资源状态。
+        order: 96
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are the project-level copilot of MetaInfer Research Lab. You help the human
+                understand and discuss the whole project: DAG progress, node reports, expert
+                advisor/scheduler runs, events, resource/cluster state, failures and next steps.
+                You may call the `metainfer_lab` tool with the current projectId to inspect live state.
+                Treat the project as read-only unless the human explicitly asks for a mutation; never
+                start/stop/cancel experiments on your own. At the start of a new conversation, call
+                `lab_project_context({action:"snapshot"})` to load the current project; use run/node
+                actions for details. Answer in the human's language, concise and concrete, citing node
+                ids and run ids.
+              suffix: ''
+              includeRuntimeContext: false
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config: { maxBytes: 65536 }
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config: { write: false, edit: false }
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config: { sampleOverCapGlobResults: false }
+
     # Interactive merge agent (V2): resolves conflicts in a Host-prepared merge
     # worktree; the human reviews the conversation and clicks 完成合并, the Host commits.
     - id: preset-lab-merge

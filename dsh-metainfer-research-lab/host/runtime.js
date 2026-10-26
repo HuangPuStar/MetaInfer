@@ -17,6 +17,7 @@ import {
 } from './models.js';
 import { newSessionId } from './store.js';
 import { prepareRemoteRun } from './remote-run.js';
+import { DEFAULT_WORKER_PREFIX, WORKER_RULES } from './prompts.js';
 
 /** JSON schema accepted by DSH's structured-output tool (supported subset only). */
 export const NODE_REPORT_SCHEMA = {
@@ -47,13 +48,6 @@ export const NODE_REPORT_SCHEMA = {
   additionalProperties: false,
 };
 
-const WORKER_RULES = `- You execute exactly one experiment node and then stop.
-- Work only inside your assigned git worktree. Do NOT run git write commands
-  (commit/checkout/branch/tag/worktree/push); the lab commits for you.
-- Do NOT delegate to sub-agents. Do NOT ask the user questions.
-- Operations that need approval are rejected automatically; record them in blockers.
-- Respect the time budget: when the deadline fires the lab kills this run deterministically.
-- Finish by calling structured_output exactly once with the report schema.`;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -560,6 +554,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
   }
 
   function workerPrompt(project, node, selection, remotePrompt = '') {
+    const customPrefix = typeof project.config?.prompts?.workerPrefix === 'string'
+      ? project.config.prompts.workerPrefix.trim()
+      : '';
     const needs = node.needs && Object.keys(node.needs).length > 0
       ? Object.entries(node.needs).map(([key, amount]) => `${key}=${amount}`).join(', ')
       : 'none';
@@ -567,6 +564,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       .map((item, index) => `${index + 1}. ${item.title} — ${item.summary || '(no report)'} @ ${item.headCommit ?? 'n/a'}`)
       .join('\n');
     return [
+      ...(customPrefix ? ['# Project-specific worker instructions', customPrefix, ''] : []),
       '# Project',
       `Name: ${project.name}`,
       'Research goal / brief:',

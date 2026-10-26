@@ -9,6 +9,7 @@ import { LabError } from './git-engine.js';
 import { cleanModelRef, validateModelSelection } from './models.js';
 import { newSessionId } from './store.js';
 import { advisorCandidates, buildAdvisorSnapshot, buildSchedulerSnapshot, promptHash } from './snapshot.js';
+import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 
@@ -89,9 +90,7 @@ function advisorPrompt(project, snapshot, lens) {
   const custom = project.config?.prompts?.advisor;
   return [
     lens ? `Perspective for this review pass (one of several independent reviewers): ${lens}` : '',
-    custom && custom.trim() ? custom.trim() : `You are the review board (advisor) of MetaInfer Research Lab.
-You never write code and never run experiments. Read the snapshot below and decide the next
-experiment steps. Your answer is validated and executed by the lab.`,
+    custom && custom.trim() ? custom.trim() : DEFAULT_ADVISOR_PROMPT,
     '',
     '# Rules',
     '1. Only propose successors whose parentId is in candidateParents. A parent must be completed.',
@@ -138,8 +137,7 @@ function schedulerPrompt(project, snapshot) {
     : '';
   const base = custom && custom.trim()
     ? custom.trim()
-    : `You are the project-level experiment scheduler of MetaInfer Research Lab.
-You never write code and never run experiments. Decide which planned nodes should start now.`;
+    : DEFAULT_SCHEDULER_PROMPT;
   return [
     base,
     clusterSection,
@@ -230,7 +228,7 @@ function cycleId() {
 export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
   const controllerHandles = new Map();
   const controllerLocks = new Map();
-  const roleActivations = new Map(); // sessionId -> activation
+  const roleActivations = new Map(); // sessionId -> { activation, projectId, record }
   const cycleLocks = new Map(); // projectId -> promise
   const lifetime = new AbortController();
 
@@ -342,7 +340,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
           outputSchema: schema,
         },
       });
-      roleActivations.set(sessionId, activation);
+      roleActivations.set(sessionId, { activation, projectId: project.id, record });
       result = await Promise.race([
         activation.result,
         new Promise((_, reject) => {
@@ -1075,11 +1073,42 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     return { run };
   }
 
+  /**
+   * Cancel in-flight advisor/scheduler activations for one project (used when
+   * auto mode is stopped, so the UI does not show a fake running expert run).
+   */
+  async function cancelProjectRuns(projectId) {
+    const cancelled = [];
+    for (const [sessionId, entry] of [...roleActivations.entries()]) {
+      if (entry.projectId !== projectId) continue;
+      cancelled.push(sessionId);
+      try {
+        await entry.activation.dispose();
+      } catch {
+        // best-effort; mark the run below regardless
+      }
+      try {
+        const record = store.getRun(projectId, entry.record.id) ?? entry.record;
+        if (record.status === 'running') {
+          record.status = 'failed';
+          record.stopReason = 'cancelled';
+          record.endedAt = Date.now();
+          record.error = 'cancelled because auto mode was stopped';
+          await store.saveRun(projectId, record);
+        }
+      } catch {
+        // run record best-effort
+      }
+      roleActivations.delete(sessionId);
+    }
+    return { cancelled: cancelled.length };
+  }
+
   function dispose() {
     lifetime.abort();
-    for (const activation of roleActivations.values()) {
+    for (const entry of roleActivations.values()) {
       try {
-        activation.dispose?.();
+        entry.activation?.dispose?.();
       } catch {
         // ignore
       }
@@ -1106,6 +1135,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     listRuns,
     getRun,
     ensureController,
+    cancelProjectRuns,
     dispose,
   };
 }

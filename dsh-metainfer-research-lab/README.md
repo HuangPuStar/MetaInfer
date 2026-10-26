@@ -107,6 +107,43 @@
 11. **其他**：失败节点 ↻ 重试；项目删除（可选清理 worktree）；`⋯` 菜单推送分支/tag；runs/检查器显示 token/成本；
    确定性超时 kill 后 GC 会异步生成 postmortem。
 
+## 响应式尺寸（V12）
+
+- Workspace 三列、设置/评审/模型表格、Modal、Drawer、Copilot 大抽屉、Topbar 与活动日志均增加了
+  clamp/minmax/媒体断点（1180 / 980 / 760 / 640 / 420px），窄屏会隐藏 NodeRail、改为上下布局、
+  表格折叠为 2/1 列。
+- DAG 节点坐标是逻辑画布坐标，画布已有 fit/zoom；不会随窗口尺寸重排节点坐标（否则连线和缩放会错位）。
+- 返回 Lab 按钮已移到顶部安全位置；Copilot 大抽屉自适应视口并保留原生打开 fallback。
+
+## Copilot 原生对话嵌入实验（V12）
+
+项目 Copilot 已改为尝试**嵌入 DSH 原生 Conversation**：持久 `lab-chat` session、原生 Chat/Trajectory/实时思考/
+composer，装入一个近全屏滑出大抽屉（不是窄侧栏）。右侧/顶栏打开后通过 `SessionProvider` +
+`renderFactorySlot('conversation.content')` 渲染原生会话；close/Esc 关闭并释放 session reference。
+若该 Slot 嵌入在当前 DSH 版本不可用，抽屉会显示 fallback：**在 DSH 原生窗口打开 / 打开轨迹 / 重试**，
+header 也始终保留原生打开按钮。复用同一 project.copilotSessionId，历史保留；Copilot 默认只读并带项目上下文工具。
+
+## 专家组实时可见与项目 Copilot（V11）
+
+- 项目顶栏新增 **“专家组”chip**：实时显示后台 advisor / reviewer / scheduler / GC 的 running 数量与角色组成；
+  点开 Runs 可看 live 状态、耗时、模型，并可直接 **在 DSH 中打开轨迹或对话**（原生 Trajectory/Chat，
+  running 时也是实时的），无需等专家 run 结束。
+- 项目主页面右侧新增可收缩的 **项目 Copilot** 侧边栏：可以直接讨论整个项目的 DAG 进度、节点报告、
+  失败原因、runs 与下一步；Copilot 每轮拿到完整项目状态快照，并可调用 `metainfer_lab` 读取实时状态。
+  顶栏开关/面板关闭/Esc 均可收起，展开状态按项目记忆；默认只读，不会自行启动或取消实验。
+- 自动挡停止或 Host 重载时，会取消/标记遗留的专家 run，避免出现永远“运行中”的假象。
+
+## UI 导航与配置体验（V10）
+
+- 打开节点的 DSH 原生对话/轨迹后，右下角出现 **← 返回 Lab 项目**；点击或手动点侧栏 Lab 图标都会回到
+  刚才的同一个项目/节点，不再退回任务列表。
+- 项目设置「提示词覆盖」现在直接显示 Host 默认提示词（未覆盖时），并标记「使用默认值 / 已覆盖」；
+  每项可「恢复默认」，保存时不会把默认文本误存成覆盖。worker 前缀默认无额外前缀，Host 会在自定义
+  基础提示词后追加规则/schema/快照。
+- 有枚举配置的字段都改为下拉：模型 provider/model（节点模型、项目角色模型、reviewers、modelOptions）、
+  推理强度、放置模式/容器 runtime 等；资源需求 key 从项目资源池下拉。自由文本（lens、id、tags、价格、
+  仓库路径、任务 prompt）保持输入。
+
 ## Windows 兼容性
 
 Host 插件只用 Node 内置模块 + zod，主流程可运行在 Windows 上的 DSH：

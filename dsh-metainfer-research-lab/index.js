@@ -16,7 +16,7 @@ import { createTranscriptReader } from './host/transcript.js';
 import { createOrchestrator } from './host/orchestrator.js';
 import { registerAgentTool } from './host/agent-tool.js';
 import { registerHttpRoutes } from './host/http.js';
-import { reconcileRunningNodes } from './host/reconcile.js';
+import { reconcileRunningNodes, reconcileRunningRuns } from './host/reconcile.js';
 import { createGcRunner } from './host/gc.js';
 import { createAutoController } from './host/auto.js';
 import { createClusterAdmin } from './host/cluster.js';
@@ -70,6 +70,7 @@ export async function apply(ctx) {
   // No Agent survives a plugin reload: mark stale running nodes failed before
   // anything new can run, and release their resource ledger entries.
   const reconciled = await reconcileRunningNodes({ store });
+  const reconciledRuns = await reconcileRunningRuns({ store });
 
   let gcRunner = null;
   const runtime = createRuntime({
@@ -95,7 +96,7 @@ export async function apply(ctx) {
     auto,
     cluster,
     clusterAdmin,
-    version: '0.8.6-v3',
+    version: '0.8.9-v3',
   });
 
   // Publish the Host service for future phases (routes and agent tools share it).
@@ -161,6 +162,6 @@ export async function apply(ctx) {
   );
 
   ctx.logger?.info?.(`metainfer-research-lab: cluster mode=${clusterInfo.mode} enabled=${Boolean(clusterInfo.enabled)}`);
-  await writeActivationMarker('0.8.6-v3');
+  await writeActivationMarker('0.8.9-v3');
   ctx.logger?.info?.(`metainfer-research-lab: M4 host ready (reconciled ${reconciled.length} running node(s))`);
 }
