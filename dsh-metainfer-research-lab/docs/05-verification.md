@@ -745,3 +745,69 @@ Host `0.8.7-v3`，package `0.9.0`，client 11,603 行；locale 914/914。
   自适应视口；不随窗口尺寸改变节点逻辑布局，避免缩放/连线坐标错位。
 
 未验证：由于当前 GUI 需要认证，未做真实多视口截图；以上为 CSS/代码级审计，需用户在不同窗口宽度下刷新确认。
+
+## V12 增补：多页动画新手指引（面向科研人员）
+
+### 交付
+
+- 项目列表页 header 新增“? 新手指引”按钮；点击打开近全屏浮层，不占用项目列表空间。
+- `GuideModal`：10 页可滑动卡片，支持：
+  - 左右按钮 / 圆点跳转 / 键盘 ← → / Esc 关闭；
+  - 触摸左右滑动和鼠标拖拽（阈值 40px）；
+  - 动画使用 CSS keyframes + SVG SMIL 运动粒子；为保证指引可读性，本版没有全量禁用动画；
+  - 最终页“开始使用”关闭指引并打开新建项目浮窗。
+- 10 页内容按依赖顺序：
+  1. 节点 = 可执行的实验任务；
+  2. Git 仓库绑定 + 每节点独立 worktree/commit；
+  3. DAG 是实验谱系与生长方式；
+  4. 节点异步执行、时间盒、报告；
+  5. 调度器、资源池、并发与队列；
+  6. 多项目/多机 cluster 的整卡租约与 Fleet；
+  7. 面向技术读者的全局架构图：UI/Host/Agents/Git/LLM/Coordinator/Fleet/NFS；
+  8. 可交互模拟 Lab 工作台：初始节点、手动启动、交互记录、自动挡、DAG 生长；
+  9. advisor/reviewer 评审、auto/confirm、人的决定权；
+  10. 心智模型：目标 → 生长 → 执行 → 评审 → 合并，以及 Copilot。
+- 架构页右侧嵌入 8 步 walkthrough（上一步/下一步/重新演示/圆点跳转）：步骤高亮对应节点与路径，步骤面板给出专业描述；
+- 每页左侧文字（eyebrow/title/lead/3–4 bullets），右侧 SVG 示意图；SVG 使用主题 token、
+  CSS keyframes（rise/dash/pulse/progress/spin），不依赖外部图片或 JS 动画库。
+- 文案中避免计算机术语堆叠：节点=实验任务，DAG=实验谱系，Git worktree=独立实验台，
+  调度器=决定顺序，队列=资源不足等待，coordinator=整卡租约。
+
+### 验证
+
+- `node --check client.js` 通过；zh/en 字典键数一致（guide 新增键双份）。
+- 本机 GUI 需要认证，未做浏览器实机滑动/动画截图；刷新页面后可手动验证。
+
+### 全局架构页（技术读者）
+
+新增第 7 页 `guide.arch.*`，使用 760×440 SVG 画出：
+- DSH Web UI → HTTP API → Host Plugin（Lab Service、ProjectStore、GitEngine、Runtime/Orchestrator、Auto/GC）；
+- Host 下方 DSH Subagents（worker/advisor/scheduler）与 LLM Providers；
+- Host 右侧 Coordinator → GPU Fleet（SSH/containers/NFS）与 Shared NFS；
+- 资源表示：Git worktrees、whole-GPU lease。
+动画包括流动虚线、架构包脉冲、服务呼吸、Fleet/LLM 浮动；文案说明“Host 是唯一权威状态源、Agent session 由 DSH 提供、coordinator 发放整卡租约”。
+
+### 完整架构图 + 逐步流程演示
+
+第 7 页不是静态示意图：右侧是一张 960×560 的完整架构图，底部嵌入 8 步流程面板：
+
+1. 用户创建根提示词 → HTTP → Lab Service → ProjectStore/DAG + root worktree；
+2. Runtime 创建 worker subagent；
+3. 节点完成：报告 + commit；
+4. Advisor/Reviewer 专家组读取报告并创建 child node + parent edge；
+5. Scheduler 从 ready queue 选择 DAG-ready 节点；
+6. Coordinator 通过 lease queue/quota 申请整卡并分配 GPU Fleet/NFS；
+7. Worker 在 child worktree 执行，GitEngine 记录 branch/commit，DAG 生长；
+8. Auto loop 继续，merge 汇合成功分支，人决定 merge/push。
+
+每步通过 `ArchitectureWalkthrough` 的本地 state 高亮节点/连线，并沿当前路径渲染 SMIL 运动粒子；完整图始终显示，便于对照全局。
+
+### 可交互模拟工作台（第 8 页）
+
+`WorkspaceDemo` 在指引卡片内复刻一个 Lab 工作台壳（topbar、节点栏、DAG canvas、inspector、交互日志、模拟原生轨迹），不调用任何 LLM/API：
+
+- 8 个内嵌步骤：创建根节点 → 手动启动 → 完成/报告 → 专家组提议子节点 → 人工批准 → 查看交互记录 → 切换自动挡 → DAG 生长结果；
+- 节点使用百分比坐标和位移动画；root/child 节点按步骤出现，状态在 planned/running/completed 间切换；
+- 顶部“启动”“自动挡/手动挡”“查看轨迹”和底部上一步/下一步/重新演示可交互；
+- 轨迹面板展示 prompt、tool call、commit、report 的模拟内容；
+- 所有数据均为模拟，不修改真实项目。
