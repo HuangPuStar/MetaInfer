@@ -185,6 +185,183 @@ window.__ModuleLoader__.load({
       'landing.host.version': '版本 {version}',
 
       'wizard.title': '新建项目',
+      'wizard.close': '关闭新建项目浮窗',
+      'guide.open': '新手指引',
+      'guide.title': '让实验自己生长',
+      'guide.subtitle': '科研工作流的新心智模型',
+      'guide.prev': '上一页',
+      'guide.next': '下一页',
+      'guide.close': '关闭新手指引',
+      'guide.start': '开始使用',
+      'guide.page': '{current} / {total}',
+      'guide.swipe': '左右滑动，或使用 ← → 切换',
+      'guide.visual': '示意图',
+      'guide.page1.eyebrow': '从一个问题开始',
+      'guide.page1.benefit': '把想法变成可执行实验',
+      'guide.page1.title': '别让好想法止步于脚本',
+      'guide.page1.lead': '你写下研究问题；平台把它变成一个边界清晰、可追踪、可复盘的实验节点——不用再手工配环境、记命令、追结果。',
+      'guide.page1.b1': '每个节点自带目标、约束、资源与时间盒，Agent 在独立环境中执行。',
+      'guide.page1.b2': '代码、报告、失败现场全部自动留档；下一次实验从现有结果继续。',
+      'guide.page1.b3': '从「试试这个」到「有证据的下一步」，中间不再断档。',
+      'guide.page2.eyebrow': 'Git 仓库 + 独立实验台',
+      'guide.page2.benefit': '实验互不污染',
+      'guide.page2.title': '每次实验都有自己干净的工作台',
+      'guide.page2.lead': '项目绑定一个 Git 仓库；每个节点自动分出独立 worktree 与分支。父节点的成果，就是子节点的起点。',
+      'guide.page2.b1': '不用手动 commit；每次实验结果自动进入提交历史。',
+      'guide.page2.b2': '并行实验互不踩踏，随时可以比较、回退、复现。',
+      'guide.page2.b3': '多个成功实验最终可以 merge 成一个可靠结论。',
+      'guide.page3.eyebrow': 'DAG 实验谱系',
+      'guide.page3.benefit': '让假设分叉生长',
+      'guide.page3.title': '实验不是一条线，是一棵会分叉的树',
+      'guide.page3.lead': '一个结果可以催生多个新假设；DAG 用箭头记录「谁基于谁继续」，让整条研究路径一目了然。',
+      'guide.page3.b1': '一个父节点可以并行长出多条实验分支。',
+      'guide.page3.b2': '成功与失败都留在谱系里，失败也是下一次实验的证据。',
+      'guide.page3.b3': '不需要一开始画完整棵树，系统会随结果继续生长。',
+      'guide.page4.eyebrow': '异步执行',
+      'guide.page4.benefit': '把时间还给研究',
+      'guide.page4.title': '启动之后，你可以去喝杯咖啡',
+      'guide.page4.lead': '节点在后台异步执行；你不需要盯着终端。Host 管理超时、状态、报告和提交，你只在该做判断时回来。',
+      'guide.page4.b1': '每个节点有硬性时间盒，超时会确定性终止，不会无限挂起。',
+      'guide.page4.b2': '多个节点按并发上限运行，其他自动排队。',
+      'guide.page4.b3': '随时打开原生轨迹，看到实时思考、工具调用与报告。',
+      'guide.page5.eyebrow': '调度与资源',
+      'guide.page5.benefit': '算力不打架',
+      'guide.page5.title': '资源有限，但实验不必互相抢',
+      'guide.page5.lead': '节点先计划，调度器再按资源池和优先级安排执行。资源不够时等待，而不是失败。',
+      'guide.page5.b1': '项目资源池是明确的账本，例如 gpu=2。',
+      'guide.page5.b2': '调度器决定顺序，worker 负责执行，责任边界清楚。',
+      'guide.page5.b3': '队列和配额防止多个实验同时挤爆同一份资源。',
+      'guide.page6.eyebrow': '集群资源管理',
+      'guide.page6.benefit': '从一台机器到整个集群',
+      'guide.page6.title': 'GPU 不在本机？先把集群变成你的实验台',
+      'guide.page6.lead': 'coordinator 统一发放整卡租约；节点启动前先申请，拿不到就排队。控制机可以没有 GPU，计算发生在远程机器。',
+      'guide.page6.b1': '项目配额 + 集群优先级，让多个项目公平共享 GPU。',
+      'guide.page6.b2': 'Fleet 通过 SSH + 容器在远程机器执行，worktree 走共享 NFS。',
+      'guide.page6.b3': '整卡独占，实验结果可归因、可复现。',
+      'guide.page7.eyebrow': '专家评审 + 人的判断',
+      'guide.page7.benefit': 'AI 提议，你拍板',
+      'guide.page7.title': '下一步由 AI 提议，方向由你决定',
+      'guide.page7.lead': 'advisor/reviewer 阅读完成报告，提出后继实验；scheduler 只启动资源允许的节点。你保留研究方向与风险取舍。',
+      'guide.page7.b1': '自动挡持续「评审→提案→执行」；确认档先让你批准或拒绝。',
+      'guide.page7.b2': '失败会被终止并善后；你可以重试、换更强模型或放弃分支。',
+      'guide.page7.b3': 'merge 节点把多条成功路径汇合成一个结论。',
+      'guide.page8.eyebrow': '你的新工作流',
+      'guide.page8.benefit': '专注研究判断',
+      'guide.page8.title': '给方向，收结果，做选择',
+      'guide.page8.lead': '把平台当成会自己生长实验谱系的研究工作台，而不是一个聊天机器人。',
+      'guide.page8.b1': '① 新建项目：绑定仓库，写研究目标与根节点。',
+      'guide.page8.b2': '② 启动/自动：让节点异步执行，读报告与轨迹。',
+      'guide.page8.b3': '③ 评审/合并：批准后继、合并结果、推送代码。',
+      'guide.page8.b4': '随时打开项目 Copilot，讨论整个项目与下一步。',
+      'guide.label.question': '研究问题',
+      'guide.label.node': '实验节点',
+      'guide.label.goal': '目标 · 假设',
+      'guide.label.constraint': '约束 · 资源 · 时间盒',
+      'guide.label.timebox': '时间盒',
+      'guide.label.report': '报告',
+      'guide.label.repo': 'Git 仓库',
+      'guide.label.worktree': '独立 worktree',
+      'guide.label.commit': '自动 commit',
+      'guide.label.parent': '父结果',
+      'guide.label.child': '子实验',
+      'guide.label.root': '根节点',
+      'guide.label.grandchild': '后继',
+      'guide.label.parallel': '并行分支',
+      'guide.label.done': '已完成',
+      'guide.label.worker': '执行 Agent',
+      'guide.label.planned': '待执行',
+      'guide.label.scheduler': '调度器',
+      'guide.label.running': '运行中',
+      'guide.label.waiting': '排队',
+      'guide.label.quota': '资源配额',
+      'guide.label.control': '控制机',
+      'guide.label.coordinator': '协调器',
+      'guide.label.machine': 'GPU 机器',
+      'guide.label.gpu': '整卡',
+      'guide.label.lease': '租约',
+      'guide.label.queue': '队列',
+      'guide.label.advisor': '专家组',
+      'guide.label.reviewer': '评审',
+      'guide.label.proposal': '后继提案',
+      'guide.label.approve': '批准',
+      'guide.label.reject': '拒绝',
+      'guide.label.loop': '研究目标',
+      'guide.label.dag': 'DAG',
+      'guide.label.execute': '异步执行',
+      'guide.label.review': '评审',
+      'guide.label.merge': '合并',
+      'guide.label.user': '你',
+      'guide.label.code': '代码与结果',
+      'guide.label.codeOnly': '代码',
+      'guide.label.next': '下一步',
+      'guide.arch.eyebrow': '系统架构 · 进阶',
+      'guide.arch.benefit': '看清整套系统如何协作',
+      'guide.arch.title': '完整系统架构：从一句提示词到 DAG 生长',
+      'guide.arch.lead': '给有技术背景的读者：这是一张完整数据流/控制流图。Lab 面板只是入口；Host 是状态与调度的唯一权威；Agent 在 DSH 会话中执行；Coordinator/Fleet 把整卡租约变成远程计算。点下方“下一步”逐个点亮流程。',
+      'guide.arch.b1': '控制面：User → UI → HTTP API → Lab Service → ProjectStore/DAG；Host 是唯一状态权威。',
+      'guide.arch.b2': '执行面：Runtime 调度 DSH worker subagent；worker 通过工具/LLM 执行，GitEngine 管理 branch/worktree/commit。',
+      'guide.arch.b3': '资源面：Scheduler 维护 ready queue；Coordinator 维护 lease queue/quota；GPU Fleet + NFS 承载远程容器。',
+      'guide.arch.b4': '数据面：DAG/报告/事件持久化在 ProjectStore；worktree 与提交历史在 Git；LLM/工具调用只发生在 Agent 侧。',
+      'guide.arch.ui': 'DSH Web UI',
+      'guide.arch.uiSub': 'Lab 面板 + 原生会话',
+      'guide.arch.http': 'HTTP API',
+      'guide.arch.host': 'Host Plugin',
+      'guide.arch.service': 'Lab Service',
+      'guide.arch.store': 'ProjectStore / DAG',
+      'guide.arch.git': 'GitEngine',
+      'guide.arch.runtime': 'Runtime / Orchestrator',
+      'guide.arch.auto': 'Auto / GC',
+      'guide.arch.agents': 'DSH Subagents',
+      'guide.arch.agentsSub': 'worker · advisor · scheduler',
+      'guide.arch.llm': 'LLM Providers',
+      'guide.arch.worktree': 'Worktrees',
+      'guide.arch.coordinator': 'Coordinator',
+      'guide.arch.fleet': 'GPU Fleet',
+      'guide.arch.fleetSub': 'SSH · containers · NFS',
+      'guide.arch.nfs': 'Shared NFS',
+      'guide.arch.lease': 'whole-GPU lease',
+      'guide.arch.step': '流程 {current} / {total}',
+      'guide.arch.prev': '上一步',
+      'guide.arch.next': '下一步',
+      'guide.arch.restart': '重新演示',
+      'guide.arch.clusterZone': '集群 / GPU 资源',
+      'guide.arch.user': '研究员 / 你',
+      'guide.arch.userSub': '研究目标 · 根提示词',
+      'guide.arch.serviceSub': 'commands · state',
+      'guide.arch.scheduler': 'Scheduler',
+      'guide.arch.advisor': 'Advisor / Reviewer',
+      'guide.arch.worker': 'Worker Agent',
+      'guide.arch.storeSub': 'DAG · nodes · edges · runs',
+      'guide.arch.gitSub': 'branch · commit · merge',
+      'guide.arch.worktreeSub': 'one per node',
+      'guide.arch.runtimeSub': 'lifecycle · reconcile',
+      'guide.arch.schedulerSub': 'ready queue · priority',
+      'guide.arch.pool': '资源池',
+      'guide.arch.poolSub': 'quota · maxRunning',
+      'guide.arch.autoSub': 'review loop',
+      'guide.arch.workerSub': 'executes one node',
+      'guide.arch.advisorSub': 'review · propose successors',
+      'guide.arch.llmSub': 'model calls · tools',
+      'guide.arch.coordSub': 'lease queue · quota',
+      'guide.arch.nfsSub': 'shared worktrees',
+      'guide.arch.repo': 'Git Repo',
+      'guide.arch.repoSub': 'push · merge',
+      'guide.arch.step1.title': '① 创建项目：从提示词到根节点',
+      'guide.arch.step1.desc': '你在 Lab 面板填写研究目标与根提示词。request 经 HTTP API 到 Lab Service；ProjectStore 写入 project、root node 与空的 DAG；GitEngine 从 base commit 建立 root branch/worktree，节点状态为 planned。',
+      'guide.arch.step2.title': '② 启动根节点：Runtime 创建 Agent',
+      'guide.arch.step2.desc': 'Runtime/Orchestrator 把 root 节点交给一个 worker subagent：独立 DSH session、cwd 指向 root worktree、注入提示词/约束/时间盒。Host 记录 run，Agent 开始工作。',
+      'guide.arch.step3.title': '③ 节点完成：报告与 Commit',
+      'guide.arch.step3.desc': 'Worker 在 worktree 中完成实验、提交代码，并把结构化报告/指标发回 Host。ProjectStore 更新 node status、attempts、report；DAG 中 root 变为 completed，成为评审候选。',
+      'guide.arch.step4.title': '④ 专家组：从报告创建子节点',
+      'guide.arch.step4.desc': 'Advisor/Reviewer subagent 通过只读上下文读取报告与项目快照，返回后继实验提议。Host 校验并将 child node + parent edge 写入 DAG；新节点进入 planned，随后进入 ready queue。Agent 不直接写 DAG。',
+      'guide.arch.step5.title': '⑤ 调度器：从 ready queue 选节点',
+      'guide.arch.step5.desc': 'Scheduler 扫描 DAG-ready 的 planned 节点，按 resource pool、maxRunningNodes、priority 做确定性选择；选中节点标记 reserved 交给 Runtime，资源不足的留在 waiting queue。Scheduler 只排序，不执行实验。',
+      'guide.arch.step6.title': '⑥ 协调器：申请整卡租约',
+      'guide.arch.step6.desc': 'Scheduler 向 Coordinator 申请资源。Coordinator 维护 lease queue、project quota、cluster priority；成功则分配 GPU Fleet 机器/容器并挂载共享 NFS worktree，失败则继续排队。',
+      'guide.arch.step7.title': '⑦ 执行子节点：Git 版本迭代',
+      'guide.arch.step7.desc': 'Worker 在 child worktree 中从父 commit 出发执行实验，提交新 commit 并回传报告。GitEngine 记录 branch/commit 历史；DAG 节点 running → completed，DAG 长出一条新的实验分支。',
+      'guide.arch.step8.title': '⑧ Auto Loop：DAG 生长与人的取舍',
+      'guide.arch.step8.desc': 'auto 模式重复「完成 → 评审 → 提案 → 调度 → 执行」，DAG 持续变深/变宽；confirm 模式在 approve/reject 暂停。merge 节点汇合成功分支，你最终决定 merge/push 回 Git Repo。',
       'wizard.intro': '绑定一个 Git 仓库，为根节点写好实验指令。',
       'wizard.section.repo': '① 绑定 Git 仓库',
       'wizard.section.research': '② 研究设定',
@@ -1115,6 +1292,75 @@ window.__ModuleLoader__.load({
       'ws.copilot.created': '已创建新会话',
       'crash.title': '面板渲染异常',
       'crash.hint': '错误已被隔离，页面其余部分不受影响。',
+      'guide.demo.eyebrow': '可交互演示',
+      'guide.demo.benefit': '不调用 LLM，也能看清完整交互',
+      'guide.demo.title': '在指引里，亲手走一遍真实界面',
+      'guide.demo.lead': '这一页把 Lab 工作台缩成一张可交互的模拟图：创建根节点、手动启动、查看交互记录、切换自动挡、看 DAG 生长。不会调用任何 LLM，也不会改动真实项目。',
+      'guide.demo.b1': '手动挡：你启动节点、批准专家组提议的后继节点。',
+      'guide.demo.b2': '自动挡：专家组评审后，Host 自动创建并调度后继节点。',
+      'guide.demo.b3': '原生交互记录：每个节点都有独立 DSH session，可查看 Trajectory。',
+      'guide.demo.b4': '所有节点、日志、轨迹都是演示数据，安全可反复播放。',
+      'guide.demo.mockBadge': '模拟 UI · 0 LLM 调用',
+      'guide.demo.projectTitle': '示例项目 · DAG 生长演示',
+      'guide.demo.manual': '手动挡',
+      'guide.demo.auto': '自动挡',
+      'guide.demo.start': '▶ 启动',
+      'guide.demo.trace': '查看轨迹',
+      'guide.demo.close': '关闭',
+      'guide.demo.inspector': '节点检查',
+      'guide.demo.status': '状态',
+      'guide.demo.branch': '分支',
+      'guide.demo.session': '原生会话',
+      'guide.demo.report': '最新报告',
+      'guide.demo.events': '交互记录',
+      'guide.demo.eventsHint': '点击画布节点查看详情',
+      'guide.demo.root': '根节点',
+      'guide.demo.childA': '子实验 A',
+      'guide.demo.childB': '子实验 B',
+      'guide.demo.childC': '子实验 C',
+      'guide.demo.childD': '子实验 D',
+      'guide.demo.childE': '子实验 E',
+      'guide.demo.childF': '子实验 F',
+      'guide.demo.nodeStatus.planned': '待启动',
+      'guide.demo.nodeStatus.running': '运行中',
+      'guide.demo.nodeStatus.completed': '已完成',
+      'guide.demo.nodeStatus.proposed': '已提议',
+      'guide.demo.step': '步骤 {current} / {total}',
+      'guide.demo.prev': '上一步',
+      'guide.demo.next': '下一步',
+      'guide.demo.restart': '重新演示',
+      'guide.demo.log.projectCreated': 'project.created · 写入 ProjectStore',
+      'guide.demo.log.nodePlanned': 'node.planned · 根节点已创建',
+      'guide.demo.log.nodeStarted': 'node.started · worker 开始执行',
+      'guide.demo.log.nodeCompleted': 'node.completed · 提交代码 + 报告',
+      'guide.demo.log.advisorProposed': 'advisor.proposed · 提议 2 个后继实验',
+      'guide.demo.log.userApproved': 'node.approved · 人工批准',
+      'guide.demo.log.traceOpened': 'trajectory.opened · 查看原生会话',
+      'guide.demo.log.autoStarted': 'auto.started · 自动循环开启',
+      'guide.demo.log.autoReview': 'advisor.reviewed · 自动评审完成',
+      'guide.demo.log.autoWaiting': 'scheduler.queued · 资源不足，等待中',
+      'guide.demo.trace.title': '原生轨迹（模拟）',
+      'guide.demo.trace.user': '用户：比较两个后继实验，先跑学习率消融。',
+      'guide.demo.trace.agent': 'worker：已 checkout 父 commit，开始运行。',
+      'guide.demo.trace.tool': 'tool：python train.py --lr 3e-4 --seed 42',
+      'guide.demo.trace.report': 'report：val_loss=0.71 · commit 4f2c1a',
+      'guide.demo.step1.title': '① 创建初始节点',
+      'guide.demo.step1.desc': '新建项目，写下研究目标和根提示词；Lab 面板生成 root node，DAG 只有一个节点，状态 planned。',
+      'guide.demo.step2.title': '② 手动启动根节点',
+      'guide.demo.step2.desc': '你点击“启动”，Host 创建 worker session，root 进入 running；节点在自己的 worktree 里执行。',
+      'guide.demo.step3.title': '③ 完成并生成报告',
+      'guide.demo.step3.desc': 'worker 提交代码 + 报告，root 变 completed；此刻还没有后继节点，DAG 保持单节点。',
+      'guide.demo.step4.title': '④ 专家组提议子节点',
+      'guide.demo.step4.desc': 'advisor/reviewer 读取报告，提出两个后继实验；Host 写入 child node + parent edge，DAG 开始分叉。',
+      'guide.demo.step5.title': '⑤ 人工批准并执行',
+      'guide.demo.step5.desc': '手动挡下你批准一个后继节点，它进入 running；另一个仍是 planned，等待你的决定。',
+      'guide.demo.step6.title': '⑥ 查看交互记录',
+      'guide.demo.step6.desc': '打开原生 Trajectory 模拟面板，查看 prompt、工具调用、commit 和 report；真实系统里这就是 DSH 会话。',
+      'guide.demo.step7.title': '⑦ 切换到自动挡',
+      'guide.demo.step7.desc': '打开自动挡：自动评审 → 创建后继 → 调度执行；更多节点自动出现，DAG 继续生长。',
+      'guide.demo.step8.title': '⑧ DAG 生长结果',
+      'guide.demo.step8.desc': '多条分支并行推进，成功/完成/运行中在同一张图里；merge 节点和人工取舍仍由你控制。',
+
     };
 
     const en = {
@@ -1153,6 +1399,183 @@ window.__ModuleLoader__.load({
       'landing.host.version': 'version {version}',
 
       'wizard.title': 'New project',
+      'wizard.close': 'Close new-project dialog',
+      'guide.open': 'Quick start',
+      'guide.title': 'Let experiments grow themselves',
+      'guide.subtitle': 'A mental model for modern research',
+      'guide.prev': 'Previous',
+      'guide.next': 'Next',
+      'guide.close': 'Close quick start',
+      'guide.start': 'Start using it',
+      'guide.page': '{current} / {total}',
+      'guide.swipe': 'Swipe left/right, or use ← →',
+      'guide.visual': 'Illustration',
+      'guide.page1.eyebrow': 'Start with a question',
+      'guide.page1.benefit': 'Turn ideas into executable experiments',
+      'guide.page1.title': 'Do not let a good idea stop at a script',
+      'guide.page1.lead': 'Write down your research question; the platform turns it into a bounded, trackable, reviewable experiment node — no more manual environments, command logs, or lost results.',
+      'guide.page1.b1': 'Every node carries its goal, constraints, resources, and time box; an agent executes it in an isolated environment.',
+      'guide.page1.b2': 'Code, reports, and failure evidence are archived automatically; the next experiment continues from existing results.',
+      'guide.page1.b3': 'From “let me try this” to “evidence-backed next step”, without the gap in between.',
+      'guide.page2.eyebrow': 'Git repo + isolated workbench',
+      'guide.page2.benefit': 'Experiments do not pollute each other',
+      'guide.page2.title': 'Every experiment gets its own clean workbench',
+      'guide.page2.lead': 'The project binds one Git repo; each node gets an isolated worktree and branch. The parent result is the child starting point.',
+      'guide.page2.b1': 'No manual commits: each experiment result enters the commit history automatically.',
+      'guide.page2.b2': 'Parallel experiments do not trample each other; compare, revert, and reproduce anytime.',
+      'guide.page2.b3': 'Successful experiments can converge through a merge node into one reliable conclusion.',
+      'guide.page3.eyebrow': 'DAG experiment lineage',
+      'guide.page3.benefit': 'Let hypotheses branch and grow',
+      'guide.page3.title': 'Experiments are not a line; they are a branching tree',
+      'guide.page3.lead': 'One result can inspire several new hypotheses; the DAG records “who continues from whose result”, making the whole research path visible.',
+      'guide.page3.b1': 'One parent can grow multiple parallel experiment branches.',
+      'guide.page3.b2': 'Successes and failures stay in the lineage; failure is evidence for the next experiment.',
+      'guide.page3.b3': 'You do not need to draw the whole tree up front; the system keeps growing it with results.',
+      'guide.page4.eyebrow': 'Async execution',
+      'guide.page4.benefit': 'Give time back to research',
+      'guide.page4.title': 'After starting it, you can go grab a coffee',
+      'guide.page4.lead': 'Nodes execute asynchronously in the background; no terminal watching. The Host owns timeouts, state, reports, and commits, and you return only when a judgement is needed.',
+      'guide.page4.b1': 'Every node has a hard time box; timeouts terminate deterministically instead of hanging forever.',
+      'guide.page4.b2': 'Nodes run up to the concurrency limit; the rest queue automatically.',
+      'guide.page4.b3': 'Open the native trajectory anytime to see live reasoning, tool calls, and reports.',
+      'guide.page5.eyebrow': 'Scheduler and resources',
+      'guide.page5.benefit': 'Compute without contention',
+      'guide.page5.title': 'Resources are limited; experiments do not have to fight',
+      'guide.page5.lead': 'Nodes are planned first; the scheduler then orders execution by resource pools and priority. Insufficient resources mean waiting, not failing.',
+      'guide.page5.b1': 'A project resource pool is an explicit ledger, for example gpu=2.',
+      'guide.page5.b2': 'The scheduler decides order; workers execute. Clear responsibility boundaries.',
+      'guide.page5.b3': 'Queues and quotas keep multiple experiments from exhausting the same resource at once.',
+      'guide.page6.eyebrow': 'Cluster resources',
+      'guide.page6.benefit': 'From one machine to the whole cluster',
+      'guide.page6.title': 'No local GPU? Turn the cluster into your workbench',
+      'guide.page6.lead': 'The coordinator grants whole-GPU leases; a node requests before it starts and queues if it must. The control host can have no GPU; compute happens on remote machines.',
+      'guide.page6.b1': 'Project quotas plus cluster priority share GPUs fairly across projects.',
+      'guide.page6.b2': 'Fleet executes over SSH + containers on remote hosts, with worktrees on shared NFS.',
+      'guide.page6.b3': 'Exclusive whole-GPU leases make results attributable and reproducible.',
+      'guide.page7.eyebrow': 'Expert review + human judgement',
+      'guide.page7.benefit': 'AI proposes, you decide',
+      'guide.page7.title': 'AI proposes the next step; you set the direction',
+      'guide.page7.lead': 'Advisors and reviewers read completed reports and propose successors; the scheduler starts only resource-eligible nodes. You keep the direction and risk trade-offs.',
+      'guide.page7.b1': 'Auto mode loops review → propose → execute; confirm mode asks you to approve or reject first.',
+      'guide.page7.b2': 'Failures are stopped and cleaned up; retry, use a stronger model, or abandon the branch.',
+      'guide.page7.b3': 'A merge node combines multiple successful paths into one conclusion.',
+      'guide.page8.eyebrow': 'Your new workflow',
+      'guide.page8.benefit': 'Focus on research judgement',
+      'guide.page8.title': 'Give direction, collect results, make choices',
+      'guide.page8.lead': 'Treat the platform as a workbench that grows an experiment lineage by itself, not as a chat bot.',
+      'guide.page8.b1': '① Create a project: bind a repo, write the research goal and root node.',
+      'guide.page8.b2': '② Start/auto: let nodes run asynchronously; read reports and trajectories.',
+      'guide.page8.b3': '③ Review/merge: approve successors, merge results, push code.',
+      'guide.page8.b4': 'Open the project Copilot anytime to discuss the whole project and next steps.',
+      'guide.label.question': 'Research question',
+      'guide.label.node': 'Experiment node',
+      'guide.label.goal': 'Goal · hypothesis',
+      'guide.label.constraint': 'Constraints · resources · time',
+      'guide.label.timebox': 'Time box',
+      'guide.label.report': 'Report',
+      'guide.label.repo': 'Git repo',
+      'guide.label.worktree': 'Isolated worktree',
+      'guide.label.commit': 'Auto commit',
+      'guide.label.parent': 'Parent result',
+      'guide.label.child': 'Child experiment',
+      'guide.label.root': 'Root',
+      'guide.label.grandchild': 'Successor',
+      'guide.label.parallel': 'Parallel branches',
+      'guide.label.done': 'Completed',
+      'guide.label.worker': 'Worker agent',
+      'guide.label.planned': 'Planned',
+      'guide.label.scheduler': 'Scheduler',
+      'guide.label.running': 'Running',
+      'guide.label.waiting': 'Waiting',
+      'guide.label.quota': 'Resource quota',
+      'guide.label.control': 'Control host',
+      'guide.label.coordinator': 'Coordinator',
+      'guide.label.machine': 'GPU machine',
+      'guide.label.gpu': 'Whole GPU',
+      'guide.label.lease': 'Lease',
+      'guide.label.queue': 'Queue',
+      'guide.label.advisor': 'Advisor',
+      'guide.label.reviewer': 'Reviewer',
+      'guide.label.proposal': 'Proposals',
+      'guide.label.approve': 'Approve',
+      'guide.label.reject': 'Reject',
+      'guide.label.loop': 'Goal',
+      'guide.label.dag': 'DAG',
+      'guide.label.execute': 'Execute',
+      'guide.label.review': 'Review',
+      'guide.label.merge': 'Merge',
+      'guide.label.user': 'You',
+      'guide.label.code': 'Code & results',
+      'guide.label.codeOnly': 'Code',
+      'guide.label.next': 'Next',
+      'guide.arch.eyebrow': 'System architecture · advanced',
+      'guide.arch.benefit': 'See how the whole system fits together',
+      'guide.arch.title': 'Full architecture: from a prompt to DAG growth',
+      'guide.arch.lead': 'For technical readers: this is the full data/control flow. The Lab panel is only the entry point; Host is the authority for state and scheduling; agents execute in DSH sessions; Coordinator/Fleet turn whole-GPU leases into remote compute. Use “Next” below to light up each flow.',
+      'guide.arch.b1': 'Control plane: User → UI → HTTP API → Lab Service → ProjectStore/DAG; Host is the single source of truth.',
+      'guide.arch.b2': 'Execution plane: Runtime drives DSH worker subagents; workers use tools/LLM; GitEngine owns branches/worktrees/commits.',
+      'guide.arch.b3': 'Resource plane: Scheduler keeps the ready queue; Coordinator keeps lease queue/quota; GPU Fleet + NFS host remote containers.',
+      'guide.arch.b4': 'Data plane: DAG/reports/events persist in ProjectStore; branches/commits live in Git; LLM/tool calls happen only agent-side.',
+      'guide.arch.ui': 'DSH Web UI',
+      'guide.arch.uiSub': 'Lab panel + native sessions',
+      'guide.arch.http': 'HTTP API',
+      'guide.arch.host': 'Host Plugin',
+      'guide.arch.service': 'Lab Service',
+      'guide.arch.store': 'ProjectStore / DAG',
+      'guide.arch.git': 'GitEngine',
+      'guide.arch.runtime': 'Runtime / Orchestrator',
+      'guide.arch.auto': 'Auto / GC',
+      'guide.arch.agents': 'DSH Subagents',
+      'guide.arch.agentsSub': 'worker · advisor · scheduler',
+      'guide.arch.llm': 'LLM Providers',
+      'guide.arch.worktree': 'Worktrees',
+      'guide.arch.coordinator': 'Coordinator',
+      'guide.arch.fleet': 'GPU Fleet',
+      'guide.arch.fleetSub': 'SSH · containers · NFS',
+      'guide.arch.nfs': 'Shared NFS',
+      'guide.arch.lease': 'whole-GPU lease',
+      'guide.arch.step': 'Step {current} / {total}',
+      'guide.arch.prev': 'Previous',
+      'guide.arch.next': 'Next',
+      'guide.arch.restart': 'Replay',
+      'guide.arch.clusterZone': 'Cluster / GPU resources',
+      'guide.arch.user': 'Researcher / you',
+      'guide.arch.userSub': 'goal · root prompt',
+      'guide.arch.serviceSub': 'commands · state',
+      'guide.arch.scheduler': 'Scheduler',
+      'guide.arch.advisor': 'Advisor / Reviewer',
+      'guide.arch.worker': 'Worker Agent',
+      'guide.arch.storeSub': 'DAG · nodes · edges · runs',
+      'guide.arch.gitSub': 'branch · commit · merge',
+      'guide.arch.worktreeSub': 'one per node',
+      'guide.arch.runtimeSub': 'lifecycle · reconcile',
+      'guide.arch.schedulerSub': 'ready queue · priority',
+      'guide.arch.pool': 'Resource Pool',
+      'guide.arch.poolSub': 'quota · maxRunning',
+      'guide.arch.autoSub': 'review loop',
+      'guide.arch.workerSub': 'executes one node',
+      'guide.arch.advisorSub': 'review · propose successors',
+      'guide.arch.llmSub': 'model calls · tools',
+      'guide.arch.coordSub': 'lease queue · quota',
+      'guide.arch.nfsSub': 'shared worktrees',
+      'guide.arch.repo': 'Git Repo',
+      'guide.arch.repoSub': 'push · merge',
+      'guide.arch.step1.title': '① Create project: prompt → root node',
+      'guide.arch.step1.desc': 'You write the research goal and root prompt in the Lab panel. The request goes through HTTP API to Lab Service; ProjectStore writes the project, root node, and an empty DAG; GitEngine creates the root branch/worktree from the base commit. The node is planned.',
+      'guide.arch.step2.title': '② Start root: Runtime creates an Agent',
+      'guide.arch.step2.desc': 'Runtime/Orchestrator hands the root node to a worker subagent: isolated DSH session, cwd in the root worktree, prompt/constraints/time box injected. Host records the run and the agent starts.',
+      'guide.arch.step3.title': '③ Node completes: report + commit',
+      'guide.arch.step3.desc': 'The worker finishes the experiment in its worktree, commits code, and sends a structured report/metrics back to Host. ProjectStore updates node status, attempts, and report; the DAG root becomes completed and enters the review candidate set.',
+      'guide.arch.step4.title': '④ Expert review: report → child nodes',
+      'guide.arch.step4.desc': 'Advisor/Reviewer subagents read the report and project snapshot through a read-only context and return successor proposals. Host validates and writes child nodes + parent edges into the DAG; new nodes become planned and enter the ready queue. Agents never write the DAG directly.',
+      'guide.arch.step5.title': '⑤ Scheduler: pick from the ready queue',
+      'guide.arch.step5.desc': 'The scheduler scans DAG-ready planned nodes and deterministically selects by resource pool, maxRunningNodes, and priority. Selected nodes become reserved and go to Runtime; nodes without resources stay in the waiting queue. The scheduler orders work; it does not execute experiments.',
+      'guide.arch.step6.title': '⑥ Coordinator: request a whole-GPU lease',
+      'guide.arch.step6.desc': 'The scheduler asks the Coordinator for resources. The Coordinator maintains a lease queue, project quotas, and cluster priority; on success it assigns a GPU Fleet machine/container and mounts the shared NFS worktree; otherwise the request keeps waiting.',
+      'guide.arch.step7.title': '⑦ Execute child: Git version iteration',
+      'guide.arch.step7.desc': 'The worker runs the child experiment from its parent commit in the child worktree, creates a new commit, and returns a report. GitEngine records branch/commit history; the DAG node moves running → completed and the DAG grows a new experiment branch.',
+      'guide.arch.step8.title': '⑧ Auto loop: DAG growth and human choices',
+      'guide.arch.step8.desc': 'Auto mode repeats complete → review → propose → schedule → execute, growing the DAG deeper and wider; confirm mode pauses at approve/reject. A merge node joins successful branches, and you decide the final merge/push back to the Git Repo.',
       'wizard.intro': 'Bind a Git repository and write the root node instruction.',
       'wizard.section.repo': '① Bind a Git repository',
       'wizard.section.research': '② Research setup',
@@ -2083,7 +2506,76 @@ window.__ModuleLoader__.load({
       'ws.copilot.created': 'Created a new session',
       'crash.title': 'The panel failed to render',
       'crash.hint': 'The error was contained; the rest of the page keeps working.',
+      'guide.demo.eyebrow': 'Interactive demo',
+      'guide.demo.benefit': 'See the full interaction without calling an LLM',
+      'guide.demo.title': 'Walk through the real UI inside the guide',
+      'guide.demo.lead': 'This page shrinks the Lab workbench into an interactive simulation: create a root node, start it manually, inspect the interaction record, switch to auto mode, and watch the DAG grow. No LLM calls; no real project changes.',
+      'guide.demo.b1': 'Manual mode: you start nodes and approve successor proposals from the expert group.',
+      'guide.demo.b2': 'Auto mode: after expert review, Host creates and schedules successors automatically.',
+      'guide.demo.b3': 'Native interaction record: every node has its own DSH session and Trajectory.',
+      'guide.demo.b4': 'All nodes, logs, and traces are demo data, safe to replay repeatedly.',
+      'guide.demo.mockBadge': 'Mock UI · 0 LLM calls',
+      'guide.demo.projectTitle': 'Demo project · DAG growth',
+      'guide.demo.manual': 'Manual',
+      'guide.demo.auto': 'Auto',
+      'guide.demo.start': '▶ Start',
+      'guide.demo.trace': 'View trace',
+      'guide.demo.close': 'Close',
+      'guide.demo.inspector': 'Node inspector',
+      'guide.demo.status': 'Status',
+      'guide.demo.branch': 'Branch',
+      'guide.demo.session': 'Native session',
+      'guide.demo.report': 'Latest report',
+      'guide.demo.events': 'Interaction log',
+      'guide.demo.eventsHint': 'Click a canvas node for details',
+      'guide.demo.root': 'Root node',
+      'guide.demo.childA': 'Child A',
+      'guide.demo.childB': 'Child B',
+      'guide.demo.childC': 'Child C',
+      'guide.demo.childD': 'Child D',
+      'guide.demo.childE': 'Child E',
+      'guide.demo.childF': 'Child F',
+      'guide.demo.nodeStatus.planned': 'Planned',
+      'guide.demo.nodeStatus.running': 'Running',
+      'guide.demo.nodeStatus.completed': 'Completed',
+      'guide.demo.nodeStatus.proposed': 'Proposed',
+      'guide.demo.step': 'Step {current} / {total}',
+      'guide.demo.prev': 'Previous',
+      'guide.demo.next': 'Next',
+      'guide.demo.restart': 'Replay',
+      'guide.demo.log.projectCreated': 'project.created · written to ProjectStore',
+      'guide.demo.log.nodePlanned': 'node.planned · root created',
+      'guide.demo.log.nodeStarted': 'node.started · worker started',
+      'guide.demo.log.nodeCompleted': 'node.completed · code + report committed',
+      'guide.demo.log.advisorProposed': 'advisor.proposed · 2 successors proposed',
+      'guide.demo.log.userApproved': 'node.approved · approved by human',
+      'guide.demo.log.traceOpened': 'trajectory.opened · native session opened',
+      'guide.demo.log.autoStarted': 'auto.started · auto loop enabled',
+      'guide.demo.log.autoReview': 'advisor.reviewed · automatic review done',
+      'guide.demo.log.autoWaiting': 'scheduler.queued · insufficient resources, waiting',
+      'guide.demo.trace.title': 'Native trace (mock)',
+      'guide.demo.trace.user': 'User: compare two successors; start with the learning-rate ablation.',
+      'guide.demo.trace.agent': 'worker: checked out parent commit; starting.',
+      'guide.demo.trace.tool': 'tool: python train.py --lr 3e-4 --seed 42',
+      'guide.demo.trace.report': 'report: val_loss=0.71 · commit 4f2c1a',
+      'guide.demo.step1.title': '① Create the initial node',
+      'guide.demo.step1.desc': 'Create a project, write the research goal and root prompt; the Lab panel creates a root node and the DAG has exactly one planned node.',
+      'guide.demo.step2.title': '② Start the root manually',
+      'guide.demo.step2.desc': 'You click Start; Host creates a worker session, root becomes running, and executes in its own worktree.',
+      'guide.demo.step3.title': '③ Complete with a report',
+      'guide.demo.step3.desc': 'The worker commits code + a report and root becomes completed; there are no successors yet, so the DAG stays a single node.',
+      'guide.demo.step4.title': '④ Expert group proposes children',
+      'guide.demo.step4.desc': 'Advisor/reviewer read the report and propose two experiments; Host writes child nodes + parent edges, so the DAG starts branching.',
+      'guide.demo.step5.title': '⑤ Approve and execute manually',
+      'guide.demo.step5.desc': 'In manual mode you approve one successor; it becomes running while the other stays planned, waiting for your decision.',
+      'guide.demo.step6.title': '⑥ Inspect the interaction record',
+      'guide.demo.step6.desc': 'Open the native Trajectory mock to see the prompt, tool calls, commit, and report; in the real system this is the DSH session.',
+      'guide.demo.step7.title': '⑦ Switch to auto mode',
+      'guide.demo.step7.desc': 'Enable auto: review → create successors → schedule automatically; more nodes appear and the DAG keeps growing.',
+      'guide.demo.step8.title': '⑧ DAG growth result',
+      'guide.demo.step8.desc': 'Multiple branches run in parallel with completed/running states in one graph; merge nodes and human trade-offs remain under your control.',
     };
+
     // #endregion
 
     // #region styles
@@ -2100,8 +2592,9 @@ window.__ModuleLoader__.load({
       '.rl-page-subtitle { margin: 0; max-width: 760px; color: var(--dsw-alias-label-secondary); font-size: 12.5px; line-height: 20px; }',
       '.rl-badge { box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 18px; white-space: nowrap; flex: none; }',
       '.rl-badge-dot { width: 6px; height: 6px; border-radius: 3px; background: var(--dsw-alias-brand-primary); flex: none; }',
-      '.rl-landing-grid { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 20px; align-items: start; width: 100%; max-width: 1280px; margin: 20px auto 0; }',
-      '@media (max-width: 980px) { .rl-landing-grid { grid-template-columns: minmax(0, 1fr); } }',
+      '.rl-landing-list { width: 100%; max-width: 1280px; margin: 20px auto 0; }',
+      '.rl-page-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-left: auto; }',
+      '.rl-card.rl-card-embedded { border: 0; background: transparent; padding: 0; }',
       '.rl-card { box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px 18px; border: 0.5px solid var(--dsw-alias-border-l1); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); }',
       '.rl-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }',
       '.rl-card-title { margin: 0; font-size: 14px; font-weight: 500; line-height: 22px; }',
@@ -2485,6 +2978,154 @@ window.__ModuleLoader__.load({
       '@media (max-width: 760px) { .rl-workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(170px, 42vh); overflow: auto; } .rl-inspector { grid-column: 1; grid-row: 2; max-height: 42vh; border-left: 0; border-top: 0.5px solid var(--dsw-alias-border-l2); } .rl-canvas { min-height: 260px; } .rl-copilot-native-layer { padding: 8px; } .rl-copilot-native { width: calc(100vw - 16px); max-width: calc(100vw - 16px); height: calc(100dvh - 16px); max-height: calc(100vh - 16px); border-radius: 10px; } .rl-copilot-native-head { padding: 8px 10px; } .rl-copilot-native-hint { flex: 1 1 100%; margin-left: 0; white-space: normal; } }',
       '@media (max-width: 640px) { .rl-settings-model-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-settings-model-role { grid-column: 1 / -1; padding: 0; } .rl-reviewer-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-model-option-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-config-device-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-config-grid, .rl-config-grid-3 { grid-template-columns: minmax(0, 1fr); } .rl-reviewer-row .rl-reviewer-actions, .rl-model-option-row > :last-child { grid-column: 1 / -1; } .rl-drawer { width: 100%; min-width: 0; } .rl-modal, .rl-modal-wide, .rl-modal-narrow { width: 100%; max-height: calc(100vh - 20px); max-height: calc(100dvh - 20px); } .rl-modal-body { padding: 10px 12px; } .rl-modal-head, .rl-modal-foot { padding: 10px 12px; } .rl-log-row, .rl-log-row-btn { grid-template-columns: 46px 62px minmax(0, 1fr); gap: 6px; font-size: 11px; } .rl-topbar { padding: 8px 10px; } .rl-workspace-grid { grid-template-rows: minmax(0, 1fr) minmax(190px, 46vh); } .rl-inspector { max-height: 46vh; } }',
       '@media (max-width: 420px) { .rl-settings-model-row, .rl-reviewer-row, .rl-model-option-row, .rl-config-device-row { grid-template-columns: minmax(0, 1fr); } .rl-reviewer-row .rl-reviewer-actions, .rl-model-option-row > :last-child { grid-column: auto; } .rl-node-actions { opacity: 1; } .rl-canvas-hint { display: none; } }',
+      '.rl-guide-layer { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: clamp(8px, 2vw, 24px); pointer-events: none; }',
+      '.rl-guide-backdrop { position: fixed; inset: 0; z-index: 89; background: var(--dsw-alias-bg-mask-2, transparent); pointer-events: auto; }',
+      '.rl-guide-card { position: relative; z-index: 90; box-sizing: border-box; display: flex; flex-direction: column; width: min(1440px, 100%); height: min(900px, 100%); max-height: 100%; overflow: hidden; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-family: inherit; font-size: 13px; line-height: 20px; pointer-events: auto; }',
+      '.rl-guide-head { display: flex; align-items: center; gap: 10px; flex: none; padding: 10px 16px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); }',
+      '.rl-guide-eyebrow { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }',
+      '.rl-guide-count { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 11.5px; font-variant-numeric: tabular-nums; }',
+      '.rl-guide-body { display: grid; grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr); gap: clamp(12px, 2.4vw, 28px); flex: 1 1 auto; min-height: 0; padding: clamp(14px, 2.4vw, 28px); overflow: auto; }',
+      '.rl-guide-text { display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow: auto; animation: rlGuideRise 0.35s ease both; }',
+      '.rl-guide-kicker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }',
+      '.rl-guide-benefit { display: inline-flex; align-items: center; padding: 2px 10px; border: 0.5px solid var(--dsw-alias-brand-primary); border-radius: 999px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-brand-primary); font-size: 11.5px; line-height: 18px; }',
+      '.rl-guide-chip { align-self: flex-start; padding: 2px 9px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-brand-primary); font-size: 11.5px; line-height: 18px; }',
+      '.rl-guide-page-title { margin: 0; max-width: 34em; font-size: clamp(19px, 1.8vw, 26px); font-weight: 500; line-height: 1.25; letter-spacing: -0.01em; }',
+      '.rl-guide-lead { margin: 0; max-width: 38em; color: var(--dsw-alias-label-secondary); font-size: 13.5px; line-height: 1.65; }',
+      '.rl-guide-points { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 0; padding: 0; list-style: none; }',
+      '.rl-guide-points li { position: relative; padding-left: 18px; color: var(--dsw-alias-label-secondary); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }',
+      '.rl-guide-points li::before { content: ""; position: absolute; left: 3px; top: 0.62em; width: 5px; height: 5px; border-radius: 50%; background: var(--dsw-alias-brand-primary); }',
+      '.rl-guide-visual { display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: hidden; padding: clamp(6px, 1.4vw, 16px); border: 0.5px solid var(--dsw-alias-border-l1); border-radius: 14px; background: var(--dsw-alias-bg-layer-2); animation: rlGuideRise 0.45s ease both; }',
+      '.rl-guide-svg { display: block; width: 100%; height: auto; max-height: min(58vh, 500px); }',
+      '.rl-guide-foot { display: flex; align-items: center; gap: 12px; flex: none; flex-wrap: wrap; padding: 10px 16px; border-top: 0.5px solid var(--dsw-alias-border-l2); }',
+      '.rl-guide-dots { display: flex; align-items: center; gap: 4px; }',
+      '.rl-guide-dot { width: 10px; height: 10px; padding: 0; border: 0; border-radius: 50%; background: var(--dsw-alias-bg-layer-3, var(--dsw-alias-bg-layer-2)); cursor: pointer; }',
+      '.rl-guide-dot-active { background: var(--dsw-alias-brand-primary); transform: scale(1.2); }',
+      '.rl-guide-dot:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }',
+      '.rl-guide-swipe { color: var(--dsw-alias-label-tertiary); font-size: 11.5px; line-height: 18px; }',
+      '.rl-guide-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }',
+      '.rl-guide-box { fill: var(--dsw-alias-bg-layer-2); stroke: var(--dsw-alias-border-l2); stroke-width: 1; }',
+      '.rl-guide-box-accent { fill: var(--dsw-alias-brand-primary); fill-opacity: 0.14; stroke: var(--dsw-alias-brand-primary); }',
+      '.rl-guide-label { fill: var(--dsw-alias-label-primary); font-family: inherit; font-size: 12px; font-weight: 500; }',
+      '.rl-guide-sub { fill: var(--dsw-alias-label-tertiary); font-family: inherit; font-size: 10.5px; }',
+      '.rl-guide-line { fill: none; stroke: var(--dsw-alias-label-tertiary); stroke-width: 1.4; opacity: 0.75; }',
+      '.rl-guide-flow { stroke-dasharray: 5 7; animation: rlGuideDash 1.6s linear infinite; }',
+      '.rl-guide-token { fill: var(--dsw-alias-brand-primary); }',
+      '.rl-guide-token-success { fill: var(--dsw-alias-state-success-primary); }',
+      '.rl-guide-track { fill: var(--dsw-alias-bg-layer-2); stroke: var(--dsw-alias-border-l2); stroke-width: 0.5; }',
+      '.rl-guide-progress { fill: var(--dsw-alias-brand-primary); transform-box: fill-box; transform-origin: left center; animation: rlGuideProgress 3.2s ease-in-out infinite alternate; }',
+      '.rl-guide-clock { fill: var(--dsw-alias-bg-layer-2); stroke: var(--dsw-alias-brand-primary); stroke-width: 2; }',
+      '.rl-guide-clock-hand { stroke: var(--dsw-alias-brand-primary); stroke-width: 2; transform-box: fill-box; transform-origin: bottom center; animation: rlGuideSpin 4s linear infinite; }',
+      '.rl-guide-center { fill: var(--dsw-alias-brand-primary); fill-opacity: 0.12; stroke: var(--dsw-alias-brand-primary); stroke-width: 1; stroke-dasharray: 4 4; }',
+      '.rl-guide-rise { animation: rlGuideRise 0.55s cubic-bezier(0.2, 0.7, 0.3, 1) both; transform-box: fill-box; transform-origin: center; }',
+      '.rl-guide-float { animation: rlGuideFloat 3.6s ease-in-out infinite; }',
+      '.rl-guide-breathe { animation: rlGuideBreathe 2.4s ease-in-out infinite; }',
+      '.rl-guide-emit { animation: rlGuideEmit 2.8s ease-in-out infinite; }',
+      '.rl-guide-seq { animation: rlGuideSeq 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }',
+      '.rl-guide-orbit { animation: rlGuideOrbit 12s linear infinite; transform-box: view-box; }',
+      '.rl-guide-arch-zone { fill: var(--dsw-alias-bg-layer-2); fill-opacity: 0.5; stroke: var(--dsw-alias-border-l2); stroke-width: 0.8; stroke-dasharray: 4 5; }',
+      '.rl-guide-arch-zone-label { fill: var(--dsw-alias-label-tertiary); font-family: inherit; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }',
+      '.rl-guide-arch-packet { fill: var(--dsw-alias-brand-primary); animation: rlGuideSeq 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }',
+      '.rl-guide-motion-dot { fill: var(--dsw-alias-brand-primary); filter: drop-shadow(0 0 3px var(--dsw-alias-brand-primary)); }',
+      '.rl-guide-orbit-ring { fill: none; stroke: var(--dsw-alias-brand-primary); stroke-width: 1; stroke-dasharray: 5 7; opacity: 0.45; animation: rlGuideOrbit 18s linear infinite; transform-box: view-box; }',
+      '.rl-guide-scan { fill: var(--dsw-alias-brand-primary); fill-opacity: 0.18; animation: rlGuideScanX 3.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }',
+      '.rl-guide-queue-dot { fill: var(--dsw-alias-brand-primary); animation: rlGuideQueueX 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }',
+      '.rl-guide-fade { opacity: 0.75; }',
+      '.rl-guide-pulse { animation: rlGuidePulse 2.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }',
+      '@keyframes rlGuideDash { to { stroke-dashoffset: -24; } }',
+      '@keyframes rlGuideRise { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }',
+      '@keyframes rlGuideFade { from { opacity: 0; } to { opacity: 0.75; } }',
+      '@keyframes rlGuidePulse { 0%, 100% { opacity: 0.55; transform: scale(0.96); } 50% { opacity: 1; transform: scale(1.06); } }',
+      '@keyframes rlGuideProgress { from { transform: scaleX(0.18); } to { transform: scaleX(1); } }',
+      '@keyframes rlGuideSpin { to { transform: rotate(360deg); } }',
+      '@keyframes rlGuideFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }',
+      '@keyframes rlGuideBreathe { 0%, 100% { opacity: 0.72; } 50% { opacity: 1; } }',
+      '@keyframes rlGuideEmit { 0%, 8% { opacity: 0; transform: translateY(8px); } 28%, 78% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-7px); } }',
+      '@keyframes rlGuideSeq { 0%, 12% { opacity: 0.2; transform: scale(0.82); } 30%, 72% { opacity: 1; transform: scale(1); } 100% { opacity: 0.2; transform: scale(0.82); } }',
+      '@keyframes rlGuideOrbit { to { transform: rotate(360deg); } }',
+      '@keyframes rlGuideScanX { 0%, 12% { opacity: 0; transform: translateX(-60px); } 30%, 70% { opacity: 1; } 100% { opacity: 0; transform: translateX(60px); } }',
+      '@keyframes rlGuideQueueX { 0% { opacity: 0; transform: translateX(-10px); } 20%, 78% { opacity: 1; } 100% { opacity: 0; transform: translateX(52px); } }',
+      '.rl-arch-walk { display: flex; flex-direction: column; gap: 8px; width: 100%; height: 100%; min-height: 0; }',
+      '.rl-arch-stage { display: flex; align-items: center; justify-content: center; flex: 1 1 auto; min-height: 0; overflow: hidden; }',
+      '.rl-arch-svg { display: block; width: 100%; height: auto; max-height: 100%; }',
+      '.rl-arch-step-panel { display: flex; flex-direction: column; gap: 5px; flex: none; padding: 7px 10px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-arch-step-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }',
+      '.rl-arch-step-index { flex: none; color: var(--dsw-alias-brand-primary); font-size: 10.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }',
+      '.rl-arch-step-title { min-width: 0; color: var(--dsw-alias-label-primary); font-size: 12px; font-weight: 500; line-height: 18px; }',
+      '.rl-arch-step-actions { display: flex; gap: 5px; margin-left: auto; flex-wrap: wrap; }',
+      '.rl-arch-step-desc { max-height: 4.8em; margin: 0; overflow: auto; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 1.55; }',
+      '.rl-arch-step-dots { display: flex; gap: 4px; align-items: center; }',
+      '.rl-arch-step-dots .rl-guide-dot { width: 7px; height: 7px; }',
+      '.rl-arch-zone { fill: var(--dsw-alias-bg-layer-2); fill-opacity: 0.45; stroke: var(--dsw-alias-border-l2); stroke-width: 0.8; stroke-dasharray: 4 5; }',
+      '.rl-arch-zone-label { fill: var(--dsw-alias-label-tertiary); font-family: inherit; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }',
+      '.rl-arch-node { stroke-width: 1; transition: opacity 180ms ease, stroke 180ms ease, fill 180ms ease; }',
+      '.rl-arch-node-dim { fill: var(--dsw-alias-bg-layer-2); stroke: var(--dsw-alias-border-l2); opacity: 0.38; }',
+      '.rl-arch-node-active { fill: var(--dsw-alias-brand-primary); fill-opacity: 0.16; stroke: var(--dsw-alias-brand-primary); stroke-width: 1.4; opacity: 1; }',
+      '.rl-arch-node-label { fill: var(--dsw-alias-label-primary); font-family: inherit; font-size: 10.5px; font-weight: 500; }',
+      '.rl-arch-node-sub { fill: var(--dsw-alias-label-tertiary); font-family: inherit; font-size: 8.5px; }',
+      '.rl-arch-active-dot { fill: var(--dsw-alias-brand-primary); animation: rlGuidePulse 2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }',
+      '.rl-arch-link { fill: none; stroke: var(--dsw-alias-border-l2); stroke-width: 1; opacity: 0.3; }',
+      '.rl-arch-link-active { stroke: var(--dsw-alias-brand-primary); stroke-width: 1.8; opacity: 1; stroke-dasharray: 5 5; animation: rlGuideDash 1.1s linear infinite; }',
+      '.rl-guide-body-arch { grid-template-columns: minmax(240px, 0.55fr) minmax(0, 1.45fr); }',
+      '.rl-guide-visual-arch { align-items: stretch; padding: 8px; }',
+      '.rl-guide-visual-arch .rl-arch-svg { max-height: min(48vh, 440px); }',
+      '.rl-guide-body-demo { grid-template-columns: minmax(220px, 0.5fr) minmax(0, 1.5fr); }',
+      '.rl-guide-visual-demo { align-items: stretch; padding: 8px; overflow: hidden; }',
+      '.rl-demo-walk { display: flex; flex-direction: column; gap: 7px; width: 100%; height: 100%; min-height: 0; }',
+      '.rl-demo-shell { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 300px; overflow: hidden; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 11px; background: var(--dsw-alias-bg-base); }',
+      '.rl-demo-topbar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; flex: none; padding: 6px 9px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-demo-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-primary); font-size: 11.5px; font-weight: 500; }',
+      '.rl-demo-mock { flex: none; padding: 1px 6px; border: 0.5px dashed var(--dsw-alias-border-l2); border-radius: 999px; color: var(--dsw-alias-label-tertiary); font-size: 9.5px; }',
+      '.rl-demo-mode { flex: none; padding: 1px 6px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 999px; color: var(--dsw-alias-label-secondary); font-size: 9.5px; }',
+      '.rl-demo-mode-auto { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }',
+      '.rl-demo-running { color: var(--dsw-alias-state-success-primary); font-size: 10px; font-variant-numeric: tabular-nums; }',
+      '.rl-demo-top-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-left: auto; }',
+      '.rl-demo-main { position: relative; display: grid; grid-template-columns: 108px minmax(0, 1fr) 170px; flex: 1 1 auto; min-height: 0; }',
+      '.rl-demo-rail { display: flex; flex-direction: column; gap: 3px; min-height: 0; padding: 6px; overflow: auto; border-right: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-demo-rail-head { padding: 2px 4px; color: var(--dsw-alias-label-tertiary); font-size: 9px; line-height: 14px; }',
+      '.rl-demo-rail-row { display: flex; align-items: center; gap: 5px; width: 100%; min-width: 0; padding: 4px 5px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 10px; line-height: 15px; text-align: left; cursor: pointer; }',
+      '.rl-demo-rail-row:hover, .rl-demo-rail-row-active { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }',
+      '.rl-demo-rail-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--dsw-alias-label-tertiary); }',
+      '.rl-demo-canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--dsw-alias-bg-base); }',
+      '.rl-demo-edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }',
+      '.rl-demo-edge { fill: none; stroke: var(--dsw-alias-border-l2); stroke-width: 1; opacity: 0.5; vector-effect: non-scaling-stroke; }',
+      '.rl-demo-node { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; width: clamp(70px, 14%, 96px); transform: translate(-50%, -50%); padding: 5px 7px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; text-align: left; cursor: pointer; animation: rlDemoPop 0.35s ease both; }',
+      '.rl-demo-node:hover, .rl-demo-node-selected { border-color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-demo-node-planned { border-style: dashed; }',
+      '.rl-demo-node-running { border-color: var(--dsw-alias-brand-primary); }',
+      '.rl-demo-node-completed { border-color: var(--dsw-alias-state-success-primary); }',
+      '.rl-demo-node-proposed { border-style: dashed; border-color: var(--dsw-alias-state-warn-primary); }',
+      '.rl-demo-node-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 500; line-height: 15px; }',
+      '.rl-demo-node-status { color: var(--dsw-alias-label-tertiary); font-size: 8.5px; line-height: 13px; }',
+      '.rl-demo-node-running .rl-demo-node-status { color: var(--dsw-alias-brand-primary); }',
+      '.rl-demo-node-completed .rl-demo-node-status { color: var(--dsw-alias-state-success-primary); }',
+      '.rl-demo-rail-dot.rl-demo-node-running { background: var(--dsw-alias-brand-primary); box-shadow: 0 0 0 3px var(--dsw-alias-bg-layer-2); }',
+      '.rl-demo-rail-dot.rl-demo-node-completed { background: var(--dsw-alias-state-success-primary); }',
+      '.rl-demo-inspector { display: flex; flex-direction: column; gap: 5px; min-height: 0; padding: 7px; overflow: auto; border-left: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-demo-panel-title { color: var(--dsw-alias-label-tertiary); font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; }',
+      '.rl-demo-inspector-title { color: var(--dsw-alias-label-primary); font-size: 12px; line-height: 18px; }',
+      '.rl-demo-info-row { display: flex; flex-direction: column; gap: 1px; padding-top: 4px; border-top: 0.5px solid var(--dsw-alias-border-l2); }',
+      '.rl-demo-info-key { color: var(--dsw-alias-label-tertiary); font-size: 9px; }',
+      '.rl-demo-info-value { color: var(--dsw-alias-label-secondary); font-size: 9.5px; overflow-wrap: anywhere; }',
+      '.rl-demo-log { display: flex; align-items: center; gap: 10px; flex: none; min-height: 28px; padding: 4px 9px; overflow: auto; border-top: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); white-space: nowrap; }',
+      '.rl-demo-log-head { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 9px; text-transform: uppercase; }',
+      '.rl-demo-log-row { display: inline-flex; align-items: baseline; gap: 5px; color: var(--dsw-alias-label-secondary); font-size: 9.5px; }',
+      '.rl-demo-log-time { color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }',
+      '.rl-demo-trace { position: absolute; right: 8px; top: 8px; bottom: 8px; z-index: 4; display: flex; flex-direction: column; gap: 6px; width: min(270px, 58%); padding: 8px; overflow: auto; border: 0.5px solid var(--dsw-alias-brand-primary); border-radius: 9px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-demo-trace-head { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-primary); font-size: 10.5px; }',
+      '.rl-demo-trace-close { margin-left: auto; padding: 0; border: 0; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }',
+      '.rl-demo-trace-line { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 9.5px; line-height: 1.45; }',
+      '.rl-demo-trace-mono { font-family: ' + MONO + '; overflow-wrap: anywhere; }',
+      '.rl-demo-step-panel { display: flex; flex-direction: column; gap: 4px; flex: none; padding: 6px 9px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 9px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-demo-step-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }',
+      '.rl-demo-step-index { color: var(--dsw-alias-brand-primary); font-size: 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }',
+      '.rl-demo-step-title { min-width: 0; color: var(--dsw-alias-label-primary); font-size: 11.5px; font-weight: 500; line-height: 17px; }',
+      '.rl-demo-step-actions { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }',
+      '.rl-demo-step-desc { max-height: 3.2em; margin: 0; overflow: auto; color: var(--dsw-alias-label-secondary); font-size: 10.5px; line-height: 1.55; }',
+      '@keyframes rlDemoPop { from { opacity: 0; transform: translate(-50%, -50%) scale(0.86); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }',
+      '@media (max-width: 1100px) { .rl-demo-main { grid-template-columns: 92px minmax(0, 1fr) 150px; } }',
+      '@media (max-width: 820px) { .rl-guide-body-demo { grid-template-columns: minmax(0, 1fr); } .rl-demo-main { grid-template-columns: minmax(0, 1fr); } .rl-demo-rail, .rl-demo-inspector { display: none; } .rl-demo-canvas { min-height: 270px; } .rl-demo-trace { width: min(300px, 80%); } .rl-demo-log { flex-wrap: wrap; } }',
+      '@media (max-width: 820px) { .rl-guide-card { height: calc(100dvh - 16px); max-height: calc(100vh - 16px); } .rl-guide-body { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 10px 12px; overflow: auto; } .rl-guide-visual { order: -1; min-height: 190px; } .rl-guide-svg { max-height: 32vh; } .rl-guide-text { overflow: visible; } .rl-guide-page-title { font-size: 19px; } .rl-guide-swipe { display: none; } .rl-guide-foot { padding: 8px 12px; } }',
+      '@media (max-width: 520px) { .rl-guide-layer { padding: 6px; } .rl-guide-card { height: calc(100dvh - 12px); border-radius: 10px; } .rl-guide-head { padding: 8px 10px; } .rl-guide-count { display: none; } .rl-guide-visual { min-height: 160px; } .rl-guide-actions { width: 100%; justify-content: flex-end; } }',
       '@media (prefers-reduced-motion: reduce) { .rl-spinner { animation: none; } .rl-dot-running { animation: none; } .rl-node { transition: none; } .rl-node-actions { transition: none; } }',
     ].join('\n');
     // #endregion
@@ -2619,6 +3260,8 @@ window.__ModuleLoader__.load({
       command(body, signal, t) {
         return requestJson(ROUTES.commands, { method: 'POST', body, signal }, t);
       },
+
+
     };
     // #endregion
 
@@ -4898,12 +5541,786 @@ window.__ModuleLoader__.load({
 
     // #region landing + project list
     /** Landing page: existing projects beside the create-project wizard. */
+    // #region onboarding guide
+    const GUIDE_PAGE_KEYS = [
+      { eyebrow: 'guide.page1.eyebrow', benefit: 'guide.page1.benefit', title: 'guide.page1.title', lead: 'guide.page1.lead', bullets: ['guide.page1.b1', 'guide.page1.b2', 'guide.page1.b3'], visual: 'node' },
+      { eyebrow: 'guide.page2.eyebrow', benefit: 'guide.page2.benefit', title: 'guide.page2.title', lead: 'guide.page2.lead', bullets: ['guide.page2.b1', 'guide.page2.b2', 'guide.page2.b3'], visual: 'git' },
+      { eyebrow: 'guide.page3.eyebrow', benefit: 'guide.page3.benefit', title: 'guide.page3.title', lead: 'guide.page3.lead', bullets: ['guide.page3.b1', 'guide.page3.b2', 'guide.page3.b3'], visual: 'dag' },
+      { eyebrow: 'guide.page4.eyebrow', benefit: 'guide.page4.benefit', title: 'guide.page4.title', lead: 'guide.page4.lead', bullets: ['guide.page4.b1', 'guide.page4.b2', 'guide.page4.b3'], visual: 'execute' },
+      { eyebrow: 'guide.page5.eyebrow', benefit: 'guide.page5.benefit', title: 'guide.page5.title', lead: 'guide.page5.lead', bullets: ['guide.page5.b1', 'guide.page5.b2', 'guide.page5.b3'], visual: 'scheduler' },
+      { eyebrow: 'guide.page6.eyebrow', benefit: 'guide.page6.benefit', title: 'guide.page6.title', lead: 'guide.page6.lead', bullets: ['guide.page6.b1', 'guide.page6.b2', 'guide.page6.b3'], visual: 'cluster' },
+      { eyebrow: 'guide.arch.eyebrow', benefit: 'guide.arch.benefit', title: 'guide.arch.title', lead: 'guide.arch.lead', bullets: ['guide.arch.b1', 'guide.arch.b2', 'guide.arch.b3', 'guide.arch.b4'], visual: 'architecture' },
+      { eyebrow: 'guide.demo.eyebrow', benefit: 'guide.demo.benefit', title: 'guide.demo.title', lead: 'guide.demo.lead', bullets: ['guide.demo.b1', 'guide.demo.b2', 'guide.demo.b3', 'guide.demo.b4'], visual: 'workspaceDemo' },
+      { eyebrow: 'guide.page7.eyebrow', benefit: 'guide.page7.benefit', title: 'guide.page7.title', lead: 'guide.page7.lead', bullets: ['guide.page7.b1', 'guide.page7.b2', 'guide.page7.b3'], visual: 'review' },
+      { eyebrow: 'guide.page8.eyebrow', benefit: 'guide.page8.benefit', title: 'guide.page8.title', lead: 'guide.page8.lead', bullets: ['guide.page8.b1', 'guide.page8.b2', 'guide.page8.b3', 'guide.page8.b4'], visual: 'loop' },
+    ];
+
+    function GuideSvg(t, children, viewBox) {
+      return h(
+        'svg',
+        { className: 'rl-guide-svg', viewBox: viewBox || '0 0 520 360', role: 'img', 'aria-label': t('guide.visual') },
+        ...children,
+      );
+    }
+    function GuideNode(key, x, y, w, height, label, sub, accent, delay, motion) {
+      return h(
+        'g',
+        { key, className: 'rl-guide-rise' + (motion ? ' ' + motion : ''), style: { animationDelay: delay || '0s' } },
+        h('rect', {
+          x, y, width: w, height, rx: 10,
+          className: 'rl-guide-box' + (accent ? ' rl-guide-box-accent' : ''),
+        }),
+        h('text', { x: x + w / 2, y: y + height / 2 - (sub ? 2 : -4), textAnchor: 'middle', className: 'rl-guide-label' }, label),
+        sub
+          ? h('text', { x: x + w / 2, y: y + height / 2 + 14, textAnchor: 'middle', className: 'rl-guide-sub' }, sub)
+          : null,
+      );
+    }
+    function GuideLink(key, d, delay) {
+      return h('path', {
+        key,
+        d,
+        className: 'rl-guide-line rl-guide-flow rl-guide-fade',
+        style: { animationDelay: delay || '0s' },
+      });
+    }
+    function GuideDot(key, cx, cy, r, kind, delay) {
+      return h('circle', {
+        key,
+        cx, cy, r,
+        className: 'rl-guide-token rl-guide-pulse' + (kind ? ' rl-guide-token-' + kind : ''),
+        style: { animationDelay: delay || '0s' },
+      });
+    }
+    function GuideMotionDot(key, path, dur, begin) {
+      return h(
+        'circle',
+        { key, r: 4, className: 'rl-guide-token rl-guide-motion-dot' },
+        h('animateMotion', {
+          dur: dur || '5s',
+          begin: begin || '0s',
+          repeatCount: 'indefinite',
+          path,
+        }),
+      );
+    }
+    function GuideVisualNode(t) {
+      return GuideSvg(t, [
+        GuideNode('q', 28, 96, 172, 100, t('guide.label.question'), t('guide.label.goal'), false, '0s'),
+        GuideLink('l1', 'M202 146 C236 146 244 146 282 146', '0.25s'),
+        h('circle', { key: 'orbit-ring', cx: 386, cy: 126, r: 112, className: 'rl-guide-orbit-ring', style: { transformOrigin: '386px 126px' } }),
+        GuideNode('n', 286, 42, 200, 168, t('guide.label.node'), t('guide.label.constraint'), true, '0.35s', 'rl-guide-breathe'),
+        h('g', { key: 'agent-orbit', className: 'rl-guide-orbit', style: { transformOrigin: '386px 126px' } },
+          h('circle', { cx: 386, cy: 14, r: 5, className: 'rl-guide-token rl-guide-pulse' }),
+        ),
+        GuideNode('code', 286, 230, 60, 34, t('guide.label.codeOnly'), '', false, '0.15s', 'rl-guide-emit'),
+        GuideNode('report', 354, 230, 60, 34, t('guide.label.report'), '', false, '0.55s', 'rl-guide-emit'),
+        GuideNode('next', 422, 230, 68, 34, t('guide.label.next'), '', true, '0.95s', 'rl-guide-emit'),
+        h('text', { key: 'output-label', x: 386, y: 300, textAnchor: 'middle', className: 'rl-guide-sub' }, t('guide.label.code') + ' → ' + t('guide.label.next')),
+        GuideMotionDot('m1', 'M386 14 C414 48 438 88 438 126 C438 166 414 204 386 238 C358 204 334 166 334 126 C334 88 358 48 386 14', '6s', '0s'),
+        GuideMotionDot('m2', 'M386 14 C414 48 438 88 438 126 C438 166 414 204 386 238 C358 204 334 166 334 126 C334 88 358 48 386 14', '6s', '3s'),
+      ]);
+    }
+    function GuideVisualGit(t) {
+      return GuideSvg(t, [
+        GuideNode('repo', 24, 104, 150, 76, t('guide.label.repo'), t('guide.label.code'), true, '0s'),
+        GuideLink('l1', 'M176 142 C214 142 218 84 252 84', '0.2s'),
+        GuideLink('l2', 'M176 142 C214 142 218 180 252 180', '0.3s'),
+        GuideLink('l3', 'M176 142 C214 142 218 280 252 280', '0.4s'),
+        GuideNode('w1', 256, 52, 218, 64, t('guide.label.worktree') + ' A', t('guide.label.commit'), false, '0.35s', 'rl-guide-float'),
+        GuideNode('w2', 256, 148, 218, 64, t('guide.label.worktree') + ' B', t('guide.label.commit'), false, '0.5s', 'rl-guide-float'),
+        GuideNode('w3', 256, 244, 218, 64, t('guide.label.worktree') + ' C', t('guide.label.commit'), false, '0.65s', 'rl-guide-float'),
+        GuideDot('d1', 454, 84, 6, 'success', '0.9s'),
+        GuideDot('d2', 454, 180, 6, 'success', '1.0s'),
+        GuideDot('d3', 454, 276, 6, 'success', '1.1s'),
+        h('circle', { key: 'seq1', cx: 340, cy: 84, r: 4, className: 'rl-guide-token rl-guide-seq', style: { animationDelay: '0.4s' } }),
+        h('circle', { key: 'seq2', cx: 340, cy: 180, r: 4, className: 'rl-guide-token rl-guide-seq', style: { animationDelay: '1.2s' } }),
+        h('circle', { key: 'seq3', cx: 340, cy: 276, r: 4, className: 'rl-guide-token rl-guide-seq', style: { animationDelay: '2.0s' } }),
+        GuideMotionDot('mg1', 'M176 142 C214 142 218 84 256 84', '4s', '0s'),
+        GuideMotionDot('mg2', 'M176 142 C214 142 218 180 256 180', '4.5s', '1s'),
+      ]);
+    }
+    function GuideVisualDag(t) {
+      return GuideSvg(t, [
+        GuideNode('root', 208, 24, 104, 58, t('guide.label.root'), t('guide.label.done'), true, '0s', 'rl-guide-breathe'),
+        GuideLink('e1', 'M260 84 C260 118 150 112 150 146', '0.25s'),
+        GuideLink('e2', 'M260 84 C260 118 370 112 370 146', '0.35s'),
+        GuideNode('c1', 82, 150, 136, 62, t('guide.label.child') + ' 1', t('guide.label.running'), false, '0.45s', 'rl-guide-breathe'),
+        GuideNode('c2', 302, 150, 136, 62, t('guide.label.child') + ' 2', t('guide.label.planned'), false, '0.55s'),
+        GuideLink('e3', 'M150 214 C150 248 248 242 248 284', '0.75s'),
+        GuideNode('g1', 190, 286, 124, 54, t('guide.label.grandchild'), '', false, '0.9s', 'rl-guide-pulse'),
+        h('text', { x: 346, y: 276, textAnchor: 'middle', className: 'rl-guide-sub' }, t('guide.label.parallel')),
+        GuideMotionDot('md1', 'M260 82 C260 118 150 112 150 150', '5s', '0s'),
+        GuideMotionDot('md2', 'M370 82 C370 118 370 112 370 150', '5.5s', '1.2s'),
+      ]);
+    }
+    function GuideVisualExecute(t) {
+      return GuideSvg(t, [
+        GuideNode('node', 24, 110, 138, 88, t('guide.label.node'), t('guide.label.running'), true, '0s'),
+        GuideLink('l1', 'M164 154 C194 154 198 154 226 154', '0.2s'),
+        GuideNode('worker', 230, 82, 152, 112, t('guide.label.worker'), t('guide.label.code'), false, '0.35s', 'rl-guide-float'),
+        h('rect', { x: 252, y: 154, width: 106, height: 8, rx: 4, className: 'rl-guide-track' }),
+        h('rect', { x: 252, y: 154, width: 106, height: 8, rx: 4, className: 'rl-guide-progress' }),
+        GuideLink('l2', 'M384 138 C412 138 418 118 442 118', '0.55s'),
+        GuideNode('report', 400, 82, 94, 64, t('guide.label.report'), '', false, '0.7s', 'rl-guide-emit'),
+        h('circle', { cx: 442, cy: 250, r: 28, className: 'rl-guide-clock' }),
+        h('path', { d: 'M442 250 L442 232', className: 'rl-guide-line rl-guide-clock-hand' }),
+        h('text', { x: 442, y: 296, textAnchor: 'middle', className: 'rl-guide-sub' }, t('guide.label.timebox')),
+        GuideMotionDot('me1', 'M164 154 C194 154 198 154 226 154', '3.5s', '0s'),
+        GuideMotionDot('me2', 'M384 138 C412 138 418 118 442 118', '4s', '1.5s'),
+      ]);
+    }
+    function GuideVisualScheduler(t) {
+      return GuideSvg(t, [
+        GuideNode('p1', 18, 38, 120, 52, t('guide.label.planned') + ' 1', 'gpu=1', false, '0s'),
+        GuideNode('p2', 18, 108, 120, 52, t('guide.label.planned') + ' 2', 'gpu=1', false, '0.1s'),
+        GuideNode('p3', 18, 178, 120, 52, t('guide.label.planned') + ' 3', 'gpu=1', false, '0.2s'),
+        GuideLink('q1', 'M140 64 C176 64 174 136 204 136', '0.3s'),
+        GuideLink('q2', 'M140 134 C176 134 178 136 204 136', '0.35s'),
+        GuideLink('q3', 'M140 204 C176 204 178 136 204 136', '0.4s'),
+        GuideNode('sched', 206, 102, 120, 70, t('guide.label.scheduler'), t('guide.label.queue'), true, '0.45s'),
+        GuideLink('r1', 'M328 136 C354 136 356 86 380 86', '0.6s'),
+        GuideLink('r2', 'M328 136 C354 136 356 190 380 190', '0.7s'),
+        GuideNode('run1', 384, 52, 116, 68, t('guide.label.running'), 'slot 1', false, '0.8s', 'rl-guide-breathe'),
+        GuideNode('run2', 384, 156, 116, 68, t('guide.label.running'), 'slot 2', false, '0.9s', 'rl-guide-breathe'),
+        GuideNode('wait', 18, 286, 120, 48, t('guide.label.waiting'), t('guide.label.queue'), false, '1.0s'),
+        h('text', { x: 270, y: 290, textAnchor: 'middle', className: 'rl-guide-sub' }, t('guide.label.quota') + ' · 2'),
+        h('circle', { key: 'qd1', cx: 158, cy: 112, r: 4, className: 'rl-guide-queue-dot' }),
+        h('circle', { key: 'qd2', cx: 158, cy: 150, r: 4, className: 'rl-guide-queue-dot', style: { animationDelay: '0.8s' } }),
+        h('circle', { key: 'qd3', cx: 158, cy: 188, r: 4, className: 'rl-guide-queue-dot', style: { animationDelay: '1.6s' } }),
+        GuideMotionDot('ms1', 'M140 134 C176 134 178 136 204 136', '3s', '0s'),
+        GuideMotionDot('ms2', 'M328 136 C354 136 356 86 380 86', '3.6s', '0.8s'),
+      ]);
+    }
+    function GuideVisualCluster(t) {
+      return GuideSvg(t, [
+        GuideNode('control', 18, 132, 132, 72, t('guide.label.control'), 'DSH', false, '0s'),
+        GuideLink('l1', 'M152 168 C180 168 186 168 212 168', '0.2s'),
+        h('circle', { key: 'coord-ring', cx: 272, cy: 168, r: 92, className: 'rl-guide-orbit-ring', style: { transformOrigin: '272px 168px' } }),
+        GuideNode('coord', 216, 122, 112, 92, t('guide.label.coordinator'), t('guide.label.lease'), true, '0.35s', 'rl-guide-breathe'),
+        GuideLink('l2', 'M330 140 C360 140 360 62 388 62', '0.5s'),
+        GuideLink('l3', 'M330 168 C360 168 360 168 388 168', '0.6s'),
+        GuideLink('l4', 'M330 196 C360 196 360 274 388 274', '0.7s'),
+        GuideNode('m1', 392, 34, 104, 58, t('guide.label.machine') + ' 1', t('guide.label.gpu') + ' ×2', false, '0.8s', 'rl-guide-float'),
+        GuideNode('m2', 392, 138, 104, 58, t('guide.label.machine') + ' 2', t('guide.label.gpu') + ' ×2', false, '0.9s', 'rl-guide-float'),
+        GuideNode('m3', 392, 244, 104, 58, t('guide.label.machine') + ' 3', t('guide.label.gpu') + ' ×2', false, '1.0s', 'rl-guide-float'),
+        GuideNode('queue', 34, 276, 146, 48, t('guide.label.queue'), t('guide.label.waiting'), false, '1.1s'),
+        GuideMotionDot('mc1', 'M330 168 C360 168 360 168 388 168', '3.8s', '0s'),
+        GuideMotionDot('mc2', 'M330 140 C360 140 360 62 388 62', '4.5s', '1.2s'),
+      ]);
+    }
+    function GuideVisualReview(t) {
+      return GuideSvg(t, [
+        GuideNode('done', 18, 54, 120, 70, t('guide.label.done'), t('guide.label.report'), true, '0s'),
+        GuideLink('l1', 'M140 90 C172 90 174 90 202 90', '0.2s'),
+        GuideNode('adv', 206, 40, 128, 100, t('guide.label.advisor'), t('guide.label.reviewer'), false, '0.35s', 'rl-guide-breathe'),
+        h('rect', { key: 'scan', x: 216, y: 52, width: 108, height: 3, rx: 1, className: 'rl-guide-scan' }),
+        GuideLink('l2', 'M336 80 C364 80 366 58 392 58', '0.5s'),
+        GuideLink('l3', 'M336 100 C364 100 366 122 392 122', '0.6s'),
+        GuideNode('p1', 396, 34, 98, 50, t('guide.label.proposal') + ' 1', '', false, '0.7s', 'rl-guide-emit'),
+        GuideNode('p2', 396, 98, 98, 50, t('guide.label.proposal') + ' 2', '', false, '0.8s', 'rl-guide-emit'),
+        GuideLink('l4', 'M272 142 C272 180 272 188 272 214', '0.9s'),
+        GuideNode('you', 204, 218, 136, 68, t('guide.label.user'), t('guide.label.approve') + ' / ' + t('guide.label.reject'), true, '1.0s', 'rl-guide-pulse'),
+        GuideLink('l5', 'M272 288 C272 314 272 318 272 330', '1.1s'),
+        GuideMotionDot('mr1', 'M140 90 C172 90 174 90 202 90', '3.5s', '0s'),
+        GuideMotionDot('mr2', 'M336 80 C364 80 366 58 392 58', '3.8s', '1.2s'),
+      ]);
+    }
+    function GuideVisualLoop(t) {
+      const steps = [
+        ['goal', 220, 26, 86],
+        ['node', 388, 104, 92],
+        ['dag', 388, 224, 92],
+        ['execute', 220, 286, 92],
+        ['review', 52, 224, 92],
+        ['merge', 52, 104, 92],
+      ];
+      const children = [];
+      for (let index = 0; index < steps.length; index += 1) {
+        const step = steps[index];
+        children.push(GuideNode(step[0], step[1], step[2], step[3], 56, t('guide.label.' + step[0]), '', index === 0, (index * 0.12) + 's'));
+      }
+      const links = [
+        'M306 54 C350 54 356 76 388 104',
+        'M434 160 C434 188 434 196 434 224',
+        'M388 280 C350 306 306 314 220 314',
+        'M220 342 C160 342 130 314 98 280',
+        'M52 252 C52 210 52 180 52 160',
+        'M98 132 C130 96 160 82 220 82',
+      ];
+      for (let index = 0; index < links.length; index += 1) {
+        children.push(GuideLink('loop-' + index, links[index], (index * 0.12) + 0.2 + 's'));
+      }
+      children.push(h('circle', { cx: 260, cy: 185, r: 96, className: 'rl-guide-orbit-ring', style: { transformOrigin: '260px 185px' } }));
+      children.push(h('g', { className: 'rl-guide-orbit', style: { transformOrigin: '260px 185px' } }, h('circle', { cx: 260, cy: 89, r: 5, className: 'rl-guide-token rl-guide-pulse' })));
+      children.push(h('circle', { cx: 260, cy: 185, r: 50, className: 'rl-guide-center' }));
+      children.push(h('text', { x: 260, y: 177, textAnchor: 'middle', className: 'rl-guide-label' }, t('guide.label.loop')));
+      children.push(h('text', { x: 260, y: 197, textAnchor: 'middle', className: 'rl-guide-sub' }, '→ ' + t('guide.label.report')));
+      children.push(GuideMotionDot('ml1', 'M260 89 C322 89 356 137 356 185 C356 233 322 281 260 281 C198 281 164 233 164 185 C164 137 198 89 260 89', '8s', '0s'));
+      children.push(GuideMotionDot('ml2', 'M260 89 C322 89 356 137 356 185 C356 233 322 281 260 281 C198 281 164 233 164 185 C164 137 198 89 260 89', '8s', '4s'));
+      return GuideSvg(t, children);
+    }
+    const ARCH_STEPS = [
+      {
+        title: 'guide.arch.step1.title',
+        desc: 'guide.arch.step1.desc',
+        nodes: ['user', 'ui', 'http', 'service', 'store', 'git', 'worktree'],
+        links: ['user-ui', 'ui-http', 'http-service', 'service-store', 'store-git', 'git-worktree'],
+        motion: ['user-ui'],
+      },
+      {
+        title: 'guide.arch.step2.title',
+        desc: 'guide.arch.step2.desc',
+        nodes: ['runtime', 'worker', 'llm', 'worktree', 'store'],
+        links: ['runtime-worker', 'worker-llm', 'worker-worktree', 'store-ui'],
+        motion: ['runtime-worker'],
+      },
+      {
+        title: 'guide.arch.step3.title',
+        desc: 'guide.arch.step3.desc',
+        nodes: ['worker', 'store', 'git', 'worktree'],
+        links: ['worker-llm', 'worker-store', 'worker-worktree', 'store-ui'],
+        motion: ['worker-store'],
+      },
+      {
+        title: 'guide.arch.step4.title',
+        desc: 'guide.arch.step4.desc',
+        nodes: ['store', 'advisor', 'llm', 'scheduler'],
+        links: ['store-advisor', 'advisor-llm', 'advisor-store', 'store-scheduler'],
+        motion: ['store-advisor'],
+      },
+      {
+        title: 'guide.arch.step5.title',
+        desc: 'guide.arch.step5.desc',
+        nodes: ['store', 'scheduler', 'pool', 'runtime'],
+        links: ['store-scheduler', 'scheduler-pool', 'scheduler-runtime'],
+        motion: ['store-scheduler'],
+      },
+      {
+        title: 'guide.arch.step6.title',
+        desc: 'guide.arch.step6.desc',
+        nodes: ['scheduler', 'coord', 'fleet', 'nfs', 'worktree'],
+        links: ['scheduler-coord', 'coord-fleet', 'fleet-nfs', 'worktree-nfs'],
+        motion: ['scheduler-coord'],
+      },
+      {
+        title: 'guide.arch.step7.title',
+        desc: 'guide.arch.step7.desc',
+        nodes: ['worker', 'llm', 'worktree', 'git', 'store'],
+        links: ['runtime-worker', 'worker-llm', 'worker-worktree', 'git-worktree', 'store-git', 'worker-store'],
+        motion: ['worker-worktree'],
+      },
+      {
+        title: 'guide.arch.step8.title',
+        desc: 'guide.arch.step8.desc',
+        nodes: ['ui', 'http', 'service', 'store', 'git', 'repo'],
+        links: ['store-ui', 'ui-http', 'http-service', 'service-git', 'git-repo'],
+        motion: ['git-repo'],
+      },
+    ];
+
+    function ArchZone(key, x, y, w, height, label) {
+      return h(
+        'g',
+        { key },
+        h('rect', { x, y, width: w, height, rx: 12, className: 'rl-arch-zone' }),
+        h('text', { x: x + 12, y: y + 18, textAnchor: 'start', className: 'rl-arch-zone-label' }, label),
+      );
+    }
+    function ArchNode(id, x, y, w, height, label, sub, active) {
+      return h(
+        'g',
+        { key: id, className: 'rl-arch-node-wrap' + (active ? ' rl-arch-node-wrap-active' : '') },
+        h('rect', {
+          x, y, width: w, height, rx: 8,
+          className: 'rl-arch-node' + (active ? ' rl-arch-node-active' : ' rl-arch-node-dim'),
+        }),
+        h('text', { x: x + w / 2, y: y + height / 2 - (sub ? 2 : -4), textAnchor: 'middle', className: 'rl-arch-node-label' }, label),
+        sub
+          ? h('text', { x: x + w / 2, y: y + height / 2 + 13, textAnchor: 'middle', className: 'rl-arch-node-sub' }, sub)
+          : null,
+        active
+          ? h('circle', { cx: x + w - 9, cy: y + 9, r: 3.5, className: 'rl-arch-active-dot' })
+          : null,
+      );
+    }
+    function ArchLink(id, d, active) {
+      return h('path', {
+        key: id,
+        d,
+        className: 'rl-arch-link' + (active ? ' rl-arch-link-active' : ''),
+      });
+    }
+    function ArchitectureDiagram({ t, step }) {
+      const current = ARCH_STEPS[step] || ARCH_STEPS[0];
+      const activeNodes = new Set(current.nodes);
+      const activeLinks = new Set(current.links);
+      const nodes = [
+        ['user', 20, 24, 120, 52, t('guide.arch.user'), t('guide.arch.userSub')],
+        ['ui', 170, 24, 190, 52, t('guide.arch.ui'), t('guide.arch.uiSub')],
+        ['http', 210, 100, 130, 36, t('guide.arch.http'), ''],
+        ['service', 40, 194, 130, 46, t('guide.arch.service'), t('guide.arch.serviceSub')],
+        ['store', 190, 188, 170, 62, t('guide.arch.store'), t('guide.arch.storeSub')],
+        ['git', 380, 188, 120, 62, t('guide.arch.git'), t('guide.arch.gitSub')],
+        ['worktree', 520, 188, 90, 62, t('guide.arch.worktree'), t('guide.arch.worktreeSub')],
+        ['runtime', 40, 270, 160, 50, t('guide.arch.runtime'), t('guide.arch.runtimeSub')],
+        ['scheduler', 220, 270, 120, 50, t('guide.arch.scheduler'), t('guide.arch.schedulerSub')],
+        ['auto', 360, 270, 90, 50, t('guide.arch.auto'), t('guide.arch.autoSub')],
+        ['pool', 470, 270, 140, 50, t('guide.arch.pool'), t('guide.arch.poolSub')],
+        ['worker', 40, 458, 130, 48, t('guide.arch.worker'), t('guide.arch.workerSub')],
+        ['advisor', 190, 458, 160, 48, t('guide.arch.advisor'), t('guide.arch.advisorSub')],
+        ['llm', 370, 458, 140, 48, t('guide.arch.llm'), t('guide.arch.llmSub')],
+        ['coord', 700, 160, 120, 68, t('guide.arch.coordinator'), t('guide.arch.coordSub')],
+        ['fleet', 830, 90, 100, 130, t('guide.arch.fleet'), t('guide.arch.fleetSub')],
+        ['nfs', 830, 250, 100, 56, t('guide.arch.nfs'), t('guide.arch.nfsSub')],
+        ['repo', 650, 370, 180, 56, t('guide.arch.repo'), t('guide.arch.repoSub')],
+      ];
+      const links = [
+        ['user-ui', 'M140 50 C156 50 160 50 170 50'],
+        ['ui-http', 'M265 76 C265 88 270 90 275 100'],
+        ['http-service', 'M275 136 C275 160 140 160 105 194'],
+        ['service-store', 'M170 217 C180 217 184 217 190 217'],
+        ['store-git', 'M360 217 C370 217 374 217 380 217'],
+        ['git-worktree', 'M500 217 C510 217 512 217 520 217'],
+        ['service-git', 'M170 217 C270 240 320 230 380 217'],
+        ['git-repo', 'M500 250 C560 320 620 380 650 398'],
+        ['store-scheduler', 'M275 250 C275 260 275 264 280 270'],
+        ['scheduler-pool', 'M340 295 C390 295 425 295 470 295'],
+        ['scheduler-runtime', 'M220 295 C212 295 208 295 200 295'],
+        ['runtime-worker', 'M110 320 C110 370 105 420 105 458'],
+        ['worker-llm', 'M170 482 C270 482 300 482 370 482'],
+        ['worker-worktree', 'M520 250 C520 320 220 400 150 470'],
+        ['worker-store', 'M170 458 C280 430 300 340 300 250'],
+        ['store-advisor', 'M275 250 C275 350 270 400 260 458'],
+        ['advisor-store', 'M300 458 C340 420 330 290 330 250'],
+        ['advisor-llm', 'M350 482 C360 482 365 482 370 482'],
+        ['store-ui', 'M275 188 C275 150 265 140 265 76'],
+        ['scheduler-coord', 'M340 295 C500 295 600 200 700 194'],
+        ['coord-fleet', 'M820 194 C830 194 830 170 830 160'],
+        ['fleet-nfs', 'M880 220 C880 235 880 240 880 250'],
+        ['worktree-nfs', 'M610 230 C700 260 780 280 830 280'],
+        ['auto-scheduler', 'M360 295 L340 295'],
+        ['auto-advisor', 'M405 320 C405 400 350 430 300 458'],
+      ];
+      const children = [
+        ArchZone('zone-host', 20, 160, 610, 250, t('guide.arch.host')),
+        ArchZone('zone-agent', 20, 430, 610, 100, t('guide.arch.agents')),
+        ArchZone('zone-cluster', 650, 55, 300, 300, t('guide.arch.clusterZone')),
+      ];
+      for (const link of links) children.push(ArchLink(link[0], link[1], activeLinks.has(link[0])));
+      for (const node of nodes) children.push(ArchNode(node[0], node[1], node[2], node[3], node[4], node[5], node[6], activeNodes.has(node[0])));
+      for (let index = 0; index < current.motion.length; index += 1) {
+        const linkId = current.motion[index];
+        const link = links.find((entry) => entry[0] === linkId);
+        if (link) children.push(GuideMotionDot('arch-dot-' + index, link[1], '4.2s', (index * 1.1) + 's'));
+      }
+      return h(
+        'svg',
+        { className: 'rl-arch-svg', viewBox: '0 0 960 560', role: 'img', 'aria-label': t('guide.arch.title') },
+        ...children,
+      );
+    }
+    function ArchitectureWalkthrough({ t }) {
+      const [step, setStep] = React.useState(0);
+      const total = ARCH_STEPS.length;
+      const current = ARCH_STEPS[step];
+      const go = (next) => setStep(Math.max(0, Math.min(total - 1, next)));
+      return h(
+        'div',
+        { className: 'rl-arch-walk' },
+        h('div', { className: 'rl-arch-stage' }, h(ArchitectureDiagram, { t, step })),
+        h(
+          'div',
+          { className: 'rl-arch-step-panel' },
+          h(
+            'div',
+            { className: 'rl-arch-step-head' },
+            h('span', { className: 'rl-arch-step-index' }, t('guide.arch.step', { current: step + 1, total })),
+            h('strong', { className: 'rl-arch-step-title' }, t(current.title)),
+            h(
+              'div',
+              { className: 'rl-arch-step-actions' },
+              h(LabButton, { label: t('guide.arch.prev'), variant: 'ghost', disabled: step === 0, onClick: () => go(step - 1) }),
+              step < total - 1
+                ? h(LabButton, { label: t('guide.arch.next'), variant: 'primary', onClick: () => go(step + 1) })
+                : h(LabButton, { label: t('guide.arch.restart'), variant: 'ghost', onClick: () => go(0) }),
+            ),
+          ),
+          h('p', { className: 'rl-arch-step-desc', 'aria-live': 'polite' }, t(current.desc)),
+          h(
+            'div',
+            { className: 'rl-arch-step-dots' },
+            ARCH_STEPS.map((entry, index) => h('button', {
+              key: entry.title,
+              type: 'button',
+              className: 'rl-guide-dot' + (index === step ? ' rl-guide-dot-active' : ''),
+              'aria-label': t('guide.arch.step', { current: index + 1, total }),
+              'aria-selected': index === step,
+              onClick: () => setStep(index),
+            })),
+          ),
+        ),
+      );
+    }
+
+    const DEMO_NODES = [
+      { id: 'root', x: 50, y: 13, label: 'guide.demo.root' },
+      { id: 'c1', x: 25, y: 46, label: 'guide.demo.childA' },
+      { id: 'c2', x: 75, y: 46, label: 'guide.demo.childB' },
+      { id: 'c3', x: 12, y: 78, label: 'guide.demo.childC' },
+      { id: 'c4', x: 37, y: 78, label: 'guide.demo.childD' },
+      { id: 'c5', x: 63, y: 78, label: 'guide.demo.childE' },
+      { id: 'c6', x: 88, y: 78, label: 'guide.demo.childF' },
+    ];
+    const DEMO_EDGES = [
+      ['root', 'c1'],
+      ['root', 'c2'],
+      ['c1', 'c3'],
+      ['c1', 'c4'],
+      ['c2', 'c5'],
+      ['c2', 'c6'],
+    ];
+    const DEMO_STEPS = [
+      {
+        title: 'guide.demo.step1.title', desc: 'guide.demo.step1.desc',
+        statuses: { root: 'planned' }, selected: 'root', auto: false, trace: false,
+        logs: [['projectCreated', '10:00'], ['nodePlanned', '10:00']],
+      },
+      {
+        title: 'guide.demo.step2.title', desc: 'guide.demo.step2.desc',
+        statuses: { root: 'running' }, selected: 'root', auto: false, trace: false,
+        logs: [['nodeStarted', '10:01']],
+      },
+      {
+        title: 'guide.demo.step3.title', desc: 'guide.demo.step3.desc',
+        statuses: { root: 'completed' }, selected: 'root', auto: false, trace: false,
+        logs: [['nodeCompleted', '10:04']],
+      },
+      {
+        title: 'guide.demo.step4.title', desc: 'guide.demo.step4.desc',
+        statuses: { root: 'completed', c1: 'planned', c2: 'planned' }, selected: 'c1', auto: false, trace: false,
+        logs: [['advisorProposed', '10:05']],
+      },
+      {
+        title: 'guide.demo.step5.title', desc: 'guide.demo.step5.desc',
+        statuses: { root: 'completed', c1: 'running', c2: 'planned' }, selected: 'c1', auto: false, trace: false,
+        logs: [['userApproved', '10:06'], ['nodeStarted', '10:06']],
+      },
+      {
+        title: 'guide.demo.step6.title', desc: 'guide.demo.step6.desc',
+        statuses: { root: 'completed', c1: 'completed', c2: 'planned' }, selected: 'c1', auto: false, trace: true,
+        logs: [['traceOpened', '10:09'], ['nodeCompleted', '10:08']],
+      },
+      {
+        title: 'guide.demo.step7.title', desc: 'guide.demo.step7.desc',
+        statuses: { root: 'completed', c1: 'completed', c2: 'running', c3: 'planned', c4: 'planned' }, selected: 'c2', auto: true, trace: false,
+        logs: [['autoStarted', '10:10'], ['autoReview', '10:11']],
+      },
+      {
+        title: 'guide.demo.step8.title', desc: 'guide.demo.step8.desc',
+        statuses: { root: 'completed', c1: 'completed', c2: 'completed', c3: 'completed', c4: 'running', c5: 'planned' }, selected: 'c4', auto: true, trace: false,
+        logs: [['autoReview', '10:14'], ['autoWaiting', '10:15']],
+      },
+    ];
+
+    function WorkspaceDemo({ t }) {
+      const [step, setStep] = React.useState(0);
+      const [selected, setSelected] = React.useState(DEMO_STEPS[0].selected);
+      const [traceOpen, setTraceOpen] = React.useState(false);
+      const total = DEMO_STEPS.length;
+      const current = DEMO_STEPS[step];
+      React.useEffect(() => {
+        setSelected(current.selected);
+        setTraceOpen(current.trace === true);
+      }, [step]);
+      const go = (next) => setStep(Math.max(0, Math.min(total - 1, next)));
+      const present = DEMO_NODES.filter((node) => current.statuses[node.id] !== undefined);
+      const selectedNode = present.find((node) => node.id === selected) || present[0] || DEMO_NODES[0];
+      const selectedStatus = current.statuses[selectedNode.id] || 'planned';
+      const runningCount = present.filter((node) => current.statuses[node.id] === 'running').length;
+      const nodeById = (id) => DEMO_NODES.find((node) => node.id === id);
+      const statusText = (status) => t('guide.demo.nodeStatus.' + status);
+      const inspectorValue = (labelKey, value) => h(
+        'div',
+        { className: 'rl-demo-info-row' },
+        h('span', { className: 'rl-demo-info-key' }, t(labelKey)),
+        h('span', { className: 'rl-demo-info-value' }, value),
+      );
+      const tracePanel = traceOpen
+        ? h(
+            'div',
+            { className: 'rl-demo-trace', role: 'dialog', 'aria-label': t('guide.demo.trace.title') },
+            h(
+              'div',
+              { className: 'rl-demo-trace-head' },
+              h('strong', null, t('guide.demo.trace.title')),
+              h('button', { type: 'button', className: 'rl-demo-trace-close', onClick: () => setTraceOpen(false) }, '✕'),
+            ),
+            h('p', { className: 'rl-demo-trace-line' }, t('guide.demo.trace.user')),
+            h('p', { className: 'rl-demo-trace-line' }, t('guide.demo.trace.agent')),
+            h('p', { className: 'rl-demo-trace-line rl-demo-trace-mono' }, t('guide.demo.trace.tool')),
+            h('p', { className: 'rl-demo-trace-line rl-demo-trace-mono' }, t('guide.demo.trace.report')),
+          )
+        : null;
+      return h(
+        'div',
+        { className: 'rl-demo-walk' },
+        h(
+          'div',
+          { className: 'rl-demo-shell' },
+          h(
+            'div',
+            { className: 'rl-demo-topbar' },
+            h('span', { className: 'rl-demo-title' }, t('guide.demo.projectTitle')),
+            h('span', { className: 'rl-demo-mock' }, t('guide.demo.mockBadge')),
+            h('span', { className: 'rl-demo-mode' + (current.auto ? ' rl-demo-mode-auto' : '') }, current.auto ? t('guide.demo.auto') : t('guide.demo.manual')),
+            h('span', { className: 'rl-demo-running' }, '● ' + runningCount),
+            h(
+              'div',
+              { className: 'rl-demo-top-actions' },
+              h(LabButton, {
+                label: t('guide.demo.start'),
+                variant: 'primary',
+                disabled: step >= total - 1,
+                onClick: () => go(step + 1),
+              }),
+              h(LabButton, { label: t('guide.demo.trace'), variant: 'ghost', onClick: () => setTraceOpen((value) => !value) }),
+              h(LabButton, {
+                label: current.auto ? t('guide.demo.manual') : t('guide.demo.auto'),
+                variant: 'ghost',
+                onClick: () => go(current.auto ? 3 : 6),
+              }),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'rl-demo-main' },
+            h(
+              'div',
+              { className: 'rl-demo-rail' },
+              h('span', { className: 'rl-demo-rail-head' }, t('guide.demo.eventsHint')),
+              present.map((node) => h(
+                'button',
+                {
+                  key: node.id,
+                  type: 'button',
+                  className: 'rl-demo-rail-row' + (node.id === selectedNode.id ? ' rl-demo-rail-row-active' : ''),
+                  onClick: () => setSelected(node.id),
+                },
+                h('span', { className: 'rl-demo-rail-dot rl-demo-node-' + current.statuses[node.id] }),
+                h('span', null, t(node.label)),
+              )),
+            ),
+            h(
+              'div',
+              { className: 'rl-demo-canvas' },
+              h(
+                'svg',
+                { className: 'rl-demo-edges', viewBox: '0 0 100 100', preserveAspectRatio: 'none', 'aria-hidden': 'true' },
+                DEMO_EDGES.filter(([from, to]) => current.statuses[from] !== undefined && current.statuses[to] !== undefined).map(([from, to]) => {
+                  const a = nodeById(from);
+                  const b = nodeById(to);
+                  const d = 'M' + a.x + ' ' + a.y + ' C' + a.x + ' ' + ((a.y + b.y) / 2) + ' ' + b.x + ' ' + ((a.y + b.y) / 2) + ' ' + b.x + ' ' + b.y;
+                  return h('path', { key: from + '-' + to, d, className: 'rl-demo-edge' });
+                }),
+              ),
+              present.map((node) => h(
+                'button',
+                {
+                  key: node.id,
+                  type: 'button',
+                  className: 'rl-demo-node rl-demo-node-' + current.statuses[node.id] + (node.id === selectedNode.id ? ' rl-demo-node-selected' : ''),
+                  style: { left: node.x + '%', top: node.y + '%' },
+                  onClick: () => setSelected(node.id),
+                },
+                h('span', { className: 'rl-demo-node-title' }, t(node.label)),
+                h('span', { className: 'rl-demo-node-status' }, statusText(current.statuses[node.id])),
+              )),
+              traceOpen ? tracePanel : null,
+            ),
+            h(
+              'div',
+              { className: 'rl-demo-inspector' },
+              h('span', { className: 'rl-demo-panel-title' }, t('guide.demo.inspector')),
+              h('strong', { className: 'rl-demo-inspector-title' }, t(selectedNode.label)),
+              inspectorValue('guide.demo.status', statusText(selectedStatus)),
+              inspectorValue('guide.demo.branch', 'node/' + selectedNode.id),
+              inspectorValue('guide.demo.session', 'session-demo-' + selectedNode.id),
+              inspectorValue('guide.demo.report', selectedStatus === 'completed' ? 'val_loss=0.71 · 4f2c1a' : '—'),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'rl-demo-log' },
+            h('span', { className: 'rl-demo-log-head' }, t('guide.demo.events')),
+            current.logs.map(([key, time]) => h(
+              'span',
+              { key, className: 'rl-demo-log-row' },
+              h('span', { className: 'rl-demo-log-time' }, time),
+              h('span', null, t('guide.demo.log.' + key)),
+            )),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'rl-demo-step-panel' },
+          h(
+            'div',
+            { className: 'rl-demo-step-head' },
+            h('span', { className: 'rl-demo-step-index' }, t('guide.demo.step', { current: step + 1, total })),
+            h('strong', { className: 'rl-demo-step-title' }, t(current.title)),
+            h(
+              'div',
+              { className: 'rl-demo-step-actions' },
+              h(LabButton, { label: t('guide.demo.prev'), variant: 'ghost', disabled: step === 0, onClick: () => go(step - 1) }),
+              step < total - 1
+                ? h(LabButton, { label: t('guide.demo.next'), variant: 'primary', onClick: () => go(step + 1) })
+                : h(LabButton, { label: t('guide.demo.restart'), variant: 'ghost', onClick: () => go(0) }),
+            ),
+          ),
+          h('p', { className: 'rl-demo-step-desc', 'aria-live': 'polite' }, t(current.desc)),
+        ),
+      );
+    }
+
+    function GuideVisual({ kind, t }) {
+      if (kind === 'git') return GuideVisualGit(t);
+      if (kind === 'dag') return GuideVisualDag(t);
+      if (kind === 'execute') return GuideVisualExecute(t);
+      if (kind === 'scheduler') return GuideVisualScheduler(t);
+      if (kind === 'cluster') return GuideVisualCluster(t);
+      if (kind === 'architecture') return h(ArchitectureWalkthrough, { t });
+      if (kind === 'workspaceDemo') return h(WorkspaceDemo, { t });
+      if (kind === 'review') return GuideVisualReview(t);
+      if (kind === 'loop') return GuideVisualLoop(t);
+      return GuideVisualNode(t);
+    }
+
+    /** Full-screen, swipeable, animated onboarding deck. */
+    function GuideModal({ t, onClose, onStart }) {
+      const [index, setIndex] = React.useState(0);
+      const touchXRef = React.useRef(null);
+      const mouseXRef = React.useRef(null);
+      const total = GUIDE_PAGE_KEYS.length;
+      const page = GUIDE_PAGE_KEYS[index];
+      const go = (next) => setIndex(Math.max(0, Math.min(total - 1, next)));
+      React.useEffect(() => {
+        if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') onClose();
+          else if (event.key === 'ArrowRight') setIndex((value) => Math.min(total - 1, value + 1));
+          else if (event.key === 'ArrowLeft') setIndex((value) => Math.max(0, value - 1));
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+      }, [onClose, total]);
+      const onMouseDown = (event) => {
+        if (event.button === 0) mouseXRef.current = event.clientX;
+      };
+      const onMouseUp = (event) => {
+        if (mouseXRef.current === null) return;
+        const delta = event.clientX - mouseXRef.current;
+        mouseXRef.current = null;
+        if (Math.abs(delta) <= 40) return;
+        if (delta < 0) go(index + 1);
+        else go(index - 1);
+      };
+      const onTouchStart = (event) => {
+        if (event.touches && event.touches.length > 0) touchXRef.current = event.touches[0].clientX;
+      };
+      const onTouchEnd = (event) => {
+        if (touchXRef.current === null || !event.changedTouches || event.changedTouches.length === 0) return;
+        const delta = event.changedTouches[0].clientX - touchXRef.current;
+        touchXRef.current = null;
+        if (delta <= -40) go(index + 1);
+        else if (delta >= 40) go(index - 1);
+      };
+      return h(
+        'div',
+        { className: 'rl-guide-layer' },
+        h('div', { className: 'rl-guide-backdrop', onClick: onClose }),
+        h(
+          'div',
+          { className: 'rl-guide-card', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('guide.title') },
+          h(
+            'div',
+            { className: 'rl-guide-head' },
+            h('span', { className: 'rl-guide-eyebrow' }, t('guide.subtitle')),
+            h('span', { className: 'rl-guide-count' }, t('guide.page', { current: index + 1, total })),
+            h(LabButton, { label: '✕', variant: 'ghost', title: t('guide.close'), onClick: onClose }),
+          ),
+          h(
+            'div',
+            { className: 'rl-guide-body' + (page.visual === 'architecture' ? ' rl-guide-body-arch' : page.visual === 'workspaceDemo' ? ' rl-guide-body-demo' : ''), onTouchStart, onTouchEnd, onMouseDown, onMouseUp },
+            h(
+              'div',
+              { key: 'text-' + index, className: 'rl-guide-text' },
+
+              h(
+                'div',
+                { className: 'rl-guide-kicker' },
+                h('span', { className: 'rl-guide-chip' }, t(page.eyebrow)),
+                h('span', { className: 'rl-guide-benefit' }, t(page.benefit)),
+              ),
+              h('h2', { className: 'rl-guide-page-title' }, t(page.title)),
+              h('p', { className: 'rl-guide-lead' }, t(page.lead)),
+              h('ul', { className: 'rl-guide-points' }, page.bullets.map((key) => h('li', { key }, t(key)))),
+            ),
+            h(
+              'div',
+              { key: 'visual-' + index, className: 'rl-guide-visual' + (page.visual === 'architecture' ? ' rl-guide-visual-arch' : page.visual === 'workspaceDemo' ? ' rl-guide-visual-demo' : '') },
+              h(GuideVisual, { kind: page.visual, t }),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'rl-guide-foot' },
+            h(
+              'div',
+              { className: 'rl-guide-dots', role: 'tablist' },
+              GUIDE_PAGE_KEYS.map((entry, dotIndex) => h(
+                'button',
+                {
+                  key: entry.visual,
+                  type: 'button',
+                  className: 'rl-guide-dot' + (dotIndex === index ? ' rl-guide-dot-active' : ''),
+                  'aria-label': t('guide.page', { current: dotIndex + 1, total }),
+                  'aria-selected': dotIndex === index,
+                  onClick: () => setIndex(dotIndex),
+                },
+              )),
+            ),
+            h('span', { className: 'rl-guide-swipe' }, t('guide.swipe')),
+            h('div', { className: 'rl-guide-actions' },
+              h(LabButton, { label: t('guide.prev'), variant: 'ghost', disabled: index === 0, onClick: () => go(index - 1) }),
+              index < total - 1
+                ? h(LabButton, { label: t('guide.next'), variant: 'primary', onClick: () => go(index + 1) })
+                : h(LabButton, { label: t('guide.start'), variant: 'primary', onClick: onStart }),
+            ),
+          ),
+        ),
+      );
+    }
+    // #endregion
+
     function LandingScreen({ t, onOpenProject }) {
       const { state, retry, removeProject } = useProjectsData(t);
       const [clusterConfigOpen, setClusterConfigOpen] = React.useState(false);
+      const [createOpen, setCreateOpen] = React.useState(false);
+      const [guideOpen, setGuideOpen] = React.useState(false);
       const [deleteTarget, setDeleteTarget] = React.useState(null);
       const [deleteBusy, setDeleteBusy] = React.useState(false);
       const [deleteError, setDeleteError] = React.useState('');
+
+      React.useEffect(() => {
+        if (!createOpen) return undefined;
+        if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') setCreateOpen(false);
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+      }, [createOpen]);
 
       const requestDelete = React.useCallback((project) => {
         setDeleteError('');
@@ -4951,24 +6368,82 @@ window.__ModuleLoader__.load({
             h('p', { className: 'rl-page-subtitle' }, t('subtitle')),
           ),
           h(
-            'span',
-            { className: 'rl-badge' },
-            h('span', { className: 'rl-badge-dot', 'aria-hidden': true }),
-            t('badge'),
+            'div',
+            { className: 'rl-page-actions' },
+            h(
+              'span',
+              { className: 'rl-badge' },
+              h('span', { className: 'rl-badge-dot', 'aria-hidden': true }),
+              t('badge'),
+            ),
+            h(LabButton, {
+              label: '＋ ' + t('wizard.title'),
+              variant: 'primary',
+              title: t('wizard.title'),
+              onClick: () => setCreateOpen(true),
+            }),
+            h(LabButton, {
+              label: '? ' + t('guide.open'),
+              variant: 'ghost',
+              title: t('guide.title'),
+              onClick: () => setGuideOpen(true),
+            }),
+            h(LabButton, {
+              label: '⚙ ' + t('landing.clusterConfig'),
+              variant: 'ghost',
+              title: t('ws.clusterConfig.title'),
+              onClick: () => setClusterConfigOpen(true),
+            }),
           ),
-          h(LabButton, {
-            label: '⚙ ' + t('landing.clusterConfig'),
-            variant: 'ghost',
-            title: t('ws.clusterConfig.title'),
-            onClick: () => setClusterConfigOpen(true),
-          }),
         ),
         h(
           'div',
-          { className: 'rl-landing-grid' },
+          { className: 'rl-landing-list' },
           h(ProjectsPanel, { state, onRetry: retry, onOpen: onOpenProject, onDelete: requestDelete, t }),
-          h(CreateProjectWizard, { t, onCreated: onOpenProject }),
         ),
+        createOpen
+          ? h(
+              'div',
+              { className: 'rl-overlay-layer rl-overlay-layer-top' },
+              h(
+                'div',
+                { className: 'rl-modal rl-modal-wide', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('wizard.title') },
+                h(
+                  'div',
+                  { className: 'rl-modal-head' },
+                  h('h2', { className: 'rl-modal-title' }, t('wizard.title')),
+                  h(LabButton, {
+                    label: '✕',
+                    variant: 'ghost',
+                    title: t('wizard.close'),
+                    onClick: () => setCreateOpen(false),
+                  }),
+                ),
+                h(
+                  'div',
+                  { className: 'rl-modal-body' },
+                  h(CreateProjectWizard, {
+                    t,
+                    embedded: true,
+                    onCreated: (projectId) => {
+                      setCreateOpen(false);
+                      onOpenProject(projectId);
+                    },
+                  }),
+                ),
+              ),
+            )
+          : null,
+        guideOpen
+          ? h(GuideModal, {
+              t,
+              onClose: () => setGuideOpen(false),
+              onStart: () => {
+                setGuideOpen(false);
+                setCreateOpen(true);
+              },
+            })
+          : null,
         clusterConfigOpen
           ? h(ClusterConfigModal, {
               onClose: () => setClusterConfigOpen(false),
@@ -5112,7 +6587,7 @@ window.__ModuleLoader__.load({
      * Two-section wizard: validate the Git repository (GET /repo) and collect the
      * research setup, then POST one project and open its workspace.
      */
-    function CreateProjectWizard({ t, onCreated }) {
+    function CreateProjectWizard({ t, onCreated, embedded = false }) {
       const [repoPath, setRepoPath] = React.useState('');
       const [repoPhase, setRepoPhase] = React.useState('idle');
       const [repoInfo, setRepoInfo] = React.useState(null);
@@ -5271,13 +6746,15 @@ window.__ModuleLoader__.load({
 
       return h(
         'section',
-        { className: 'rl-card', 'aria-label': t('wizard.title') },
-        h(
-          'div',
-          { className: 'rl-card-head' },
-          h('h2', { className: 'rl-card-title' }, t('wizard.title')),
-          h('span', { className: 'rl-card-meta' }, t('wizard.section.repo')),
-        ),
+        { className: 'rl-card' + (embedded ? ' rl-card-embedded' : ''), 'aria-label': t('wizard.title') },
+        embedded
+          ? null
+          : h(
+              'div',
+              { className: 'rl-card-head' },
+              h('h2', { className: 'rl-card-title' }, t('wizard.title')),
+              h('span', { className: 'rl-card-meta' }, t('wizard.section.repo')),
+            ),
         h('p', { className: 'rl-hint' }, t('wizard.intro')),
 
         h(
