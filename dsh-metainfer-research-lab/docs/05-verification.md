@@ -589,3 +589,159 @@ Host 版本 `0.8.1-v3`（`paused/cluster` 默认关闭）；离线自测 19/19�
 ### 版本
 
 Host `0.8.6-v3`，package `0.8.0`，client 11,293 行。
+
+## V10 增补：UI 返回项目 / 默认提示词可见 / 配置下拉化（2026-10-26）
+
+### 需求
+
+1. 从节点 Agent 的原生对话/轨迹返回时，必须回到同一项目，而不是任务列表。
+2. 项目设置里所有有默认值的文本框显示默认值，而不是空的“覆盖”框。
+3. 所有可枚举的配置项用下拉选择，不手工输入 provider/model 等。
+
+### 交付
+
+- Client 模块级 `labNavigation` 记住 projectId/nodeId + native return target；注册 `shell.overlay`
+  浮动“← 返回 Lab 项目”按钮；点击 `ctx.layout.selectPanel(PANEL_ID)`；Lab 主面板 remount 后恢复同一
+  project/node（手动点侧栏图标也恢复）。新增 `layout` 注入。
+- Host `host/prompts.js` 成为默认提示词单一来源；`/models` 返回
+  `promptDefaults {workerPrefix,advisor,scheduler}` 和 `promptPlaceholders`；
+  `runtime.workerPrompt` 现在真正使用 `project.config.prompts.workerPrefix`（前置
+  `# Project-specific worker instructions`）。
+- 项目设置提示词覆盖 textarea 显示 effective 默认值；使用默认/已覆盖 chip；逐项“恢复默认”；
+  保存时把等于默认值的文本视为未覆盖，不写入 config；workerPrefix 默认空显示说明；展示占位符。
+- ModelPicker/Settings 角色模型/reviewers/modelOptions 的 provider+model 全部改为 catalog 下拉；
+  节点 needs key 改为项目 resourcePools 键 + machines 下拉（数值保留）；自由文本保留 lens/id/tags/
+  prices/repo/path/prompt。
+
+### 验证
+
+- `node --check client.js` 通过；Host 各文件通过；selftest 19/19。
+- Client stub-React/fake ctx harness（teammate 执行）：native return target → overlay 出现 → click
+  selectPanel('metainfer-research-lab') → remount 恢复 V10 Demo + n-0001；settings 默认 advisor/scheduler
+  文本和占位符显示，编辑→已覆盖，恢复默认，保存仅发送实际覆盖；ModelPicker/角色/reviewer/modelOptions
+  provider/model 为 select；needs 提供 gpu/machines 下拉；无 console.error。
+- 静态审计：无 free provider/model 文本输入；cancelled-node retry、V6–V8 功能保留。
+- 浏览器视觉验证仍待用户刷新页面后确认。
+
+### 版本
+
+Host `0.8.7-v3`，package `0.9.0`，client 11,603 行；locale 914/914。
+
+### 备注
+
+- 为安全热加载 Host 的提示词默认值接口，先暂停了拆分测试项目的自动挡（当前所有节点均已完成，无
+  running 节点）；重载后可按需 `继续` 自动挡。
+
+## V11 增补：后台专家组实时可见 + 项目 Copilot 侧边栏（2026-10-26）
+
+### 交付
+
+- **专家实时可见**：runs 轮询上移到 Workspace（2s，页面隐藏暂停/退避），顶栏“专家组”chip 显示
+  running 数量及 advisor/reviewer/scheduler/GC 组成，空闲显示“专家组 · 空闲”；点击打开 Runs。
+  RunsPanel 不再重复轮询；行/详情显示 live 状态、role/lens、耗时、模型，并支持
+  “在 DSH 中打开轨迹/对话”（run.sessionId → 原生 Conversation）。运行中的 run 详情每 2s 静默刷新。
+- **专家运行生命周期修复**：
+  - `auto.stop` 现在调用 `orchestrator.cancelProjectRuns(projectId)`，取消 advisor/scheduler activation
+    并把仍为 running 的 run 标为 failed/cancelled，避免停止自动挡后 UI 永久显示“运行中”。
+  - 启动 reconcile 增加 `reconcileRunningRuns`：插件重载/宿主重启后，遗留 running 专家 run 标为
+    failed/restart，不再显示为活跃。
+- **项目 Copilot 侧边栏**：
+  - Host 新增 `GET /chat`、command `project.chat`、agent tool `chat` / `clear_chat`；
+  - 新增 `lab-chat` preset（项目 Copilot，只读倾向，可用 `metainfer_lab` + 只读 fs）；
+  - Copilot 每轮接收完整项目快照（DAG/节点报告/runs/cycles/events/resources/auto/cluster），
+    可再通过 `metainfer_lab` 工具读取实时状态；历史持久化在 `project.chatLog`；同一项目串行（409 chat_busy），
+    单轮超时 150s；Host 在 preflight/失败时记录 user/error 行。
+  - Client：Workspace 右侧可收缩 Copilot 面板（宽屏列/窄屏 overlay），顶栏开关、关闭、Esc、
+    localStorage 记住展开；消息 user/assistant/error、时间、“思考中…” pending、自动滚底（用户上滚不强制）、
+    Cmd/Ctrl+Enter、错误 inline；打开时 GET /chat，发送 project.chat 乐观显示 user+pending，返回后替换。
+- **存储域恢复**：`openStore` 在 reload 时优先复用 `storageDomain.get(DOMAIN_NAME)`，修复一次
+  激活失败后 domain 泄漏导致插件无法重载的问题（无需重启 Host）。
+- 版本：Host `0.8.8-v3`，package `0.10.0`，client 12,037 行。
+
+### 验证
+
+- Client stub-React/fake Host harness：专家 chip 角色统计、Runs 无重复轮询、running 行 native 打开
+  run session、run detail 轮询、Copilot GET/发送/乐观消息/pending/替换/折叠重开历史/chat_busy、Esc、
+  无 console.error。
+- Host offline selftest 19/19（路由数更新为 12）；实时 DSH 验证：
+  - Copilot 已真实运行一轮，读取全项目快照并输出包含节点、runs、失败点、下一步建议的中文分析；
+  - 旧 stale advisor run 在 reload 后被 `reconcileRunningRuns` 标记 failed/restart；
+  - `/chat` 历史持久化、guest 消息可见。
+- 浏览器视觉验证待用户刷新页面后确认；旧 Client 页面需刷新加载 12,037 行版本。
+
+### 备注
+
+- Copilot 默认每轮新建一个 lab-chat 子会话（非持久 session），对话历史由 Host 的 project.chatLog 承载；
+  每轮都带完整项目快照，所以即使工具不可用也能分析全局状态。
+- 为清理调试消息，新增 `clear_chat`（agent tool / `project.chat_clear` command）；当前未在 UI 暴露清空按钮。
+
+## V12 增补：嵌入原生 Copilot Conversation（大抽屉，实验性）（2026-10-26）
+
+### 交付
+
+- Host 持久 Copilot session：
+  - `project.copilotSessionId` 持久化；`project.copilot` / GET `/copilot` 创建或 resume 一个 root `lab-chat` agent；
+  - 该 agent 有 scoped **只读** `lab_project_context` 工具（snapshot/state/runs/run/events/cluster/node）；
+  - 原生 composer 直接与同一个持久 DSH 会话交互；插件卸载时 dispose 活跃 handle；
+  - 之前 one-shot `/chat` 接口保留为 Host 侧 fallback，但 UI 不再使用。
+- Client：
+  - main slot 注册声明 `metainfer-lab.copilot.scope`（single/session）子 seat，从 framework 取得
+    `SessionProvider` / `renderFactorySlot`；
+  - 新增 `retainCopilotSession(sessionId)`（`ctx.sessions.retain(subagentAddress ?? id)`）并在关闭/重试时 release；
+  - Copilot UI 改为 **fixed 大抽屉**（inset 16px，约 96vw/96vh）：打开时 `project.copilot` → retain →
+    `await reference.ready` → `SessionProvider session={reference}` →
+    `renderFactorySlot('conversation.content', {})`，原生 Chat/Trajectory/实时思考/composer 全量出现；
+  - 关闭按钮/Esc/backdrop 关闭；再次打开复用同一 persistent session，历史保留；
+  - `CopilotEmbedBoundary` + 多条 fallback：seat 缺失/retain 失败/ready 拒绝/渲染异常时显示
+    “在 DSH 原生窗口打开 / 打开轨迹 / 重试”；抽屉 header 也始终保留原生打开按钮，避免嵌入失败时无路可走；
+  - 移除原自定义 Copilot 消息列表/composer；V10/V11 功能保留。
+- 版本：Host `0.8.9-v3`，package `0.11.0`，client 12,099 行。
+
+### 验证
+
+- Host：`copilot` action 创建 `session-662663ff-...`；Host reload 后再次调用返回 `reused:true`，persistent
+  session resume 正常；selftest 19/19（路由 13/13）；`node --check` 全部通过。
+- Client：`node --check` 通过；stub harness 验证 main slot session child、retain、SessionProvider/renderFactorySlot、
+  project.copilot、ready 等待、close release、reopen reuse、fallback 原生打开、无 console.error。
+- **未做浏览器实机验证**：当前 GUI 需要认证，无法在本机 headless 上完成登录并点击抽屉；嵌入是否 100%
+  呈现原生 Conversation 取决于 framework 的 SessionProvider/Factory seat 是否接受外部 factory 调用。
+  已实现局部 ErrorBoundary 和 header/fallback 双保险；若嵌入空白，点击 header 的“在 DSH 中打开”即可走已验证的
+  原方案。需要用户刷新页面后实测，并根据结果决定保留或退回“原生主窗口 + 轻量入口”。
+
+### 风险
+
+- 依赖内部 Slot 组合（SessionProvider + renderFactorySlot），DSH 升级可能变化；已有 fallback。
+- 原生 composer 直接写 Copilot session，绕过 Host chat 校验；Copilot 的只读保障依赖 preset/工具边界和 prompt，
+  仍需实机确认没有 mutation 工具暴露。
+- 持久 Copilot session 的上下文会增长；需要依赖 compaction/预算策略。
+
+### V12 修复：Copilot resume 缺少 provider/model
+
+症状：`session-662663ff-... has no provider/model: set AgentOptions.provider and AgentOptions.model ...`。
+
+原因：DSH root Agent 的 `agentOptions` 是 **resume 时输入**，不会从持久 session 自动恢复；Host reload 后
+`ctx.agents.resume({resumeSessionId})` 未重新传 model，导致原生 composer 首次 prompt 失败。
+
+修复：`ensureCopilotSession` 在 resume 前重新计算
+`resolveModelSelection(ctx, project, null, 'controller')`，并传
+`agentOptions: model`；create 与 resume 使用同一 model 解析。插件已重新热加载；再次打开 Copilot
+（会调用 `project.copilot`）即可恢复同一 session。
+
+### V12 响应式尺寸审计与修复
+
+审计范围：`client.js` 的组件 CSS、内联 style、DAG 布局常量。
+
+已修复：
+- Workspace 三列：`240px / 320px` → `clamp(180px,18vw,240px) / clamp(260px,26vw,340px)`；1180px 以下收窄，
+  980px 以下隐藏左侧 NodeRail 并保留 canvas+inspector，760px 以下改为上下布局（canvas 在上、inspector 在下）。
+- Modal/overlay：padding 改用 `clamp(10px,3vw,24px)`；小屏 modal 宽度 100%、高度按 `dvh` 上限、body 滚动。
+- Drawer：最小宽度 `min(340px,100%)`，640px 以下宽度 100%。
+- Copilot 大抽屉：`96vw/vh` 保留但用 min/calc 防止溢出，配合 `dvh`；小屏 padding 8、header 可换行。
+- Topbar 标题改为 `clamp(120px,30vw,300px)`；controls 可换行；activity log 高度 `clamp(96px,18vh,200px)`。
+- Settings 角色模型、reviewer、modelOptions、cluster devices 等固定列在 640/420px 断点下折叠为 2/1 列；
+  config grids 在窄屏单列。
+- 返回 Lab 按钮已移到顶部（frame-top-clearance + 48px）；Copilot drawer header 始终保留原生打开按钮。
+- DAG 节点坐标 `NODE_W/NODE_H/GAP/PAD` 保留为**逻辑画布坐标系**（不是屏幕像素），画布已有 fit/zoom
+  自适应视口；不随窗口尺寸改变节点逻辑布局，避免缩放/连线坐标错位。
+
+未验证：由于当前 GUI 需要认证，未做真实多视口截图；以上为 CSS/代码级审计，需用户在不同窗口宽度下刷新确认。

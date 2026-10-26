@@ -1053,6 +1053,66 @@ window.__ModuleLoader__.load({
       'ws.native.noAttempts': '没有尝试记录',
       'ws.native.openTrajectoryShort': '轨迹',
       'ws.native.openChatShort': '对话',
+      'nav.returnToLab': '← 返回 Lab 项目',
+      'ws.model.provider': 'provider',
+      'ws.model.model': 'model',
+      'ws.model.catalogEmpty': '模型目录为空，暂时无法选择 provider/model。',
+      'ws.model.loadingCatalog': '正在加载模型目录…',
+      'ws.settings.prompts.default': '使用默认值',
+      'ws.settings.prompts.overridden': '已覆盖',
+      'ws.settings.prompts.restoreDefault': '恢复默认',
+      'ws.settings.prompts.workerEmpty': '默认：无额外 worker 前缀',
+      'ws.settings.prompts.placeholders': '可用占位符：{list}',
+      'ws.settings.prompts.appendHint': 'Host 会在自定义基础提示词之后追加规则、schema 与快照内容。',
+      'ws.needs.poolKey': '资源键',
+      'ws.needs.machines': 'machines（远程机器数）',
+      'ws.needs.noPools': '项目没有资源池键，无法添加需求。',
+      'ws.experts.chipRunning': '专家组 · {count} 运行中',
+      'ws.experts.chipIdle': '专家组 · 空闲',
+      'ws.experts.chipHint': '后台专家运行状态（点击查看详细运行）',
+      'ws.experts.roles': '顾问 {advisor} · 评审 {reviewer} · 调度 {scheduler} · GC {gc}',
+      'ws.experts.reviewer': '评审专家',
+      'ws.experts.backgroundNote': '这些是后台专家运行（顾问/评审/调度/GC），不是 worker 节点。',
+      'ws.experts.openTrajectory': '在 DSH 中打开轨迹',
+      'ws.experts.openChat': '在 DSH 中打开对话',
+      'ws.experts.noSession': '该运行没有可打开的会话',
+      'ws.experts.liveHint': '运行中的专家轨迹可在 DSH 原生视图中实时查看。',
+      'ws.experts.refresh': '刷新',
+      'ws.experts.live': '运行中',
+      'ws.copilot.toggle': '项目对话 / Copilot',
+      'ws.copilot.title': '项目 Copilot',
+      'ws.copilot.close': '关闭项目对话',
+      'ws.copilot.running': '运行中',
+      'ws.copilot.idle': '空闲',
+      'ws.copilot.intro': '可以询问整个项目的状态、执行策略、失败原因与下一步；Copilot 默认只读。',
+      'ws.copilot.empty': '还没有对话。试试问：当前项目卡在哪一步？',
+      'ws.copilot.readonly': '只读：Copilot 可读取整个项目（DAG、报告、运行、事件、资源、集群），但不会修改项目。',
+      'ws.copilot.placeholder': '询问项目状态、失败原因或下一步…',
+      'ws.copilot.send': '发送',
+      'ws.copilot.sending': '思考中…',
+      'ws.copilot.thinking': '思考中…',
+      'ws.copilot.pending': 'Copilot 正在分析整个项目…',
+      'ws.copilot.error': '发送失败',
+      'ws.copilot.loadError': '对话加载失败',
+      'ws.copilot.retry': '重试',
+      'ws.copilot.busy': 'Copilot 正在处理上一轮消息，请稍候。',
+      'ws.copilot.timeout': 'Copilot 本轮超时，请重试。',
+      'ws.copilot.user': '你',
+      'ws.copilot.assistant': 'Copilot',
+      'ws.copilot.failed': '错误',
+      'ws.copilot.nativeTitle': '项目 Copilot（原生会话）',
+      'ws.copilot.session': 'Session',
+      'ws.copilot.loading': '正在准备原生 Copilot 会话…',
+      'ws.copilot.loadError': '原生 Copilot 会话不可用',
+      'ws.copilot.embedUnavailable': '当前运行时不支持嵌入原生会话，请在 DSH 原生窗口中打开。',
+      'ws.copilot.embedFailed': '嵌入原生会话渲染失败',
+      'ws.copilot.openNative': '在 DSH 原生窗口打开',
+      'ws.copilot.openTrajectory': '在 DSH 中原生打开轨迹',
+      'ws.copilot.retry': '重试',
+      'ws.copilot.embeddedHint': '原生 Chat / Trajectory / composer 完整嵌入；Copilot 只读项目状态。',
+      'ws.copilot.embedded': '内嵌原生会话',
+      'ws.copilot.reused': '复用已有会话',
+      'ws.copilot.created': '已创建新会话',
       'crash.title': '面板渲染异常',
       'crash.hint': '错误已被隔离，页面其余部分不受影响。',
     };
@@ -1961,6 +2021,66 @@ window.__ModuleLoader__.load({
       'ws.native.noAttempts': 'No attempts yet',
       'ws.native.openTrajectoryShort': 'Trajectory',
       'ws.native.openChatShort': 'Chat',
+      'nav.returnToLab': '← Back to Lab project',
+      'ws.model.provider': 'provider',
+      'ws.model.model': 'model',
+      'ws.model.catalogEmpty': 'The model catalog is empty; provider/model cannot be chosen right now.',
+      'ws.model.loadingCatalog': 'Loading model catalog…',
+      'ws.settings.prompts.default': 'Using default',
+      'ws.settings.prompts.overridden': 'Overridden',
+      'ws.settings.prompts.restoreDefault': 'Restore default',
+      'ws.settings.prompts.workerEmpty': 'Default: no extra worker prefix',
+      'ws.settings.prompts.placeholders': 'Available placeholders: {list}',
+      'ws.settings.prompts.appendHint': 'The Host appends its rules, schema and snapshot after your custom base prompt.',
+      'ws.needs.poolKey': 'Resource key',
+      'ws.needs.machines': 'machines (remote machine count)',
+      'ws.needs.noPools': 'This project has no resource-pool keys, so needs cannot be added.',
+      'ws.experts.chipRunning': 'Expert group · {count} running',
+      'ws.experts.chipIdle': 'Expert group · idle',
+      'ws.experts.chipHint': 'Background expert runs (click for details)',
+      'ws.experts.roles': 'advisor {advisor} · reviewers {reviewer} · scheduler {scheduler} · GC {gc}',
+      'ws.experts.reviewer': 'Reviewer',
+      'ws.experts.backgroundNote': 'These are background expert runs (advisor/reviewer/scheduler/GC), not worker nodes.',
+      'ws.experts.openTrajectory': 'Open trajectory in DSH',
+      'ws.experts.openChat': 'Open chat in DSH',
+      'ws.experts.noSession': 'This run has no session to open',
+      'ws.experts.liveHint': 'Live expert trajectories can be watched in the native DSH view.',
+      'ws.experts.refresh': 'Refresh',
+      'ws.experts.live': 'running',
+      'ws.copilot.toggle': 'Project chat / Copilot',
+      'ws.copilot.title': 'Project Copilot',
+      'ws.copilot.close': 'Close project chat',
+      'ws.copilot.running': 'running',
+      'ws.copilot.idle': 'idle',
+      'ws.copilot.intro': 'Ask about the whole project state, execution strategy, failures and next steps; Copilot is read-only by default.',
+      'ws.copilot.empty': 'No messages yet. Try asking: where is this project stuck?',
+      'ws.copilot.readonly': 'Read-only: Copilot can read the whole project (DAG, reports, runs, events, resources, cluster) but will not modify it.',
+      'ws.copilot.placeholder': 'Ask about project state, failures or next steps…',
+      'ws.copilot.send': 'Send',
+      'ws.copilot.sending': 'Thinking…',
+      'ws.copilot.thinking': 'Thinking…',
+      'ws.copilot.pending': 'Copilot is analyzing the whole project…',
+      'ws.copilot.error': 'Send failed',
+      'ws.copilot.loadError': 'Could not load the conversation',
+      'ws.copilot.retry': 'Retry',
+      'ws.copilot.busy': 'Copilot is still working on the previous turn; please wait.',
+      'ws.copilot.timeout': 'Copilot timed out on this turn; please retry.',
+      'ws.copilot.user': 'You',
+      'ws.copilot.assistant': 'Copilot',
+      'ws.copilot.failed': 'Error',
+      'ws.copilot.nativeTitle': 'Project Copilot (native session)',
+      'ws.copilot.session': 'Session',
+      'ws.copilot.loading': 'Preparing the native Copilot session…',
+      'ws.copilot.loadError': 'The native Copilot session is unavailable',
+      'ws.copilot.embedUnavailable': 'This runtime cannot embed a native session; open it in a DSH native window instead.',
+      'ws.copilot.embedFailed': 'Rendering the embedded native session failed',
+      'ws.copilot.openNative': 'Open in DSH native window',
+      'ws.copilot.openTrajectory': 'Open native trajectory in DSH',
+      'ws.copilot.retry': 'Retry',
+      'ws.copilot.embeddedHint': 'Native Chat / Trajectory / composer are fully embedded; Copilot has read-only access to the project.',
+      'ws.copilot.embedded': 'Embedded native session',
+      'ws.copilot.reused': 'Reusing the existing session',
+      'ws.copilot.created': 'Created a new session',
       'crash.title': 'The panel failed to render',
       'crash.hint': 'The error was contained; the rest of the page keeps working.',
     };
@@ -2034,15 +2154,52 @@ window.__ModuleLoader__.load({
       '.rl-workspace { position: relative; box-sizing: border-box; display: flex; flex-direction: column; height: 100%; width: 100%; overflow: hidden; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-family: inherit; font-size: 13px; line-height: 20px; }',
       '.rl-topbar { position: relative; box-sizing: border-box; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: none; min-width: 0; padding: 9px 16px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
       '.rl-topbar-project { display: flex; align-items: center; gap: 10px; min-width: 0; }',
-      '.rl-topbar-title { margin: 0; max-width: 300px; font-size: 15px; font-weight: 500; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+      '.rl-topbar-title { margin: 0; max-width: clamp(120px, 30vw, 300px); font-size: 15px; font-weight: 500; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
       '.rl-topbar-spacer { flex: 1 1 auto; }',
       '.rl-topbar-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }',
-      '.rl-topbar-controls { display: flex; align-items: center; gap: 8px; flex: none; }',
+      '.rl-topbar-controls { display: flex; align-items: center; gap: 8px; flex: none; flex-wrap: wrap; }',
       '.rl-segment { display: inline-flex; gap: 2px; padding: 2px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; }',
       '.rl-segment-item { padding: 1px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11.5px; line-height: 18px; cursor: pointer; }',
       '.rl-segment-item:disabled { opacity: 0.6; cursor: not-allowed; }',
       '.rl-segment-active { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }',
-      '.rl-workspace-grid { display: grid; grid-template-columns: 240px minmax(0, 1fr) 320px; flex: 1 1 auto; min-height: 0; }',
+      '.rl-workspace-main { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }',
+      '.rl-workspace-main > .rl-workspace-grid { flex: 1 1 auto; min-width: 0; }',
+      '.rl-workspace-grid { display: grid; grid-template-columns: clamp(180px, 18vw, 240px) minmax(0, 1fr) clamp(260px, 26vw, 340px); flex: 1 1 auto; min-width: 0; min-height: 0; }',
+      '.rl-copilot-native-layer { position: fixed; inset: 0; z-index: 60; display: flex; align-items: stretch; justify-content: stretch; padding: 16px; pointer-events: none; }',
+      '.rl-copilot-native-backdrop { position: fixed; inset: 0; z-index: 59; background: var(--dsw-alias-bg-mask-2, transparent); pointer-events: auto; }',
+      '.rl-copilot-native { position: relative; z-index: 60; box-sizing: border-box; display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; width: min(96vw, calc(100vw - 32px)); max-width: calc(100vw - 32px); height: min(96vh, calc(100vh - 32px)); height: min(96vh, calc(100dvh - 32px)); max-height: calc(100vh - 32px); margin: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-family: inherit; font-size: 13px; line-height: 20px; pointer-events: auto; overflow: hidden; }',
+      '.rl-copilot-native-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 6px; flex: none; padding: 10px 14px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); }',
+      '.rl-copilot-native-title { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 500; line-height: 20px; }',
+      '.rl-copilot-native-hint { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+      '.rl-copilot-native-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }',
+      '.rl-copilot-native-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: 100%; overflow: auto; }',
+      '.rl-copilot-native-loading { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; padding: 24px; }',
+      '.rl-copilot-native-fallback { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-height: 0; padding: 18px; overflow: auto; }',
+      '.rl-copilot { box-sizing: border-box; display: flex; flex-direction: column; flex: none; width: 380px; max-width: 42%; min-width: 300px; height: 100%; border-left: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-copilot-head { display: flex; align-items: center; gap: 8px; flex: none; padding: 9px 12px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); }',
+      '.rl-copilot-title { display: inline-flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 500; line-height: 20px; }',
+      '.rl-copilot-status { width: 7px; height: 7px; border-radius: 50%; background: var(--dsw-alias-label-tertiary); flex: none; }',
+      '.rl-copilot-status-running { background: var(--dsw-alias-brand-primary); }',
+      '.rl-copilot-body { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-height: 0; padding: 10px 12px; overflow: auto; }',
+      '.rl-copilot-empty { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; }',
+      '.rl-copilot-intro { margin: 0; color: var(--dsw-alias-label-primary); font-size: 12.5px; line-height: 19px; }',
+      '.rl-copilot-message { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-copilot-message-user { border-color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-copilot-message-error { border-color: var(--dsw-alias-state-error-primary); }',
+      '.rl-copilot-message-head { display: flex; align-items: center; gap: 8px; }',
+      '.rl-copilot-message-role { color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 16px; }',
+      '.rl-copilot-time { margin-left: auto; color: var(--dsw-alias-label-tertiary); font-size: 10.5px; line-height: 15px; }',
+      '.rl-copilot-message-text { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }',
+      '.rl-copilot-thinking { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; }',
+      '.rl-copilot-error { margin: 0; }',
+      '.rl-copilot-foot { display: flex; flex-direction: column; gap: 6px; flex: none; padding: 9px 12px; border-top: 0.5px solid var(--dsw-alias-border-l2); }',
+      '.rl-expert-chip { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }',
+      '.rl-expert-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dsw-alias-brand-primary); }',
+      '.rl-expert-meta { color: var(--dsw-alias-label-tertiary); font-size: 10.5px; line-height: 15px; }',
+      '.rl-run-row-wrap { display: flex; align-items: stretch; gap: 6px; }',
+      '.rl-run-row-wrap > .rl-run-row { flex: 1 1 auto; min-width: 0; }',
+      '.rl-run-row-wrap > .rl-run-row-actions { display: flex; flex-direction: column; justify-content: center; gap: 4px; flex: none; }',
+      '.rl-run-row-running { border-left: 2px solid var(--dsw-alias-brand-primary); }',
       '.rl-rail { display: flex; flex-direction: column; gap: 10px; min-height: 0; padding: 12px 10px; border-right: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); overflow: auto; }',
       '.rl-rail-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 4px; }',
       '.rl-rail-group { display: flex; flex-direction: column; gap: 2px; }',
@@ -2104,7 +2261,7 @@ window.__ModuleLoader__.load({
       '.rl-banner-meta { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
       '.rl-workspace-center { display: flex; align-items: center; justify-content: center; flex: 1 1 auto; min-height: 0; padding: 24px; }',
       '.rl-center-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 460px; padding: 18px 20px; border: 0.5px solid var(--dsw-alias-border-l1); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); }',
-      '.rl-log { display: flex; flex-direction: column; flex: none; max-height: 200px; min-height: 34px; border-top: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-log { display: flex; flex-direction: column; flex: none; max-height: clamp(96px, 18vh, 200px); min-height: 34px; border-top: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
       '.rl-log-head { display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 6px 16px; }',
       '.rl-log-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; line-height: 18px; cursor: pointer; }',
       '.rl-log-toggle:hover { color: var(--dsw-alias-label-primary); }',
@@ -2160,7 +2317,7 @@ window.__ModuleLoader__.load({
       '.rl-action-error { box-sizing: border-box; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: none; padding: 6px 16px; border-bottom: 0.5px solid var(--dsw-alias-state-error-primary); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }',
       '.rl-action-error-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }',
       '.rl-drawer-layer { position: absolute; inset: 0; z-index: 6; display: flex; justify-content: flex-end; pointer-events: none; }',
-      '.rl-drawer { box-sizing: border-box; display: flex; flex-direction: column; pointer-events: auto; width: min(580px, 76%); min-width: 340px; max-width: 100%; height: 100%; border-left: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-drawer { box-sizing: border-box; display: flex; flex-direction: column; pointer-events: auto; width: min(580px, 90%); min-width: min(340px, 100%); max-width: 100%; height: 100%; border-left: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
       '.rl-drawer-head { display: flex; align-items: center; gap: 8px; flex: none; padding: 10px 14px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); }',
       '.rl-drawer-title { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 14px; font-weight: 500; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
       '.rl-drawer-meta { flex: none; display: flex; align-items: center; gap: 6px; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 16px; }',
@@ -2191,7 +2348,7 @@ window.__ModuleLoader__.load({
       '.rl-step-banner-ok { color: var(--dsw-alias-state-success-primary); }',
       '.rl-sealed-banner { box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 11.5px; line-height: 17px; }',
       '.rl-lock-badge { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 16px; }',
-      '.rl-overlay-layer { position: absolute; inset: 0; z-index: 7; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--dsw-alias-bg-mask-2, transparent); pointer-events: auto; }',
+      '.rl-overlay-layer { position: absolute; inset: 0; z-index: 7; display: flex; align-items: center; justify-content: center; padding: clamp(10px, 3vw, 24px); background: var(--dsw-alias-bg-mask-2, transparent); pointer-events: auto; }',
       '.rl-overlay-layer-drawer-above { z-index: 8; }',
       '.rl-modal { box-sizing: border-box; display: flex; flex-direction: column; width: min(760px, 100%); max-height: 100%; min-height: 0; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-family: inherit; font-size: 13px; line-height: 20px; }',
       '.rl-modal-wide { width: min(880px, 100%); }',
@@ -2323,6 +2480,11 @@ window.__ModuleLoader__.load({
       '.rl-push-result { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 0.5px solid var(--dsw-alias-state-success-primary); border-radius: 8px; }',
       '.rl-push-result-title { margin: 0; color: var(--dsw-alias-state-success-primary); font-size: 12px; font-weight: 500; line-height: 18px; }',
       '.rl-push-stdout { margin: 0; max-height: 160px; overflow: auto; padding: 6px 8px; border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-family: ' + MONO + '; font-size: 11px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }',
+      '@media (max-width: 1180px) { .rl-workspace-grid { grid-template-columns: 210px minmax(0, 1fr) 300px; } }',
+      '@media (max-width: 980px) { .rl-workspace-grid { grid-template-columns: minmax(0, 1fr) minmax(250px, 30vw); } .rl-rail { display: none; } }',
+      '@media (max-width: 760px) { .rl-workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(170px, 42vh); overflow: auto; } .rl-inspector { grid-column: 1; grid-row: 2; max-height: 42vh; border-left: 0; border-top: 0.5px solid var(--dsw-alias-border-l2); } .rl-canvas { min-height: 260px; } .rl-copilot-native-layer { padding: 8px; } .rl-copilot-native { width: calc(100vw - 16px); max-width: calc(100vw - 16px); height: calc(100dvh - 16px); max-height: calc(100vh - 16px); border-radius: 10px; } .rl-copilot-native-head { padding: 8px 10px; } .rl-copilot-native-hint { flex: 1 1 100%; margin-left: 0; white-space: normal; } }',
+      '@media (max-width: 640px) { .rl-settings-model-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-settings-model-role { grid-column: 1 / -1; padding: 0; } .rl-reviewer-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-model-option-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-config-device-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-config-grid, .rl-config-grid-3 { grid-template-columns: minmax(0, 1fr); } .rl-reviewer-row .rl-reviewer-actions, .rl-model-option-row > :last-child { grid-column: 1 / -1; } .rl-drawer { width: 100%; min-width: 0; } .rl-modal, .rl-modal-wide, .rl-modal-narrow { width: 100%; max-height: calc(100vh - 20px); max-height: calc(100dvh - 20px); } .rl-modal-body { padding: 10px 12px; } .rl-modal-head, .rl-modal-foot { padding: 10px 12px; } .rl-log-row, .rl-log-row-btn { grid-template-columns: 46px 62px minmax(0, 1fr); gap: 6px; font-size: 11px; } .rl-topbar { padding: 8px 10px; } .rl-workspace-grid { grid-template-rows: minmax(0, 1fr) minmax(190px, 46vh); } .rl-inspector { max-height: 46vh; } }',
+      '@media (max-width: 420px) { .rl-settings-model-row, .rl-reviewer-row, .rl-model-option-row, .rl-config-device-row { grid-template-columns: minmax(0, 1fr); } .rl-reviewer-row .rl-reviewer-actions, .rl-model-option-row > :last-child { grid-column: auto; } .rl-node-actions { opacity: 1; } .rl-canvas-hint { display: none; } }',
       '@media (prefers-reduced-motion: reduce) { .rl-spinner { animation: none; } .rl-dot-running { animation: none; } .rl-node { transition: none; } .rl-node-actions { transition: none; } }',
     ].join('\n');
     // #endregion
@@ -2735,11 +2897,65 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** Module-scope navigation memory: survives the Lab panel unmounting for native sessions. */
+    const labNavigation = {
+      projectId: '',
+      nodeId: '',
+      returnTarget: false,
+      listeners: new Set(),
+    };
+    function notifyLabNavigation() {
+      for (const listener of Array.from(labNavigation.listeners)) {
+        try {
+          listener();
+        } catch (error) {
+          // listeners are UI-only
+        }
+      }
+    }
+    function subscribeLabNavigation(listener) {
+      labNavigation.listeners.add(listener);
+      return () => {
+        labNavigation.listeners.delete(listener);
+      };
+    }
+    function rememberLabProject(projectId) {
+      const id = firstString(projectId);
+      if (id === '') return;
+      if (labNavigation.projectId !== id) labNavigation.nodeId = '';
+      labNavigation.projectId = id;
+    }
+    function rememberLabNode(projectId, nodeId) {
+      rememberLabProject(projectId);
+      labNavigation.nodeId = firstString(nodeId);
+    }
+    function markNativeReturnTarget(projectId, nodeId) {
+      rememberLabProject(projectId);
+      const id = firstString(nodeId);
+      if (id !== '') labNavigation.nodeId = id;
+      if (labNavigation.projectId === '') {
+        labNavigation.returnTarget = false;
+      } else {
+        labNavigation.returnTarget = true;
+      }
+      notifyLabNavigation();
+    }
+    function clearNativeReturnTarget() {
+      if (labNavigation.returnTarget !== true) return;
+      labNavigation.returnTarget = false;
+      notifyLabNavigation();
+    }
+    function restoreLabNavigation() {
+      return { projectId: labNavigation.projectId, nodeId: labNavigation.nodeId };
+    }
+
     /** Build the native opener bound to the plugin client context (sessions + uiWorkspace). */
     function buildNativeOpener(ctx) {
-      return (sessionId, view) => {
+      return (sessionId, view, context) => {
         const id = firstString(sessionId);
         if (id === '') return { ok: false, error: 'no-session' };
+        const scope = context !== null && context !== undefined && typeof context === 'object' ? context : {};
+        markNativeReturnTarget(firstString(scope.projectId), firstString(scope.nodeId));
         presetConversationView(id, view);
         try {
           let target = id;
@@ -2868,6 +3084,38 @@ window.__ModuleLoader__.load({
       if (amount < 0.01) return '$' + amount.toFixed(4);
       return '$' + amount.toFixed(2);
     }
+    function providerChoicesOf(providers, currentProvider, t) {
+      const choices = [{ value: '', label: t('ws.model.inherit') }];
+      const seen = new Set();
+      for (const provider of asArray(providers)) {
+        const id = firstString(provider.id);
+        if (id === '' || seen.has(id)) continue;
+        seen.add(id);
+        choices.push({ value: id, label: firstString(provider.name) || id });
+      }
+      const current = firstString(currentProvider);
+      if (current !== '' && !seen.has(current)) choices.push({ value: current, label: current });
+      return choices;
+    }
+    function modelChoicesOf(providers, provider, currentModel, t) {
+      const providerId = firstString(provider);
+      const choices = [];
+      const seen = new Set();
+      const match = asArray(providers).filter((entry) => firstString(entry.id) === providerId)[0] || null;
+      for (const model of match === null ? [] : asArray(match.models)) {
+        const id = firstString(model.id);
+        if (id === '' || seen.has(id)) continue;
+        seen.add(id);
+        choices.push({ value: id, label: firstString(model.name) || id });
+      }
+      const current = firstString(currentModel);
+      if (current !== '' && !seen.has(current)) choices.push({ value: current, label: current });
+      if (choices.length === 0) {
+        return [{ value: '', label: providerId === '' ? t('ws.model.inherit') : t('ws.model.catalogEmpty') }];
+      }
+      return choices;
+    }
+
     function modelPayloadOf(model) {
       const record = asObject(model);
       const effort = firstString(record.reasoningEffort);
@@ -2898,8 +3146,37 @@ window.__ModuleLoader__.load({
         }))
         .filter((option) => option.id !== '' || (option.provider !== '' && option.model !== ''));
       const routing = asObject(record.routing);
+      const defaults = asObject(record.promptDefaults);
+      let providers = asArray(record.providers)
+        .filter((provider) => provider !== null && typeof provider === 'object')
+        .map((provider) => ({
+          id: firstString(provider.id),
+          name: firstString(provider.name) || firstString(provider.id),
+          models: asArray(provider.models)
+            .filter((model) => model !== null && typeof model === 'object')
+            .map((model) => ({ id: firstString(model.id), name: firstString(model.name) || firstString(model.id) }))
+            .filter((model) => model.id !== ''),
+        }))
+        .filter((provider) => provider.id !== '');
+      if (providers.length === 0 && options.length > 0) {
+        const byProvider = {};
+        for (const option of options) {
+          if (option.provider === '' || option.model === '') continue;
+          if (!byProvider[option.provider]) byProvider[option.provider] = { id: option.provider, name: option.provider, models: [] };
+          if (!byProvider[option.provider].models.some((model) => model.id === option.model)) {
+            byProvider[option.provider].models.push({ id: option.model, name: option.model });
+          }
+        }
+        providers = Object.keys(byProvider).map((key) => byProvider[key]);
+      }
       return {
         options,
+        promptDefaults: {
+          workerPrefix: firstString(defaults.workerPrefix),
+          advisor: firstString(defaults.advisor),
+          scheduler: firstString(defaults.scheduler),
+        },
+        promptPlaceholders: stringListOf(record.promptPlaceholders),
         routing: {
           advisorMaySelectModels: routing.advisorMaySelectModels === true,
           autoUpgrade: routing.autoUpgrade === true,
@@ -2907,7 +3184,7 @@ window.__ModuleLoader__.load({
         },
         roles: asObject(record.roles),
         defaultModel: asObject(record.default),
-        providers: asArray(record.providers),
+        providers,
         allowlist: stringListOf(record.allowlist),
       };
     }
@@ -3594,6 +3871,15 @@ window.__ModuleLoader__.load({
       const value = finiteNumber(milliseconds);
       if (value === null || value <= 0) return '0';
       return String(Math.round((value / 3600000) * 10) / 10);
+    }
+    function runDisplayRoleLabelOf(run, t) {
+      const role = runRoleOf(run);
+      const lens = runLensOf(run);
+      if (role === 'advisor' && lens !== '') return t('ws.experts.reviewer') + ' · ' + lens;
+      return runRoleLabelOf(role, t);
+    }
+    function runDurationTextOf(run) {
+      return formatDurationBetween(asObject(run).startedAt, asObject(run).endedAt);
     }
     function runRoleLabelOf(role, t) {
       if (role === 'advisor' || role === 'scheduler' || role === 'gc') return t('ws.runs.role.' + role);
@@ -4466,7 +4752,7 @@ window.__ModuleLoader__.load({
         }
         const controller = new AbortController();
         let alive = true;
-        setState({ phase: 'loading', run: null, error: null });
+        setState((previous) => (previous.run === null ? { phase: 'loading', run: null, error: null } : previous));
         (async () => {
           try {
             const data = await api.fetchRun(projectId, runId, controller.signal, t);
@@ -4485,8 +4771,15 @@ window.__ModuleLoader__.load({
       const retry = React.useCallback(() => {
         setAttempt((value) => value + 1);
       }, []);
+      const liveStatus = state.run === null ? '' : runStatusOf(state.run);
+      React.useEffect(() => {
+        if (liveStatus !== 'running') return undefined;
+        const timer = setTimeout(() => setAttempt((value) => value + 1), 2000);
+        return () => clearTimeout(timer);
+      }, [liveStatus, state.run]);
       return { state, retry };
     }
+
     // #endregion
 
     // #region primitives
@@ -5344,7 +5637,7 @@ window.__ModuleLoader__.load({
 
     // #region workspace
     /** Full workspace: top bar, node rail, DAG canvas, inspector, log and transcript drawer. */
-    function WorkspaceScreen({ projectId, onBack, openNativeSession, t }) {
+    function WorkspaceScreen({ projectId, initialNodeId, onBack, openNativeSession, retainCopilotSession, SessionProvider, renderFactorySlot, t }) {
       const { snapshot, events, offline, retry, reload, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t);
       const [selectedId, setSelectedId] = React.useState(null);
       const [continueNodeId, setContinueNodeId] = React.useState(null);
@@ -5370,6 +5663,13 @@ window.__ModuleLoader__.load({
       const [pushOpen, setPushOpen] = React.useState(false);
       const [clusterOpen, setClusterOpen] = React.useState(false);
       const [clusterConfigOpen, setClusterConfigOpen] = React.useState(false);
+      const [copilotOpen, setCopilotOpen] = React.useState(() => {
+        try {
+          return typeof localStorage !== 'undefined' && localStorage !== null && localStorage.getItem('dsh.metainfer.copilot.' + projectId) === '1';
+        } catch (error) {
+          return false;
+        }
+      });
       const busyRef = React.useRef('');
       const stepBusyRef = React.useRef(false);
       const autoBusyRef = React.useRef(false);
@@ -5389,7 +5689,27 @@ window.__ModuleLoader__.load({
       const autoStatus = autoStatusOf(autoState);
       const now = useNow(runningCount > 0 || autoStatus === 'running');
       const modelCatalog = useModelCatalog(projectId, t);
+      const runsFeed = useRuns(projectId, t);
       const modelOptions = modelCatalog.state.catalog === null ? [] : asArray(modelCatalog.state.catalog.options);
+      const modelProviders = modelCatalog.state.catalog === null ? [] : asArray(modelCatalog.state.catalog.providers);
+      const promptDefaults = modelCatalog.state.catalog === null ? null : asObject(modelCatalog.state.catalog.promptDefaults);
+      const promptPlaceholders = modelCatalog.state.catalog === null ? [] : stringListOf(modelCatalog.state.catalog.promptPlaceholders);
+
+      React.useEffect(() => {
+        rememberLabProject(projectId);
+        if (selectedId === null && initialNodeId !== null && initialNodeId !== undefined && initialNodeId !== '') {
+          for (const node of nodes) {
+            if (nodeIdOf(node) === initialNodeId) {
+              setSelectedId(initialNodeId);
+              return;
+            }
+          }
+        }
+      }, [projectId, nodes, selectedId, initialNodeId]);
+
+      React.useEffect(() => {
+        if (selectedId !== null) rememberLabNode(projectId, selectedId);
+      }, [projectId, selectedId]);
 
       React.useEffect(() => {
         if (selectedId === null) return;
@@ -5460,11 +5780,12 @@ window.__ModuleLoader__.load({
             return;
           }
           if (continueNodeId !== null) setContinueNodeId(null);
+          else if (copilotOpen) setCopilotOpen(false);
           else setSelectedId(null);
         };
         document.addEventListener('keydown', onKeyDown);
         return () => document.removeEventListener('keydown', onKeyDown);
-      }, [continueNodeId, successorOpen, runsOpen, confirmRequest, autoConfirmOpen, settingsOpen, deleteOpen, projectMenuOpen, mergeCreateOpen, finishMergeNodeId, pushOpen, clusterOpen, clusterConfigOpen]);
+      }, [continueNodeId, successorOpen, runsOpen, confirmRequest, autoConfirmOpen, settingsOpen, deleteOpen, projectMenuOpen, mergeCreateOpen, finishMergeNodeId, pushOpen, clusterOpen, clusterConfigOpen, copilotOpen]);
 
       React.useEffect(() => {
         if (confirmRequest === null) return;
@@ -5543,16 +5864,20 @@ window.__ModuleLoader__.load({
         void runNodeCommand(type, nodeId);
       }, [runNodeCommand]);
       /** Open a session in DSH's native conversation (trajectory/chat preset). */
-      const openSessionNative = React.useCallback((sessionId, view) => {
+      const openSessionNative = React.useCallback((sessionId, view, nodeId) => {
         if (typeof openNativeSession !== 'function') {
           setActionError(t('ws.native.openFailed'));
           return;
         }
-        const result = openNativeSession(sessionId, view === 'chat' ? 'chat' : 'trajectory');
+        const result = openNativeSession(
+          sessionId,
+          view === 'chat' ? 'chat' : 'trajectory',
+          { projectId, nodeId: typeof nodeId === 'string' ? nodeId : '' },
+        );
         if (result === null || result === undefined || result.ok !== true) {
           setActionError(t('ws.native.openFailed'));
         }
-      }, [openNativeSession, t]);
+      }, [openNativeSession, projectId, t]);
       const openNodeNative = React.useCallback((nodeId, view) => {
         setSelectedId(nodeId);
         let target = null;
@@ -5562,13 +5887,36 @@ window.__ModuleLoader__.load({
           setActionError(t('ws.native.noSession'));
           return;
         }
-        openSessionNative(sessionId, view);
+        openSessionNative(sessionId, view, nodeId);
       }, [nodes, openSessionNative, t]);
       const requestContinue = React.useCallback((nodeId) => {
         setSelectedId(nodeId);
         setContinueNodeId(nodeId);
       }, []);
       const closeContinue = React.useCallback(() => setContinueNodeId(null), []);
+      const toggleCopilot = React.useCallback(() => {
+        setCopilotOpen((value) => {
+          const next = value !== true;
+          try {
+            if (typeof localStorage !== 'undefined' && localStorage !== null) {
+              localStorage.setItem('dsh.metainfer.copilot.' + projectId, next ? '1' : '0');
+            }
+          } catch (error) {
+            // persistence is best-effort
+          }
+          return next;
+        });
+      }, [projectId]);
+      const closeCopilot = React.useCallback(() => {
+        setCopilotOpen(false);
+        try {
+          if (typeof localStorage !== 'undefined' && localStorage !== null) {
+            localStorage.setItem('dsh.metainfer.copilot.' + projectId, '0');
+          }
+        } catch (error) {
+          // persistence is best-effort
+        }
+      }, [projectId]);
       const sendContinue = React.useCallback(async (text) => {
         if (continueNodeId === null) return { ok: false, error: t('error.unknown') };
         return runNodeCommand('node.message', continueNodeId, { text });
@@ -5930,6 +6278,7 @@ window.__ModuleLoader__.load({
             onFinishMerge: openFinishMerge,
             onEscalate: handleEscalate,
             modelOptions,
+            modelProviders,
             clusterEnabled: clusterEnabledOf(snapshot.cluster),
             t,
           }),
@@ -5980,6 +6329,9 @@ window.__ModuleLoader__.load({
           onOpenClusterConfig: openClusterConfig,
           cluster: snapshot.cluster,
           onOpenCluster: () => setClusterOpen(true),
+          runs: runsFeed.state.runs,
+          copilotOpen,
+          onToggleCopilot: toggleCopilot,
           onBack,
           t,
         }),
@@ -5993,8 +6345,19 @@ window.__ModuleLoader__.load({
             )
           : null,
         stepInfo !== null ? h(StepBanner, { info: stepInfo, onDismiss: () => setStepInfo(null), t }) : null,
-        body,
+        h('div', { className: 'rl-workspace-main' }, body),
         h(ActivityLog, { events, onSelectNode: setSelectedId, onOpenRun: openRuns, t }),
+        copilotOpen
+          ? h(CopilotDrawer, {
+              projectId,
+              onClose: closeCopilot,
+              openNativeSession,
+              retainCopilotSession,
+              SessionProvider,
+              renderFactorySlot,
+              t,
+            })
+          : null,
         continueNode !== null
           ? h(ContinueDialog, {
               node: continueNode,
@@ -6005,7 +6368,17 @@ window.__ModuleLoader__.load({
               t,
             })
           : null,
-        runsOpen ? h(RunsPanel, { projectId, initialRunId: runsInitialRunId, onClose: closeRuns, t }) : null,
+        runsOpen
+          ? h(RunsPanel, {
+              projectId,
+              initialRunId: runsInitialRunId,
+              onClose: closeRuns,
+              runsState: runsFeed.state,
+              onRetryRuns: runsFeed.retry,
+              onOpenSession: (sessionId, view) => openSessionNative(sessionId, view, ''),
+              t,
+            })
+          : null,
         successorOpen && successorParent !== null
           ? h(SuccessorModal, {
               project,
@@ -6013,6 +6386,7 @@ window.__ModuleLoader__.load({
               onClose: closeSuccessor,
               onSubmit: submitSuccessor,
               modelOptions,
+              modelProviders,
               t,
             })
           : null,
@@ -6032,6 +6406,9 @@ window.__ModuleLoader__.load({
               onSave: saveProjectConfig,
               onSavePlacementPolicy: savePlacementPolicy,
               cluster: snapshot.cluster,
+              catalogProviders: modelProviders,
+              promptDefaults,
+              promptPlaceholders,
               t,
             })
           : null,
@@ -6043,6 +6420,7 @@ window.__ModuleLoader__.load({
               onClose: closeMergeCreate,
               onSubmit: submitMerge,
               modelOptions,
+              modelProviders,
               t,
             })
           : null,
@@ -6110,6 +6488,216 @@ window.__ModuleLoader__.load({
     }
 
     /** Top bar: project identity, repo chip, resources, running count, mode, runs and Step. */
+    /** Local boundary: embedded native Conversation seats must never crash the Lab panel. */
+    class CopilotEmbedBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { error: null };
+      }
+      static getDerivedStateFromError(error) {
+        return { error };
+      }
+      componentDidCatch(error) {
+        if (typeof this.props.onError === 'function') this.props.onError(error);
+      }
+      render() {
+        if (this.state.error === null) return this.props.children;
+        return typeof this.props.renderFallback === 'function' ? this.props.renderFallback(this.state.error) : null;
+      }
+    }
+
+    /** Large drawer hosting the persistent native Copilot Conversation (or a native fallback). */
+    function CopilotDrawer({ projectId, onClose, openNativeSession, retainCopilotSession, SessionProvider, renderFactorySlot, t }) {
+      const [phase, setPhase] = React.useState('loading');
+      const [sessionId, setSessionId] = React.useState('');
+      const [reused, setReused] = React.useState(false);
+      const [reference, setReference] = React.useState(null);
+      const [reason, setReason] = React.useState('');
+      const [attempt, setAttempt] = React.useState(0);
+      const referenceRef = React.useRef(null);
+
+      React.useEffect(() => {
+        if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') onClose();
+        };
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+      }, [onClose]);
+
+      React.useEffect(() => {
+        let alive = true;
+        setPhase('loading');
+        setSessionId('');
+        setReused(false);
+        setReference(null);
+        setReason('');
+        (async () => {
+          try {
+            const data = await api.command({ type: 'project.copilot', projectId }, undefined, t);
+            if (!alive) return;
+            const record = asObject(data);
+            const id = firstString(record.sessionId);
+            const isReused = record.reused === true;
+            if (id === '') {
+              setPhase('fallback');
+              setReason(t('ws.copilot.loadError'));
+              return;
+            }
+            setSessionId(id);
+            setReused(isReused);
+            const ref = typeof retainCopilotSession === 'function' ? retainCopilotSession(id) : null;
+            if (ref === null || ref === undefined) {
+              setPhase('fallback');
+              setReason(t('ws.copilot.embedUnavailable'));
+              return;
+            }
+            referenceRef.current = ref;
+            setReference(ref);
+            try {
+              await Promise.resolve(ref.ready);
+            } catch (error) {
+              if (!alive) return;
+              setPhase('fallback');
+              setReason(t('ws.copilot.embedFailed') + ': ' + describeError(error, t));
+              return;
+            }
+            if (!alive) return;
+            setPhase('ready');
+          } catch (error) {
+            if (!alive || isAbortError(error)) return;
+            setPhase('fallback');
+            setReason(describeError(error, t));
+          }
+        })();
+        return () => {
+          alive = false;
+          const current = referenceRef.current;
+          referenceRef.current = null;
+          if (current !== null && current !== undefined && typeof current.release === 'function') {
+            try {
+              current.release();
+            } catch (error) {
+              // release is best-effort
+            }
+          }
+        };
+      }, [projectId, attempt, retainCopilotSession, t]);
+
+      const openNative = (view) => {
+        const id = firstString(sessionId);
+        if (id === '') return;
+        if (typeof openNativeSession === 'function') {
+          openNativeSession(id, view === 'trajectory' ? 'trajectory' : 'chat', { projectId, nodeId: '' });
+        }
+      };
+      const fallbackPanel = (message) =>
+        h(
+          'div',
+          { className: 'rl-copilot-native-fallback', role: 'alert' },
+          h('p', { className: 'rl-copilot-intro' }, t('ws.copilot.nativeTitle')),
+          h('p', { className: 'rl-error-text' }, message),
+          h('p', { className: 'rl-hint' }, t('ws.copilot.embedUnavailable')),
+          h(
+            'div',
+            { className: 'rl-form-actions' },
+            h(LabButton, {
+              label: t('ws.copilot.openNative'),
+              variant: 'primary',
+              disabled: sessionId === '',
+              onClick: () => openNative('chat'),
+            }),
+            h(LabButton, {
+              label: t('ws.copilot.openTrajectory'),
+              disabled: sessionId === '',
+              onClick: () => openNative('trajectory'),
+            }),
+            h(LabButton, { label: t('ws.copilot.retry'), variant: 'ghost', onClick: () => setAttempt((value) => value + 1) }),
+          ),
+        );
+
+      let body;
+      if (phase === 'loading') {
+        body = h('div', { className: 'rl-copilot-native-loading' }, h(LabLoading, { label: t('ws.copilot.loading') }));
+      } else if (phase === 'fallback') {
+        body = fallbackPanel(reason || t('ws.copilot.loadError'));
+      } else if (reference === null || typeof SessionProvider !== 'function' || typeof renderFactorySlot !== 'function') {
+        body = fallbackPanel(t('ws.copilot.embedUnavailable'));
+      } else {
+        body = h(
+          CopilotEmbedBoundary,
+          {
+            renderFallback: (error) => fallbackPanel(t('ws.copilot.embedFailed') + ': ' + describeError(error, t)),
+          },
+          h(
+            SessionProvider,
+            { session: reference },
+            h('div', { className: 'rl-copilot-native-view' }, renderFactorySlot('conversation.content', {})),
+          ),
+        );
+      }
+      return h(
+        'div',
+        { className: 'rl-copilot-native-layer' },
+        h('div', { className: 'rl-copilot-native-backdrop', onClick: onClose }),
+        h(
+          'div',
+          { className: 'rl-copilot-native', role: 'dialog', 'aria-label': t('ws.copilot.nativeTitle') },
+          h(
+            'div',
+            { className: 'rl-copilot-native-head' },
+            h('span', { className: 'rl-copilot-native-title' }, t('ws.copilot.nativeTitle')),
+            reused ? h('span', { className: 'rl-chip' }, t('ws.copilot.reused')) : (sessionId !== '' ? h('span', { className: 'rl-chip' }, t('ws.copilot.created')) : null),
+            sessionId !== '' ? h('span', { className: 'rl-chip rl-chip-mono' }, sessionId) : null,
+            h('span', { className: 'rl-hint rl-copilot-native-hint' }, t('ws.copilot.embeddedHint')),
+            h(LabButton, {
+              label: t('ws.copilot.openNative'),
+              variant: 'ghost',
+              disabled: sessionId === '',
+              onClick: () => openNative('chat'),
+            }),
+            h(LabButton, {
+              label: t('ws.copilot.openTrajectory'),
+              variant: 'ghost',
+              disabled: sessionId === '',
+              onClick: () => openNative('trajectory'),
+            }),
+            h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.copilot.close'), onClick: onClose }),
+          ),
+          h('div', { className: 'rl-copilot-native-body' }, body),
+        ),
+      );
+    }
+
+    /** Compact live expert-run chip for the workspace top bar. */
+    function ExpertChip({ runs, onOpen, t }) {
+      const running = asArray(runs).filter((run) => runStatusOf(run) === 'running');
+      const counts = { advisor: 0, reviewer: 0, scheduler: 0, gc: 0 };
+      for (const run of running) {
+        const role = runRoleOf(run);
+        if (role === 'gc') counts.gc += 1;
+        else if (role === 'scheduler') counts.scheduler += 1;
+        else if (role === 'advisor' && runLensOf(run) !== '') counts.reviewer += 1;
+        else counts.advisor += 1;
+      }
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: 'rl-chip rl-expert-chip' + (running.length > 0 ? ' rl-expert-chip-live' : ''),
+          title: t('ws.experts.chipHint'),
+          onClick: onOpen,
+        },
+        running.length > 0 ? h('span', { className: 'rl-expert-dot', 'aria-hidden': true }) : null,
+        running.length > 0
+          ? t('ws.experts.chipRunning', { count: running.length })
+          : t('ws.experts.chipIdle'),
+        running.length > 0
+          ? h('span', { className: 'rl-expert-meta' }, t('ws.experts.roles', counts))
+          : null,
+      );
+    }
+
     function WorkspaceTopBar({
       project,
       resources,
@@ -6135,6 +6723,9 @@ window.__ModuleLoader__.load({
       onOpenClusterConfig,
       cluster,
       onOpenCluster,
+      runs,
+      copilotOpen,
+      onToggleCopilot,
       onBack,
       t,
     }) {
@@ -6222,6 +6813,12 @@ window.__ModuleLoader__.load({
             onStop: onAutoStop,
             onViewPending,
             t,
+          }),
+          h(ExpertChip, { runs, onOpen: onOpenRuns, t }),
+          h(LabButton, {
+            label: t('ws.copilot.toggle'),
+            variant: 'ghost',
+            onClick: onToggleCopilot,
           }),
           h(LabButton, { label: '⚙', variant: 'ghost', title: t('ws.settings.open'), onClick: onOpenSettings }),
           h(
@@ -6774,7 +7371,7 @@ window.__ModuleLoader__.load({
      * Right inspector: prompt + success criteria and timebox editors (planned
      * nodes only), plus read-only Git/timestamp readback.
      */
-    function NodeInspector({ project, nodes, node, now, busyKey, onSave, onAction, onOpenSession, onContinue, onSuccessor, onProposalAction, onOpenRun, onRetryRequest, onOpenMergeCreate, onFinishMerge, onEscalate, modelOptions, clusterEnabled, t }) {
+    function NodeInspector({ project, nodes, node, now, busyKey, onSave, onAction, onOpenSession, onContinue, onSuccessor, onProposalAction, onOpenRun, onRetryRequest, onOpenMergeCreate, onFinishMerge, onEscalate, modelOptions, modelProviders, clusterEnabled, t }) {
       const nodeKey = node === null ? '' : nodeIdOf(node);
       const [promptDraft, setPromptDraft] = React.useState('');
       const [criteriaDraft, setCriteriaDraft] = React.useState('');
@@ -6938,7 +7535,7 @@ window.__ModuleLoader__.load({
                 ? h(LabInfoRow, { label: t('ws.model.source'), value: t(modelSourceLabelKeyOf(resolvedModelSource)) })
                 : null,
               editable
-                ? h(ModelPicker, { model: modelDraft, onChange: setModelDraft, modelOptions, disabled: savingField !== '', t })
+                ? h(ModelPicker, { model: modelDraft, onChange: setModelDraft, modelOptions, modelProviders, disabled: savingField !== '', t })
                 : null,
               editable
                 ? h(
@@ -7105,7 +7702,7 @@ window.__ModuleLoader__.load({
               })
             : null,
         ),
-        h(NativeSessionPanel, { node, onOpenSession, t }),
+        h(NativeSessionPanel, { node, onOpenSession: (sessionId, view) => onOpenSession(sessionId, view, nodeKeyId), t }),
         isMergeNode
           ? h(MergeSection, { node, nodes, busy, onFinish: () => onFinishMerge(nodeKeyId), t })
           : null,
@@ -7233,6 +7830,7 @@ window.__ModuleLoader__.load({
               h(NeedsEditor, {
                 key: 'needs-' + nodeKeyId,
                 node,
+                project,
                 busy,
                 onSave: (needs) => onSave({ needs }),
                 t,
@@ -8957,7 +9555,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Create a merge node from 2..4 completed parents. */
-    function MergeCreateModal({ project, nodes, initialNodeId, onClose, onSubmit, modelOptions, t }) {
+    function MergeCreateModal({ project, nodes, initialNodeId, onClose, onSubmit, modelOptions, modelProviders, t }) {
       const completed = asArray(nodes).filter((node) => nodeStatusOf(node) === 'completed' && !nodeIsMergeOf(node));
       const [selected, setSelected] = React.useState(
         typeof initialNodeId === 'string' && initialNodeId.length > 0 ? [initialNodeId] : [],
@@ -9080,7 +9678,7 @@ window.__ModuleLoader__.load({
                 onChange: (event) => setPrompt(event.target.value),
               })),
             h(LabField, { label: t('ws.model.title'), hint: t('ws.model.inheritHint') },
-              h(ModelPicker, { model, onChange: setModel, modelOptions, disabled: submitting, t })),
+              h(ModelPicker, { model, onChange: setModel, modelOptions, modelProviders, disabled: submitting, t })),
             error ? h('p', { className: 'rl-error-text', role: 'alert' }, t('ws.merge.error') + ': ' + error) : null,
           ),
           h(
@@ -9444,12 +10042,20 @@ window.__ModuleLoader__.load({
     }
 
     /** Key-value editor for node.needs (planned/proposed nodes). */
-    function NeedsEditor({ node, busy, onSave, t }) {
+    function NeedsEditor({ node, project, busy, onSave, t }) {
       const [rows, setRows] = React.useState(() =>
         nodeNeedsEntries(node).map((entry, index) => ({ id: 'needs-' + index, key: entry.key, value: String(entry.amount) })));
       const [saving, setSaving] = React.useState(false);
       const [error, setError] = React.useState('');
       const seqRef = React.useRef(rows.length);
+      const poolKeys = Object.keys(projectConfig(project).resourcePools);
+      const baseKeyChoices = poolKeys.concat(['machines']);
+      const keyChoicesFor = (currentKey) => {
+        const values = baseKeyChoices.slice();
+        const current = String(currentKey === undefined || currentKey === null ? '' : currentKey).trim();
+        if (current !== '' && values.indexOf(current) < 0) values.push(current);
+        return values.map((key) => ({ value: key, label: key === 'machines' ? t('ws.needs.machines') : key }));
+      };
       const update = (id, field, value) => {
         setRows((previous) => previous.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
         setError('');
@@ -9495,10 +10101,10 @@ window.__ModuleLoader__.load({
           h(
             'div',
             { key: row.id, className: 'rl-need-row' },
-            h(LabInput, {
+            h(LabSelect, {
               value: row.key,
-              placeholder: t('wizard.pool.key'),
-              ariaLabel: t('wizard.pool.key'),
+              ariaLabel: t('ws.needs.poolKey'),
+              options: keyChoicesFor(row.key),
               onChange: (event) => update(row.id, 'key', event.target.value),
             }),
             h(LabInput, {
@@ -9509,8 +10115,14 @@ window.__ModuleLoader__.load({
             }),
             h(LabButton, { label: '✕', variant: 'ghost', title: t('wizard.pool.remove'), onClick: () => remove(row.id) }),
           )),
+        poolKeys.length === 0 ? h('p', { className: 'rl-hint' }, t('ws.needs.noPools')) : null,
         h('div', { className: 'rl-form-actions' },
-          h(LabButton, { label: t('wizard.pool.add'), variant: 'ghost', onClick: add }),
+          h(LabButton, {
+            label: t('wizard.pool.add'),
+            variant: 'ghost',
+            disabled: poolKeys.length === 0,
+            onClick: add,
+          }),
           h(LabButton, {
             label: saving ? t('ws.inspector.saving') : t('ws.inspector.saveNeeds'),
             disabled: saving || busy === true,
@@ -9522,13 +10134,15 @@ window.__ModuleLoader__.load({
     }
 
     /** Draft for the project settings form (string fields keep inputs controlled). */
-    function settingsDraftOf(project) {
+    function settingsDraftOf(project, promptDefaults) {
       const config = projectConfig(project);
       const advisor = configAdvisorOf(project);
       const auto = configAutoOf(project);
       const pools = asObject(config.resourcePools);
       const models = configModelsOf(project);
       const prompts = configPromptsOf(project);
+      const defaults = asObject(promptDefaults);
+      const promptValueOf = (key) => firstString(prompts[key]) || firstString(defaults[key]);
       const modelOf = (role) => ({ provider: firstString(asObject(models[role]).provider), model: firstString(asObject(models[role]).model) });
       const worker = modelOf('worker');
       const advisorModel = modelOf('advisor');
@@ -9578,14 +10192,14 @@ window.__ModuleLoader__.load({
         advisorModel: advisorModel.model,
         schedulerProvider: schedulerModel.provider,
         schedulerModel: schedulerModel.model,
-        workerPrefix: firstString(prompts.workerPrefix),
-        advisorPrompt: firstString(prompts.advisor),
-        schedulerPrompt: firstString(prompts.scheduler),
+        workerPrefix: promptValueOf('workerPrefix'),
+        advisorPrompt: promptValueOf('advisor'),
+        schedulerPrompt: promptValueOf('scheduler'),
       };
     }
 
     /** Build the partial project config sent by `project.update`. */
-    function settingsConfigFromDraft(draft, project) {
+    function settingsConfigFromDraft(draft, project, promptDefaults) {
       const config = projectConfig(project);
       const advisor = Object.assign({}, asObject(config.advisor));
       const auto = Object.assign({}, asObject(config.auto));
@@ -9664,9 +10278,11 @@ window.__ModuleLoader__.load({
       setModel('worker', draft.workerProvider, draft.workerModel);
       setModel('advisor', draft.advisorProvider, draft.advisorModel);
       setModel('scheduler', draft.schedulerProvider, draft.schedulerModel);
+      const defaults = asObject(promptDefaults);
       const setPrompt = (key, value) => {
         const text = String(value === undefined || value === null ? '' : value).trim();
-        if (text) prompts[key] = text;
+        const fallback = firstString(defaults[key]).trim();
+        if (text !== '' && text !== fallback) prompts[key] = text;
         else delete prompts[key];
       };
       setPrompt('workerPrefix', draft.workerPrefix);
@@ -9689,8 +10305,8 @@ window.__ModuleLoader__.load({
     }
 
     /** Project settings modal (advisor/auto budgets/limits/pools/models/prompts). */
-    function SettingsModal({ project, projectId, cluster, onClose, onSave, onSavePlacementPolicy, t }) {
-      const [draft, setDraft] = React.useState(() => settingsDraftOf(project));
+    function SettingsModal({ project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders, onClose, onSave, onSavePlacementPolicy, t }) {
+      const [draft, setDraft] = React.useState(() => settingsDraftOf(project, promptDefaults));
       const [saving, setSaving] = React.useState(false);
       const [error, setError] = React.useState('');
       const poolSeqRef = React.useRef(1);
@@ -9851,12 +10467,12 @@ window.__ModuleLoader__.load({
         }));
       };
       const reset = () => {
-        setDraft(settingsDraftOf(project));
+        setDraft(settingsDraftOf(project, promptDefaults));
         setError('');
       };
       const save = async () => {
         if (saving) return;
-        const config = settingsConfigFromDraft(draft, project);
+        const config = settingsConfigFromDraft(draft, project, promptDefaults);
         if (Object.keys(config.resourcePools).length === 0) {
           setError(t('wizard.pools.required'));
           return;
@@ -9881,24 +10497,50 @@ window.__ModuleLoader__.load({
           setError((result && result.error) || t('ws.settings.error'));
         }
       };
-      const modelField = (role, providerKey, modelKey) =>
+      const promptDefaultOf = (key) => firstString(asObject(promptDefaults)[key]);
+      const promptIsDefault = (field, key) => String(draft[field] === undefined || draft[field] === null ? '' : draft[field]).trim() === promptDefaultOf(key).trim();
+      const promptState = (field, key) =>
         h(
+          'div',
+          { className: 'rl-project-chips' },
+          h('span', { className: 'rl-chip' }, promptIsDefault(field, key) ? t('ws.settings.prompts.default') : t('ws.settings.prompts.overridden')),
+          promptIsDefault(field, key)
+            ? null
+            : h(LabButton, {
+                label: t('ws.settings.prompts.restoreDefault'),
+                variant: 'ghost',
+                onClick: () => setField(field, promptDefaultOf(key)),
+              }),
+        );
+      const promptPlaceholderLine = () => (promptPlaceholders.length > 0
+        ? h('p', { className: 'rl-hint' }, t('ws.settings.prompts.placeholders', { list: promptPlaceholders.join(', ') }))
+        : null);
+      const modelField = (role, providerKey, modelKey) => {
+        const provider = draft[providerKey];
+        const currentModel = draft[modelKey];
+        return h(
           'div',
           { className: 'rl-settings-model-row' },
           h('span', { className: 'rl-settings-model-role' }, t('ws.settings.model.' + role)),
-          h(LabInput, {
-            value: draft[providerKey],
-            placeholder: t('ws.settings.model.provider'),
+          h(LabSelect, {
+            value: provider,
             ariaLabel: t('ws.settings.model.' + role) + ' ' + t('ws.settings.model.provider'),
-            onChange: (event) => setField(providerKey, event.target.value),
+            options: providerChoicesOf(catalogProviders, provider, t),
+            onChange: (event) => {
+              setField(providerKey, event.target.value);
+              setField(modelKey, '');
+            },
           }),
-          h(LabInput, {
-            value: draft[modelKey],
-            placeholder: t('ws.settings.model.model'),
+          h(LabSelect, {
+            value: currentModel,
             ariaLabel: t('ws.settings.model.' + role) + ' ' + t('ws.settings.model.model'),
+            disabled: String(provider === undefined || provider === null ? '' : provider) === '',
+            options: modelChoicesOf(catalogProviders, provider, currentModel, t),
             onChange: (event) => setField(modelKey, event.target.value),
           }),
         );
+      };
+
       return h(
         'div',
         { className: 'rl-overlay-layer rl-overlay-layer-top' },
@@ -9962,16 +10604,20 @@ window.__ModuleLoader__.load({
                     ariaLabel: t('ws.settings.reviewer.lens') + ' ' + String(index + 1),
                     onChange: (event) => setReviewer(row.id, 'lens', event.target.value),
                   }),
-                  h(LabInput, {
+                  h(LabSelect, {
                     value: row.provider,
-                    placeholder: t('ws.settings.reviewer.provider'),
                     ariaLabel: t('ws.settings.reviewer.provider') + ' ' + String(index + 1),
-                    onChange: (event) => setReviewer(row.id, 'provider', event.target.value),
+                    options: providerChoicesOf(catalogProviders, row.provider, t),
+                    onChange: (event) => {
+                      setReviewer(row.id, 'provider', event.target.value);
+                      setReviewer(row.id, 'model', '');
+                    },
                   }),
-                  h(LabInput, {
+                  h(LabSelect, {
                     value: row.model,
-                    placeholder: t('ws.settings.reviewer.model'),
                     ariaLabel: t('ws.settings.reviewer.model') + ' ' + String(index + 1),
+                    disabled: String(row.provider === undefined || row.provider === null ? '' : row.provider) === '',
+                    options: modelChoicesOf(catalogProviders, row.provider, row.model, t),
                     onChange: (event) => setReviewer(row.id, 'model', event.target.value),
                   }),
                   h(LabSelect, {
@@ -10020,16 +10666,20 @@ window.__ModuleLoader__.load({
                     ariaLabel: t('ws.settings.modelOption.id') + ' ' + String(index + 1),
                     onChange: (event) => setModelOption(row.id, 'optionId', event.target.value),
                   }),
-                  h(LabInput, {
+                  h(LabSelect, {
                     value: row.provider,
-                    placeholder: t('ws.settings.modelOption.provider'),
                     ariaLabel: t('ws.settings.modelOption.provider') + ' ' + String(index + 1),
-                    onChange: (event) => setModelOption(row.id, 'provider', event.target.value),
+                    options: providerChoicesOf(catalogProviders, row.provider, t),
+                    onChange: (event) => {
+                      setModelOption(row.id, 'provider', event.target.value);
+                      setModelOption(row.id, 'model', '');
+                    },
                   }),
-                  h(LabInput, {
+                  h(LabSelect, {
                     value: row.model,
-                    placeholder: t('ws.settings.modelOption.model'),
                     ariaLabel: t('ws.settings.modelOption.model') + ' ' + String(index + 1),
+                    disabled: String(row.provider === undefined || row.provider === null ? '' : row.provider) === '',
+                    options: modelChoicesOf(catalogProviders, row.provider, row.model, t),
                     onChange: (event) => setModelOption(row.id, 'model', event.target.value),
                   }),
                   h(LabSelect, {
@@ -10264,6 +10914,10 @@ window.__ModuleLoader__.load({
                 { className: 'rl-settings-details' },
                 h('summary', null, t('ws.settings.prompts.workerPrefix')),
                 h('div', { className: 'rl-settings-details-body' },
+                  promptState('workerPrefix', 'workerPrefix'),
+                  promptDefaultOf('workerPrefix') === '' && String(draft.workerPrefix === undefined || draft.workerPrefix === null ? '' : draft.workerPrefix).trim() === ''
+                    ? h('p', { className: 'rl-hint' }, t('ws.settings.prompts.workerEmpty'))
+                    : null,
                   h(LabTextarea, {
                     value: draft.workerPrefix,
                     rows: 2,
@@ -10276,6 +10930,9 @@ window.__ModuleLoader__.load({
                 { className: 'rl-settings-details' },
                 h('summary', null, t('ws.settings.prompts.advisor')),
                 h('div', { className: 'rl-settings-details-body' },
+                  promptState('advisorPrompt', 'advisor'),
+                  promptPlaceholderLine(),
+                  h('p', { className: 'rl-hint' }, t('ws.settings.prompts.appendHint')),
                   h(LabTextarea, {
                     value: draft.advisorPrompt,
                     rows: 3,
@@ -10288,7 +10945,10 @@ window.__ModuleLoader__.load({
                 { className: 'rl-settings-details' },
                 h('summary', null, t('ws.settings.prompts.scheduler')),
                 h('div', { className: 'rl-settings-details-body' },
+                  promptState('schedulerPrompt', 'scheduler'),
                   h('p', { className: 'rl-hint' }, t('ws.settings.prompts.schedulerHint')),
+                  promptPlaceholderLine(),
+                  h('p', { className: 'rl-hint' }, t('ws.settings.prompts.appendHint')),
                   h(LabTextarea, {
                     value: draft.schedulerPrompt,
                     rows: 3,
@@ -10472,7 +11132,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Full run record: analysis, rejected proposals and collapsible JSON payloads. */
-    function RunDetailView({ state, onBack, onRetry, t }) {
+    function RunDetailView({ state, onBack, onRetry, onOpenSession, t }) {
       if (state.phase === 'loading' || state.phase === 'idle') {
         return h('div', { className: 'rl-modal-body' }, h(LabLoading, { label: t('ws.runs.detail.loading') }));
       }
@@ -10507,6 +11167,21 @@ window.__ModuleLoader__.load({
           h('span', { className: 'rl-run-meta' }, t('ws.runs.duration', { time: formatDurationBetween(run.startedAt, run.endedAt) })),
           runIdOf(run) ? h('span', { className: 'rl-chip rl-chip-mono' }, runIdOf(run)) : null,
         ),
+        h('p', { className: 'rl-hint' }, t('ws.experts.backgroundNote')),
+        firstString(run.sessionId) !== '' && typeof onOpenSession === 'function'
+          ? h(
+              'div',
+              { className: 'rl-form-actions' },
+              h(LabButton, {
+                label: t('ws.experts.openTrajectory'),
+                onClick: () => onOpenSession(firstString(run.sessionId), 'trajectory'),
+              }),
+              h(LabButton, {
+                label: t('ws.experts.openChat'),
+                onClick: () => onOpenSession(firstString(run.sessionId), 'chat'),
+              }),
+            )
+          : null,
         h(LabInfoRow, { label: t('ws.runs.detail.session'), value: firstString(run.sessionId), mono: true }),
         h(LabInfoRow, { label: t('ws.runs.detail.model'), value: firstString(asObject(run.model).model, run.model), mono: true }),
         runLensOf(run) ? h(LabInfoRow, { label: t('ws.runs.lensLabel'), value: runLensOf(run) }) : null,
@@ -10531,31 +11206,51 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'rl-form-actions' },
           h(LabButton, { label: t('ws.runs.back'), variant: 'ghost', onClick: onBack }),
-          h(LabButton, { label: t('ws.runs.detail.refresh'), onClick: onRetry }),
+          h(LabButton, { label: t('ws.experts.refresh'), onClick: onRetry }),
         ),
       );
     }
 
     /** One advisor/scheduler run row; clicking opens the full record. */
-    function RunRow({ run, onOpen, t }) {
+    function RunRow({ run, onOpen, onOpenSession, t }) {
       const role = runRoleOf(run);
       const status = runStatusOf(run);
+      const sessionId = firstString(asObject(run).sessionId);
       const created = idListOf(asObject(run).createdNodeIds).length;
       const started = idListOf(asObject(run).startedNodeIds).length;
       const rejected = asArray(asObject(run).rejected).length;
-      const roleLabel = runRoleLabelOf(role, t);
+      const roleLabel = runDisplayRoleLabelOf(run, t);
       const errorText = runErrorTextOf(run);
       const gcSummary = role === 'gc' ? runGcSummaryOf(run) : '';
       const gcRecommendation = role === 'gc' ? runGcRecommendationOf(run) : '';
       const lens = runLensOf(run);
       const panelSize = runPanelSizeOf(run);
       const usage = runUsageOf(run);
+      const nativeActions = typeof onOpenSession === 'function' && sessionId !== ''
+        ? h(
+            'div',
+            { className: 'rl-run-row-actions' },
+            h(LabButton, {
+              label: t('ws.experts.openTrajectory'),
+              variant: 'ghost',
+              onClick: () => onOpenSession(sessionId, 'trajectory'),
+            }),
+            h(LabButton, {
+              label: t('ws.experts.openChat'),
+              variant: 'ghost',
+              onClick: () => onOpenSession(sessionId, 'chat'),
+            }),
+          )
+        : null;
       return h(
         'li',
         null,
         h(
+          'div',
+          { className: 'rl-run-row-wrap' },
+        h(
           'button',
-          { type: 'button', className: 'rl-run-row', 'aria-label': t('ws.runs.openDetail'), onClick: onOpen },
+          { type: 'button', className: 'rl-run-row rl-run-row-' + status, 'aria-label': t('ws.runs.openDetail'), onClick: onOpen },
           h(
             'span',
             { className: 'rl-run-head' },
@@ -10582,6 +11277,8 @@ window.__ModuleLoader__.load({
           errorText ? h('p', { className: 'rl-run-error' }, errorText) : null,
           gcRecommendation ? h('p', { className: 'rl-run-meta' }, t('ws.gc.recommendation') + ': ' + gcRecommendation) : null,
           gcSummary ? h('p', { className: 'rl-run-meta' }, t('ws.gc.summary') + ': ' + gcSummary) : null,
+        ),
+        nativeActions,
         ),
       );
     }
@@ -10632,13 +11329,15 @@ window.__ModuleLoader__.load({
     }
 
     /** Runs/cycles panel: list + detail; polls `/runs` every 2s while mounted. */
-    function RunsPanel({ projectId, initialRunId, onClose, t }) {
-      const { state, retry } = useRuns(projectId, t);
+    function RunsPanel({ projectId, initialRunId, onClose, runsState, onRetryRuns, onOpenSession, t }) {
+      const state = runsState !== null && runsState !== undefined ? runsState : { phase: 'loading', runs: [], cycles: [], error: null };
+      const retry = typeof onRetryRuns === 'function' ? onRetryRuns : () => {};
       const [tab, setTab] = React.useState('runs');
       const [selectedRunId, setSelectedRunId] = React.useState(
         typeof initialRunId === 'string' && initialRunId.length > 0 ? initialRunId : null,
       );
       const detail = useRunDetail(projectId, selectedRunId, t);
+      const canOpenSession = typeof onOpenSession === 'function';
 
       let listBody;
       if (state.phase === 'loading') {
@@ -10661,6 +11360,7 @@ window.__ModuleLoader__.load({
                   key: runIdOf(run) || 'run-' + index,
                   run,
                   onOpen: () => setSelectedRunId(runIdOf(run)),
+                  onOpenSession: canOpenSession ? onOpenSession : null,
                   t,
                 })),
             );
@@ -10688,7 +11388,13 @@ window.__ModuleLoader__.load({
             h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.runs.close'), onClick: onClose }),
           ),
           selectedRunId !== null
-            ? h(RunDetailView, { state: detail.state, onBack: () => setSelectedRunId(null), onRetry: detail.retry, t })
+            ? h(RunDetailView, {
+                state: detail.state,
+                onBack: () => setSelectedRunId(null),
+                onRetry: detail.retry,
+                onOpenSession: canOpenSession ? onOpenSession : null,
+                t,
+              })
             : h(
                 'div',
                 { className: 'rl-modal-body' },
@@ -10721,123 +11427,94 @@ window.__ModuleLoader__.load({
     }
 
     /** Successor dialog: creates one planned child from the parent HEAD and seals it. */
-    /** Catalog-backed model selector: option profile or free provider/model, plus effort. */
-    function ModelPicker({ model, onChange, modelOptions, disabled, t }) {
+    /** Catalog-backed model selector: provider/model selects (no free text) + effort. */
+    function ModelPicker({ model, onChange, modelOptions, modelProviders, disabled, t }) {
       const record = asObject(model);
       const options = asArray(modelOptions);
       const profileId = firstString(record.profileId);
-      const hasFreeRef = profileId === '' && (firstString(record.provider) !== '' || firstString(record.model) !== '');
-      const selectValue = profileId !== '' ? 'profile:' + profileId : hasFreeRef ? '__free' : '';
-      const selected = options.filter((option) => option.id === profileId)[0] || null;
+      const profileOption = profileId === '' ? null : (options.filter((option) => option.id === profileId)[0] || null);
+      const provider = firstString(record.provider) || (profileOption === null ? '' : profileOption.provider);
+      const currentModel = firstString(record.model) || (profileOption === null ? '' : profileOption.model);
       const effortValue = firstString(record.reasoningEffort);
-      const effortChoices = selected !== null && selected.efforts.length > 0
-        ? selected.efforts
+      const providers = asArray(modelProviders);
+      const providerChoices = providerChoicesOf(providers, provider, t);
+      const modelChoices = modelChoicesOf(providers, provider, currentModel, t);
+      const matchedOption = options.filter((option) => (
+        (profileId !== '' && option.id === profileId)
+        || (option.provider === provider && option.model === currentModel)
+      ))[0] || null;
+      const effortChoices = matchedOption !== null && matchedOption.efforts.length > 0
+        ? matchedOption.efforts
         : ['minimal', 'low', 'medium', 'high', 'max'];
-      const labelOfOption = (option) => {
-        const parts = [option.provider + '/' + option.model];
-        if (option.reasoningEffort) parts.push('·' + option.reasoningEffort);
-        if (option.priceIn > 0 || option.priceOut > 0) {
-          parts.push('(' + formatUsdAmount(option.priceIn) + '/' + formatUsdAmount(option.priceOut) + ')');
-        }
-        const tag = option.tags.length > 0 ? '[' + option.tags[0] + '] ' : '';
-        return tag + option.id + ' · ' + parts.join(' ');
-      };
-      const choices = [{ value: '', label: t('ws.model.inherit') }]
-        .concat(options.map((option) => ({ value: 'profile:' + option.id, label: labelOfOption(option) })))
-        .concat([{ value: '__free', label: t('ws.model.free') }]);
-      const changeEffort = (value) => {
-        if (hasFreeRef || selectValue === '__free') {
-          const next = { provider: firstString(record.provider), model: firstString(record.model) };
-          if (value !== '') next.reasoningEffort = value;
-          onChange(next);
+      const selectedModelAvailable = matchedOption !== null ? matchedOption.available : null;
+      const selectedModelReason = matchedOption !== null ? matchedOption.reason : '';
+      const emit = (nextProvider, nextModel, nextEffort) => {
+        if (nextProvider === '' || nextModel === '') {
+          onChange(null);
           return;
         }
-        if (profileId === '') {
+        const next = { provider: nextProvider, model: nextModel };
+        const effort = nextEffort === undefined ? effortValue : nextEffort;
+        if (effort !== '') next.reasoningEffort = effort;
+        onChange(next);
+      };
+      const changeProvider = (value) => {
+        if (value === '') {
+          onChange(null);
+          return;
+        }
+        const models = modelChoicesOf(providers, value, '', t).filter((choice) => choice.value !== '');
+        emit(value, models.length > 0 ? models[0].value : '');
+      };
+      const changeEffort = (value) => {
+        if (provider === '' || currentModel === '') {
           onChange(value === '' ? null : { reasoningEffort: value });
           return;
         }
-        const next = { profileId };
-        if (value !== '') next.reasoningEffort = value;
-        onChange(next);
+        emit(provider, currentModel, value);
       };
-      const changeFree = (field, value) => {
-        const next = {
-          provider: field === 'provider' ? value : firstString(record.provider),
-          model: field === 'model' ? value : firstString(record.model),
-        };
-        if (effortValue !== '') next.reasoningEffort = effortValue;
-        if (next.provider === '' && next.model === '' && next.reasoningEffort === undefined) onChange(null);
-        else onChange(next);
-      };
+      const emptyCatalog = providers.length === 0 && provider === '';
       return h(
         'div',
         { className: 'rl-model-picker' },
         h(
           'div',
           { className: 'rl-form-grid' },
-          h(LabField, { label: t('ws.model.title'), hint: t('ws.model.inheritHint') },
+          h(LabField, { label: t('ws.model.provider'), hint: t('ws.model.inheritHint') },
             h(LabSelect, {
-              value: selectValue,
-              ariaLabel: t('ws.model.title'),
-              disabled: disabled === true,
-              options: choices,
-              onChange: (event) => {
-                const value = event.target.value;
-                if (value === '') {
-                  onChange(null);
-                  return;
-                }
-                if (value === '__free') {
-                  onChange({ provider: firstString(record.provider), model: firstString(record.model) });
-                  return;
-                }
-                const id = value.slice('profile:'.length);
-                const option = options.filter((entry) => entry.id === id)[0];
-                if (!option) return;
-                const next = { profileId: option.id };
-                const effort = option.defaultEffort || option.reasoningEffort;
-                if (effort) next.reasoningEffort = effort;
-                onChange(next);
-              },
+              value: provider,
+              ariaLabel: t('ws.model.provider'),
+              disabled: disabled === true || emptyCatalog,
+              options: providerChoices,
+              onChange: (event) => changeProvider(event.target.value),
+            })),
+          h(LabField, { label: t('ws.model.model') },
+            h(LabSelect, {
+              value: currentModel,
+              ariaLabel: t('ws.model.model'),
+              disabled: disabled === true || provider === '' || emptyCatalog,
+              options: modelChoices,
+              onChange: (event) => emit(provider, event.target.value),
             })),
           h(LabField, { label: t('ws.model.effort') },
             h(LabSelect, {
               value: effortValue,
               ariaLabel: t('ws.model.effort'),
-              disabled: disabled === true || selectValue === '',
+              disabled: disabled === true || provider === '',
               options: [{ value: '', label: t('ws.model.effort.inherit') }].concat(
                 effortChoices.map((effort) => ({ value: effort, label: effort })),
               ),
               onChange: (event) => changeEffort(event.target.value),
             })),
         ),
-        selected !== null && selected.available === false
-          ? h('p', { className: 'rl-hint rl-merge-conflicts' }, t('ws.model.unavailable', { reason: selected.reason || '' }))
-          : null,
-        selectValue === '__free' || options.length === 0
-          ? h(
-              'div',
-              { className: 'rl-form-grid' },
-              h(LabField, { label: t('ws.model.freeProvider') },
-                h(LabInput, {
-                  value: firstString(record.provider),
-                  ariaLabel: t('ws.model.freeProvider'),
-                  disabled: disabled === true,
-                  onChange: (event) => changeFree('provider', event.target.value),
-                })),
-              h(LabField, { label: t('ws.model.freeModel') },
-                h(LabInput, {
-                  value: firstString(record.model),
-                  ariaLabel: t('ws.model.freeModel'),
-                  disabled: disabled === true,
-                  onChange: (event) => changeFree('model', event.target.value),
-                })),
-            )
+        emptyCatalog ? h('p', { className: 'rl-hint' }, t('ws.model.catalogEmpty')) : null,
+        selectedModelAvailable === false
+          ? h('p', { className: 'rl-hint rl-merge-conflicts' }, t('ws.model.unavailable', { reason: selectedModelReason || '' }))
           : null,
       );
     }
 
-    function SuccessorModal({ project, parent, onClose, onSubmit, modelOptions, t }) {
+    function SuccessorModal({ project, parent, onClose, onSubmit, modelOptions, modelProviders, t }) {
       const parentId = nodeIdOf(parent);
       const parentTitle = nodeTitleOf(parent, t);
       const parentNeeds = nodeNeedsEntries(parent);
@@ -10989,12 +11666,18 @@ window.__ModuleLoader__.load({
                   h(
                     'div',
                     { key: need.id, className: 'rl-need-row' },
-                    h(LabInput, {
-                      value: need.key,
-                      placeholder: t('ws.successor.needKey'),
-                      ariaLabel: t('ws.successor.needKey'),
-                      onChange: (event) => updateNeed(need.id, 'key', event.target.value),
-                    }),
+                    (() => {
+                      const poolKeys = Object.keys(projectConfig(project).resourcePools);
+                      const values = poolKeys.concat(['machines']);
+                      const current = String(need.key === undefined || need.key === null ? '' : need.key).trim();
+                      if (current !== '' && values.indexOf(current) < 0) values.push(current);
+                      return h(LabSelect, {
+                        value: need.key,
+                        ariaLabel: t('ws.successor.needKey'),
+                        options: values.map((key) => ({ value: key, label: key === 'machines' ? t('ws.needs.machines') : key })),
+                        onChange: (event) => updateNeed(need.id, 'key', event.target.value),
+                      });
+                    })(),
                     h(LabInput, {
                       type: 'number',
                       value: need.value,
@@ -11004,10 +11687,18 @@ window.__ModuleLoader__.load({
                     h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.successor.removeNeed'), onClick: () => removeNeed(need.id) }),
                   )),
               ),
-              h('div', { className: 'rl-form-actions' }, h(LabButton, { label: t('ws.successor.addNeed'), variant: 'ghost', onClick: addNeed })),
+              Object.keys(projectConfig(project).resourcePools).length === 0
+                ? h('p', { className: 'rl-hint' }, t('ws.needs.noPools'))
+                : null,
+              h('div', { className: 'rl-form-actions' }, h(LabButton, {
+                label: t('ws.successor.addNeed'),
+                variant: 'ghost',
+                disabled: Object.keys(projectConfig(project).resourcePools).length === 0,
+                onClick: addNeed,
+              })),
             ),
             h(LabField, { label: t('ws.model.title'), hint: t('ws.model.inheritHint') },
-            h(ModelPicker, { model, onChange: setModel, modelOptions, disabled: submitting, t })),
+            h(ModelPicker, { model, onChange: setModel, modelOptions, modelProviders, disabled: submitting, t })),
           error ? h('p', { className: 'rl-error-text', role: 'alert' }, t('ws.successor.error') + ': ' + error) : null,
           ),
           h(
@@ -11154,6 +11845,46 @@ window.__ModuleLoader__.load({
     }
     // #endregion
 
+    /** Floating shell overlay button shown while a native session hides the Lab panel. */
+    function LabReturnButton({ t, onReturn }) {
+      const [, bump] = React.useState(0);
+      React.useEffect(() => subscribeLabNavigation(() => bump((value) => value + 1)), []);
+      if (labNavigation.returnTarget !== true || labNavigation.projectId === '') return null;
+      const style = {
+        position: 'fixed',
+        right: 'clamp(8px, 2vw, 16px)',
+        // Keep the return chip below the DSH frame header/step, not on top of it.
+        top: 'calc(var(--dsh-frame-top-clearance, 48px) + clamp(32px, 5vh, 48px))',
+        zIndex: 40,
+        pointerEvents: 'auto',
+        display: 'inline-flex',
+        alignItems: 'center',
+        minHeight: '28px',
+        padding: '5px 12px',
+        border: '0.5px solid var(--dsw-alias-border-l2)',
+        borderRadius: '16px',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        font: 'inherit',
+        fontSize: '12px',
+        lineHeight: '18px',
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+      };
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: 'rl-return-to-lab',
+          style,
+          title: t('nav.returnToLab'),
+          'aria-label': t('nav.returnToLab'),
+          onClick: onReturn,
+        },
+        t('nav.returnToLab'),
+      );
+    }
+
     // #region page, error boundary, sidebar icon
     /** Inline chrome for the crash fallback (the panel stylesheet may not be mounted). */
     const CRASH_STYLE = {
@@ -11223,8 +11954,16 @@ window.__ModuleLoader__.load({
     function MetainferLabPage(props) {
       const t = typeof props.t === 'function' ? props.t : (key) => key;
       const openNativeSession = typeof props.openNativeSession === 'function' ? props.openNativeSession : null;
-      const [activeProjectId, setActiveProjectId] = React.useState(null);
+      const retainCopilotSession = typeof props.retainCopilotSession === 'function' ? props.retainCopilotSession : null;
+      const SessionProvider = typeof props.SessionProvider === 'function' ? props.SessionProvider : null;
+      const renderFactorySlot = typeof props.renderFactorySlot === 'function' ? props.renderFactorySlot : null;
+      const [activeProjectId, setActiveProjectId] = React.useState(() => labNavigation.projectId || null);
+      const initialNodeId = labNavigation.nodeId;
+      React.useEffect(() => {
+        if (labNavigation.returnTarget === true && activeProjectId === labNavigation.projectId) clearNativeReturnTarget();
+      }, []); // eslint-disable-line react-hooks/exhaustive-deps
       const openProject = React.useCallback((projectId) => {
+        rememberLabProject(projectId);
         setActiveProjectId(typeof projectId === 'string' && projectId.length > 0 ? projectId : null);
       }, []);
       const backToList = React.useCallback(() => {
@@ -11238,8 +11977,12 @@ window.__ModuleLoader__.load({
           : h(WorkspaceScreen, {
               key: activeProjectId,
               projectId: activeProjectId,
+              initialNodeId,
               onBack: backToList,
               openNativeSession,
+              retainCopilotSession,
+              SessionProvider,
+              renderFactorySlot,
               t,
             }),
       );
@@ -11282,7 +12025,7 @@ window.__ModuleLoader__.load({
     // #endregion
 
     return {
-      inject: ['slots', 'locale', 'sessions', 'uiWorkspace'],
+      inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'layout'],
       apply(ctx) {
         ctx.effect(
           () => ctx.locale.register(NS, { zh, en }),
@@ -11290,10 +12033,55 @@ window.__ModuleLoader__.load({
         );
         const t = ctx.locale.bind(NS);
         const openNativeSession = buildNativeOpener(ctx);
+        /** Retain the persistent Copilot session for an embedded native Conversation. */
+        const retainCopilotSession = (sessionId) => {
+          const id = firstString(sessionId);
+          if (id === '') return null;
+          try {
+            if (ctx.sessions === null || ctx.sessions === undefined || typeof ctx.sessions.retain !== 'function') return null;
+            let target = id;
+            if (typeof ctx.sessions.subagentAddress === 'function') {
+              const address = ctx.sessions.subagentAddress(id);
+              if (address !== undefined && address !== null && String(address) !== '') target = address;
+            }
+            const reference = ctx.sessions.retain(target, { source: 'controllerOperation' });
+            return reference !== undefined && reference !== null ? reference : null;
+          } catch (error) {
+            return null;
+          }
+        };
+        const returnToLab = () => {
+          clearNativeReturnTarget();
+          try {
+            if (ctx.layout !== null && ctx.layout !== undefined && typeof ctx.layout.selectPanel === 'function') {
+              ctx.layout.selectPanel(PANEL_ID);
+            }
+          } catch (error) {
+            // keep the overlay silent if the shell rejects the panel switch
+          }
+        };
+        ctx.slots.inject('shell.overlay', () =>
+          ctx.slots.register(
+            {
+              name: 'shell.overlay',
+              id: PANEL_ID + '.return',
+              order: 80,
+              locale: NS,
+              inject: () => ({ t, onReturn: returnToLab }),
+            },
+            LabReturnButton,
+          ),
+        );
 
         ctx.slots.inject('main', () =>
           ctx.slots.register(
-            { name: 'main', key: PANEL_ID, locale: NS, inject: () => ({ t, openNativeSession }) },
+            {
+              name: 'main',
+              key: PANEL_ID,
+              locale: NS,
+              children: { 'metainfer-lab.copilot.scope': { kind: 'single', scope: 'session' } },
+              inject: () => ({ t, openNativeSession, retainCopilotSession }),
+            },
             MetainferLabPage,
           ),
         );

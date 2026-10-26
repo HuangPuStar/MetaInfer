@@ -114,6 +114,16 @@ export function registerHttpRoutes(ctx, service) {
     return ok(await service.getModels(params.get('projectId')));
   });
 
+  route(`${PREFIX}/chat`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(await service.getChat(params.get('projectId')));
+  });
+
+  route(`${PREFIX}/copilot`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(await service.getCopilot(params.get('projectId')));
+  });
+
   route(`${PREFIX}/runs`, ['GET'], async (request) => {
     const params = query(request);
     const projectId = params.get('projectId');
@@ -162,6 +172,15 @@ export function registerHttpRoutes(ctx, service) {
     }
     if (type === 'cluster.config') {
       return ok(await service.updateClusterConfig(body));
+    }
+    if (type === 'project.chat') {
+      return ok(await service.projectChat(body.projectId, body.text));
+    }
+    if (type === 'project.chat_clear') {
+      return ok(await service.clearProjectChat(body.projectId));
+    }
+    if (type === 'project.copilot') {
+      return ok(await service.openCopilot(body.projectId));
     }
     if (type === 'project.compile_placement') {
       return ok(await service.compilePlacementPolicyForProject(body.projectId, body.text));

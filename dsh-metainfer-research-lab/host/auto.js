@@ -127,6 +127,11 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
     state.pauseReason = null;
     project.mode = 'manual';
     await saveEvent(project, 'auto/stopped', {});
+    try {
+      await orchestrator?.cancelProjectRuns?.(projectId);
+    } catch {
+      // Auto stop must still succeed if a run is already gone.
+    }
     return statusOf(projectId);
   }
 

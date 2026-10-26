@@ -35,6 +35,9 @@ const ACTION_ENUM = [
   'auto_status',
   'runs',
   'run',
+  'chat',
+  'clear_chat',
+  'copilot',
 ];
 
 /**

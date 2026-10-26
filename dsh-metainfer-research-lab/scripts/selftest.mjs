@@ -253,8 +253,8 @@ async function callHttp(pathname, { method = 'GET', query = '', rawBody = undefi
   return response.json();
 }
 
-await test('routes: all eleven endpoints registered', async () => {
-  assert.equal(routes.length, 11);
+await test('routes: all thirteen endpoints registered', async () => {
+  assert.equal(routes.length, 13);
   const expected = [
     [`${PREFIX}/health`, 'GET'],
     [`${PREFIX}/projects`, 'GET'],
@@ -266,6 +266,8 @@ await test('routes: all eleven endpoints registered', async () => {
     [`${PREFIX}/cluster`, 'GET'],
     [`${PREFIX}/cluster/config`, 'GET'],
     [`${PREFIX}/models`, 'GET'],
+    [`${PREFIX}/chat`, 'GET'],
+    [`${PREFIX}/copilot`, 'GET'],
     [`${PREFIX}/runs`, 'GET'],
     [`${PREFIX}/commands`, 'POST'],
   ];

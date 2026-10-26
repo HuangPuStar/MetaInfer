@@ -6,8 +6,9 @@
  */
 import path from 'node:path';
 import { LabError } from './git-engine.js';
-import { buildModelCatalog, cleanModelRef, validateModelSelection } from './models.js';
+import { buildModelCatalog, cleanModelRef, resolveModelSelection, validateModelSelection } from './models.js';
 import { compilePlacementPolicy, describePlacementSpec, sanitizePlacementSpec } from './placement.js';
+import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT, DEFAULT_WORKER_PREFIX, PROMPT_PLACEHOLDERS } from './prompts.js';
 import { newProjectId, newSessionId } from './store.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
@@ -374,7 +375,7 @@ function normalizeConfig(raw, base = undefined) {
 /**
  * @param {{store: object, git: object, version?: string}} deps
  */
-export function createLabService({ ctx, store, git, runtime, transcript, orchestrator, auto, cluster, clusterAdmin, version = '0.8.6-v3' }) {
+export function createLabService({ ctx, store, git, runtime, transcript, orchestrator, auto, cluster, clusterAdmin, version = '0.8.9-v3' }) {
   function requireProject(projectId) {
     const project = typeof projectId === 'string' ? store.getProject(projectId) : undefined;
     if (!project) throw new LabError('project_not_found', `unknown project: ${projectId}`, 404);
@@ -695,9 +696,409 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Project copilot chat: one project-scoped, read-oriented discussion agent per
+  // turn. The Host supplies a complete state snapshot and the agent may call the
+  // global metainfer_lab tool for live inspection. Persisted in project.chatLog.
+  // ---------------------------------------------------------------------------
+  const CHAT_LIMIT = 8000;
+  const CHAT_HISTORY = 24;
+  const CHAT_TIMEOUT_MS = 150_000;
+  const chatLocks = new Map();
+
+  function chatTextOf(blocks) {
+    if (!Array.isArray(blocks)) return '';
+    return blocks
+      .map((block) => (block && block.type === 'text' && typeof block.text === 'string' ? block.text : ''))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+  }
+
+  function chatMessagesOf(project) {
+    return (Array.isArray(project.chatLog) ? project.chatLog : []).map((message) => ({
+      id: String(message.id ?? ''),
+      role: message.role === 'assistant' ? 'assistant' : (message.role === 'error' ? 'error' : 'user'),
+      text: String(message.text ?? ''),
+      at: Number(message.at ?? 0),
+    }));
+  }
+
+  function compactStateForChat(projectId) {
+    const project = requireProject(projectId);
+    const state = getState(projectId);
+    const runs = listRuns(projectId, 20);
+    const events = store.listEvents(projectId, Math.max(0, (project.counters?.eventSeq ?? 0) - 40));
+    const autoState = auto ? auto.statusOf(projectId) : { status: 'off', pauseReason: null };
+    const nodes = (state.nodes ?? []).map((node) => ({
+      id: node.id,
+      title: node.title,
+      status: node.status,
+      parentId: node.parentId ?? null,
+      parentIds: node.parentIds ?? undefined,
+      needs: node.needs ?? {},
+      timeboxMinutes: Math.round(((node.timeboxMs ?? 0) / 60000) * 10) / 10,
+      deadlineAt: node.deadlineAt ?? null,
+      headCommit: node.git?.headCommit ?? null,
+      model: node.modelResolved ?? node.model ?? null,
+      report: node.report?.summary ?? (node.reportText ? String(node.reportText).slice(0, 1200) : null),
+      error: node.error?.message ?? null,
+      sealed: node.sealed === true,
+      isLeaf: node.isLeaf === true,
+      attempts: (node.attempts ?? []).map((attempt) => ({
+        index: attempt.index, status: attempt.status ?? null, stopReason: attempt.stopReason ?? null,
+        model: attempt.model ?? null, startedAt: attempt.startedAt ?? null, endedAt: attempt.endedAt ?? null,
+      })),
+      usage: node.usage ?? null,
+    }));
+    const runRows = (runs.runs ?? []).slice(0, 20).map((run) => ({
+      id: run.id,
+      role: run.role,
+      lens: run.lens ?? null,
+      status: run.status,
+      sessionId: run.sessionId,
+      startedAt: run.startedAt ?? null,
+      endedAt: run.endedAt ?? null,
+      model: run.model ?? null,
+      analysis: typeof run.analysis === 'string' ? run.analysis.slice(0, 1600) : null,
+      error: run.error ?? null,
+      createdNodeIds: run.createdNodeIds ?? undefined,
+      startedNodeIds: run.startedNodeIds ?? undefined,
+      output: run.output ? JSON.stringify(run.output).slice(0, 3000) : null,
+    }));
+    return {
+      project: {
+        id: project.id,
+        name: project.name,
+        brief: project.brief,
+        mode: project.mode,
+        repoPath: project.repo?.path,
+        worktreeRoot: project.repo?.worktreeRoot,
+        createdAt: project.createdAt,
+        revision: project.revision,
+        config: {
+          resourcePools: project.config?.resourcePools ?? {},
+          maxRunningNodes: project.config?.maxRunningNodes,
+          maxNodes: project.config?.maxNodes,
+          nodeTimeoutMinutes: project.config?.nodeTimeoutMinutes,
+          models: project.config?.models ?? {},
+          advisor: project.config?.advisor ?? {},
+          auto: project.config?.auto ?? {},
+        },
+      },
+      nodes,
+      edges: state.edges ?? [],
+      resources: state.resources ?? {},
+      auto: autoState,
+      cluster: state.cluster ?? { enabled: false },
+      runs: runRows,
+      cycles: runs.cycles ?? [],
+      events: events.slice(-40).map((event) => ({
+        seq: event.seq,
+        at: event.at,
+        type: event.type,
+        nodeId: event.nodeId ?? null,
+        data: event.data ?? null,
+      })),
+    };
+  }
+
+  function chatPrompt(project, userText) {
+    const all = chatMessagesOf(project);
+    const history = (all.length > 0 && all[all.length - 1].role === 'user' ? all.slice(0, -1) : all).slice(-CHAT_HISTORY);
+    const historyText = history.length > 0
+      ? history.map((message) => `${message.role === 'assistant' ? 'Assistant' : message.role === 'error' ? 'System error' : 'User'}: ${message.text}`).join('\n\n')
+      : '(no previous messages)';
+    return [
+      'You are the project-level copilot of MetaInfer Research Lab.',
+      `Project id: ${project.id}`,
+      `Project name: ${project.name}`,
+      'You have read access to the whole project through the metainfer_lab tool: use',
+      `  metainfer_lab({action:"state", projectId:"${project.id}"})`,
+      `  metainfer_lab({action:"runs", projectId:"${project.id}"}) / action:"run" with runId`,
+      `  metainfer_lab({action:"transcript", projectId:"${project.id}", nodeId:"..."})`,
+      `  metainfer_lab({action:"cluster", projectId:"${project.id}"})`,
+      'The Host also embeds a recent complete snapshot below. Prefer live tool data when freshness matters.',
+      'You may analyze, explain, compare, summarize, and propose next steps. Treat the project as',
+      'READ-ONLY unless the human explicitly asks you to mutate it; never start/stop/cancel/retry',
+      'experiments on your own. Answer in the language of the user. Cite node/run ids where useful.',
+      '',
+      '# Conversation so far',
+      historyText,
+      '',
+      '# Recent project state snapshot',
+      JSON.stringify(compactStateForChat(project.id), null, 2),
+      '',
+      '# Current user message',
+      userText,
+    ].join('\n');
+  }
+
+  async function saveChatMessage(projectId, message) {
+    return store.withProjectLock(projectId, async () => {
+      const project = requireProject(projectId);
+      const log = Array.isArray(project.chatLog) ? project.chatLog.slice() : [];
+      log.push({ id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, ...message });
+      project.chatLog = log.slice(-80);
+      project.revision = (project.revision ?? 0) + 1;
+      project.updatedAt = Date.now();
+      await store.saveProject(project);
+      return chatMessagesOf(project);
+    });
+  }
+
+  async function clearProjectChat(projectId) {
+    return store.withProjectLock(projectId, async () => {
+      const project = requireProject(projectId);
+      project.chatLog = [];
+      project.revision = (project.revision ?? 0) + 1;
+      project.updatedAt = Date.now();
+      await store.saveProject(project);
+      return { projectId, messages: [] };
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Persistent project Copilot session: a root lab-chat agent with a scoped,
+  // read-only project-context tool. The Client embeds the native DSH
+  // Conversation for this session in a large drawer, so history/trajectory/live
+  // thinking are native while the agent still has full project visibility.
+  // ---------------------------------------------------------------------------
+  const copilotHandles = new Map(); // sessionId -> AgentHandle
+  const copilotLocks = new Map(); // projectId -> Promise
+
+  async function copilotContext(projectId, input = {}) {
+    const action = typeof input?.action === 'string' ? input.action : 'snapshot';
+    if (action === 'state') return getState(projectId);
+    if (action === 'runs') return listRuns(projectId);
+    if (action === 'run') return getRun(projectId, input?.runId);
+    if (action === 'events') return getEvents(projectId, input?.after ?? 0);
+    if (action === 'cluster') return getCluster(projectId);
+    if (action === 'node') {
+      const node = store.getNode(projectId, input?.nodeId);
+      if (!node) throw new LabError('node_not_found', `unknown node: ${input?.nodeId}`, 404);
+      return { node };
+    }
+    if (action === 'snapshot') return compactStateForChat(projectId);
+    throw new LabError('bad_request', `unknown copilot context action: ${action}`, 400);
+  }
+
+  function copilotToolDefinition(projectId) {
+    return {
+      name: 'lab_project_context',
+      description:
+        'Read the complete state of the current MetaInfer Research Lab project (read-only): ' +
+        'snapshot/state/nodes/runs/run/events/cluster. Use this whenever the human asks about ' +
+        'project progress, reports, failures, resources or next steps.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['snapshot', 'state', 'runs', 'run', 'events', 'cluster', 'node'],
+          },
+          nodeId: { type: 'string' },
+          runId: { type: 'string' },
+          after: { type: 'number' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: {
+          type: 'object',
+          properties: { result: { type: 'string' } },
+          required: ['result'],
+          additionalProperties: false,
+        },
+        render: (args, value) => {
+          const text = value && typeof value.result === 'string' ? value.result : JSON.stringify(value);
+          return [{ type: 'text', text: text.length > 30_000 ? `${text.slice(0, 30_000)}\n…[truncated]` : text }];
+        },
+      },
+      timeoutMs: 60_000,
+      async execute(args) {
+        const data = await copilotContext(projectId, args ?? {});
+        return { result: JSON.stringify(data) };
+      },
+    };
+  }
+
+  async function setupCopilot(projectId, agentCtx) {
+    await ctx.agentPresets.mount(agentCtx, 'lab-chat');
+    agentCtx.tools.register(copilotToolDefinition(projectId));
+  }
+
+  async function ensureCopilotSession(projectId) {
+    if (copilotLocks.has(projectId)) return copilotLocks.get(projectId);
+    const task = (async () => {
+      const project = requireProject(projectId);
+      // A resumed root agent must be given agentOptions again: agentOptions are
+      // resume-time inputs and are not reconstructed from the persisted session.
+      const model = resolveModelSelection(ctx, project, null, 'controller');
+      const existingId = typeof project.copilotSessionId === 'string' && project.copilotSessionId ? project.copilotSessionId : '';
+      if (existingId) {
+        const live = copilotHandles.get(existingId) ?? ctx.agents.get(existingId);
+        if (live) return { sessionId: existingId, reused: true };
+        try {
+          const handle = await ctx.agents.resume({
+            resumeSessionId: existingId,
+            agentOptions: model,
+            setup: (agentCtx) => setupCopilot(projectId, agentCtx),
+          });
+          copilotHandles.set(existingId, handle);
+          return { sessionId: existingId, reused: true };
+        } catch {
+          // Session persistence missing/broken: create a fresh Copilot session below.
+        }
+      }
+      const sessionId = newSessionId();
+      const handle = await ctx.agents.create({
+        sessionId,
+        meta: { cwd: project.repo.path, agentPreset: 'lab-chat' },
+        agentOptions: model,
+        setup: (agentCtx) => setupCopilot(projectId, agentCtx),
+      });
+      copilotHandles.set(sessionId, handle);
+      await store.withProjectLock(projectId, async () => {
+        const current = requireProject(projectId);
+        current.copilotSessionId = sessionId;
+        current.revision = (current.revision ?? 0) + 1;
+        current.updatedAt = Date.now();
+        await store.saveProject(current);
+      });
+      return { sessionId, reused: false };
+    })();
+    copilotLocks.set(projectId, task);
+    try {
+      return await task;
+    } finally {
+      copilotLocks.delete(projectId);
+    }
+  }
+
+  async function getCopilot(projectId) {
+    const project = requireProject(projectId);
+    return {
+      projectId,
+      sessionId: project.copilotSessionId ?? null,
+    };
+  }
+
+  async function openCopilot(projectId) {
+    const result = await ensureCopilotSession(projectId);
+    return { ...result, projectId };
+  }
+
+  // Dispose live Copilot agent handles with the plugin fiber.
+  if (typeof ctx.effect === 'function') {
+    ctx.effect(() => () => {
+      for (const handle of copilotHandles.values()) {
+        try {
+          handle.dispose?.();
+        } catch {
+          // best-effort
+        }
+      }
+      copilotHandles.clear();
+    }, 'metainfer-research-lab: copilot sessions');
+  }
+
+  async function getChat(projectId) {
+    const project = requireProject(projectId);
+    return {
+      projectId,
+      messages: chatMessagesOf(project),
+      running: chatLocks.has(projectId),
+    };
+  }
+
+  async function projectChat(projectId, rawText) {
+    const trimmed = typeof rawText === 'string' ? rawText.trim() : '';
+    if (!trimmed) throw new LabError('bad_request', 'chat text is required', 400);
+    if (trimmed.length > CHAT_LIMIT) throw new LabError('bad_request', 'chat text is too long', 400);
+    if (chatLocks.has(projectId)) throw new LabError('chat_busy', 'a project copilot turn is already running', 409);
+    const project = requireProject(projectId);
+    const model = resolveModelSelection(ctx, project, null, 'controller');
+    await saveChatMessage(projectId, { role: 'user', text: trimmed, at: Date.now() });
+    const current = requireProject(projectId);
+    const promptText = chatPrompt(current, trimmed);
+    const task = (async () => {
+      let activation;
+      let reply = '';
+      let failure = null;
+      try {
+        const controller = await orchestrator.ensureController(current);
+        const sessionId = newSessionId();
+        activation = await ctx.subagents.startActivation({
+          provider: 'spawn',
+          label: `mirl-chat/${projectId}`,
+          delivery: 'caller',
+          signal: new AbortController().signal,
+          childId: sessionId,
+          request: {
+            parent: controller,
+            cwd: current.repo.path,
+            prompt: [{ type: 'text', text: promptText }],
+            agentPreset: 'lab-chat',
+            agentOptions: model,
+          },
+        });
+        const result = await Promise.race([
+          activation.result,
+          new Promise((_, reject) => {
+            const timer = setTimeout(
+              () => reject(new LabError('chat_timeout', `project chat exceeded ${CHAT_TIMEOUT_MS / 1000}s`, 504)),
+              CHAT_TIMEOUT_MS,
+            );
+            timer.unref?.();
+          }),
+        ]);
+        if (result?.stopReason !== 'completed') failure = `chat stopped: ${result?.stopReason ?? 'unknown'}`;
+        reply = chatTextOf(result?.output);
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error);
+      } finally {
+        if (activation) {
+          try {
+            await activation.dispose();
+          } catch {
+            // Best-effort cleanup.
+          }
+        }
+      }
+      if (failure) {
+        const messages = await saveChatMessage(projectId, { role: 'error', text: `Copilot failed: ${failure}`, at: Date.now() });
+        return { messages, running: false, error: failure };
+      }
+      const messages = await saveChatMessage(projectId, {
+        role: 'assistant',
+        text: reply || '(copilot returned no text)',
+        at: Date.now(),
+        model,
+      });
+      return { messages, running: false };
+    })();
+    chatLocks.set(projectId, task);
+    try {
+      return await task;
+    } finally {
+      chatLocks.delete(projectId);
+    }
+  }
+
   async function getModels(projectId) {
     const project = requireProject(projectId);
-    return buildModelCatalog(ctx, project);
+    const catalog = await buildModelCatalog(ctx, project);
+    return {
+      ...catalog,
+      promptDefaults: {
+        workerPrefix: DEFAULT_WORKER_PREFIX,
+        advisor: DEFAULT_ADVISOR_PROMPT,
+        scheduler: DEFAULT_SCHEDULER_PROMPT,
+      },
+      promptPlaceholders: PROMPT_PLACEHOLDERS,
+    };
   }
 
   async function escalateNode(projectId, nodeId, input = {}) {
@@ -954,6 +1355,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'auto_status') return autoStatus(input?.projectId);
     if (action === 'runs') return listRuns(input?.projectId);
     if (action === 'run') return getRun(input?.projectId, input?.runId);
+    if (action === 'chat') return projectChat(input?.projectId, input?.text);
+    if (action === 'clear_chat') return clearProjectChat(input?.projectId);
+    if (action === 'copilot') return openCopilot(input?.projectId);
     throw new LabError('unknown_command', `unknown metainfer_lab action: ${String(action)}`, 400);
   }
 
@@ -983,6 +1387,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     retryNode,
     escalateNode,
     getModels,
+    getChat,
+    clearProjectChat,
+    projectChat,
+    getCopilot,
+    openCopilot,
     getCluster,
     getClusterConfig,
     updateClusterConfig,

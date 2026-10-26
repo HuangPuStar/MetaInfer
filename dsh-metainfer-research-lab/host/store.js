@@ -67,7 +67,13 @@ export function newSessionId() {
  * @param ctx Cordis context with `storageDomain` injected.
  */
 export async function openStore(ctx) {
-  const domain = await ctx.storageDomain.open(DOMAIN_SPEC);
+  // A failed activation can leave the storage-domain facility holding this domain
+  // open (the close effect was never registered). Reuse that handle on reload so
+  // a plugin reload can recover without restarting the whole Host.
+  const existing = typeof ctx.storageDomain?.get === 'function'
+    ? ctx.storageDomain.get(DOMAIN_NAME)
+    : undefined;
+  const domain = existing ?? await ctx.storageDomain.open(DOMAIN_SPEC);
   const tables = {
     projects: domain.table('projects'),
     nodes: domain.table('nodes'),
