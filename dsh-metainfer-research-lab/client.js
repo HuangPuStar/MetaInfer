@@ -35,6 +35,7 @@ window.__ModuleLoader__.load({
       events: 'api/metainfer-research-lab/events',
       commands: 'api/metainfer-research-lab/commands',
       runs: 'api/metainfer-research-lab/runs',
+      nativeAttention: 'api/metainfer-research-lab/native-attention',
     };
 
     /** Poll cadence while the page is visible. */
@@ -3300,6 +3301,9 @@ window.__ModuleLoader__.load({
       command(body, signal, t) {
         return requestJson(ROUTES.commands, { method: 'POST', body, signal }, t);
       },
+      nativeAttention(kind, signal, t) {
+        return requestJson(ROUTES.nativeAttention, { method: 'POST', body: { kind }, signal }, t);
+      },
 
 
     };
@@ -3560,6 +3564,31 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** True inside the DeepSeek Harness desktop shell (Electron renderer). */
+    function isDesktopShell() {
+      try {
+        if (typeof window !== 'undefined' && window.dshDesktop) return true;
+        return typeof navigator !== 'undefined' && /Electron\//.test(navigator.userAgent || '');
+      } catch (error) {
+        return false;
+      }
+    }
+
+    /**
+     * Ask the Host for native taskbar attention. The page already plays the
+     * chime and shows the system notification; this only adds the OS-level
+     * flash/urgency that a browser tab cannot produce. Best-effort.
+     */
+    function flashDesktopAttention(kind, t) {
+      if (!isDesktopShell()) return;
+      try {
+        const pending = api.nativeAttention(kind, undefined, t);
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+      } catch (error) {
+        /* native attention is best-effort */
+      }
+    }
+
     /** Human-readable reason for a failed/cancelled node, when the Host recorded one. */
     function nodeAttentionReason(node, t) {
       const record = asObject(node);
@@ -3610,6 +3639,7 @@ window.__ModuleLoader__.load({
       if (hidden || unfocused) {
         startAttentionTitle(title);
         setAttentionBadge(attentionUnread + items.length);
+        flashDesktopAttention(kind, t);
       }
     }
 

@@ -174,6 +174,10 @@ Step 完成后在活动日志插入一条 `cycle` 摘要，并在顶栏短暂显
 - **系统通知**：浏览器 `Notification`（`silent` 仅在音频已运行时为 true），点击回到窗口并清除标题闪烁与角标。
 - **后台注意力**：页面隐藏或窗口失焦时闪烁标签页标题（`● 标题`），并在支持时调用 `navigator.setAppBadge`
   累加未读数；回到页面自动清除。浏览器不暴露直接闪烁任务栏的 API。
+- **桌面版原生注意力**：Client 检测到 Electron 桌面壳且窗口隐藏/失焦时，调用 Host
+  `POST /api/metainfer-research-lab/native-attention`（body `{kind}`）；Host 在 Windows 用 `FlashWindowEx` 闪烁窗口/任务栏，
+  在 Linux 用 `wmctrl ... demands_attention`（需 `wmctrl`，X11）。macOS 的 Dock 弹跳只允许应用自身调用，插件无法触发，
+  返回 `supported:false`，仍由系统通知 + 声音承担提醒。
 - **后台轮询**：开启提醒后页面隐藏时仅保留 `state` 15s 慢轮询（`events` 暂停），保证后台仍能检测终态；
   浏览器节流后台定时器时提醒可能延迟。
 

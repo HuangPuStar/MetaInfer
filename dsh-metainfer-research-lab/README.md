@@ -117,8 +117,10 @@
   用 `navigator.setAppBadge` 累加未读数。
 - 开启提醒后，页面隐藏时仍以 15s 间隔轮询节点状态（`events` 暂停），保证后台也能收到完成/中断提醒。
   浏览器会节流后台定时器，极端情况下提醒可能晚于 15s。
-- 浏览器不提供直接闪烁任意窗口任务栏的 API（DSH 桌面壳的 `flashFrame` 只服务于自身更新提示），这里用
-  系统通知 + 标签页标题闪烁 + 应用角标近似；Windows 专注助手/勿扰模式可能抑制通知气泡。
+- 桌面版（DeepSeek Harness）会额外通过插件 Host 请求系统级任务栏注意力：Windows 用 `FlashWindowEx` 闪烁窗口/任务栏，
+  Linux 用 EWMH `demands_attention`（需要 `wmctrl`，X11）。macOS 的系统 Dock 弹跳只允许应用自身调用，插件无法触发，
+  因此仍以系统通知 + 声音提示。
+- 浏览器/网页版不提供直接闪烁任意窗口任务栏的 API；Windows 专注助手/勿扰模式可能抑制通知气泡。
 
 ## 新手指引（动画卡片）
 
