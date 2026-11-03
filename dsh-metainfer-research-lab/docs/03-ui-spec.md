@@ -370,6 +370,10 @@ Step 完成后在活动日志插入一条 `cycle` 摘要，并在顶栏短暂显
 | `/api/metainfer-research-lab/transcript` | GET | `?projectId=&nodeId=&afterSeq=` | `{rows:[...], nextSeq, running}` |
 | `/api/metainfer-research-lab/runs` | GET | `?projectId=&runId=` | run 详情（含输入快照/输出/拒绝） |
 | `/api/metainfer-research-lab/commands` | POST | `{type, ...}` | 命令结果（见下） |
+| `/api/metainfer-research-lab/update` | GET | — | 当前安装版本/来源/安装目录/更新源 |
+| `/api/metainfer-research-lab/update/check` | POST | `{proxy?}` | `{remoteSha, installedRemoteSha, updateAvailable}`（无更新记录时为 `null`） |
+| `/api/metainfer-research-lab/update/local` | POST | `{sourcePath}` | `{version, previousVersion, source, backup, restartRequired}` |
+| `/api/metainfer-research-lab/update/github` | POST | `{proxy?}` | 同上，另带 `remoteSha` |
 
 **commands 类型**：
 

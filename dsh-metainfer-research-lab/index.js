@@ -20,6 +20,7 @@ import { reconcileRunningNodes, reconcileRunningRuns } from './host/reconcile.js
 import { createGcRunner } from './host/gc.js';
 import { createAutoController } from './host/auto.js';
 import { createClusterAdmin } from './host/cluster.js';
+import { createUpdateService } from './host/update.js';
 
 export const name = 'metainfer-research-lab';
 export const inject = [
@@ -102,13 +103,15 @@ export async function apply(ctx) {
   // Publish the Host service for future phases (routes and agent tools share it).
   ctx.provide('metainferLab', service);
 
+  const update = createUpdateService();
+
   ctx.effect(
     () => () => store.close().catch(() => {}),
     'metainfer-research-lab: storage domain',
   );
 
   ctx.effect(
-    () => registerHttpRoutes(ctx, service),
+    () => registerHttpRoutes(ctx, service, { update }),
     'metainfer-research-lab: http routes',
   );
 
