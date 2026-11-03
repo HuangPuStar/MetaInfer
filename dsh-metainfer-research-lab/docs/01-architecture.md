@@ -137,7 +137,7 @@
 | `Watchdog / Reaper` | 节点级硬超时的唯一执行者：deadline 扫描、确定性终止序列、进程/job/GPU 回收、验证与资源释放 | **不调用任何 LLM**；不决定业务下一步 |
 | `GC Runner` | 终止完成后异步 spawn `lab-gc`，产出 postmortem 与残留解释；通过 `lab_cleanup` 触发 Host 的确定性清理 | 不参与超时判定、不直接 kill、失败不阻塞 |
 | `WebRoutes` | REST 接口 + 同源校验；返回 JSON | 不做计算 |
-| `Client Panel` | DAG 渲染、编辑提示词、Step/模式、对话抽屉 | 不持有权威状态 |
+| `Client Panel` | DAG 渲染、编辑提示词、Step/模式、对话抽屉、终态提醒（铃音/系统通知/toast/标题角标；桌面版经 Host 触发原生任务栏注意力） | 不持有权威状态 |
 
 ---
 

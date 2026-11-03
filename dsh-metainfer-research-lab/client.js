@@ -35,6 +35,7 @@ window.__ModuleLoader__.load({
       events: 'api/metainfer-research-lab/events',
       commands: 'api/metainfer-research-lab/commands',
       runs: 'api/metainfer-research-lab/runs',
+      nativeAttention: 'api/metainfer-research-lab/native-attention',
     };
 
     /** Poll cadence while the page is visible. */
@@ -48,6 +49,14 @@ window.__ModuleLoader__.load({
     const BACKOFF_MS = [1500, 3000, 5000];
     /** Activity log keeps only the newest entries. */
     const MAX_LOG_EVENTS = 200;
+    /** Attention alerts (node completed / failed / cancelled). */
+    const NOTIFY_STORAGE_KEY = 'dsh.metainfer.notify.v1';
+    /** Hidden pages poll node state slowly while alerts are enabled. */
+    const HIDDEN_POLL_MS = 15000;
+    const NOTIFY_TITLE_FLASH_MS = 900;
+    const NOTIFY_TOAST_MS = 6000;
+    const NOTIFY_MAX_TOASTS = 4;
+    const TERMINAL_NODE_STATUSES = { completed: true, failed: true, cancelled: true };
 
     /** DAG canvas geometry (layer = column, one node per row cell). */
     const NODE_W = 208;
@@ -519,6 +528,18 @@ window.__ModuleLoader__.load({
       'ws.running.overdue': '已超时',
       'ws.running.held': '占用资源',
       'ws.running.hint': '超过截止时间后由 Host 强制终止。',
+      'ws.notify.enable': '开启任务提醒',
+      'ws.notify.disable': '关闭任务提醒',
+      'ws.notify.toggleOn': '任务提醒已开启',
+      'ws.notify.toggleOnBody': '节点完成、失败或被取消时会响铃，页面在后台时还会弹出系统通知。',
+      'ws.notify.toggleOff': '任务提醒已关闭',
+      'ws.notify.permissionDenied': '系统通知未授权；仍会响铃、闪烁标题并更新应用角标。',
+      'ws.notify.title.completed': '任务完成',
+      'ws.notify.title.failed': '任务失败',
+      'ws.notify.title.cancelled': '任务已取消',
+      'ws.notify.body.one': '{project} · {node}（{status}）',
+      'ws.notify.body.many': '{project} · {node} 等 {count} 个节点（{status}）',
+      'ws.notify.dismiss': '关闭提醒',
       'ws.card.remaining': '⏱ {time}',
       'ws.report.title': '实验报告',
       'ws.report.success': '成功',
@@ -1733,6 +1754,18 @@ window.__ModuleLoader__.load({
       'ws.running.overdue': 'Overdue',
       'ws.running.held': 'Resources held',
       'ws.running.hint': 'The Host terminates the node deterministically when the deadline passes.',
+      'ws.notify.enable': 'Enable task alerts',
+      'ws.notify.disable': 'Disable task alerts',
+      'ws.notify.toggleOn': 'Task alerts enabled',
+      'ws.notify.toggleOnBody': 'A chime plays and a desktop notification appears when a node completes, fails, or is cancelled.',
+      'ws.notify.toggleOff': 'Task alerts disabled',
+      'ws.notify.permissionDenied': 'Desktop notifications are not allowed; chimes, the flashing title, and the app badge still work.',
+      'ws.notify.title.completed': 'Task completed',
+      'ws.notify.title.failed': 'Task failed',
+      'ws.notify.title.cancelled': 'Task cancelled',
+      'ws.notify.body.one': '{project} · {node} ({status})',
+      'ws.notify.body.many': '{project} · {node} and {count} nodes ({status})',
+      'ws.notify.dismiss': 'Dismiss alert',
       'ws.card.remaining': '⏱ {time}',
       'ws.report.title': 'Experiment report',
       'ws.report.success': 'Succeeded',
@@ -2651,6 +2684,14 @@ window.__ModuleLoader__.load({
       '.rl-topbar-spacer { flex: 1 1 auto; }',
       '.rl-topbar-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }',
       '.rl-topbar-controls { display: flex; align-items: center; gap: 8px; flex: none; flex-wrap: wrap; }',
+      '.rl-toast-stack { position: fixed; right: 18px; bottom: 18px; z-index: 80; display: flex; flex-direction: column; gap: 8px; width: min(360px, calc(100vw - 36px)); pointer-events: none; }',
+      '.rl-toast { position: relative; box-sizing: border-box; padding: 10px 32px 10px 12px; border: 0.5px solid var(--dsw-alias-border-l2); border-left: 3px solid var(--dsw-alias-state-success-primary); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22); pointer-events: auto; }',
+      '.rl-toast-failed { border-left-color: var(--dsw-alias-state-error-primary); }',
+      '.rl-toast-cancelled { border-left-color: var(--dsw-alias-state-error-primary); }',
+      '.rl-toast-title { font-size: 12.5px; font-weight: 500; line-height: 18px; }',
+      '.rl-toast-body { margin-top: 2px; color: var(--dsw-alias-label-secondary); font-size: 11.5px; line-height: 17px; overflow-wrap: anywhere; }',
+      '.rl-toast-close { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-tertiary); font: inherit; font-size: 14px; line-height: 20px; cursor: pointer; }',
+      '.rl-toast-close:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }',
       '.rl-segment { display: inline-flex; gap: 2px; padding: 2px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; }',
       '.rl-segment-item { padding: 1px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11.5px; line-height: 18px; cursor: pointer; }',
       '.rl-segment-item:disabled { opacity: 0.6; cursor: not-allowed; }',
@@ -3260,6 +3301,9 @@ window.__ModuleLoader__.load({
       command(body, signal, t) {
         return requestJson(ROUTES.commands, { method: 'POST', body, signal }, t);
       },
+      nativeAttention(kind, signal, t) {
+        return requestJson(ROUTES.nativeAttention, { method: 'POST', body: { kind }, signal }, t);
+      },
 
 
     };
@@ -3358,6 +3402,262 @@ window.__ModuleLoader__.load({
       const status = asObject(node).status;
       return typeof status === 'string' && STATUS_ORDER.indexOf(status) >= 0 ? status : 'planned';
     }
+
+    /** Persisted attention preferences; alerts are opt-in. */
+    function attentionPrefsOf() {
+      try {
+        const raw = localStorage.getItem(NOTIFY_STORAGE_KEY);
+        const parsed = raw === null ? null : JSON.parse(raw);
+        if (parsed !== null && typeof parsed === 'object') {
+          return { enabled: parsed.enabled === true, sound: parsed.sound !== false };
+        }
+      } catch (error) {
+        /* localStorage can be blocked in an embedded frame */
+      }
+      return { enabled: false, sound: true };
+    }
+    function saveAttentionPrefs(prefs) {
+      try {
+        localStorage.setItem(
+          NOTIFY_STORAGE_KEY,
+          JSON.stringify({ enabled: prefs.enabled === true, sound: prefs.sound !== false }),
+        );
+      } catch (error) {
+        /* the in-memory toggle still works when storage is blocked */
+      }
+    }
+
+    let attentionAudio = null;
+    function unlockAttentionAudio() {
+      try {
+        const Ctor = typeof window === 'undefined' ? null : window.AudioContext || window.webkitAudioContext;
+        if (typeof Ctor !== 'function') return null;
+        if (attentionAudio === null) attentionAudio = new Ctor();
+        if (attentionAudio.state === 'suspended' && typeof attentionAudio.resume === 'function') {
+          const resumed = attentionAudio.resume();
+          if (resumed !== null && typeof resumed === 'object' && typeof resumed.catch === 'function') {
+            resumed.catch(() => {});
+          }
+        }
+        return attentionAudio;
+      } catch (error) {
+        return null;
+      }
+    }
+    /** Success / warning / failure chimes; Web Audio needs a user gesture to unlock. */
+    function playAttentionChime(kind) {
+      const context = unlockAttentionAudio();
+      if (context === null) return;
+      const tones = kind === 'failed'
+        ? [[523.25, 0], [392.0, 0.16]]
+        : kind === 'cancelled'
+          ? [[440.0, 0]]
+          : [[783.99, 0], [1174.66, 0.16]];
+      try {
+        const start = context.currentTime + 0.02;
+        for (const tone of tones) {
+          const frequency = tone[0];
+          const offset = tone[1];
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+          oscillator.type = 'sine';
+          oscillator.frequency.value = frequency;
+          gain.gain.setValueAtTime(0.0001, start + offset);
+          gain.gain.exponentialRampToValueAtTime(0.16, start + offset + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + 0.32);
+          oscillator.connect(gain);
+          gain.connect(context.destination);
+          oscillator.start(start + offset);
+          oscillator.stop(start + offset + 0.36);
+        }
+      } catch (error) {
+        /* audio is best-effort */
+      }
+    }
+
+    let attentionTitleFlash = null;
+    function startAttentionTitle(message) {
+      if (typeof document === 'undefined' || typeof message !== 'string' || message === '') return;
+      if (attentionTitleFlash !== null) {
+        attentionTitleFlash.message = message;
+        return;
+      }
+      const base = document.title;
+      attentionTitleFlash = { base, message, lit: false, timer: null };
+      const tick = () => {
+        if (attentionTitleFlash === null) return;
+        attentionTitleFlash.lit = !attentionTitleFlash.lit;
+        document.title = attentionTitleFlash.lit ? '● ' + attentionTitleFlash.message : attentionTitleFlash.base;
+      };
+      attentionTitleFlash.timer = window.setInterval(tick, NOTIFY_TITLE_FLASH_MS);
+      tick();
+    }
+    function stopAttentionTitle() {
+      if (attentionTitleFlash === null) return;
+      window.clearInterval(attentionTitleFlash.timer);
+      try {
+        document.title = attentionTitleFlash.base;
+      } catch (error) {
+        /* the document may be gone */
+      }
+      attentionTitleFlash = null;
+    }
+
+    let attentionUnread = 0;
+    function setAttentionBadge(count) {
+      attentionUnread = Math.max(0, count);
+      try {
+        if (typeof navigator === 'undefined') return;
+        if (attentionUnread > 0 && typeof navigator.setAppBadge === 'function') {
+          const result = navigator.setAppBadge(attentionUnread);
+          if (result !== null && typeof result === 'object' && typeof result.catch === 'function') result.catch(() => {});
+        } else if (attentionUnread === 0 && typeof navigator.clearAppBadge === 'function') {
+          const result = navigator.clearAppBadge();
+          if (result !== null && typeof result === 'object' && typeof result.catch === 'function') result.catch(() => {});
+        }
+      } catch (error) {
+        /* app badges are optional */
+      }
+    }
+    function clearAttentionBadge() {
+      setAttentionBadge(0);
+    }
+
+    const attentionToastSubscribers = new Set();
+    function subscribeAttentionToasts(listener) {
+      attentionToastSubscribers.add(listener);
+      return () => {
+        attentionToastSubscribers.delete(listener);
+      };
+    }
+    function publishAttentionToast(toast) {
+      for (const listener of attentionToastSubscribers) {
+        try {
+          listener(toast);
+        } catch (error) {
+          /* one bad subscriber must not break the others */
+        }
+      }
+    }
+
+    function showAttentionNotification(title, body) {
+      try {
+        if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+        const audioRunning = attentionAudio !== null && attentionAudio.state === 'running';
+        const note = new Notification(title, {
+          body,
+          tag: 'metainfer-research-lab-attention',
+          silent: audioRunning,
+        });
+        note.onclick = () => {
+          try {
+            window.focus();
+          } catch (error) {
+            /* focus can be denied */
+          }
+          stopAttentionTitle();
+          clearAttentionBadge();
+          note.close();
+        };
+      } catch (error) {
+        /* Notification construction throws on some embedded browsers */
+      }
+    }
+
+    /** True inside the DeepSeek Harness desktop shell (Electron renderer). */
+    function isDesktopShell() {
+      try {
+        if (typeof window !== 'undefined' && window.dshDesktop) return true;
+        return typeof navigator !== 'undefined' && /Electron\//.test(navigator.userAgent || '');
+      } catch (error) {
+        return false;
+      }
+    }
+
+    /**
+     * Ask the Host for native taskbar attention. The page already plays the
+     * chime and shows the system notification; this only adds the OS-level
+     * flash/urgency that a browser tab cannot produce. Best-effort.
+     */
+    function flashDesktopAttention(kind, t) {
+      if (!isDesktopShell()) return;
+      try {
+        const pending = api.nativeAttention(kind, undefined, t);
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+      } catch (error) {
+        /* native attention is best-effort */
+      }
+    }
+
+    /** Human-readable reason for a failed/cancelled node, when the Host recorded one. */
+    function nodeAttentionReason(node, t) {
+      const record = asObject(node);
+      const termination = asObject(record.termination);
+      const kind = firstString(termination.kind);
+      if (kind === 'timeout') return t('ws.termination.kind.timeout');
+      if (kind === 'cancel') return t('ws.termination.kind.cancel');
+      if (kind === 'failure') return t('ws.termination.kind.failure');
+      const stage = firstString(asObject(record.error).stage);
+      if (stage === 'timeout') return t('ws.termination.kind.timeout');
+      return stage;
+    }
+
+    /** One coalesced alert per state fetch: chime + in-page toast + background attention. */
+    function notifyAttention(project, nodes, t) {
+      const prefs = attentionPrefsOf();
+      if (prefs.enabled !== true) return;
+      const items = asArray(nodes).map((node) => ({
+        title: nodeTitleOf(node, t),
+        status: nodeStatusOf(node),
+        reason: nodeAttentionReason(node, t),
+      }));
+      if (items.length === 0) return;
+      const failed = items.some((item) => item.status === 'failed');
+      const cancelled = items.some((item) => item.status === 'cancelled');
+      const kind = failed ? 'failed' : cancelled ? 'cancelled' : 'completed';
+      const title = failed
+        ? t('ws.notify.title.failed')
+        : cancelled
+          ? t('ws.notify.title.cancelled')
+          : t('ws.notify.title.completed');
+      const projectName = projectNameOf(project) || t('ws.project.unknown');
+      const first = items[0];
+      const statusLabel = t('status.' + first.status);
+      let body = items.length > 1
+        ? t('ws.notify.body.many', { project: projectName, node: first.title, count: items.length, status: statusLabel })
+        : t('ws.notify.body.one', { project: projectName, node: first.title, status: statusLabel });
+      if (first.reason !== '') body = body + ' (' + first.reason + ')';
+      if (prefs.sound === true) playAttentionChime(kind);
+      publishAttentionToast({ tone: kind, title, body });
+      // The system notification is the durable signal; the toast and chime are in-page.
+      showAttentionNotification(title, body);
+      const hidden = typeof document === 'undefined' || document.visibilityState !== 'visible';
+      const unfocused =
+        typeof document !== 'undefined' &&
+        typeof document.hasFocus === 'function' &&
+        document.hasFocus() === false;
+      if (hidden || unfocused) {
+        startAttentionTitle(title);
+        setAttentionBadge(attentionUnread + items.length);
+        flashDesktopAttention(kind, t);
+      }
+    }
+
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          stopAttentionTitle();
+          clearAttentionBadge();
+        }
+      });
+    }
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('focus', () => {
+        stopAttentionTitle();
+        clearAttentionBadge();
+      });
+    }
+
     function nodePromptOf(node) {
       return firstString(asObject(node).prompt);
     }
@@ -4949,7 +5249,7 @@ window.__ModuleLoader__.load({
      * hidden and resumes with an immediate refetch; failures back off
      * 1.5s → 3s → 5s and surface through the inline banner.
      */
-    function useProjectWorkspace(projectId, t) {
+    function useProjectWorkspace(projectId, t, attentionPrefsRef) {
       const [snapshot, setSnapshot] = React.useState({
         phase: 'loading',
         project: null,
@@ -5003,6 +5303,10 @@ window.__ModuleLoader__.load({
         /** Per-channel failure flags: the banner clears only when both recover. */
         const failing = { state: false, events: false };
         const visible = () => doc === null || doc.visibilityState === 'visible';
+        const attentionEnabled = () =>
+          attentionPrefsRef !== undefined &&
+          attentionPrefsRef !== null &&
+          asObject(attentionPrefsRef.current).enabled === true;
         const clearTimer = (name) => {
           const timer = timers[name];
           if (timer !== null) {
@@ -5012,11 +5316,16 @@ window.__ModuleLoader__.load({
         };
         const schedule = (name, delay, run) => {
           clearTimer(name);
-          if (!alive || !visible()) return;
+          if (!alive) return;
+          const hidden = !visible();
+          // Hidden pages keep a slow state poll only when attention alerts are on.
+          if (hidden && (name === 'events' || !attentionEnabled())) return;
           timers[name] = setTimeout(() => {
             timers[name] = null;
-            if (alive && visible()) void run();
-          }, delay);
+            if (!alive) return;
+            if (!visible() && (name === 'events' || !attentionEnabled())) return;
+            void run();
+          }, hidden ? HIDDEN_POLL_MS : delay);
         };
         const abortFlight = (name) => {
           const controller = flights[name];
@@ -5044,7 +5353,7 @@ window.__ModuleLoader__.load({
         };
 
         const pollState = async () => {
-          if (!alive || !visible()) return;
+          if (!alive) return;
           abortFlight('state');
           const controller = new AbortController();
           flights.state = controller;
@@ -5126,10 +5435,12 @@ window.__ModuleLoader__.load({
         const onVisibilityChange = () => {
           if (!alive) return;
           if (!visible()) {
-            clearTimer('state');
             clearTimer('events');
-            abortFlight('state');
             abortFlight('events');
+            if (!attentionEnabled()) {
+              clearTimer('state');
+              abortFlight('state');
+            }
             return;
           }
           stateBackoffRef.current = 0;
@@ -5243,6 +5554,48 @@ window.__ModuleLoader__.load({
         });
         refresh();
       }, [refresh]);
+
+      /**
+       * Diff node statuses across state snapshots. The first snapshot is the
+       * baseline (never alerts for pre-existing terminal nodes); later
+       * transitions into completed / failed / cancelled emit one coalesced alert.
+       */
+      const previousNodesRef = React.useRef(null);
+      const previousProjectRef = React.useRef('');
+      React.useEffect(() => {
+        if (snapshot.phase !== 'ready') {
+          previousNodesRef.current = null;
+          return;
+        }
+        const next = new Map();
+        for (const node of asArray(snapshot.nodes)) {
+          const id = nodeIdOf(node);
+          if (id !== '') next.set(id, node);
+        }
+        const currentProjectId = projectIdOf(snapshot.project);
+        if (previousProjectRef.current !== currentProjectId) {
+          previousProjectRef.current = currentProjectId;
+          previousNodesRef.current = next;
+          return;
+        }
+        const previous = previousNodesRef.current;
+        previousNodesRef.current = next;
+        if (previous === null) return;
+        const transitions = [];
+        for (const entry of next) {
+          const id = entry[0];
+          const node = entry[1];
+          const before = previous.get(id);
+          if (before === undefined) continue;
+          const status = nodeStatusOf(node);
+          const previousStatus = nodeStatusOf(before);
+          if (status === previousStatus) continue;
+          if (TERMINAL_NODE_STATUSES[status] !== true) continue;
+          if (TERMINAL_NODE_STATUSES[previousStatus] === true) continue;
+          transitions.push(node);
+        }
+        if (transitions.length > 0) notifyAttention(snapshot.project, transitions, t);
+      }, [snapshot.phase, snapshot.nodes, snapshot.project, t]);
 
       return { snapshot, events, offline, refresh, retry, reload, applyAutoResult, applyCommandResult };
     }
@@ -7114,8 +7467,38 @@ window.__ModuleLoader__.load({
 
     // #region workspace
     /** Full workspace: top bar, node rail, DAG canvas, inspector, log and transcript drawer. */
+    /** Bottom-right attention toasts (node completed / failed / cancelled). */
+    function NotifyToastStack({ toasts, onDismiss, t }) {
+      if (!Array.isArray(toasts) || toasts.length === 0) return null;
+      return h(
+        'div',
+        { className: 'rl-toast-stack', role: 'status', 'aria-live': 'polite' },
+        toasts.map((toast) =>
+          h(
+            'div',
+            { key: 'attention-toast-' + String(toast.id), className: 'rl-toast rl-toast-' + String(toast.tone) },
+            h('div', { className: 'rl-toast-title' }, String(toast.title)),
+            toast.body ? h('div', { className: 'rl-toast-body' }, String(toast.body)) : null,
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'rl-toast-close',
+                'aria-label': t('ws.notify.dismiss'),
+                onClick: () => onDismiss(toast.id),
+              },
+              '×',
+            ),
+          ),
+        ),
+      );
+    }
+
     function WorkspaceScreen({ projectId, initialNodeId, onBack, openNativeSession, retainCopilotSession, SessionProvider, renderFactorySlot, t }) {
-      const { snapshot, events, offline, retry, reload, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t);
+      const [notifyPrefs, setNotifyPrefs] = React.useState(() => attentionPrefsOf());
+      const notifyPrefsRef = React.useRef(notifyPrefs);
+      notifyPrefsRef.current = notifyPrefs;
+      const { snapshot, events, offline, retry, reload, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t, notifyPrefsRef);
       const [selectedId, setSelectedId] = React.useState(null);
       const [continueNodeId, setContinueNodeId] = React.useState(null);
       const [busyKey, setBusyKey] = React.useState('');
@@ -7150,6 +7533,9 @@ window.__ModuleLoader__.load({
       const busyRef = React.useRef('');
       const stepBusyRef = React.useRef(false);
       const autoBusyRef = React.useRef(false);
+      const [attentionToasts, setAttentionToasts] = React.useState([]);
+      const toastSeqRef = React.useRef(0);
+      const toastTimersRef = React.useRef(new Map());
       const nodes = snapshot.nodes;
       const edges = snapshot.edges;
       const project = snapshot.project;
@@ -7199,6 +7585,78 @@ window.__ModuleLoader__.load({
         for (const node of nodes) if (nodeIdOf(node) === continueNodeId) return;
         setContinueNodeId(null);
       }, [nodes, continueNodeId]);
+
+      React.useEffect(() => {
+        const unsubscribe = subscribeAttentionToasts((toast) => {
+          const id = ++toastSeqRef.current;
+          setAttentionToasts((previous) => previous.concat([Object.assign({}, toast, { id })]).slice(-NOTIFY_MAX_TOASTS));
+          const timer = setTimeout(() => {
+            toastTimersRef.current.delete(id);
+            setAttentionToasts((previous) => previous.filter((entry) => entry.id !== id));
+          }, NOTIFY_TOAST_MS);
+          toastTimersRef.current.set(id, timer);
+        });
+        return () => {
+          unsubscribe();
+          for (const timer of toastTimersRef.current.values()) clearTimeout(timer);
+          toastTimersRef.current.clear();
+        };
+      }, []);
+
+      React.useEffect(() => {
+        if (
+          notifyPrefs.enabled !== true ||
+          typeof document === 'undefined' ||
+          typeof document.addEventListener !== 'function'
+        ) {
+          return undefined;
+        }
+        const unlock = () => {
+          unlockAttentionAudio();
+        };
+        document.addEventListener('pointerdown', unlock, { once: true });
+        return () => document.removeEventListener('pointerdown', unlock);
+      }, [notifyPrefs.enabled]);
+
+      const dismissAttentionToast = React.useCallback((id) => {
+        const timer = toastTimersRef.current.get(id);
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          toastTimersRef.current.delete(id);
+        }
+        setAttentionToasts((previous) => previous.filter((entry) => entry.id !== id));
+      }, []);
+
+      const toggleNotify = React.useCallback(async () => {
+        if (notifyPrefs.enabled === true) {
+          const next = { enabled: false, sound: notifyPrefs.sound };
+          saveAttentionPrefs(next);
+          setNotifyPrefs(next);
+          stopAttentionTitle();
+          clearAttentionBadge();
+          publishAttentionToast({ tone: 'cancelled', title: t('ws.notify.toggleOff'), body: '' });
+          return;
+        }
+        // The chime and the permission prompt must start inside the click gesture.
+        unlockAttentionAudio();
+        playAttentionChime('completed');
+        const next = { enabled: true, sound: true };
+        saveAttentionPrefs(next);
+        setNotifyPrefs(next);
+        let permission = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+        if (permission === 'default') {
+          try {
+            permission = await Notification.requestPermission();
+          } catch (error) {
+            permission = 'denied';
+          }
+        }
+        if (permission === 'granted') {
+          publishAttentionToast({ tone: 'completed', title: t('ws.notify.toggleOn'), body: t('ws.notify.toggleOnBody') });
+        } else {
+          publishAttentionToast({ tone: 'cancelled', title: t('ws.notify.toggleOn'), body: t('ws.notify.permissionDenied') });
+        }
+      }, [notifyPrefs, t]);
 
       React.useEffect(() => {
         if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
@@ -7781,6 +8239,7 @@ window.__ModuleLoader__.load({
         'section',
         { className: 'rl-workspace', 'data-testid': 'metainfer-research-lab-workspace' },
         h(LabStyle),
+        h(NotifyToastStack, { toasts: attentionToasts, onDismiss: dismissAttentionToast, t }),
         h(WorkspaceTopBar, {
           project,
           resources: snapshot.resources,
@@ -7799,6 +8258,8 @@ window.__ModuleLoader__.load({
           onManualMode: switchToManual,
           onViewPending: viewPendingProposals,
           onOpenSettings: openSettings,
+          notifyEnabled: notifyPrefs.enabled,
+          onToggleNotify: toggleNotify,
           projectMenuOpen,
           onToggleProjectMenu: () => setProjectMenuOpen((value) => !value),
           onDeleteProject: requestDeleteProject,
@@ -8193,6 +8654,8 @@ window.__ModuleLoader__.load({
       onManualMode,
       onViewPending,
       onOpenSettings,
+      notifyEnabled,
+      onToggleNotify,
       projectMenuOpen,
       onToggleProjectMenu,
       onDeleteProject,
@@ -8296,6 +8759,12 @@ window.__ModuleLoader__.load({
             label: t('ws.copilot.toggle'),
             variant: 'ghost',
             onClick: onToggleCopilot,
+          }),
+          h(LabButton, {
+            label: notifyEnabled === true ? '🔔' : '🔕',
+            variant: 'ghost',
+            title: t(notifyEnabled === true ? 'ws.notify.disable' : 'ws.notify.enable'),
+            onClick: onToggleNotify,
           }),
           h(LabButton, { label: '⚙', variant: 'ghost', title: t('ws.settings.open'), onClick: onOpenSettings }),
           h(

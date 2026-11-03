@@ -96,7 +96,7 @@ MetaInfer Research Lab（main 面板）
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ ◈ MetaInfer Research Lab  [LLM-finetune-0721 ▾]   repo: llm-exp  main@3f2a1b0  [手动|自动]  [Step ▶]     │
-│                                          GPU 1/2 · 节点 8/60 · cycle 12   [⚙]                    │
+│                                          GPU 1/2 · 节点 8/60 · cycle 12   [🔔][⚙]                  │
 ├──────────────┬───────────────────────────────────────────────────────────────┬───────────────────┤
 │ 待确认 (2) ⏳  │            ┌──────────┐        ┌──────────┐                   │  n-0007  ridge  │
 │ ? n-0012 ... │            │ n-0001   │───────▶│ n-0003   │──┐                │  ─────────────    │
@@ -156,10 +156,30 @@ MetaInfer Research Lab（main 面板）
 | 中 | 自动挡控制（仅自动档） | 运行中：`cycle n/max · 时长` + `停止`；暂停：`原因` + `继续` + `切回手动`；`waiting`：`等待人工确认 N` + 停止 |
 | 右 | 资源 chips | 每个资源池 `gpu 1/2`；超发不可能（Host 校验），耗尽时 chip 变 warn 色 |
 | 右 | 节点计数 | `节点 8/60`，接近上限变 warn 色 |
+| 右 | 任务提醒开关 | `🔔` / `🔕`，title 提示开启/关闭；偏好存 `localStorage`（`dsh.metainfer.notify.v1`），默认关闭 |
 | 右 | 刷新 / 设置 | 手动刷新状态；打开设置模态 |
 
 **Step 的语义提示**（hover tooltip）：「专家组评审一次（可能新增节点）+ 调度器决策一次（可能启动节点）」。
 Step 完成后在活动日志插入一条 `cycle` 摘要，并在顶栏短暂显示 `+2 节点 / +1 启动`。
+
+### 4.1 任务提醒（节点终态）
+
+节点从非终态进入 `completed` / `failed` / `cancelled` 时触发一次「提醒」（多个节点同一轮状态更新会合并成一条）：
+
+- **开关**：顶栏 🔔/🔕，偏好持久化到 `localStorage`（`dsh.metainfer.notify.v1`，`{enabled,sound}`），默认关闭；
+  首次开启时会请求浏览器通知权限，并在点击手势内解锁 Web Audio。
+- **声音**：Web Audio 合成音，成功为上行双音、失败为下行双音、取消为单音；权限被拒或音频被自动播放策略拦截时
+  不影响其余提醒通道。
+- **页内 toast**：右下角堆叠，最多 4 条，6s 自动消失；`role="status"` + `aria-live="polite"`，可手动关闭。
+- **系统通知**：浏览器 `Notification`（`silent` 仅在音频已运行时为 true），点击回到窗口并清除标题闪烁与角标。
+- **后台注意力**：页面隐藏或窗口失焦时闪烁标签页标题（`● 标题`），并在支持时调用 `navigator.setAppBadge`
+  累加未读数；回到页面自动清除。浏览器不暴露直接闪烁任务栏的 API。
+- **桌面版原生注意力**：Client 检测到 Electron 桌面壳且窗口隐藏/失焦时，调用 Host
+  `POST /api/metainfer-research-lab/native-attention`（body `{kind}`）；Host 在 Windows 用 `FlashWindowEx` 闪烁窗口/任务栏，
+  在 Linux 用 `wmctrl ... demands_attention`（需 `wmctrl`，X11）。macOS 的 Dock 弹跳只允许应用自身调用，插件无法触发，
+  返回 `supported:false`，仍由系统通知 + 声音承担提醒。
+- **后台轮询**：开启提醒后页面隐藏时仅保留 `state` 15s 慢轮询（`events` 暂停），保证后台仍能检测终态；
+  浏览器节流后台定时器时提醒可能延迟。
 
 ---
 
@@ -395,7 +415,8 @@ Step 完成后在活动日志插入一条 `cycle` 摘要，并在顶栏短暂显
 
 **轮询策略**：
 - 面板可见且 `document.visibilityState==='visible'` 时：`state` 1.5s；`transcript`（抽屉打开时）1s；`events` 2s。
-- 页面隐藏时暂停所有轮询；恢复可见立即拉一次。
+- 页面隐藏时暂停 `events`；开启任务提醒时保留 `state` 15s 慢轮询（用于后台终态提醒），否则 `state` 也暂停。
+- 恢复可见立即拉一次，并恢复上述可见态节奏。
 - 请求失败：指数退避（1.5 → 3 → 5s 封顶），顶部显示「连接中断，重试中」；成功后清除。
 - 每次请求带 `AbortController`，切换项目/关闭抽屉时 abort。
 

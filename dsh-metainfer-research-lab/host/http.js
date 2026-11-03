@@ -10,6 +10,8 @@
  * business results. Malformed JSON also answers the envelope so the UI can show
  * one consistent error path.
  */
+import { requestNativeAttention } from './native-attention.js';
+
 const PREFIX = '/api/metainfer-research-lab';
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -74,6 +76,12 @@ export function registerHttpRoutes(ctx, service) {
   };
 
   route(`${PREFIX}/health`, ['GET'], async () => ok(await service.health()));
+
+  route(`${PREFIX}/native-attention`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    const kind = typeof body.kind === 'string' ? body.kind : '';
+    return ok(await requestNativeAttention(kind));
+  });
 
   route(`${PREFIX}/projects`, ['GET', 'POST'], async (request) => {
     if (request.method === 'GET') {

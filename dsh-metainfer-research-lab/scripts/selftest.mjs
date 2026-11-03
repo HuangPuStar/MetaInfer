@@ -13,6 +13,7 @@ import { openStore } from '../host/store.js';
 import { createGitEngine } from '../host/git-engine.js';
 import { createLabService } from '../host/lab-service.js';
 import { registerHttpRoutes } from '../host/http.js';
+import { nativeAttentionPlan, requestNativeAttention } from '../host/native-attention.js';
 
 const DEMO_REPO = process.env.MIRL_DEMO_REPO
   ? path.resolve(process.env.MIRL_DEMO_REPO)
@@ -182,7 +183,10 @@ await test('listProjects summary', async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].nodeCount, 1);
   assert.equal(list[0].id, project.id);
-  assert.equal(list[0].repoPath, DEMO_REPO);
+  assert.equal(
+    list[0].repoPath.replace(/\\/g, '/').toLowerCase(),
+    DEMO_REPO.replace(/\\/g, '/').toLowerCase(),
+  );
 });
 
 await test('reject invalid config', async () => {
@@ -253,10 +257,11 @@ async function callHttp(pathname, { method = 'GET', query = '', rawBody = undefi
   return response.json();
 }
 
-await test('routes: all thirteen endpoints registered', async () => {
-  assert.equal(routes.length, 13);
+await test('routes: all fourteen endpoints registered', async () => {
+  assert.equal(routes.length, 14);
   const expected = [
     [`${PREFIX}/health`, 'GET'],
+    [`${PREFIX}/native-attention`, 'POST'],
     [`${PREFIX}/projects`, 'GET'],
     [`${PREFIX}/projects`, 'POST'],
     [`${PREFIX}/repo`, 'GET'],
@@ -272,6 +277,30 @@ await test('routes: all thirteen endpoints registered', async () => {
     [`${PREFIX}/commands`, 'POST'],
   ];
   for (const [pathname, method] of expected) findRoute(pathname, method);
+});
+
+await test('native attention plans are pure and platform-gated', async () => {
+  const win = nativeAttentionPlan('win32', 'completed');
+  assert.equal(win.file, 'powershell.exe');
+  assert.ok(win.args.join(' ').includes('FlashWindowEx'));
+  const linux = nativeAttentionPlan('linux', 'cancelled');
+  assert.equal(linux.file, 'sh');
+  assert.ok(linux.args.join(' ').includes('demands_attention'));
+  assert.equal(nativeAttentionPlan('darwin', 'completed'), null);
+  assert.equal(nativeAttentionPlan('win32', 'unknown'), null);
+
+  const skipped = await requestNativeAttention('completed', { platform: 'darwin' });
+  assert.equal(skipped.supported, false);
+  assert.equal(skipped.delivered, false);
+
+  const fakeExec = (file, args, options, callback) => callback(null, 'flashed:DeepSeek Harness\n', '');
+  const delivered = await requestNativeAttention('failed', { platform: 'win32', execFile: fakeExec });
+  assert.equal(delivered.delivered, true);
+
+  const missingExec = (file, args, options, callback) => callback(Object.assign(new Error('missing'), { code: 'ENOENT' }), '', '');
+  const missing = await requestNativeAttention('failed', { platform: 'linux', execFile: missingExec });
+  assert.equal(missing.delivered, false);
+  assert.equal(missing.reason, 'ENOENT');
 });
 
 await test('HTTP health', async () => {
