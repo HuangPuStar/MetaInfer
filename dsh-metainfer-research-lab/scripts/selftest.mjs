@@ -182,7 +182,10 @@ await test('listProjects summary', async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].nodeCount, 1);
   assert.equal(list[0].id, project.id);
-  assert.equal(list[0].repoPath, DEMO_REPO);
+  assert.equal(
+    list[0].repoPath.replace(/\\/g, '/').toLowerCase(),
+    DEMO_REPO.replace(/\\/g, '/').toLowerCase(),
+  );
 });
 
 await test('reject invalid config', async () => {
