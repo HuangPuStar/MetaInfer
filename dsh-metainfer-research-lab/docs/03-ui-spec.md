@@ -333,8 +333,9 @@ Step 完成后在活动日志插入一条 `cycle` 摘要，并在顶栏短暂显
 
 **Step 1 · 绑定 Git 仓库**
 - 仓库路径：文本输入 + `📁 选择目录`（client `ctx.uiWorkspace.pickDirectory()`）+ `验证` 按钮。
-  - Host 返回 `{ok, repoRoot, branches[], defaultBranch, baseCommit}` 或明确错误（不是 git 仓库/裸仓库/无提交）。
-  - 校验通过后展示 repo 名、默认分支、当前 commit；用户可选 base branch（下拉）或保持默认。
+  支持本地绝对路径或 Git 仓库 URL（远程 URL 由 Host 克隆到受管目录；GitHub `…/tree/…` 浏览页链接可直接粘贴）。
+  - Host 返回 `{ok, repoRoot, remoteUrl?, branches[], defaultBranch, baseCommit}` 或明确错误（不是 git 仓库/裸仓库/无提交/克隆失败）。
+  - 校验通过后展示 repo 名、远程仓库（如有）、默认分支、当前 commit；用户可选 base branch（下拉）或保持默认。
 - 项目名称：默认取仓库目录名，可改。
 - 若未选择仓库 → 「创建」按钮禁用，并提示「MetaInfer Research Lab 必须绑定 Git 仓库」。
 

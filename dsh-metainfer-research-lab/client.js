@@ -362,16 +362,17 @@ window.__ModuleLoader__.load({
       'guide.arch.step7.desc': 'Worker 在 child worktree 中从父 commit 出发执行实验，提交新 commit 并回传报告。GitEngine 记录 branch/commit 历史；DAG 节点 running → completed，DAG 长出一条新的实验分支。',
       'guide.arch.step8.title': '⑧ Auto Loop：DAG 生长与人的取舍',
       'guide.arch.step8.desc': 'auto 模式重复「完成 → 评审 → 提案 → 调度 → 执行」，DAG 持续变深/变宽；confirm 模式在 approve/reject 暂停。merge 节点汇合成功分支，你最终决定 merge/push 回 Git Repo。',
-      'wizard.intro': '绑定一个 Git 仓库，为根节点写好实验指令。',
+      'wizard.intro': '绑定一个本地 Git 仓库或远程仓库 URL（远程仓库会克隆到受管目录），为根节点写好实验指令。',
       'wizard.section.repo': '① 绑定 Git 仓库',
       'wizard.section.research': '② 研究设定',
-      'wizard.repoPath': '仓库路径',
-      'wizard.repoPath.placeholder': '/absolute/path/to/git/repo',
-      'wizard.repoPath.required': '请先填写仓库路径',
+      'wizard.repoPath': '仓库路径 / URL',
+      'wizard.repoPath.placeholder': '/absolute/path/to/git/repo 或 https://github.com/owner/repo',
+      'wizard.repoPath.required': '请先填写仓库路径或 URL',
       'wizard.validate': '验证仓库',
       'wizard.validating': '正在验证…',
       'wizard.repo.valid': '仓库校验通过',
       'wizard.repo.root': '仓库根目录',
+      'wizard.repo.remote': '远程仓库',
       'wizard.repo.gitDir': 'Git 目录',
       'wizard.repo.baseBranch': '基准分支',
       'wizard.repo.commit': '基准提交',
@@ -382,8 +383,9 @@ window.__ModuleLoader__.load({
       'wizard.repo.error.invalid_repo': '路径不是有效的 Git 仓库',
       'wizard.repo.error.not_git': '目录不是 Git 仓库',
       'wizard.repo.error.bare': '不支持裸仓库',
-      'wizard.repo.error.bad_path': '路径无效或不可读',
+      'wizard.repo.error.bad_path': '路径无效或不可读；请填写本机绝对路径或 Git 仓库 URL',
       'wizard.repo.error.no_commits': '仓库还没有任何提交，无法创建项目',
+      'wizard.repo.error.clone_failed': '克隆远程仓库失败，请检查 URL、网络或访问凭据',
       'wizard.name': '项目名称',
       'wizard.name.placeholder': '默认使用仓库目录名',
       'wizard.brief': '研究目标 / 假设',
@@ -1576,16 +1578,17 @@ window.__ModuleLoader__.load({
       'guide.arch.step7.desc': 'The worker runs the child experiment from its parent commit in the child worktree, creates a new commit, and returns a report. GitEngine records branch/commit history; the DAG node moves running → completed and the DAG grows a new experiment branch.',
       'guide.arch.step8.title': '⑧ Auto loop: DAG growth and human choices',
       'guide.arch.step8.desc': 'Auto mode repeats complete → review → propose → schedule → execute, growing the DAG deeper and wider; confirm mode pauses at approve/reject. A merge node joins successful branches, and you decide the final merge/push back to the Git Repo.',
-      'wizard.intro': 'Bind a Git repository and write the root node instruction.',
+      'wizard.intro': 'Bind a local Git repository or a remote repository URL (remote repositories are cloned into the managed directory), then write the root node instruction.',
       'wizard.section.repo': '① Bind a Git repository',
       'wizard.section.research': '② Research setup',
-      'wizard.repoPath': 'Repository path',
-      'wizard.repoPath.placeholder': '/absolute/path/to/git/repo',
-      'wizard.repoPath.required': 'Enter a repository path first',
+      'wizard.repoPath': 'Repository path or URL',
+      'wizard.repoPath.placeholder': '/absolute/path/to/git/repo or https://github.com/owner/repo',
+      'wizard.repoPath.required': 'Enter a repository path or URL first',
       'wizard.validate': 'Validate repository',
       'wizard.validating': 'Validating…',
       'wizard.repo.valid': 'Repository validated',
       'wizard.repo.root': 'Repository root',
+      'wizard.repo.remote': 'Remote repository',
       'wizard.repo.gitDir': 'Git directory',
       'wizard.repo.baseBranch': 'Base branch',
       'wizard.repo.commit': 'Base commit',
@@ -1596,8 +1599,9 @@ window.__ModuleLoader__.load({
       'wizard.repo.error.invalid_repo': 'The path is not a valid Git repository',
       'wizard.repo.error.not_git': 'The directory is not a Git repository',
       'wizard.repo.error.bare': 'Bare repositories are not supported',
-      'wizard.repo.error.bad_path': 'The path is invalid or unreadable',
+      'wizard.repo.error.bad_path': 'The path is invalid or unreadable; use an absolute local path or a Git repository URL',
       'wizard.repo.error.no_commits': 'The repository has no commits yet',
+      'wizard.repo.error.clone_failed': 'Failed to clone the remote repository; check the URL, network or credentials',
       'wizard.name': 'Project name',
       'wizard.name.placeholder': 'Defaults to the repository directory name',
       'wizard.brief': 'Research goal / hypothesis',
@@ -4669,6 +4673,13 @@ window.__ModuleLoader__.load({
       const parts = text.split(/[\\/]/);
       return parts.length > 0 ? parts[parts.length - 1] : '';
     }
+    /** Derive a project name from a remote repository URL. */
+    function repoNameFromUrl(value) {
+      const text = firstString(value).replace(/[?#].*$/, '').replace(/\/+$/, '').replace(/\.git$/i, '');
+      if (!text) return '';
+      const parts = text.split(/[/:]/).filter(Boolean);
+      return parts.length > 0 ? parts[parts.length - 1] : '';
+    }
     function parseInteger(value, fallback) {
       const text = value === null || value === undefined ? '' : String(value).trim();
       const numeric = Number.parseInt(text, 10);
@@ -4688,6 +4699,7 @@ window.__ModuleLoader__.load({
       const defaultBranch = firstString(record.defaultBranch, branches.length > 0 ? branches[0] : '');
       return {
         repoRoot: firstString(record.repoRoot, record.root),
+        remoteUrl: firstString(record.remoteUrl),
         gitDir: firstString(record.gitDir, record.gitdir),
         branches,
         defaultBranch,
@@ -5531,7 +5543,7 @@ window.__ModuleLoader__.load({
 
     /** Map a Host repo error code to a localized wizard message when known. */
     function localizedRepoError(error, t) {
-      const known = ['invalid_repo', 'not_git', 'bare', 'bad_path', 'no_commits'];
+      const known = ['invalid_repo', 'not_git', 'bare', 'bad_path', 'no_commits', 'clone_failed'];
       if (error instanceof LabRequestError && known.indexOf(error.code) >= 0) {
         return t('wizard.repo.error.' + error.code);
       }
@@ -6637,7 +6649,7 @@ window.__ModuleLoader__.load({
           setBaseBranch((previous) => (previous && info.branches.indexOf(previous) >= 0 ? previous : info.defaultBranch));
           setName((previous) => {
             if (nameTouched && previous.trim()) return previous;
-            const suggested = basenameOfPath(info.repoRoot || path);
+            const suggested = info.remoteUrl ? repoNameFromUrl(info.remoteUrl) : basenameOfPath(info.repoRoot || path);
             return suggested || previous;
           });
         } catch (error) {
@@ -6805,6 +6817,7 @@ window.__ModuleLoader__.load({
                   h('span', { className: 'rl-chip' }, repoInfo.dirty ? t('wizard.repo.dirty') : t('wizard.repo.clean')),
                 ),
                 h(LabInfoRow, { label: t('wizard.repo.root'), value: repoInfo.repoRoot }),
+                repoInfo.remoteUrl ? h(LabInfoRow, { label: t('wizard.repo.remote'), value: repoInfo.remoteUrl, mono: true }) : null,
                 repoInfo.gitDir ? h(LabInfoRow, { label: t('wizard.repo.gitDir'), value: repoInfo.gitDir, mono: true }) : null,
                 h(LabInfoRow, { label: t('wizard.repo.commit'), value: repoInfo.baseCommit, mono: true }),
                 branchOptions.length > 0

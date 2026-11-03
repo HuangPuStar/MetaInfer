@@ -80,8 +80,9 @@
 1. 浏览器打开/刷新 `http://127.0.0.1:3080`（Host 热加载后，client 需刷新一次页面加载当前版本）。
 2. 左侧栏点击 **MetaInfer Research Lab** 图标打开面板。
 3. 点「新建项目」，仓库路径填 `../metainfer-demo-repo`（或任意本地 git 仓库；Windows 用绝对路径如
-   `C:\path\to\metainfer-demo-repo`），填写研究 brief / 根节点 prompt /
-   时间盒（分钟）与资源需求；Host 会校验仓库并创建首个节点（planned）。
+   `C:\path\to\metainfer-demo-repo`），也可直接粘贴 Git 仓库 URL（`https://`、`ssh://`、`git@`，或 GitHub
+   的 `…/tree/<branch>/…` 浏览页链接）；远程仓库会克隆到 `$DSH_HOME/metainfer-research-lab/repos/` 后绑定。
+   填写研究 brief / 根节点 prompt / 时间盒（分钟）与资源需求；Host 会校验仓库并创建首个节点（planned）。
 4. 选中 planned 节点 → **▶ 启动**：Host 创建独立 git worktree、anchor + worker subagent，完成后自动 commit；
    running 卡片有截止倒计时，可取消/查看对话/继续对话。
 5. 手动模式点 **▶ Step** 触发一轮 advisor + scheduler；运行记录里可看提案/调度/评审详情。

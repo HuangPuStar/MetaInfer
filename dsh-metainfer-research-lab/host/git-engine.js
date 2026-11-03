@@ -3,7 +3,9 @@
  * The Host plugin runs unsandboxed by design (documented trust boundary); the
  * worker agents never run git write commands.
  */
-import { mkdir, readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, rm, stat } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 /** Structured business error carrying a stable code for HTTP envelopes. */
@@ -21,6 +23,67 @@ function normalizePathForCompare(value) {
   let normalized = String(value ?? '').trim().replace(/\\/g, '/').replace(/\/+$/, '');
   if (process.platform === 'win32') normalized = normalized.toLowerCase();
   return normalized;
+}
+
+const REMOTE_REPO_PROTOCOLS = new Set(['http:', 'https:', 'ssh:', 'git:', 'file:']);
+
+/**
+ * Recognise a remote repository URL and normalise it for `git clone`.
+ * GitHub "tree"/"blob" pages are browse URLs, not clone URLs; they are reduced
+ * to the repository URL plus the path after `/tree/` as a branch hint.
+ * @param {unknown} value raw user input.
+ * @returns {{cloneUrl: string, branchHint: string} | null} null when the value is not a URL.
+ */
+export function normalizeRemoteRepoUrl(value) {
+  const candidate = typeof value === 'string' ? value.trim() : '';
+  if (!candidate) return null;
+  if (/^[^\s@/]+@[^\s:/]+:.+$/.test(candidate)) {
+    return { cloneUrl: candidate, branchHint: '' };
+  }
+  let parsed;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    return null;
+  }
+  if (!REMOTE_REPO_PROTOCOLS.has(parsed.protocol)) return null;
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { cloneUrl: candidate, branchHint: '' };
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (host !== 'github.com' && host !== 'www.github.com') {
+    return { cloneUrl: candidate, branchHint: '' };
+  }
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length < 2) return null;
+  const owner = segments[0];
+  const repo = segments[1].replace(/\.git$/i, '');
+  let branchHint = '';
+  if (segments.length > 3 && (segments[2] === 'tree' || segments[2] === 'blob')) {
+    branchHint = segments.slice(3).join('/');
+  }
+  return { cloneUrl: `https://github.com/${owner}/${repo}.git`, branchHint };
+}
+
+/** Directory that holds clones of remote repositories (under DSH_HOME). */
+function managedReposRoot() {
+  const home = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+  return path.join(home, 'metainfer-research-lab', 'repos');
+}
+
+/** Turn a clone URL into a filesystem-safe folder name. */
+function repoUrlSlug(cloneUrl) {
+  const cleaned = String(cloneUrl).replace(/[?#].*$/, '').replace(/\/+$/, '').replace(/\.git$/i, '');
+  const tail = cleaned.split(/[/:]/).filter(Boolean).pop() || 'repo';
+  return tail.replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60) || 'repo';
+}
+
+/** Pick the longest branch that matches a GitHub tree/branch hint. */
+export function matchBranchHint(branches, hint) {
+  if (!hint) return '';
+  const matches = branches.filter((branch) => hint === branch || hint.startsWith(`${branch}/`));
+  matches.sort((left, right) => right.length - left.length);
+  return matches[0] ?? '';
 }
 
 const GIT_LIMITS = {
@@ -85,16 +148,96 @@ export function createGitEngine(ctx) {
   }
 
   /**
-   * Validate a repository path and return the info needed by the wizard.
-   * @param {unknown} rawPath absolute path supplied by the user.
+   * Clone a remote repository once, then reuse the managed checkout.
+   * @param {{cloneUrl: string, branchHint: string}} remote normalised remote URL.
+   * @returns {Promise<{repoRoot: string, branchHint: string}>}
+   */
+  async function materializeRemoteRepo(remote) {
+    const root = managedReposRoot();
+    await mkdir(root, { recursive: true });
+    const key = createHash('sha1').update(remote.cloneUrl).digest('hex').slice(0, 10);
+    const target = path.join(root, `${repoUrlSlug(remote.cloneUrl)}-${key}`);
+    const existing = await stat(target).catch(() => null);
+    if (existing !== null) {
+      if (!existing.isDirectory()) {
+        throw new LabError('clone_failed', `managed clone path is not a directory: ${target}`, 422);
+      }
+      const probe = await runGit(['-C', target, 'rev-parse', '--is-inside-work-tree'], { cwd: target });
+      if (probe.code !== 0 || probe.stdout.trim() !== 'true') {
+        throw new LabError('clone_failed', `managed clone path is occupied: ${target}`, 422);
+      }
+      // Refresh branches when the network allows it; a cached clone stays usable offline.
+      await runGit(['-C', target, 'fetch', '--prune', 'origin'], { cwd: target, timeoutMs: 30_000 });
+      return { repoRoot: target, branchHint: remote.branchHint };
+    }
+    const clone = await runGit(['clone', '--no-hardlinks', '--', remote.cloneUrl, target], {
+      cwd: root,
+      timeoutMs: 300_000,
+    });
+    if (clone.code !== 0) {
+      await rm(target, { recursive: true, force: true }).catch(() => {});
+      throw new LabError('clone_failed', clone.stderr.trim() || `git clone failed: ${remote.cloneUrl}`, 422);
+    }
+    return { repoRoot: target, branchHint: remote.branchHint };
+  }
+
+  /**
+   * Resolve a GitHub tree hint (e.g. `feat/x/subdir`) to a local branch.
+   * Remote-tracking branches are promoted to local ones so the wizard can use them.
+   * @param {string} repoRoot absolute repository root.
+   * @param {string[]} branches local branch names.
+   * @param {string} hint raw path after `/tree/`.
+   * @returns {Promise<string>} matched local branch name or an empty string.
+   */
+  async function resolveHintedBranch(repoRoot, branches, hint) {
+    if (!hint) return '';
+    const local = matchBranchHint(branches, hint);
+    if (local) return local;
+    const remote = await runGit(
+      ['-C', repoRoot, 'for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin'],
+      { cwd: repoRoot },
+    );
+    if (remote.code !== 0) return '';
+    const remoteNames = remote.stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((name) => name && name !== 'origin/HEAD')
+      .map((name) => name.replace(/^origin\//, ''));
+    const matched = matchBranchHint(remoteNames, hint);
+    if (!matched) return '';
+    const track = await runGit(['-C', repoRoot, 'branch', '--track', matched, `origin/${matched}`], { cwd: repoRoot });
+    if (track.code !== 0) return '';
+    return matched;
+  }
+
+  /**
+   * Validate a repository path or URL and return the info needed by the wizard.
+   * @param {unknown} rawPath absolute local path or remote Git URL supplied by the user.
    * @returns {Promise<object>} repository facts.
    */
   async function validateRepo(rawPath) {
     const candidate = typeof rawPath === 'string' ? rawPath.trim() : '';
     if (!candidate) throw new LabError('bad_path', 'repoPath is required', 400);
-    if (!path.isAbsolute(candidate)) throw new LabError('bad_path', 'repoPath must be an absolute path', 400);
 
-    const top = await runGit(['-C', candidate, 'rev-parse', '--show-toplevel'], { cwd: candidate });
+    const remote = normalizeRemoteRepoUrl(candidate);
+    let repoCandidate = candidate;
+    let remoteUrl = '';
+    let branchHint = '';
+    if (remote) {
+      const materialized = await materializeRemoteRepo(remote);
+      repoCandidate = materialized.repoRoot;
+      remoteUrl = remote.cloneUrl;
+      branchHint = materialized.branchHint;
+    } else {
+      if (!path.isAbsolute(candidate)) {
+        throw new LabError('bad_path', 'repoPath must be an absolute path or a Git repository URL', 400);
+      }
+      const stats = await stat(candidate).catch(() => null);
+      if (stats === null) throw new LabError('bad_path', `repoPath does not exist: ${candidate}`, 400);
+      if (!stats.isDirectory()) throw new LabError('bad_path', `repoPath is not a directory: ${candidate}`, 400);
+    }
+
+    const top = await runGit(['-C', repoCandidate, 'rev-parse', '--show-toplevel'], { cwd: repoCandidate });
     if (top.code !== 0) {
       throw new LabError('not_git', top.stderr.trim() || 'not a git repository', 422);
     }
@@ -116,6 +259,11 @@ export function createGitEngine(ctx) {
     } catch {
       defaultBranch = branches[0];
     }
+    const hintedBranch = await resolveHintedBranch(repoRoot, branches, branchHint);
+    if (hintedBranch) {
+      defaultBranch = hintedBranch;
+      if (!branches.includes(hintedBranch)) branches.push(hintedBranch);
+    }
     if (!defaultBranch) throw new LabError('no_commits', 'repository has no branch to start from', 422);
 
     const baseCommit = await gitText(['-C', repoRoot, 'rev-parse', '--verify', `${defaultBranch}^{commit}`], { cwd: repoRoot });
@@ -128,6 +276,7 @@ export function createGitEngine(ctx) {
       defaultBranch,
       baseCommit,
       dirty: status.code === 0 && status.stdout.trim().length > 0,
+      ...(remoteUrl ? { remoteUrl } : {}),
     };
   }
 
