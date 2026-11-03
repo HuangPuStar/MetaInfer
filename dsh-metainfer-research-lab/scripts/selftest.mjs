@@ -5,12 +5,14 @@
  * Run from the plugin directory: `node scripts/selftest.mjs`
  */
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
+import { execFile, spawn } from 'node:child_process';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import { openStore } from '../host/store.js';
-import { createGitEngine } from '../host/git-engine.js';
+import { createGitEngine, matchBranchHint, normalizeRemoteRepoUrl } from '../host/git-engine.js';
 import { createLabService } from '../host/lab-service.js';
 import { registerHttpRoutes } from '../host/http.js';
 
@@ -18,6 +20,24 @@ const DEMO_REPO = process.env.MIRL_DEMO_REPO
   ? path.resolve(process.env.MIRL_DEMO_REPO)
   : path.resolve(process.cwd(), '..', 'metainfer-demo-repo');
 const NON_REPO_DIR = await mkdtemp(path.join(os.tmpdir(), 'mirl-nonrepo-'));
+// Isolate remote clones from the user's real DSH home.
+const TEST_DSH_HOME = await mkdtemp(path.join(os.tmpdir(), 'mirl-home-'));
+process.env.DSH_HOME = TEST_DSH_HOME;
+
+const execFileAsync = promisify(execFile);
+async function makeTempRepo(prefix = 'mirl-remote-') {
+  const dir = await mkdtemp(path.join(os.tmpdir(), prefix));
+  await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+  await writeFile(path.join(dir, 'README.md'), '# temporary repository\n');
+  await execFileAsync('git', ['add', '-A'], { cwd: dir });
+  await execFileAsync(
+    'git',
+    ['-c', 'user.name=selftest', '-c', 'user.email=selftest@localhost', 'commit', '-q', '-m', 'init'],
+    { cwd: dir },
+  );
+  return dir;
+}
+const REMOTE_SOURCE_REPO = await makeTempRepo();
 
 function memoryDomain() {
   const tables = new Map();
@@ -122,6 +142,51 @@ await test('validateRepo(relative path) is rejected', async () => {
   await assert.rejects(() => git.validateRepo('relative/path'), (error) => error.code === 'bad_path');
 });
 
+await test('validateRepo(missing path) is rejected with bad_path', async () => {
+  await assert.rejects(
+    () => git.validateRepo(path.join(os.tmpdir(), 'mirl-missing-repo')),
+    (error) => error.code === 'bad_path',
+  );
+});
+
+await test('GitHub tree URL normalises to the repository clone URL', () => {
+  const parsed = normalizeRemoteRepoUrl(
+    'https://github.com/HuangPuStar/MetaInfer/tree/feat/dsh-metainfer-research-lab/dsh-metainfer-research-lab',
+  );
+  assert.equal(parsed.cloneUrl, 'https://github.com/HuangPuStar/MetaInfer.git');
+  assert.equal(parsed.branchHint, 'feat/dsh-metainfer-research-lab/dsh-metainfer-research-lab');
+  assert.equal(
+    normalizeRemoteRepoUrl('https://github.com/HuangPuStar/MetaInfer.git').cloneUrl,
+    'https://github.com/HuangPuStar/MetaInfer.git',
+  );
+  assert.equal(
+    normalizeRemoteRepoUrl('git@github.com:HuangPuStar/MetaInfer.git').cloneUrl,
+    'git@github.com:HuangPuStar/MetaInfer.git',
+  );
+  assert.equal(normalizeRemoteRepoUrl('relative/path'), null);
+});
+
+await test('branch hint resolves to the longest matching branch', () => {
+  const branches = ['main', 'feat/dsh-metainfer-research-lab'];
+  assert.equal(
+    matchBranchHint(branches, 'feat/dsh-metainfer-research-lab/dsh-metainfer-research-lab'),
+    'feat/dsh-metainfer-research-lab',
+  );
+  assert.equal(matchBranchHint(branches, 'missing'), '');
+});
+
+await test('validateRepo(remote URL) clones once and reuses the checkout', async () => {
+  const url = pathToFileURL(REMOTE_SOURCE_REPO).href;
+  const first = await git.validateRepo(url);
+  const managedRoot = path.join(TEST_DSH_HOME, 'metainfer-research-lab', 'repos');
+  assert.ok(first.repoRoot.replace(/\\/g, '/').toLowerCase().startsWith(managedRoot.replace(/\\/g, '/').toLowerCase()));
+  assert.ok(path.basename(first.repoRoot).startsWith('mirl-remote-'));
+  assert.equal(first.remoteUrl, url);
+  assert.ok(first.branches.includes('main'));
+  const second = await git.validateRepo(url);
+  assert.equal(second.repoRoot, first.repoRoot);
+});
+
 let project;
 let rootNode;
 await test('createProject', async () => {
@@ -182,7 +247,10 @@ await test('listProjects summary', async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].nodeCount, 1);
   assert.equal(list[0].id, project.id);
-  assert.equal(list[0].repoPath, DEMO_REPO);
+  assert.equal(
+    list[0].repoPath.replace(/\\/g, '/').toLowerCase(),
+    DEMO_REPO.replace(/\\/g, '/').toLowerCase(),
+  );
 });
 
 await test('reject invalid config', async () => {
