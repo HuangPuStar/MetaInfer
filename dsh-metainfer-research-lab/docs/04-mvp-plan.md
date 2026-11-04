@@ -133,7 +133,7 @@ dsh-metainfer-research-lab/
 
 - [x] 三个角色 preset 真跑通（worker/advisor/scheduler；controller 不参与任务）
 - [x] 快照构造（叶子 + 2 级祖先 + 资源 + 最近/待确认提案；截断规则）
-- [x] advisor/scheduler activation + `outputSchema` + 结构化输出解析 + 可配置单轮超时（默认 1800s，30–1800s）
+- [x] advisor/scheduler activation + `outputSchema` + 结构化输出解析 + 可配置单轮超时（默认 1800s，30–18000s）
 - [x] Host 校验与落地：parent/标题/prompt/needs/timebox/去重/`maxNodes`、封存顺序（commit 父 → 写子 → tag+sealedAt）
 - [x] `acceptMode='confirm'`：proposed 创建 / 批准（封存父）/ 拒绝（删除）/ 编辑；审批期间父节点保持可对话
 - [x] 调度器校验与落地：资源账本、并发上限、逐项启动与拒绝记录（只从 planned 中选）

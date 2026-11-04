@@ -393,12 +393,16 @@ await test('role timeout defaults to 1800 seconds and is project-configurable', 
   let project = (await lab.getState(pid)).project;
   assert.equal(project.config.advisor.timeoutSeconds, 1800);
 
-  await lab.updateProject(pid, { config: { advisor: { timeoutSeconds: 600 } } });
+  await lab.updateProject(pid, { config: { advisor: { timeoutSeconds: 18000 } } });
   project = (await lab.getState(pid)).project;
-  assert.equal(project.config.advisor.timeoutSeconds, 600);
+  assert.equal(project.config.advisor.timeoutSeconds, 18000);
 
   await assert.rejects(
     () => lab.updateProject(pid, { config: { advisor: { timeoutSeconds: 29 } } }),
+    (error) => error.code === 'bad_request',
+  );
+  await assert.rejects(
+    () => lab.updateProject(pid, { config: { advisor: { timeoutSeconds: 18001 } } }),
     (error) => error.code === 'bad_request',
   );
 });

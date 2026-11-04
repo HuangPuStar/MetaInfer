@@ -344,7 +344,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
   /** Per-project advisor/scheduler wall-clock budget (seconds -> ms); default 30 minutes. */
   function advisorTimeoutMs(project) {
     const seconds = Number(project?.config?.advisor?.timeoutSeconds ?? 1800);
-    const bounded = Number.isFinite(seconds) ? Math.max(30, Math.min(1800, Math.round(seconds))) : 1800;
+    const bounded = Number.isFinite(seconds) ? Math.max(30, Math.min(18000, Math.round(seconds))) : 1800;
     return bounded * 1000;
   }
 

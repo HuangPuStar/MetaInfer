@@ -757,7 +757,7 @@ window.__ModuleLoader__.load({
       'ws.settings.maxProposalsPerPass': '每轮最多提案数',
       'ws.settings.maxPendingProposals': '待确认提案上限',
       'ws.settings.advisorTimeoutSeconds': '专家组/调度器超时（秒）',
-      'ws.settings.advisorTimeoutSeconds.hint': '单次 advisor/scheduler/reviewer 运行的最长等待时间；默认 1800 秒（30 分钟），范围 30–1800 秒。',
+      'ws.settings.advisorTimeoutSeconds.hint': '单次 advisor/scheduler/reviewer 运行的最长等待时间；默认 1800 秒（30 分钟），范围 30–18000 秒。',
       'ws.settings.maxCycles': '最大 cycle 数',
       'ws.settings.maxWallClockMinutes': '最长运行时间（分钟）',
       'ws.settings.idleCycleLimit': '空转熔断（连续无进展轮数）',
@@ -2010,7 +2010,7 @@ window.__ModuleLoader__.load({
       'ws.settings.maxProposalsPerPass': 'Max proposals per pass',
       'ws.settings.maxPendingProposals': 'Max pending proposals',
       'ws.settings.advisorTimeoutSeconds': 'Advisor / scheduler timeout (seconds)',
-      'ws.settings.advisorTimeoutSeconds.hint': 'Maximum wait for one advisor/scheduler/reviewer run; default 1800 s (30 minutes), range 30–1800 s.',
+      'ws.settings.advisorTimeoutSeconds.hint': 'Maximum wait for one advisor/scheduler/reviewer run; default 1800 s (30 minutes), range 30–18000 s.',
       'ws.settings.maxCycles': 'Max cycles',
       'ws.settings.maxWallClockMinutes': 'Max wall clock (minutes)',
       'ws.settings.idleCycleLimit': 'Idle fuse (consecutive no-progress cycles)',
@@ -12171,7 +12171,7 @@ window.__ModuleLoader__.load({
       advisor.acceptMode = draft.acceptMode === 'confirm' ? 'confirm' : 'auto';
       advisor.maxProposalsPerPass = parseInteger(draft.maxProposalsPerPass, 3);
       advisor.maxPendingProposals = parseInteger(draft.maxPendingProposals, 20);
-      advisor.timeoutSeconds = Math.max(30, Math.min(1800, parseInteger(draft.advisorTimeoutSeconds, 1800)));
+      advisor.timeoutSeconds = Math.max(30, Math.min(18000, parseInteger(draft.advisorTimeoutSeconds, 1800)));
       auto.maxCycles = parseInteger(draft.maxCycles, 50);
       auto.maxWallClockMs = Math.max(1, parseInteger(draft.maxWallClockMinutes, 360)) * 60000;
       auto.idleCycleLimit = parseInteger(draft.idleCycleLimit, 3);
@@ -12559,7 +12559,7 @@ window.__ModuleLoader__.load({
                 h(LabInput, {
                   type: 'number',
                   min: 30,
-                  max: 1800,
+                  max: 18000,
                   value: draft.advisorTimeoutSeconds,
                   ariaLabel: t('ws.settings.advisorTimeoutSeconds'),
                   onChange: (event) => setField('advisorTimeoutSeconds', event.target.value),

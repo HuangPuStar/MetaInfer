@@ -322,7 +322,7 @@ function normalizeConfig(raw, base = undefined) {
       advisor.maxPendingProposals = integer(input.advisor.maxPendingProposals, 'config.advisor.maxPendingProposals', advisor.maxPendingProposals, 1, 200);
     }
     if (input.advisor.timeoutSeconds !== undefined) {
-      advisor.timeoutSeconds = integer(input.advisor.timeoutSeconds, 'config.advisor.timeoutSeconds', advisor.timeoutSeconds, 30, 1800);
+      advisor.timeoutSeconds = integer(input.advisor.timeoutSeconds, 'config.advisor.timeoutSeconds', advisor.timeoutSeconds, 30, 18000);
     }
     if (input.advisor.reviewers !== undefined) {
       if (!Array.isArray(input.advisor.reviewers)) {
