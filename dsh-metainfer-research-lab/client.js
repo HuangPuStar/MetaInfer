@@ -35,6 +35,10 @@ window.__ModuleLoader__.load({
       events: 'api/metainfer-research-lab/events',
       commands: 'api/metainfer-research-lab/commands',
       runs: 'api/metainfer-research-lab/runs',
+      update: 'api/metainfer-research-lab/update',
+      updateCheck: 'api/metainfer-research-lab/update/check',
+      updateLocal: 'api/metainfer-research-lab/update/local',
+      updateGithub: 'api/metainfer-research-lab/update/github',
     };
 
     /** Poll cadence while the page is visible. */
@@ -788,6 +792,45 @@ window.__ModuleLoader__.load({
       'ws.settings.invalid': '请检查数字字段与资源池设置',
       'ws.settings.error': '保存设置失败',
       'ws.settings.saved': '设置已保存',
+      'ws.settings.update.title': '插件更新',
+      'ws.settings.update.intro': '从 GitHub 分支或本地目录更新已安装的插件。更新前会自动备份当前版本，更新后需重启 DSH 才会生效。',
+      'ws.settings.update.version': '版本 {version}',
+      'ws.settings.update.source': '来源：{source}',
+      'ws.settings.update.sourceGithub': 'GitHub',
+      'ws.settings.update.sourceLocal': '本地目录',
+      'ws.settings.update.sourceUnknown': '未记录',
+      'ws.settings.update.root': '安装目录',
+      'ws.settings.update.remote': '更新源',
+      'ws.settings.update.updatedAt': '上次更新',
+      'ws.settings.update.autoCheck': '打开设置时自动检查 GitHub 更新',
+      'ws.settings.update.proxy': 'HTTP 代理（可选）',
+      'ws.settings.update.proxyHint': 'GitHub 无法直连时填写，例如 http://127.0.0.1:10808；只用于检查与更新。',
+      'ws.settings.update.check': '检查更新',
+      'ws.settings.update.checking': '检查中…',
+      'ws.settings.update.available': '发现新提交 {sha}，可更新',
+      'ws.settings.update.uptodate': '已是最新（{sha}）',
+      'ws.settings.update.unknownRemote': '远端当前提交 {sha}（尚无更新记录）',
+      'ws.settings.update.localPath': '本地插件目录',
+      'ws.settings.update.localPathHint': '包含 package.json 的目录，例如 D:/path/to/dsh-metainfer-research-lab。',
+      'ws.settings.update.github': '从 GitHub 更新',
+      'ws.settings.update.local': '从本地目录更新',
+      'ws.settings.update.applying': '更新中…',
+      'ws.settings.update.confirmGithub': '确认用 GitHub 分支覆盖当前插件？',
+      'ws.settings.update.confirmLocal': '确认用本地目录覆盖当前插件？',
+      'ws.settings.update.confirm': '确认更新',
+      'ws.settings.update.cancel': '取消',
+      'ws.settings.update.done': '已更新到 {version}',
+      'ws.settings.update.restartHint': '重启 DSH 后生效。',
+      'ws.settings.update.errorLabel': '更新失败',
+      'ws.settings.update.error': '更新失败',
+      'ws.settings.update.badSource': '目录不是有效的 MetaInfer 插件目录',
+      'ws.settings.update.badRequest': '请求参数无效',
+      'ws.settings.update.gitMissing': '未找到 git 命令',
+      'ws.settings.update.gitFailed': 'git 执行失败，请检查网络或代理',
+      'ws.settings.update.gitTimeout': 'git 执行超时，请检查网络或代理',
+      'ws.settings.update.sourceNotFound': '源中未找到插件子目录',
+      'ws.settings.update.backupFailed': '备份当前版本失败',
+      'ws.settings.update.copyFailed': '写入插件目录失败',
       'ws.gc.title': '善后报告（GC）',
       'ws.gc.cause': '原因',
       'ws.gc.leftovers': '残留',
@@ -2041,6 +2084,45 @@ window.__ModuleLoader__.load({
       'ws.settings.invalid': 'Check the numeric fields and resource pools',
       'ws.settings.error': 'Could not save settings',
       'ws.settings.saved': 'Settings saved',
+      'ws.settings.update.title': 'Plugin updates',
+      'ws.settings.update.intro': 'Update the installed plugin from the configured GitHub branch or a local plugin directory. The current version is backed up first; restart DSH to load the update.',
+      'ws.settings.update.version': 'Version {version}',
+      'ws.settings.update.source': 'Source: {source}',
+      'ws.settings.update.sourceGithub': 'GitHub',
+      'ws.settings.update.sourceLocal': 'Local directory',
+      'ws.settings.update.sourceUnknown': 'Not recorded',
+      'ws.settings.update.root': 'Install directory',
+      'ws.settings.update.remote': 'Update source',
+      'ws.settings.update.updatedAt': 'Last update',
+      'ws.settings.update.autoCheck': 'Check GitHub for updates when settings open',
+      'ws.settings.update.proxy': 'HTTP proxy (optional)',
+      'ws.settings.update.proxyHint': 'Use when GitHub is unreachable, e.g. http://127.0.0.1:10808; used for this check/update only.',
+      'ws.settings.update.check': 'Check for updates',
+      'ws.settings.update.checking': 'Checking…',
+      'ws.settings.update.available': 'New commit {sha} available',
+      'ws.settings.update.uptodate': 'Up to date ({sha})',
+      'ws.settings.update.unknownRemote': 'Remote commit {sha} (no update record yet)',
+      'ws.settings.update.localPath': 'Local plugin directory',
+      'ws.settings.update.localPathHint': 'Directory containing package.json, e.g. D:/path/to/dsh-metainfer-research-lab.',
+      'ws.settings.update.github': 'Update from GitHub',
+      'ws.settings.update.local': 'Update from local directory',
+      'ws.settings.update.applying': 'Updating…',
+      'ws.settings.update.confirmGithub': 'Overwrite the installed plugin with the GitHub branch?',
+      'ws.settings.update.confirmLocal': 'Overwrite the installed plugin with this local directory?',
+      'ws.settings.update.confirm': 'Confirm update',
+      'ws.settings.update.cancel': 'Cancel',
+      'ws.settings.update.done': 'Updated to {version}',
+      'ws.settings.update.restartHint': 'Restart DSH to apply.',
+      'ws.settings.update.errorLabel': 'Update failed',
+      'ws.settings.update.error': 'Update failed',
+      'ws.settings.update.badSource': 'Not a valid MetaInfer plugin directory',
+      'ws.settings.update.badRequest': 'Invalid request',
+      'ws.settings.update.gitMissing': 'git executable not found',
+      'ws.settings.update.gitFailed': 'git failed; check the network or proxy',
+      'ws.settings.update.gitTimeout': 'git timed out; check the network or proxy',
+      'ws.settings.update.sourceNotFound': 'Plugin subdirectory not found at the source',
+      'ws.settings.update.backupFailed': 'Could not back up the current version',
+      'ws.settings.update.copyFailed': 'Could not write the plugin directory',
       'ws.gc.title': 'Postmortem (GC)',
       'ws.gc.cause': 'Cause',
       'ws.gc.leftovers': 'Leftovers',
@@ -3346,6 +3428,18 @@ window.__ModuleLoader__.load({
       },
       command(body, signal, t) {
         return requestJson(ROUTES.commands, { method: 'POST', body, signal }, t);
+      },
+      fetchUpdateInfo(signal, t) {
+        return requestJson(ROUTES.update, { signal }, t);
+      },
+      checkUpdate(body, signal, t) {
+        return requestJson(ROUTES.updateCheck, { method: 'POST', body, signal }, t);
+      },
+      applyLocalUpdate(body, signal, t) {
+        return requestJson(ROUTES.updateLocal, { method: 'POST', body, signal }, t);
+      },
+      applyGithubUpdate(body, signal, t) {
+        return requestJson(ROUTES.updateGithub, { method: 'POST', body, signal }, t);
       },
 
 
@@ -12268,6 +12362,254 @@ window.__ModuleLoader__.load({
       };
     }
 
+    // #region plugin update settings
+    const UPDATE_PREFS_KEY = 'dsh.metainfer.update.v1';
+    const UPDATE_ERROR_KEYS = {
+      bad_source: 'ws.settings.update.badSource',
+      same_source: 'ws.settings.update.badSource',
+      source_inside_install: 'ws.settings.update.badSource',
+      install_inside_source: 'ws.settings.update.badSource',
+      bad_request: 'ws.settings.update.badRequest',
+      git_missing: 'ws.settings.update.gitMissing',
+      git_failed: 'ws.settings.update.gitFailed',
+      git_timeout: 'ws.settings.update.gitTimeout',
+      branch_not_found: 'ws.settings.update.sourceNotFound',
+      source_not_found: 'ws.settings.update.sourceNotFound',
+      backup_failed: 'ws.settings.update.backupFailed',
+      copy_failed: 'ws.settings.update.copyFailed',
+    };
+
+    function updatePrefsOf() {
+      try {
+        const stored = JSON.parse(window.localStorage.getItem(UPDATE_PREFS_KEY) || 'null');
+        const record = asObject(stored);
+        return { autoCheck: record.autoCheck === true, proxy: firstString(record.proxy) };
+      } catch (error) {
+        return { autoCheck: false, proxy: '' };
+      }
+    }
+    function saveUpdatePrefs(next) {
+      try {
+        window.localStorage.setItem(
+          UPDATE_PREFS_KEY,
+          JSON.stringify({ autoCheck: next.autoCheck === true, proxy: firstString(next.proxy) }),
+        );
+      } catch (error) {
+        // Storage may be unavailable; the section still works for this visit.
+      }
+    }
+    function shortShaOf(value) {
+      const text = firstString(value);
+      return text.length > 10 ? text.slice(0, 10) : text;
+    }
+    function updateSourceLabelOf(info, t) {
+      const source = firstString(asObject(info).source);
+      if (source === 'github') return t('ws.settings.update.sourceGithub');
+      if (source === 'local') return t('ws.settings.update.sourceLocal');
+      return t('ws.settings.update.sourceUnknown');
+    }
+    function updateErrorTextOf(failure, t) {
+      const record = failure !== null && typeof failure === 'object' ? failure : {};
+      const key = UPDATE_ERROR_KEYS[firstString(record.code)];
+      if (key) return t(key);
+      const message = firstString(record.message);
+      return message !== '' ? message : t('ws.settings.update.error');
+    }
+
+    /**
+     * Settings section: check the configured GitHub branch and replace the
+     * installed plugin from GitHub or a local plugin directory.
+     */
+    function PluginUpdateSection({ t }) {
+      const stored = updatePrefsOf();
+      const [info, setInfo] = React.useState(null);
+      const [check, setCheck] = React.useState(null);
+      const [busy, setBusy] = React.useState('');
+      const [error, setError] = React.useState('');
+      const [notice, setNotice] = React.useState('');
+      const [autoCheck, setAutoCheck] = React.useState(stored.autoCheck);
+      const [proxy, setProxy] = React.useState(stored.proxy);
+      const [sourcePath, setSourcePath] = React.useState('');
+      const [confirm, setConfirm] = React.useState('');
+      const startedRef = React.useRef(false);
+
+      const loadInfo = async () => {
+        try {
+          setInfo(asObject(await api.fetchUpdateInfo(undefined, t)));
+        } catch (failure) {
+          setError(updateErrorTextOf(failure, t));
+        }
+      };
+      const checkRemote = async () => {
+        if (busy !== '') return;
+        setBusy('check');
+        setError('');
+        setNotice('');
+        try {
+          setCheck(asObject(await api.checkUpdate({ proxy }, undefined, t)));
+        } catch (failure) {
+          setCheck(null);
+          setError(updateErrorTextOf(failure, t));
+        } finally {
+          setBusy('');
+        }
+      };
+      const applyChosen = async () => {
+        if (busy !== '' || confirm === '') return;
+        const kind = confirm;
+        setBusy(kind);
+        setError('');
+        setNotice('');
+        try {
+          const payload = kind === 'github' ? { proxy } : { sourcePath: sourcePath.trim() };
+          const data = kind === 'github'
+            ? await api.applyGithubUpdate(payload, undefined, t)
+            : await api.applyLocalUpdate(payload, undefined, t);
+          const result = asObject(data);
+          setNotice(t('ws.settings.update.done', { version: firstString(result.version, '?') }));
+          setConfirm('');
+          setCheck(null);
+          await loadInfo();
+        } catch (failure) {
+          setError(updateErrorTextOf(failure, t));
+        } finally {
+          setBusy('');
+        }
+      };
+      const persistPrefs = (nextAutoCheck, nextProxy) => saveUpdatePrefs({ autoCheck: nextAutoCheck, proxy: nextProxy });
+
+      React.useEffect(() => {
+        if (startedRef.current) return;
+        startedRef.current = true;
+        (async () => {
+          await loadInfo();
+          if (updatePrefsOf().autoCheck) await checkRemote();
+        })();
+      }, []);
+
+      const infoRecord = info === null ? {} : info;
+      const checkRecord = check === null ? null : check;
+      const updateStateText = checkRecord === null
+        ? ''
+        : checkRecord.updateAvailable === true
+          ? t('ws.settings.update.available', { sha: shortShaOf(checkRecord.remoteSha) })
+          : checkRecord.updateAvailable === false
+            ? t('ws.settings.update.uptodate', { sha: shortShaOf(checkRecord.remoteSha) })
+            : t('ws.settings.update.unknownRemote', { sha: shortShaOf(checkRecord.remoteSha) });
+
+      return h(
+        'div',
+        { className: 'rl-settings-section' },
+        h('h3', { className: 'rl-settings-section-title' }, t('ws.settings.update.title')),
+        h('p', { className: 'rl-hint' }, t('ws.settings.update.intro')),
+        info !== null
+          ? h(
+              'div',
+              { className: 'rl-project-chips' },
+              h('span', { className: 'rl-chip' }, t('ws.settings.update.version', { version: firstString(infoRecord.version, '?') })),
+              h('span', { className: 'rl-chip' }, t('ws.settings.update.source', { source: updateSourceLabelOf(infoRecord, t) })),
+            )
+          : null,
+        info !== null ? h(LabInfoRow, { label: t('ws.settings.update.root'), value: firstString(infoRecord.root, '—'), mono: true }) : null,
+        info !== null
+          ? h(LabInfoRow, {
+              label: t('ws.settings.update.remote'),
+              value: firstString(infoRecord.repoUrl, '—') + ' @ ' + firstString(infoRecord.branch, '—'),
+              mono: true,
+            })
+          : null,
+        info !== null && firstString(infoRecord.updatedAt) !== ''
+          ? h(LabInfoRow, { label: t('ws.settings.update.updatedAt'), value: firstString(infoRecord.updatedAt) })
+          : null,
+        h(
+          'label',
+          { className: 'rl-settings-checkbox-row' },
+          h('input', {
+            type: 'checkbox',
+            checked: autoCheck,
+            onChange: (event) => {
+              const next = event.target.checked === true;
+              setAutoCheck(next);
+              persistPrefs(next, proxy);
+            },
+          }),
+          h('span', null, t('ws.settings.update.autoCheck')),
+        ),
+        h(
+          LabField,
+          { label: t('ws.settings.update.proxy'), hint: t('ws.settings.update.proxyHint') },
+          h(LabInput, {
+            value: proxy,
+            placeholder: 'http://127.0.0.1:10808',
+            ariaLabel: t('ws.settings.update.proxy'),
+            onChange: (event) => {
+              setProxy(event.target.value);
+              persistPrefs(autoCheck, event.target.value);
+            },
+          }),
+        ),
+        h(
+          'div',
+          { className: 'rl-form-actions' },
+          h(LabButton, {
+            label: busy === 'check' ? t('ws.settings.update.checking') : t('ws.settings.update.check'),
+            disabled: busy !== '',
+            onClick: checkRemote,
+          }),
+        ),
+        updateStateText !== '' ? h('p', { className: 'rl-hint', role: 'status' }, updateStateText) : null,
+        h(
+          LabField,
+          { label: t('ws.settings.update.localPath'), hint: t('ws.settings.update.localPathHint') },
+          h(LabInput, {
+            value: sourcePath,
+            placeholder: 'D:/path/to/dsh-metainfer-research-lab',
+            ariaLabel: t('ws.settings.update.localPath'),
+            onChange: (event) => setSourcePath(event.target.value),
+          }),
+        ),
+        h(
+          'div',
+          { className: 'rl-form-actions' },
+          h(LabButton, {
+            label: busy === 'github' ? t('ws.settings.update.applying') : t('ws.settings.update.github'),
+            variant: 'primary',
+            disabled: busy !== '',
+            onClick: () => setConfirm('github'),
+          }),
+          h(LabButton, {
+            label: busy === 'local' ? t('ws.settings.update.applying') : t('ws.settings.update.local'),
+            disabled: busy !== '' || sourcePath.trim() === '',
+            onClick: () => setConfirm('local'),
+          }),
+        ),
+        confirm !== ''
+          ? h(
+              'div',
+              { className: 'rl-project-chips' },
+              h('span', { className: 'rl-chip' }, confirm === 'github' ? t('ws.settings.update.confirmGithub') : t('ws.settings.update.confirmLocal')),
+              h(LabButton, {
+                label: t('ws.settings.update.confirm'),
+                variant: 'primary',
+                disabled: busy !== '',
+                onClick: applyChosen,
+              }),
+              h(LabButton, {
+                label: t('ws.settings.update.cancel'),
+                variant: 'ghost',
+                disabled: busy !== '',
+                onClick: () => setConfirm(''),
+              }),
+            )
+          : null,
+        error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, t('ws.settings.update.errorLabel') + ': ' + error) : null,
+        notice !== ''
+          ? h('p', { className: 'rl-config-success', role: 'status' }, notice + ' · ' + t('ws.settings.update.restartHint'))
+          : null,
+      );
+    }
+    // #endregion
+
     /** Project settings modal (advisor/auto budgets/limits/pools/models/prompts). */
     function SettingsModal({ project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders, onClose, onSave, onSavePlacementPolicy, t }) {
       const [draft, setDraft] = React.useState(() => settingsDraftOf(project, promptDefaults));
@@ -13048,6 +13390,7 @@ window.__ModuleLoader__.load({
                   )
                 : null,
             ),
+            h(PluginUpdateSection, { t }),
             error ? h('p', { className: 'rl-error-text', role: 'alert' }, t('ws.settings.error') + ': ' + error) : null,
           ),
           h(

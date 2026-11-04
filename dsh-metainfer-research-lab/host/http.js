@@ -52,8 +52,10 @@ async function readJsonBody(request) {
  * Register the M1 routes and return one sync disposer.
  * @param ctx Cordis context with `connection` injected.
  * @param service the `metainferLab` Host service.
+ * @param extras optional `{ update }` update service.
  */
-export function registerHttpRoutes(ctx, service) {
+export function registerHttpRoutes(ctx, service, extras = {}) {
+  const update = extras.update ?? null;
   const disposers = [];
 
   const route = (path, methods, handler) => {
@@ -145,6 +147,19 @@ export function registerHttpRoutes(ctx, service) {
       params.get('afterSeq') ?? 0,
     ));
   });
+
+  if (update !== null) {
+    route(`${PREFIX}/update`, ['GET'], async () => ok(await update.status()));
+    route(`${PREFIX}/update/check`, ['POST'], async (request) => {
+      return ok(await update.check(await readJsonBody(request)));
+    });
+    route(`${PREFIX}/update/local`, ['POST'], async (request) => {
+      return ok(await update.applyLocal(await readJsonBody(request)));
+    });
+    route(`${PREFIX}/update/github`, ['POST'], async (request) => {
+      return ok(await update.applyGithub(await readJsonBody(request)));
+    });
+  }
 
   route(`${PREFIX}/commands`, ['POST'], async (request) => {
     const body = await readJsonBody(request);

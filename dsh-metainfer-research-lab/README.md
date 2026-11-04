@@ -107,6 +107,18 @@
 11. **其他**：失败节点 ↻ 重试；项目删除（可选清理 worktree）；`⋯` 菜单推送分支/tag；runs/检查器显示 token/成本；
    确定性超时 kill 后 GC 会异步生成 postmortem。
 
+## 插件更新（GitHub / 本地目录）
+
+项目设置的「插件更新」区提供两种更新方式，均先备份当前安装再覆盖文件，更新后重启 DSH 生效：
+
+- **检查更新 / 从 GitHub 更新**：默认检查 `HuangPuStar/MetaInfer` 的 `feat/dsh-metainfer-research-lab` 分支下的
+  `dsh-metainfer-research-lab` 子目录；GitHub 无法直连时在「HTTP 代理」填 `http://127.0.0.1:10808`
+  （只用于检查与更新）。
+- **从本地目录更新**：填一个包含 `package.json` 的插件目录（例如自己改过的 `dsh-metainfer-research-lab`），
+  适合先用本地版本验证，再推送分支。
+- 备份目录：`~/.dsh/metainfer-research-lab/plugin-backups/<时间戳>`，最多保留 5 份；安装状态写入
+  `~/.dsh/metainfer-research-lab/update-state.json`。
+
 ## 新手指引（动画卡片）
 
 项目列表页 header 的 **“? 新手指引”** 打开近全屏、可滑动的 10 页 SVG 动画卡片：从“节点是一份实验任务”

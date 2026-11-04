@@ -6,13 +6,14 @@
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { openStore } from '../host/store.js';
 import { createGitEngine } from '../host/git-engine.js';
 import { createLabService } from '../host/lab-service.js';
 import { registerHttpRoutes } from '../host/http.js';
+import { createUpdateService } from '../host/update.js';
 
 const DEMO_REPO = process.env.MIRL_DEMO_REPO
   ? path.resolve(process.env.MIRL_DEMO_REPO)
@@ -182,7 +183,10 @@ await test('listProjects summary', async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].nodeCount, 1);
   assert.equal(list[0].id, project.id);
-  assert.equal(list[0].repoPath, DEMO_REPO);
+  assert.equal(
+    String(list[0].repoPath).replace(/\\/g, '/').toLowerCase(),
+    String(DEMO_REPO).replace(/\\/g, '/').toLowerCase(),
+  );
 });
 
 await test('reject invalid config', async () => {
@@ -228,12 +232,120 @@ await test('health', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Plugin update engine (local apply + remote check without network)
+// ---------------------------------------------------------------------------
+const updateTmp = await mkdtemp(path.join(os.tmpdir(), 'mirl-update-'));
+const updateInstallRoot = path.join(updateTmp, 'install');
+const updateSourceRoot = path.join(updateTmp, 'source');
+const updateStateDir = path.join(updateTmp, 'state');
+async function writeManifest(dir, version) {
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    path.join(dir, 'package.json'),
+    JSON.stringify({ name: 'dsh-metainfer-research-lab', version }, null, 2) + '\n',
+  );
+}
+await writeManifest(updateInstallRoot, '0.0.1');
+await writeFile(path.join(updateInstallRoot, 'client.js'), 'old\n');
+await mkdir(path.join(updateInstallRoot, 'node_modules', 'zod'), { recursive: true });
+await writeFile(path.join(updateInstallRoot, 'node_modules', 'zod', 'keep.txt'), 'keep\n');
+await writeManifest(updateSourceRoot, '9.9.9');
+await writeFile(path.join(updateSourceRoot, 'client.js'), 'new\n');
+
+const updateService = createUpdateService({
+  root: updateInstallRoot,
+  stateDir: updateStateDir,
+  repoUrl: 'https://example.invalid/repo.git',
+  branch: 'feat/test',
+  subdir: '.',
+  runGit: async (args) => {
+    if (args[0] === 'ls-remote') return { stdout: 'deadbeef\trefs/heads/feat/test\n', stderr: '' };
+    throw new Error('unexpected git call: ' + args.join(' '));
+  },
+  now: () => new Date('2026-01-02T03:04:05Z'),
+});
+
+await test('update: status and check read install and remote', async () => {
+  const status = await updateService.status();
+  assert.equal(status.version, '0.0.1');
+  assert.equal(status.root, updateInstallRoot);
+  assert.equal(status.source, '');
+  const checked = await updateService.check({});
+  assert.equal(checked.remoteSha, 'deadbeef');
+  assert.equal(checked.updateAvailable, null);
+});
+
+await test('update: local apply backs up and keeps node_modules', async () => {
+  const result = await updateService.applyLocal({ sourcePath: updateSourceRoot });
+  assert.equal(result.version, '9.9.9');
+  assert.equal(result.previousVersion, '0.0.1');
+  assert.equal(result.restartRequired, true);
+  assert.equal(await readFile(path.join(updateInstallRoot, 'client.js'), 'utf8'), 'new\n');
+  assert.equal(await readFile(path.join(updateInstallRoot, 'node_modules', 'zod', 'keep.txt'), 'utf8'), 'keep\n');
+  const backupManifest = JSON.parse(await readFile(path.join(result.backup, 'package.json'), 'utf8'));
+  assert.equal(backupManifest.version, '0.0.1');
+  assert.ok(result.backup.startsWith(path.join(updateStateDir, 'plugin-backups')));
+  const status = await updateService.status();
+  assert.equal(status.version, '9.9.9');
+  assert.equal(status.source, 'local');
+});
+
+await test('update: identical source is rejected', async () => {
+  await assert.rejects(
+    () => updateService.applyLocal({ sourcePath: updateInstallRoot }),
+    (error) => error.code === 'same_source',
+  );
+});
+
+// ---------------------------------------------------------------------------
 // HTTP route contract (same JSON envelopes the Client half calls)
 // ---------------------------------------------------------------------------
 const routes = [];
+const fakeUpdate = {
+  status: async () => ({
+    name: 'dsh-metainfer-research-lab',
+    version: '0.0.1',
+    root: updateInstallRoot,
+    stateDir: updateStateDir,
+    repoUrl: 'https://example.invalid/repo.git',
+    branch: 'feat/test',
+    subdir: 'dsh-metainfer-research-lab',
+    source: '',
+    sourcePath: '',
+    updatedAt: '',
+    remoteSha: '',
+  }),
+  check: async (input = {}) => ({
+    repoUrl: 'https://example.invalid/repo.git',
+    branch: 'feat/test',
+    remoteSha: 'deadbeef',
+    installedRemoteSha: '',
+    updateAvailable: null,
+    proxy: input.proxy || '',
+  }),
+  applyLocal: async (input = {}) => ({
+    version: '9.9.9',
+    previousVersion: '0.0.1',
+    source: 'local',
+    backup: path.join(updateStateDir, 'plugin-backups', 'test'),
+    updatedAt: '2026-01-02T03:04:05.000Z',
+    restartRequired: true,
+    sourcePath: input.sourcePath || '',
+  }),
+  applyGithub: async () => ({
+    version: '9.9.9',
+    previousVersion: '0.0.1',
+    source: 'github',
+    backup: path.join(updateStateDir, 'plugin-backups', 'test'),
+    updatedAt: '2026-01-02T03:04:05.000Z',
+    restartRequired: true,
+    remoteSha: 'deadbeef',
+  }),
+};
 const disposeRoutes = registerHttpRoutes(
   { connection: { fetch: { register(route) { routes.push(route); return () => Promise.resolve(); } } } },
   lab,
+  { update: fakeUpdate },
 );
 const PREFIX = '/api/metainfer-research-lab';
 function findRoute(pathname, method) {
@@ -253,8 +365,8 @@ async function callHttp(pathname, { method = 'GET', query = '', rawBody = undefi
   return response.json();
 }
 
-await test('routes: all thirteen endpoints registered', async () => {
-  assert.equal(routes.length, 13);
+await test('routes: all seventeen endpoints registered', async () => {
+  assert.equal(routes.length, 17);
   const expected = [
     [`${PREFIX}/health`, 'GET'],
     [`${PREFIX}/projects`, 'GET'],
@@ -270,6 +382,10 @@ await test('routes: all thirteen endpoints registered', async () => {
     [`${PREFIX}/copilot`, 'GET'],
     [`${PREFIX}/runs`, 'GET'],
     [`${PREFIX}/commands`, 'POST'],
+    [`${PREFIX}/update`, 'GET'],
+    [`${PREFIX}/update/check`, 'POST'],
+    [`${PREFIX}/update/local`, 'POST'],
+    [`${PREFIX}/update/github`, 'POST'],
   ];
   for (const [pathname, method] of expected) findRoute(pathname, method);
 });
@@ -278,6 +394,25 @@ await test('HTTP health', async () => {
   const payload = await callHttp(`${PREFIX}/health`);
   assert.equal(payload.ok, true);
   assert.equal(payload.data.storage, 'ready');
+});
+
+await test('HTTP update status, check and local apply', async () => {
+  const status = await callHttp(`${PREFIX}/update`);
+  assert.equal(status.ok, true);
+  assert.equal(status.data.version, '0.0.1');
+  const checked = await callHttp(`${PREFIX}/update/check`, {
+    method: 'POST',
+    rawBody: JSON.stringify({ proxy: '127.0.0.1:10808' }),
+  });
+  assert.equal(checked.ok, true);
+  assert.equal(checked.data.remoteSha, 'deadbeef');
+  assert.equal(checked.data.proxy, '127.0.0.1:10808');
+  const applied = await callHttp(`${PREFIX}/update/local`, {
+    method: 'POST',
+    rawBody: JSON.stringify({ sourcePath: updateSourceRoot }),
+  });
+  assert.equal(applied.ok, true);
+  assert.equal(applied.data.version, '9.9.9');
 });
 
 await test('HTTP repo validation (ok + error envelope)', async () => {
