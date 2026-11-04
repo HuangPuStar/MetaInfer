@@ -389,9 +389,14 @@ await test('copilot drawer embeds an active conversation and is memoized', async
     'the drawer must request an embedded, active conversation',
   );
   assert.ok(
-    source.includes('const CopilotDrawerMemo = React.memo(CopilotDrawer);'),
+    source.includes('const CopilotDrawerMemo = React.memo('),
     'the drawer must be memoized so workspace polling does not re-render the native conversation',
   );
+  assert.ok(
+    source.includes('.rl-workspace-main[data-copilot-open="true"] .rl-workspace-grid { content-visibility: hidden; }'),
+    'the workspace grid must skip painting while the drawer is open',
+  );
+  assert.ok(source.includes('data-copilot-open'), 'WorkspaceScreen must mark the workspace while the drawer is open');
   assert.ok(source.includes('h(CopilotDrawerMemo, {'), 'WorkspaceScreen must render the memoized drawer');
 });
 
