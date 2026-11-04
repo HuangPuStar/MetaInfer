@@ -200,7 +200,7 @@ PASS HTTP malformed JSON 返回 ok:false bad_request
 | 部分 | 内容 |
 |---|---|
 | `host/snapshot.js` | advisor 快照（叶子 + 2 级祖先、预算、资源、failed/timeout、recentProposals、pendingProposals）与 scheduler 快照 |
-| `host/orchestrator.js` | advisor / scheduler 一次性 activation（preset `lab-advisor`/`lab-scheduler`、`outputSchema`、180s 超时）；提案校验（parent、title/prompt、needs、timebox、去重、maxNodes）；创建子节点 + commit + tag + 封存父节点；scheduler 逐项 `runtime.start` 并记录拒绝；`project.step` cycle（cycle 锁、advisor pass + scheduler pass、runs/cycles 持久化、事件） |
+| `host/orchestrator.js` | advisor / scheduler 一次性 activation（preset `lab-advisor`/`lab-scheduler`、`outputSchema`、可配置单轮超时，默认 1800s，30–1800s）；提案校验（parent、title/prompt、needs、timebox、去重、maxNodes）；创建子节点 + commit + tag + 封存父节点；scheduler 逐项 `runtime.start` 并记录拒绝；`project.step` cycle（cycle 锁、advisor pass + scheduler pass、runs/cycles 持久化、事件） |
 | `host/store.js` | runs/cycles 表访问（`projectId__runId` / `projectId__cycId`） |
 | `host/lab-service.js` | step / createSuccessor / listRuns / getRun；state 派生 `sealed`/`isLeaf`（只统计已批准子节点） |
 | `host/http.js` | `GET /runs`、`project.step`、`node.successor` |
