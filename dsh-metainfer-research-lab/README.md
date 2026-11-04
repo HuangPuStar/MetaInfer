@@ -90,7 +90,8 @@
 8. **合并**：选中多个 completed 节点 → `⊕ 创建合并节点`；运行中的 merge 节点可在「继续对话」弹窗与 merge agent 交互
    （历史用 DSH 原生轨迹查看），解决冲突后点 **✓ 完成合并**，Host 自动 stage 并提交 merge commit。
 9. **节点模型/强度**：项目设置里配置 `modelOptions`（含价格/tags）与角色默认；创建/后继/合并/检查器可选模型与
-   reasoning effort；失败节点可「用更强模型重试」，也可在设置里开启 `routing.autoUpgrade` 自动升级（受预算约束，
+   reasoning effort；失败或取消的节点可 **⇄ 换模型重试**（弹窗直接选 provider/model/effort，创建新 attempt 并保留历史），
+   也可「用更强模型重试」，或在设置里开启 `routing.autoUpgrade` 自动升级（受预算约束，
    每次升级是新 attempt，保留历史）。
 10. **多机 GPU 共享（纯 GUI，无需命令行）**：打开任意项目/项目列表页 → **集群设置** →
     勾选启用、角色选 **协调器/两者**，填 `clusterId`、`machineId`、监听地址、token → **保存并应用**；

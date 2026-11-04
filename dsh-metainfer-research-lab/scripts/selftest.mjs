@@ -80,13 +80,17 @@ async function test(name, fn) {
 
 const store = await openStore({ storageDomain: { open: async () => memoryDomain() }, logger: { info() {} } });
 const git = createGitEngine({ subprocess: fakeSubprocess() });
+const retryCalls = [];
 const lab = createLabService({
   ctx: { agentDefaultModel: { currentSelection: () => ({ provider: 'test-provider', model: 'test-model' }) } },
   store,
   git,
   transcript: { read: async () => ({ rows: [], nextSeq: 0, running: false }) },
   runtime: {
-    retry: async () => ({ node: { id: 'n-0001', status: 'running' }, revision: 1 }),
+    retry: async (projectId, nodeId, options) => {
+      retryCalls.push({ projectId, nodeId, options });
+      return { node: { id: 'n-0001', status: 'running' }, revision: 1 };
+    },
     decorateNodes: (_projectId, nodes) => nodes,
   },
   auto: {
@@ -182,7 +186,8 @@ await test('listProjects summary', async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].nodeCount, 1);
   assert.equal(list[0].id, project.id);
-  assert.equal(list[0].repoPath, DEMO_REPO);
+  const normalized = (value) => String(value).replace(/\\/g, '/').toLowerCase();
+  assert.equal(normalized(list[0].repoPath), normalized(DEMO_REPO));
 });
 
 await test('reject invalid config', async () => {
@@ -201,6 +206,26 @@ await test('reject invalid config', async () => {
 await test('retryNode delegates to runtime', async () => {
   const result = await lab.retryNode(project.id, 'n-0001');
   assert.equal(result.node.id, 'n-0001');
+});
+
+await test('retryNode forwards the chosen model', async () => {
+  retryCalls.length = 0;
+  await lab.retryNode(project.id, 'n-0001', {
+    model: { provider: 'test-provider', model: 'test-model', reasoningEffort: 'high' },
+  });
+  assert.equal(retryCalls.length, 1);
+  assert.deepEqual(retryCalls[0].options.model, {
+    provider: 'test-provider',
+    model: 'test-model',
+    reasoningEffort: 'high',
+  });
+});
+
+await test('retryNode rejects an empty model ref', async () => {
+  await assert.rejects(
+    () => lab.retryNode(project.id, 'n-0001', { model: { provider: '   ', model: '' } }),
+    (error) => error.code === 'bad_request',
+  );
 });
 
 await test('deleteProject removes all records', async () => {
@@ -334,6 +359,23 @@ await test('HTTP project list + create + state + events + edit', async () => {
   assert.equal(edited.ok, true);
   assert.equal(edited.data.revision, 2);
   assert.ok(edited.data.node.prompt.includes('batch-size'));
+
+  retryCalls.length = 0;
+  const retried = await callHttp(`${PREFIX}/commands`, {
+    method: 'POST',
+    rawBody: JSON.stringify({
+      type: 'node.retry',
+      projectId,
+      nodeId: 'n-0001',
+      model: { provider: 'test-provider', model: 'test-model', reasoningEffort: 'max' },
+    }),
+  });
+  assert.equal(retried.ok, true);
+  assert.deepEqual(retryCalls[0].options.model, {
+    provider: 'test-provider',
+    model: 'test-model',
+    reasoningEffort: 'max',
+  });
 
   const transcript = await callHttp(`${PREFIX}/transcript`, {
     query: `?projectId=${encodeURIComponent(projectId)}&nodeId=n-0001&afterSeq=0`,

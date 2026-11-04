@@ -252,10 +252,15 @@ Step 完成后在活动日志插入一条 `cycle` 摘要，并在顶栏短暂显
 | running | `⏹ 中断`、`💬 查看对话` |
 | completed（未封存） | `💬 继续对话`、`＋ 添加后继`、`✕ 丢弃` |
 | completed（已封存） | `👁 查看对话（只读）`、`＋ 添加后继（从该基线分叉）` |
-| failed | `↻ 重试`、`💬 查看对话`、`✕ 取消` |
-| cancelled | 仅只读展示（无「删除」操作；节点记录永久保留，避免破坏「封存由子节点派生」的不变量） |
+| failed | `↻ 重试`、`⇄ 换模型重试`、`💬 查看对话`、`✕ 取消` |
+| cancelled | `↻ 重新运行`、`⇄ 换模型重试`（只读展示历史；节点记录永久保留，避免破坏「封存由子节点派生」的不变量） |
 
 所有按钮的禁用都要有可解释的 tooltip（例：「资源不足：GPU 0/1 可用」「该节点已封存」「父节点正在运行，稍后再批准」）。
+
+**「换模型重试」模态**（failed / cancelled 节点）：展示当前模型与失败原因，内嵌 provider/model/reasoningEffort
+选择器（目录来自 Host 的 provider catalog，不要求事先配置进项目 `modelOptions`）；提交时向 `node.retry`
+附带 `{model}`，Host 用 `prepareNewAttempt` 创建新 session/attempt 并切换模型，历史保留。弹窗需提示
+「只影响本次重试，不修改项目或角色默认模型」。
 
 **「批准提案」的交互**：批准前校验父节点状态；若提案期间父节点 head 已变化，UI 显示
 「父节点基线已更新：{old} → {new}，批准后将从此新基线分叉」，用户确认后提交 `node.approve`。
@@ -385,7 +390,7 @@ Step 完成后在活动日志插入一条 `cycle` 摘要，并在顶栏短暂显
 | `node.reject` | `{projectId, nodeId}` | confirm 档拒绝提案：删除提案记录，父节点保持未封存 |
 | `node.start` | `{projectId, nodeId}` | 手动启动（Host 仍校验资源；proposed 不可直接启动） |
 | `node.cancel` | `{projectId, nodeId}` | 取消 planned/running/failed |
-| `node.retry` | `{projectId, nodeId}` | 失败重试：没有 `sessionId`（启动阶段失败）→ 回到 planned 重新启动；已有会话 → 发 follow-up 消息（带错误上下文） |
+| `node.retry` | `{projectId, nodeId, model?, upgrade?, reason?}` | 失败重试：带 `model`（或 `upgrade:true`）时对 failed/completed/cancelled 创建新 attempt 并切换模型；不带时：没有 `sessionId`（启动阶段失败）→ 回到 planned 重新启动；已有会话 → 发 follow-up 消息（带错误上下文） |
 | `node.successor` | `{projectId, nodeId, title, prompt, needs?, successCriteria?, timeboxMinutes?}` | 手动添加后继（封存父节点；timebox 默认取项目默认值） |
 | `node.message` | `{projectId, nodeId, text}` | 继续对话（仅未封存叶子） |
 | `node.seal` | — | 不提供：封存只能由「创建后继」间接触发 |

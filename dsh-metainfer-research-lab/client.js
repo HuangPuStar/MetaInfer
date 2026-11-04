@@ -172,6 +172,8 @@ window.__ModuleLoader__.load({
       'error.http': '请求失败（HTTP {status}）',
       'error.unknown': '请求失败',
       'error.unauthorized': '没有访问权限',
+      'error.code.no_model_tier': '没有配置更强的计费模型档位；请改用「换模型重试」手动选择模型。',
+      'error.code.node_sealed': '该节点已有后续节点而封存，不能换模型重试。',
 
       'landing.projects.title': '实验项目',
       'landing.projects.count': '共 {count} 个项目',
@@ -828,6 +830,19 @@ window.__ModuleLoader__.load({
       'ws.retry.cancel': '取消',
       'ws.retry.busy': '正在重试…',
       'ws.retry.error': '重试失败',
+      'ws.retryWithModel.action': '⇄ 换模型重试',
+      'ws.retryWithModel.short': '换模型',
+      'ws.retryWithModel.cancelledHint': '取消的节点不能原地恢复；可选择一个新模型创建新 attempt。',
+      'ws.retryWithModel.title': '换模型重试',
+      'ws.retryWithModel.intro': '为这个失败/取消的节点指定一个新模型；会保留历史并创建新的 attempt。',
+      'ws.retryWithModel.current': '当前模型',
+      'ws.retryWithModel.reason': '失败原因',
+      'ws.retryWithModel.hint': '只影响本次重试；不会修改项目或角色的默认模型。',
+      'ws.retryWithModel.cancel': '取消',
+      'ws.retryWithModel.close': '关闭换模型重试对话框',
+      'ws.retryWithModel.submit': '开始重试',
+      'ws.retryWithModel.submitting': '正在重试…',
+      'ws.retryWithModel.error': '换模型重试失败',
       'ws.merge.createAction': '⊕ 创建合并节点',
       'ws.merge.createTitle': '创建合并节点',
       'ws.merge.close': '关闭合并节点对话框',
@@ -1425,6 +1440,8 @@ window.__ModuleLoader__.load({
       'error.http': 'Request failed (HTTP {status})',
       'error.unknown': 'Request failed',
       'error.unauthorized': 'Not authorised',
+      'error.code.no_model_tier': 'No stronger priced model tier is configured; use Retry with model to pick one.',
+      'error.code.node_sealed': 'This node has successors and is sealed; it cannot retry with another model.',
 
       'landing.projects.title': 'Experiment projects',
       'landing.projects.count': '{count} projects',
@@ -2081,6 +2098,19 @@ window.__ModuleLoader__.load({
       'ws.retry.cancel': 'Cancel',
       'ws.retry.busy': 'Retrying…',
       'ws.retry.error': 'Retry failed',
+      'ws.retryWithModel.action': '⇄ Retry with model',
+      'ws.retryWithModel.short': 'With model',
+      'ws.retryWithModel.cancelledHint': 'A cancelled node cannot resume in place; pick a model to start a fresh attempt.',
+      'ws.retryWithModel.title': 'Retry with another model',
+      'ws.retryWithModel.intro': 'Pick a model for this failed/cancelled node; the history is kept and a fresh attempt starts.',
+      'ws.retryWithModel.current': 'Current model',
+      'ws.retryWithModel.reason': 'Failure reason',
+      'ws.retryWithModel.hint': 'Only affects this retry; project and role defaults are unchanged.',
+      'ws.retryWithModel.cancel': 'Cancel',
+      'ws.retryWithModel.close': 'Close retry-with-model dialog',
+      'ws.retryWithModel.submit': 'Start retry',
+      'ws.retryWithModel.submitting': 'Retrying…',
+      'ws.retryWithModel.error': 'Retry with model failed',
       'ws.merge.createAction': '⊕ Create merge node',
       'ws.merge.createTitle': 'Create merge node',
       'ws.merge.close': 'Close merge node dialog',
@@ -3233,9 +3263,19 @@ window.__ModuleLoader__.load({
       return Boolean(error) && (error.name === 'AbortError' || error.code === 'ABORT_ERR');
     }
 
+    /** Host error codes with a dedicated, actionable localized line. */
+    const ERROR_CODE_KEYS = {
+      no_model_tier: 'error.code.no_model_tier',
+      node_sealed: 'error.code.node_sealed',
+    };
+
     /** Turn a thrown value into one localized line. */
     function describeError(error, t) {
-      if (error instanceof LabRequestError) return error.message || t('error.unknown');
+      if (error instanceof LabRequestError) {
+        const key = ERROR_CODE_KEYS[error.code];
+        if (key !== undefined) return t(key);
+        return error.message || t('error.unknown');
+      }
       if (error && error.name === 'TypeError') return t('error.network');
       if (error instanceof Error && error.message) return error.message;
       return t('error.unknown');
@@ -3767,6 +3807,17 @@ window.__ModuleLoader__.load({
       const resolved = asObject(node).modelResolved;
       if (resolved !== null && typeof resolved === 'object' && Object.keys(resolved).length > 0) return resolved;
       return nodeModelOf(node);
+    }
+    /** Portable {provider,model,reasoningEffort?} ref for ModelPicker seeding. */
+    function nodeModelRefOf(node) {
+      const resolved = asObject(nodeModelResolvedOf(node));
+      const provider = firstString(resolved.provider);
+      const model = firstString(resolved.model);
+      if (provider === '' || model === '') return null;
+      const ref = { provider, model };
+      const effort = firstString(resolved.reasoningEffort);
+      if (effort !== '') ref.reasoningEffort = effort;
+      return ref;
     }
     function modelLabelOf(model) {
       const record = asObject(model);
@@ -7480,6 +7531,7 @@ window.__ModuleLoader__.load({
       const [autoConfirmOpen, setAutoConfirmOpen] = React.useState(false);
       const [settingsOpen, setSettingsOpen] = React.useState(false);
       const [confirmRequest, setConfirmRequest] = React.useState(null);
+      const [retryModelNodeId, setRetryModelNodeId] = React.useState(null);
       const [projectMenuOpen, setProjectMenuOpen] = React.useState(false);
       const [deleteOpen, setDeleteOpen] = React.useState(false);
       const [deleteBusy, setDeleteBusy] = React.useState(false);
@@ -7501,6 +7553,9 @@ window.__ModuleLoader__.load({
       const stepBusyRef = React.useRef(false);
       const autoBusyRef = React.useRef(false);
       const nodes = snapshot.nodes;
+      const retryModelNode = retryModelNodeId === null
+        ? null
+        : nodes.filter((node) => nodeIdOf(node) === retryModelNodeId)[0] || null;
       const edges = snapshot.edges;
       const project = snapshot.project;
       const layout = React.useMemo(() => computeLayout(nodes, edges), [nodes, edges]);
@@ -7519,6 +7574,10 @@ window.__ModuleLoader__.load({
       const runsFeed = useRuns(projectId, t);
       const modelOptions = modelCatalog.state.catalog === null ? [] : asArray(modelCatalog.state.catalog.options);
       const modelProviders = modelCatalog.state.catalog === null ? [] : asArray(modelCatalog.state.catalog.providers);
+      const escalateAvailable = asArray(modelOptions).some((option) => {
+        const record = asObject(option);
+        return (numberOr(record.pricePerMTokIn, 0) + numberOr(record.pricePerMTokOut, 0)) > 0;
+      });
       const promptDefaults = modelCatalog.state.catalog === null ? null : asObject(modelCatalog.state.catalog.promptDefaults);
       const promptPlaceholders = modelCatalog.state.catalog === null ? [] : stringListOf(modelCatalog.state.catalog.promptPlaceholders);
 
@@ -7915,6 +7974,20 @@ window.__ModuleLoader__.load({
         setConfirmRequest({ kind: 'retry', nodeId });
       }, []);
 
+      /** Failed/cancelled node: choose another model and start a fresh attempt. */
+      const requestRetryWithModel = React.useCallback((nodeId) => {
+        setSelectedId(nodeId);
+        setRetryModelNodeId(nodeId);
+      }, []);
+      const closeRetryWithModel = React.useCallback(() => setRetryModelNodeId(null), []);
+      const submitRetryWithModel = React.useCallback(async (payload) => {
+        const nodeId = retryModelNodeId;
+        if (nodeId === null) return { ok: false, error: t('error.unknown') };
+        const result = await runNodeCommand('node.retry', nodeId, payload);
+        if (result !== null && result !== undefined && result.ok === true) reload();
+        return result;
+      }, [reload, retryModelNodeId, runNodeCommand, t]);
+
       /** Project deletion from the top-bar menu: same dialog, then back to the list. */
       const requestDeleteProject = React.useCallback(() => {
         setProjectMenuOpen(false);
@@ -8084,6 +8157,8 @@ window.__ModuleLoader__.load({
             onNodeAction: handleNodeAction,
             onProposalAction: requestProposalAction,
             onRetryRequest: requestRetry,
+            onRetryWithModel: requestRetryWithModel,
+            escalateAvailable,
             onEscalate: handleEscalate,
             t,
           }),
@@ -8101,6 +8176,8 @@ window.__ModuleLoader__.load({
             onProposalAction: requestProposalAction,
             onOpenRun: openRuns,
             onRetryRequest: requestRetry,
+            onRetryWithModel: requestRetryWithModel,
+            escalateAvailable,
             onOpenMergeCreate: openMergeCreate,
             onFinishMerge: openFinishMerge,
             onEscalate: handleEscalate,
@@ -8309,6 +8386,16 @@ window.__ModuleLoader__.load({
               danger: confirmRequest.kind === 'reject',
               onConfirm: confirmProposal,
               onCancel: cancelConfirm,
+              t,
+            })
+          : null,
+        retryModelNode !== null
+          ? h(RetryModelDialog, {
+              node: retryModelNode,
+              modelOptions,
+              modelProviders,
+              onClose: closeRetryWithModel,
+              onSubmit: submitRetryWithModel,
               t,
             })
           : null,
@@ -8931,7 +9018,7 @@ window.__ModuleLoader__.load({
      * Background drag pans, wheel zooms around the pointer, the toolbar fits the
      * graph, and clicking empty space clears the selection.
      */
-    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, t }) {
+    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onRetryWithModel, escalateAvailable, onEscalate, t }) {
       const viewportRef = React.useRef(null);
       const [pan, setPan] = React.useState({ x: 0, y: 0 });
       const [zoom, setZoom] = React.useState(1);
@@ -9129,6 +9216,8 @@ window.__ModuleLoader__.load({
                   onNodeAction,
                   onProposalAction,
                   onRetryRequest,
+                  onRetryWithModel,
+                  escalateAvailable,
                   onEscalate,
                   t,
                 });
@@ -9176,6 +9265,8 @@ window.__ModuleLoader__.load({
       onNodeAction,
       onProposalAction,
       onRetryRequest,
+      onRetryWithModel,
+      escalateAvailable,
       onEscalate,
       t,
     }) {
@@ -9212,9 +9303,13 @@ window.__ModuleLoader__.load({
         actions.push({ key: 'reject', label: t('ws.proposed.reject'), run: () => onProposalAction('reject', id) });
       } else if (status === 'failed') {
         actions.push({ key: 'retry', label: t('ws.retry.action'), run: () => onRetryRequest(id) });
-        actions.push({ key: 'escalate', label: t('ws.escalate.action'), run: () => onEscalate(id) });
+        actions.push({ key: 'retry-with-model', label: t('ws.retryWithModel.short'), run: () => onRetryWithModel(id) });
+        if (escalateAvailable !== false) {
+          actions.push({ key: 'escalate', label: t('ws.escalate.action'), run: () => onEscalate(id) });
+        }
       } else if (status === 'cancelled') {
         actions.push({ key: 'retry', label: t('ws.retry.cancelled'), run: () => onRetryRequest(id) });
+        actions.push({ key: 'retry-with-model', label: t('ws.retryWithModel.short'), run: () => onRetryWithModel(id) });
       }
       let className = 'rl-node rl-node-' + status;
       if (isMergeNode) className += ' rl-node-merge';
@@ -9316,7 +9411,7 @@ window.__ModuleLoader__.load({
      * Right inspector: prompt + success criteria and timebox editors (planned
      * nodes only), plus read-only Git/timestamp readback.
      */
-    function NodeInspector({ project, nodes, node, now, busyKey, onSave, onAction, onOpenSession, onContinue, onSuccessor, onProposalAction, onOpenRun, onRetryRequest, onOpenMergeCreate, onFinishMerge, onEscalate, modelOptions, modelProviders, clusterEnabled, t }) {
+    function NodeInspector({ project, nodes, node, now, busyKey, onSave, onAction, onOpenSession, onContinue, onSuccessor, onProposalAction, onOpenRun, onRetryRequest, onRetryWithModel, escalateAvailable, onOpenMergeCreate, onFinishMerge, onEscalate, modelOptions, modelProviders, clusterEnabled, t }) {
       const nodeKey = node === null ? '' : nodeIdOf(node);
       const [promptDraft, setPromptDraft] = React.useState('');
       const [criteriaDraft, setCriteriaDraft] = React.useState('');
@@ -9610,6 +9705,13 @@ window.__ModuleLoader__.load({
                 onClick: () => onRetryRequest(nodeKeyId),
               })
             : null,
+          status === 'failed'
+            ? h(LabButton, {
+                label: t('ws.retryWithModel.action'),
+                disabled: blocked,
+                onClick: () => onRetryWithModel(nodeKeyId),
+              })
+            : null,
           status === 'cancelled'
             ? h(LabButton, {
                 label: busy ? t('ws.retry.busy') : t('ws.retry.cancelled'),
@@ -9619,7 +9721,15 @@ window.__ModuleLoader__.load({
                 onClick: () => onRetryRequest(nodeKeyId),
               })
             : null,
-          (status === 'failed' || (status === 'completed' && leafAndOpen))
+          status === 'cancelled'
+            ? h(LabButton, {
+                label: t('ws.retryWithModel.action'),
+                disabled: blocked,
+                title: t('ws.retryWithModel.cancelledHint'),
+                onClick: () => onRetryWithModel(nodeKeyId),
+              })
+            : null,
+          escalateAvailable !== false && (status === 'failed' || (status === 'completed' && leafAndOpen))
             ? h(LabButton, {
                 label: busy ? t('ws.escalate.busy') : t('ws.escalate.action'),
                 disabled: blocked,
@@ -11651,6 +11761,68 @@ window.__ModuleLoader__.load({
               label: submitting ? t('ws.merge.creating') : t('ws.merge.submit'),
               variant: 'primary',
               disabled: submitting,
+              onClick: submit,
+            }),
+          ),
+        ),
+      );
+    }
+
+    /** Failed/cancelled node: start a fresh attempt with an explicitly chosen model. */
+    function RetryModelDialog({ node, modelOptions, modelProviders, onClose, onSubmit, t }) {
+      const [model, setModel] = React.useState(() => nodeModelRefOf(node));
+      const [submitting, setSubmitting] = React.useState(false);
+      const [error, setError] = React.useState('');
+      const failureReason = firstString(nodeErrorOf(node).message);
+      const submit = async () => {
+        if (submitting || model === null) return;
+        setSubmitting(true);
+        setError('');
+        const result = await onSubmit({ model });
+        setSubmitting(false);
+        if (result !== null && result !== undefined && result.ok === true) onClose();
+        else setError((result && result.error) || t('ws.retryWithModel.error'));
+      };
+      return h(
+        'div',
+        { className: 'rl-overlay-layer rl-overlay-layer-top' },
+        h(
+          'div',
+          { className: 'rl-modal rl-modal-narrow', role: 'dialog', 'aria-label': t('ws.retryWithModel.title') },
+          h(
+            'div',
+            { className: 'rl-modal-head' },
+            h('h2', { className: 'rl-modal-title' }, t('ws.retryWithModel.title')),
+            h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.retryWithModel.close'), onClick: onClose }),
+          ),
+          h(
+            'div',
+            { className: 'rl-modal-body' },
+            h('p', { className: 'rl-modal-note' }, t('ws.retryWithModel.intro')),
+            h(LabInfoRow, {
+              label: t('ws.retryWithModel.current'),
+              value: modelLabelOf(nodeModelResolvedOf(node)) || t('ws.model.none'),
+              mono: true,
+            }),
+            failureReason !== ''
+              ? h(LabInfoRow, { label: t('ws.retryWithModel.reason'), value: failureReason })
+              : null,
+            h(
+              LabField,
+              { label: t('ws.model.title'), hint: t('ws.model.inheritHint') },
+              h(ModelPicker, { model, onChange: setModel, modelOptions, modelProviders, disabled: submitting, t }),
+            ),
+            h('p', { className: 'rl-hint' }, t('ws.retryWithModel.hint')),
+            error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, error) : null,
+          ),
+          h(
+            'div',
+            { className: 'rl-modal-foot' },
+            h(LabButton, { label: t('ws.retryWithModel.cancel'), variant: 'ghost', onClick: onClose }),
+            h(LabButton, {
+              label: submitting ? t('ws.retryWithModel.submitting') : t('ws.retryWithModel.submit'),
+              variant: 'primary',
+              disabled: submitting || model === null,
               onClick: submit,
             }),
           ),
