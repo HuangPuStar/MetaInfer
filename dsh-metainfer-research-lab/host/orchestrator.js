@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { LabError } from './git-engine.js';
-import { cleanModelRef, validateModelSelection } from './models.js';
+import { cleanModelRef, isBlankModelRef, validateModelSelection } from './models.js';
 import { newSessionId } from './store.js';
 import { advisorCandidates, buildAdvisorSnapshot, buildSchedulerSnapshot, promptHash } from './snapshot.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
@@ -653,6 +653,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
         if (!raw) continue;
         const candidate = cleanModelRef(raw);
         if (!candidate) {
+          if (isBlankModelRef(raw)) continue; // empty fields mean "do not override the default model"
           advisorModels.set(index, { error: 'recommendedModel must be {profileId} or {provider, model, reasoningEffort?}' });
           continue;
         }
