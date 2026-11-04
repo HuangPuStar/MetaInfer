@@ -5,7 +5,7 @@
  * The runtime owns session/agent handles (memory only); durable node state lives in
  * the ProjectStore. Killing on timeout is plain Host code — never an Agent.
  */
-import { readdir, readlink } from 'node:fs/promises';
+import { readFile, readdir, readlink } from 'node:fs/promises';
 import path from 'node:path';
 import { LabError } from './git-engine.js';
 import {
@@ -17,7 +17,7 @@ import {
 } from './models.js';
 import { newSessionId } from './store.js';
 import { prepareRemoteRun } from './remote-run.js';
-import { DEFAULT_WORKER_PREFIX, WORKER_RULES } from './prompts.js';
+import { DEFAULT_MERGE_PROMPT, DEFAULT_WORKER_PREFIX, WORKER_RULES } from './prompts.js';
 
 /** JSON schema accepted by DSH's structured-output tool (supported subset only). */
 export const NODE_REPORT_SCHEMA = {
@@ -80,6 +80,21 @@ function isAlive(pid) {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * A zombie still answers `kill(pid, 0)` but holds no CPU, memory, or GPU
+ * context; reporting it as a leftover would turn a clean reap into a false
+ * alarm. Missing /proc entry means the process is already gone.
+ */
+async function isZombie(pid) {
+  try {
+    const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+    const stateIndex = stat.lastIndexOf(')') + 2;
+    return stat.slice(stateIndex, stateIndex + 1) === 'Z';
+  } catch {
+    return true;
   }
 }
 
@@ -167,6 +182,31 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
 
   function keyOf(projectId, nodeId) {
     return `${projectId}__${nodeId}`;
+  }
+
+  /**
+   * Append the node session's sandbox-mode override.
+   *
+   * GPU runtimes open device nodes (e.g. /dev/kfd) read-write; a workspace-write
+   * file sandbox denies that open, leaving torch with `device_count() == 0` while
+   * the shell itself still works. `auto` lifts only nodes that requested
+   * GPU/machine resources, so CPU nodes stay confined by default.
+   */
+  function seedNodeSandbox(sessionId, project, node) {
+    let mode = project?.config?.workerSandboxMode ?? 'auto';
+    if (mode === 'auto') {
+      const gpu = Number(node?.needs?.gpu ?? 0);
+      const machines = Number(node?.needs?.machines ?? 0);
+      mode = gpu > 0 || machines > 0 ? 'danger-full-access' : 'workspace-write';
+    }
+    try {
+      const session = ctx.agents.get(sessionId)?.session;
+      if (session && typeof session.append === 'function') {
+        session.append('sandbox/mode', { mode });
+      }
+    } catch {
+      // Best-effort: leave the deployment default in place if the switch fails.
+    }
   }
 
   function roleModel(project, role) {
@@ -483,8 +523,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
         report: parent.report?.summary ?? null,
       }));
     const state = node.merge?.state ?? 'pending';
+    const custom = project.config?.prompts?.merge;
     return [
-      'You are the interactive merge agent of MetaInfer Research Lab.',
+      custom && custom.trim() ? custom.trim() : DEFAULT_MERGE_PROMPT,
       `Worktree: ${node.git.worktreePath} (branch ${node.git.branch}). Work only inside it.`,
       `Model for this attempt: ${selection?.provider ?? 'default'}/${selection?.model ?? 'default'}${selection?.reasoningEffort ? ` (reasoning effort: ${selection.reasoningEffort})` : ''}`,
       `Parents merged into this worktree: ${JSON.stringify(parents, null, 2)}`,
@@ -632,8 +673,21 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     const reaper = reaperPlatform();
     const pids = await scanWorktreePids(worktreePath);
     await terminatePids(pids);
-    if (pids.length > 0) await sleep(300);
-    const leftover = pids.filter((pid) => isAlive(pid)).map((pid) => `pid ${pid} still alive`);
+    if (pids.length > 0) {
+      // SIGKILL is asynchronous. Poll briefly instead of declaring a leftover
+      // that disappears a few seconds later (observed with a killed sglang
+      // process tree in the cancel path).
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        if (pids.every((pid) => !isAlive(pid))) break;
+        await sleep(150);
+      }
+    }
+    const leftover = [];
+    for (const pid of pids) {
+      if (!isAlive(pid)) continue;
+      if (await isZombie(pid)) continue;
+      leftover.push(`pid ${pid} still alive`);
+    }
     return {
       killedPids: pids,
       leftover,
@@ -681,6 +735,24 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     }
   }
 
+  async function cleanupNodeRuntime(node) {
+    const killedJobs = await killSessionJobs(node.sessionId);
+    const reaped = await reapWorktree(node.git.worktreePath);
+    const gpu = await checkGpu(reaped.killedPids);
+    const leftover = [...reaped.leftover, ...gpu.leftover];
+    return {
+      at: Date.now(),
+      killedJobs,
+      killedPids: reaped.killedPids,
+      gpuFreed: gpu.gpuFreed,
+      verifiedClean: leftover.length === 0,
+      leftover,
+      reaper: reaped.reaper,
+      reaperSupported: reaped.reaperSupported,
+      reaperNote: reaped.reaperNote,
+    };
+  }
+
   async function releaseNode(project, node) {
     const leaseId = node.lease?.leaseId;
     delete node.resourcesHeld;
@@ -726,6 +798,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
         error.stage = 'run';
         throw error;
       }
+      // Stop a worker that finished its turn but left a server/job behind;
+      // otherwise the supposedly completed node keeps holding GPU memory.
+      node.cleanup = await cleanupNodeRuntime(node);
       const commit = await git.commitWorktree(project, node, `dshex(${node.id}): ${node.title}`);
       node.git.headCommit = commit.head;
       node.report = result?.structured && typeof result.structured === 'object' ? result.structured : null;
@@ -737,7 +812,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       await releaseNode(project, node);
       node.timestamps = { ...(node.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
       await persistNode(project, node, 'node/completed', {
-        data: { headCommit: commit.head, committed: commit.committed, reportSuccess: node.report?.success ?? null },
+        data: { headCommit: commit.head, committed: commit.committed, reportSuccess: node.report?.success ?? null, cleanup: node.cleanup ?? null },
       });
     } catch (error) {
       await failNode(project, node, error, error?.stage === 'run' ? 'run' : 'commit');
@@ -752,6 +827,13 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
   }
 
   async function failNode(project, node, error, stage) {
+    if (!node.cleanup) {
+      try {
+        node.cleanup = await cleanupNodeRuntime(node);
+      } catch {
+        // Cleanup is best-effort; the failure state still needs to be recorded.
+      }
+    }
     try {
       const commit = await git.commitWorktree(project, node, `dshex(${node.id}): ${node.title} (failed)`);
       node.git.headCommit = commit.head;
@@ -773,7 +855,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     };
     node.timestamps = { ...(node.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
     await persistNode(project, node, 'node/failed', {
-      data: { stage, message: node.error.message },
+      data: { stage, message: node.error.message, cleanup: node.cleanup ?? null },
     });
     await maybeAutoUpgrade(project, node, stage === 'run' ? 'run' : stage);
   }
@@ -1017,6 +1099,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
             agentOptions: selectionToAgentOptions(selection),
           },
         });
+        seedNodeSandbox(node.sessionId, project, node);
         active.set(keyOf(projectId, nodeId), {
           projectId,
           nodeId,
@@ -1057,6 +1140,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
           outputSchema: NODE_REPORT_SCHEMA,
         },
       });
+      seedNodeSandbox(node.sessionId, project, node);
       const activeEntry = {
         projectId,
         nodeId,
@@ -1475,6 +1559,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     if (node.status !== 'running') {
       throw new LabError('node_not_mergeable', `node ${nodeId} is ${node.status}, expected running`, 409);
     }
+    // A merge agent may have left a test server or shell job behind before the
+    // human pressed "finish merge"; reap it before joining the branch.
+    node.cleanup = await cleanupNodeRuntime(node);
     const result = await git.finishMergeInWorktree(
       node.git.worktreePath,
       `dshex(${node.id}): merge ${node.parentIds.join(' + ')}`,
@@ -1516,7 +1603,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       lastActivityAt: Date.now(),
     };
     await persistNode(project, node, 'node/completed', {
-      data: { kind: 'merge', headCommit: result.head, committed: result.committed },
+      data: { kind: 'merge', headCommit: result.head, committed: result.committed, cleanup: node.cleanup ?? null },
     });
     if (entry) {
       try {

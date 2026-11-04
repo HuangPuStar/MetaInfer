@@ -124,6 +124,11 @@ export function registerHttpRoutes(ctx, service) {
     return ok(await service.getCopilot(params.get('projectId')));
   });
 
+  route(`${PREFIX}/intake`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(await service.readIntake(params.get('intakeId')));
+  });
+
   route(`${PREFIX}/runs`, ['GET'], async (request) => {
     const params = query(request);
     const projectId = params.get('projectId');
@@ -180,7 +185,26 @@ export function registerHttpRoutes(ctx, service) {
       return ok(await service.clearProjectChat(body.projectId));
     }
     if (type === 'project.copilot') {
-      return ok(await service.openCopilot(body.projectId));
+      return ok(await service.openCopilot(body.projectId, {
+        sessionId: body.sessionId,
+        create: body.create === true,
+        title: body.title,
+      }));
+    }
+    if (type === 'project.intake_start') {
+      return ok(await service.startIntake({ schema: body.schema }));
+    }
+    if (type === 'project.intake_message') {
+      return ok(await service.messageIntake(body.intakeId, body.text));
+    }
+    if (type === 'project.intake_confirm') {
+      return ok(await service.confirmIntake(body.intakeId, { start: body.start === true }));
+    }
+    if (type === 'project.intake_discard') {
+      return ok(await service.discardIntake(body.intakeId));
+    }
+    if (type === 'project.intake_get') {
+      return ok(await service.readIntake(body.intakeId));
     }
     if (type === 'project.compile_placement') {
       return ok(await service.compilePlacementPolicyForProject(body.projectId, body.text));

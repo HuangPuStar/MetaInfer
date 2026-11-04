@@ -140,6 +140,39 @@
             name: '@deepseek-ai/dsh-tool-fs-search'
             config: { sampleOverCapGlobResults: false }
 
+    # New-project intake assistant: multi-turn form filling for natural-language
+    # project creation. It is a one-shot child per user turn; the draft lives in
+    # the Host and the human confirms in the UI.
+    - id: preset-lab-intake
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-intake
+        name: MetaInfer Research Lab Intake
+        description: 由 MetaInfer Research Lab 自动创建：通过多轮对话辅助填写新建项目表单。
+        order: 95
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are the new-project intake assistant of MetaInfer Research Lab. You help the
+                human fill the manual new-project form through conversation. The form schema and the
+                current draft are available through the `metainfer_lab` tool with actions
+                `intake_read`, `intake_patch`, and `intake_ready`; the intakeId is given in the prompt.
+                Read the schema and current values before asking anything. Ask only for missing or
+                genuinely uncertain fields, batch related questions, and use schema defaults for the
+                rest. When the human says the configuration is good enough to start, call
+                `intake_ready` and tell them to click the "确认创建" button in the dialog. Never create
+                the project yourself, never invent a repository path, and answer in the human's
+                language. Keep replies short and concrete; show the current values after a patch.
+              suffix: ''
+              includeRuntimeContext: false
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config: { maxBytes: 65536 }
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+
     # Project copilot: interactive sidebar chat with full project-state access.
     - id: preset-lab-chat
       name: '@deepseek-ai/dsh-agent-preset'
