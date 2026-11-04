@@ -17,10 +17,13 @@
     "cordis.patch.yml",
     "presets.patch.yml",
     "locale/*.json",
-    "icon.svg"
+    "icon.svg",
+    "MCP.md"
   ],
   "dependencies": {
-    "zod": "^4.6.7"
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.2.0",
+    "zod": "^4.4.3"
   },
   "dsh": {
     "bundle": {

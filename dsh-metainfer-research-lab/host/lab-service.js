@@ -5,10 +5,11 @@
  * uses, and later phases expose the same operations to agent tools.
  */
 import path from 'node:path';
+import os from 'node:os';
 import { LabError } from './git-engine.js';
 import { buildModelCatalog, cleanModelRef, resolveModelSelection, validateModelSelection } from './models.js';
 import { compilePlacementPolicy, describePlacementSpec, sanitizePlacementSpec } from './placement.js';
-import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT, DEFAULT_WORKER_PREFIX, PROMPT_PLACEHOLDERS } from './prompts.js';
+import { DEFAULT_ADVISOR_PROMPT, DEFAULT_GC_PROMPT, DEFAULT_MERGE_PROMPT, DEFAULT_SCHEDULER_PROMPT, DEFAULT_WORKER_PREFIX, PROMPT_PLACEHOLDERS } from './prompts.js';
 import { newProjectId, newSessionId } from './store.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
@@ -108,6 +109,23 @@ function normalizeConfig(raw, base = undefined) {
     1,
     Math.min(MAX_TIMEOUT_MINUTES, maxNodeTimeoutMinutes),
   );
+  // Node sessions (worker/merge) run arbitrary experiments. The workspace-write
+  // sandbox is enough for CPU work, but GPU runtimes open /dev/kfd (and vendor
+  // device nodes) read-write; the file sandbox denies that, so the node looks
+  // healthy while torch reports zero devices. `auto` (the default) keeps CPU
+  // nodes confined and lifts only nodes that requested GPU/machine resources;
+  // a project may also pin any explicit mode.
+  const SANDBOX_MODES = ['auto', 'read-only', 'workspace-write', 'danger-full-access'];
+  let workerSandboxMode = previous.workerSandboxMode ?? 'auto';
+  if (input.workerSandboxMode !== undefined) {
+    if (typeof input.workerSandboxMode !== 'string' || !SANDBOX_MODES.includes(input.workerSandboxMode)) {
+      throw new LabError(
+        'bad_request',
+        `config.workerSandboxMode must be one of ${SANDBOX_MODES.join(', ')}`,
+      );
+    }
+    workerSandboxMode = input.workerSandboxMode;
+  }
   const config = {
     ...previous,
     resourcePools: input.resourcePools === undefined
@@ -119,6 +137,7 @@ function normalizeConfig(raw, base = undefined) {
     clusterPriority: integer(input.clusterPriority, 'config.clusterPriority', previous.clusterPriority ?? 0, 0, 100),
     nodeTimeoutMinutes,
     maxNodeTimeoutMinutes,
+    workerSandboxMode,
   };
 
   if (input.models !== undefined) {
@@ -265,7 +284,7 @@ function normalizeConfig(raw, base = undefined) {
       throw new LabError('bad_request', 'config.prompts must be an object');
     }
     const prompts = { ...(previous.prompts ?? {}) };
-    for (const key of ['workerPrefix', 'advisor', 'scheduler']) {
+    for (const key of ['workerPrefix', 'advisor', 'scheduler', 'merge', 'gc']) {
       if (input.prompts[key] === undefined) continue;
       const value = text(input.prompts[key], `config.prompts.${key}`, { max: 8000 });
       if (value) prompts[key] = value;
@@ -283,6 +302,7 @@ function normalizeConfig(raw, base = undefined) {
       ancestorDepth: previous.advisor?.ancestorDepth ?? 2,
       acceptMode: previous.advisor?.acceptMode ?? 'auto',
       maxPendingProposals: previous.advisor?.maxPendingProposals ?? 20,
+      timeoutSeconds: previous.advisor?.timeoutSeconds ?? 180,
       reviewers: previous.advisor?.reviewers ?? [],
     };
     if (input.advisor.maxProposalsPerPass !== undefined) {
@@ -300,6 +320,9 @@ function normalizeConfig(raw, base = undefined) {
     }
     if (input.advisor.maxPendingProposals !== undefined) {
       advisor.maxPendingProposals = integer(input.advisor.maxPendingProposals, 'config.advisor.maxPendingProposals', advisor.maxPendingProposals, 1, 200);
+    }
+    if (input.advisor.timeoutSeconds !== undefined) {
+      advisor.timeoutSeconds = integer(input.advisor.timeoutSeconds, 'config.advisor.timeoutSeconds', advisor.timeoutSeconds, 30, 1800);
     }
     if (input.advisor.reviewers !== undefined) {
       if (!Array.isArray(input.advisor.reviewers)) {
@@ -363,7 +386,7 @@ function normalizeConfig(raw, base = undefined) {
   }
 
   // Ensure every project has the full default shape even when created before M4.
-  config.advisor = config.advisor ?? { maxProposalsPerPass: 3, ancestorDepth: 2, acceptMode: 'auto', maxPendingProposals: 20, reviewers: [] };
+  config.advisor = config.advisor ?? { maxProposalsPerPass: 3, ancestorDepth: 2, acceptMode: 'auto', maxPendingProposals: 20, timeoutSeconds: 180, reviewers: [] };
   config.auto = config.auto ?? { maxCycles: 50, maxWallClockMs: 6 * 60 * 60 * 1000, idleCycleLimit: 3, debounceMs: 1500, cooldownMs: 5000, maxTokens: 0, maxCostUsd: 0 };
   config.modelOptions = config.modelOptions ?? [];
   config.routing = config.routing ?? { advisorMaySelectModels: false, autoUpgrade: false, maxAttempts: 2 };
@@ -375,7 +398,7 @@ function normalizeConfig(raw, base = undefined) {
 /**
  * @param {{store: object, git: object, version?: string}} deps
  */
-export function createLabService({ ctx, store, git, runtime, transcript, orchestrator, auto, cluster, clusterAdmin, version = '0.8.9-v3' }) {
+export function createLabService({ ctx, store, git, runtime, transcript, orchestrator, auto, cluster, clusterAdmin, version = '0.11.0' }) {
   function requireProject(projectId) {
     const project = typeof projectId === 'string' ? store.getProject(projectId) : undefined;
     if (!project) throw new LabError('project_not_found', `unknown project: ${projectId}`, 404);
@@ -864,7 +887,6 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   // Conversation for this session in a large drawer, so history/trajectory/live
   // thinking are native while the agent still has full project visibility.
   // ---------------------------------------------------------------------------
-  const copilotHandles = new Map(); // sessionId -> AgentHandle
   const copilotLocks = new Map(); // projectId -> Promise
 
   async function copilotContext(projectId, input = {}) {
@@ -924,50 +946,233 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     };
   }
 
-  async function setupCopilot(projectId, agentCtx) {
-    await ctx.agentPresets.mount(agentCtx, 'lab-chat');
-    agentCtx.tools.register(copilotToolDefinition(projectId));
+  function copilotDescriptor(project, model) {
+    const descriptor = {
+      version: 3,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: `mirl-copilot/${project.id}`,
+    };
+    if (model && typeof model.provider === 'string') descriptor.agentProvider = model.provider;
+    if (model && typeof model.model === 'string') descriptor.agentModel = model.model;
+    if (model && typeof model.reasoningEffort === 'string') descriptor.agentReasoningEffort = model.reasoningEffort;
+    return descriptor;
   }
 
-  async function ensureCopilotSession(projectId) {
+  /** Append the durable child descriptor if an older Copilot session lacks it. */
+  function ensureCopilotDescriptor(session, project, model) {
+    if (!session || typeof session.append !== 'function') return;
+    const header = session.header || {};
+    if (header.origin !== 'subagent') return;
+    const hasPreset = session.ownEvents().some((event) => event.type === 'agent-preset/selected');
+    if (!hasPreset) session.append('agent-preset/selected', { agentPreset: 'lab-chat' });
+    const hasDescriptor = session.ownEvents().some((event) => event.type === 'subagent/descriptor');
+    if (!hasDescriptor) session.append('subagent/descriptor', copilotDescriptor(project, model));
+  }
+
+  function catalogCopilotChild(project, childId, childCreatedAt) {
+    if (!project.controllerSessionId) return;
+    const parent = ctx.sessions.get(project.controllerSessionId);
+    if (!parent || typeof parent.append !== 'function') return;
+    const known = parent.ownEvents().some((event) => (
+      event.type === 'subagent/catalog'
+      && event.data
+      && event.data.childId === childId
+    ));
+    if (known) return;
+    parent.append('subagent/catalog', {
+      version: 0,
+      childId,
+      childCreatedAt: Number(childCreatedAt) || Date.now(),
+      mode: 'continuable',
+      label: `mirl-copilot/${project.id}`,
+    });
+  }
+
+  async function setupCopilot(project, model, agentCtx, agent) {
+    const session = agent && agent.session ? agent.session : null;
+    ensureCopilotDescriptor(session, project, model);
+    await ctx.agentPresets.mount(agentCtx, 'lab-chat');
+    agentCtx.tools.register(copilotToolDefinition(project.id));
+  }
+
+  /** Normalized Copilot session list, including one legacy visible session. */
+  function copilotEntriesOf(project) {
+    const entries = Array.isArray(project.copilotSessions)
+      ? project.copilotSessions
+          .filter((entry) => entry && typeof entry.id === 'string' && entry.id)
+          .map((entry) => ({
+            id: entry.id,
+            title: typeof entry.title === 'string' && entry.title.trim() ? entry.title.trim() : 'Copilot',
+            createdAt: Number(entry.createdAt) || 0,
+            updatedAt: Number(entry.updatedAt) || 0,
+            private: entry.private !== false,
+          }))
+      : [];
+    if (entries.length === 0 && typeof project.copilotSessionId === 'string' && project.copilotSessionId) {
+      // Pre-private Copilot sessions were created as root sessions and are
+      // visible in the DSH workspace. Keep them listed as legacy history.
+      entries.push({
+        id: project.copilotSessionId,
+        title: 'Copilot (legacy)',
+        createdAt: Number(project.updatedAt) || 0,
+        updatedAt: Number(project.updatedAt) || 0,
+        private: false,
+      });
+    }
+    return entries;
+  }
+
+  function copilotSummaryOf(project) {
+    const sessions = copilotEntriesOf(project);
+    const active = typeof project.activeCopilotSessionId === 'string'
+      ? project.activeCopilotSessionId
+      : '';
+    return {
+      sessions,
+      activeSessionId: sessions.some((entry) => entry.id === active && entry.private) ? active : null,
+    };
+  }
+
+  async function rememberCopilotSession(projectId, sessionId, title, existing) {
+    return store.withProjectLock(projectId, async () => {
+      const current = requireProject(projectId);
+      const sessions = copilotEntriesOf(current);
+      const previous = existing ?? sessions.find((entry) => entry.id === sessionId);
+      const next = sessions.filter((entry) => entry.id !== sessionId);
+      next.unshift({
+        id: sessionId,
+        title: title || previous?.title || `Copilot ${sessions.filter((entry) => entry.private).length + 1}`,
+        createdAt: previous?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+        private: true,
+      });
+      current.copilotSessions = next;
+      current.activeCopilotSessionId = sessionId;
+      // Backward-compatible alias for older client builds / status consumers.
+      current.copilotSessionId = sessionId;
+      current.revision = (current.revision ?? 0) + 1;
+      current.updatedAt = Date.now();
+      await store.saveProject(current);
+      return copilotSummaryOf(current);
+    });
+  }
+
+  async function createPrivateCopilotSession(projectId, title = '') {
+    const project = requireProject(projectId);
+    await archiveRootCopilots(projectId);
+    if (!project.controllerSessionId) throw new LabError('bad_request', 'project has no controller session', 400);
+    await orchestrator.ensureController(project);
+    const model = resolveModelSelection(ctx, project, null, 'controller');
+    const sessionId = newSessionId();
+    const handle = await ctx.agents.create({
+      sessionId,
+      meta: {
+        cwd: project.repo.path,
+        origin: 'subagent',
+        parentSession: project.controllerSessionId,
+        delegationDepth: 1,
+        agentPreset: 'lab-chat',
+      },
+      agentOptions: model,
+      setup: async (agentCtx, agent) => {
+        const session = agent && agent.session ? agent.session : null;
+        ensureCopilotDescriptor(session, project, model);
+        await ctx.agentPresets.mount(agentCtx, 'lab-chat');
+        agentCtx.tools.register(copilotToolDefinition(project.id));
+      },
+    });
+    catalogCopilotChild(project, sessionId, Date.now());
+    // The native subagent composer cold-resumes from persistence. Keep no
+    // regular live Agent for the child, otherwise the Manager's cold resume
+    // conflicts with the live registry entry.
+    await handle.dispose();
+    const requestedTitle = typeof title === 'string' ? title.trim() : '';
+    const titleText = requestedTitle || `Copilot ${copilotEntriesOf(project).filter((entry) => entry.private).length + 1}`;
+    const summary = await rememberCopilotSession(projectId, sessionId, titleText, null);
+    return { sessionId, reused: false, ...summary };
+  }
+
+  async function archiveRootCopilots(projectId) {
+    const registry = ctx.get('workspaceRegistry');
+    let changed = false;
+    await store.withProjectLock(projectId, async () => {
+      const project = requireProject(projectId);
+      const entries = Array.isArray(project.copilotSessions) ? project.copilotSessions : [];
+      const keep = [];
+      for (const entry of entries) {
+        if (!entry || !entry.id) continue;
+        let root = false;
+        try {
+          const snapshot = await ctx.sessionQuery.readSession(entry.id);
+          root = snapshot?.session?.origin !== 'subagent';
+        } catch {
+          root = true;
+        }
+        if (!root) {
+          keep.push(entry);
+          continue;
+        }
+        changed = true;
+        if (registry && typeof registry.archiveSession === 'function') {
+          try {
+            await registry.archiveSession(entry.id, { stopActivity: true });
+          } catch {
+            // Archiving is best-effort; removing the project link still hides
+            // the Copilot from the picker.
+          }
+        }
+      }
+      if (!changed) return;
+      project.copilotSessions = keep;
+      if (!keep.some((entry) => entry.id === project.activeCopilotSessionId)) {
+        project.activeCopilotSessionId = keep[0]?.id ?? '';
+      }
+      if (!keep.some((entry) => entry.id === project.copilotSessionId)) {
+        project.copilotSessionId = project.activeCopilotSessionId || '';
+      }
+      project.updatedAt = Date.now();
+      project.revision = (project.revision ?? 0) + 1;
+      await store.saveProject(project);
+    });
+  }
+
+  async function ensureCopilotSession(projectId, options = {}) {
     if (copilotLocks.has(projectId)) return copilotLocks.get(projectId);
     const task = (async () => {
       const project = requireProject(projectId);
       // A resumed root agent must be given agentOptions again: agentOptions are
       // resume-time inputs and are not reconstructed from the persisted session.
       const model = resolveModelSelection(ctx, project, null, 'controller');
-      const existingId = typeof project.copilotSessionId === 'string' && project.copilotSessionId ? project.copilotSessionId : '';
-      if (existingId) {
-        const live = copilotHandles.get(existingId) ?? ctx.agents.get(existingId);
-        if (live) return { sessionId: existingId, reused: true };
+      await archiveRootCopilots(projectId);
+      // A proper Copilot is a private subagent child; its history route and
+      // cold resume are authorized by the parent controller catalog.
+      const sessions = copilotEntriesOf(project);
+      const requested = typeof options.sessionId === 'string' ? options.sessionId : '';
+      let entry = requested ? sessions.find((candidate) => candidate.id === requested) ?? null : null;
+      if (!entry && options.create !== true) {
+        const active = typeof project.activeCopilotSessionId === 'string' ? project.activeCopilotSessionId : '';
+        entry = sessions.find((candidate) => candidate.id === active && candidate.private)
+          ?? sessions.filter((candidate) => candidate.private).sort((left, right) => right.updatedAt - left.updatedAt)[0]
+          ?? null;
+      }
+      if (entry) {
         try {
-          const handle = await ctx.agents.resume({
-            resumeSessionId: existingId,
-            agentOptions: model,
-            setup: (agentCtx) => setupCopilot(projectId, agentCtx),
-          });
-          copilotHandles.set(existingId, handle);
-          return { sessionId: existingId, reused: true };
+          const snapshot = await ctx.sessionQuery.readSession(entry.id);
+          const hasDescriptor = (snapshot.events || []).some((event) => event.type === 'subagent/descriptor');
+          if (snapshot?.session?.origin === 'subagent' && hasDescriptor) {
+            // A proper private child is cold-resumed by the native subagent
+            // composer from its descriptor; the Lab must not hold a competing
+            // regular Agent for it. Only keep the parent controller live.
+            await orchestrator.ensureController(project);
+            const summary = await rememberCopilotSession(projectId, entry.id, entry.title, entry);
+            return { sessionId: entry.id, reused: true, ...summary };
+          }
         } catch {
-          // Session persistence missing/broken: create a fresh Copilot session below.
+          // Unreadable legacy entry: create a fresh private child below.
         }
       }
-      const sessionId = newSessionId();
-      const handle = await ctx.agents.create({
-        sessionId,
-        meta: { cwd: project.repo.path, agentPreset: 'lab-chat' },
-        agentOptions: model,
-        setup: (agentCtx) => setupCopilot(projectId, agentCtx),
-      });
-      copilotHandles.set(sessionId, handle);
-      await store.withProjectLock(projectId, async () => {
-        const current = requireProject(projectId);
-        current.copilotSessionId = sessionId;
-        current.revision = (current.revision ?? 0) + 1;
-        current.updatedAt = Date.now();
-        await store.saveProject(current);
-      });
-      return { sessionId, reused: false };
+      return createPrivateCopilotSession(projectId, options.title);
     })();
     copilotLocks.set(projectId, task);
     try {
@@ -979,29 +1184,385 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   async function getCopilot(projectId) {
     const project = requireProject(projectId);
+    const summary = copilotSummaryOf(project);
     return {
       projectId,
-      sessionId: project.copilotSessionId ?? null,
+      sessionId: summary.activeSessionId,
+      ...summary,
     };
   }
 
-  async function openCopilot(projectId) {
-    const result = await ensureCopilotSession(projectId);
-    return { ...result, projectId };
+  async function openCopilot(projectId, input = {}) {
+    const result = await ensureCopilotSession(projectId, input);
+    const agent = ctx.agents.get(result.sessionId);
+    return {
+      ...result,
+      projectId,
+      origin: agent?.session?.header?.origin ?? null,
+      parentSession: agent?.session?.header?.parentSession ?? null,
+    };
   }
 
-  // Dispose live Copilot agent handles with the plugin fiber.
-  if (typeof ctx.effect === 'function') {
-    ctx.effect(() => () => {
-      for (const handle of copilotHandles.values()) {
+  // ---------------------------------------------------------------------------
+  // Natural-language new-project intake. The manual form schema is supplied by
+  // the Client (the form stays the source of truth); every user turn runs one
+  // private child agent that reads/patches the Host-side draft through the
+  // global metainfer_lab tool. The human confirms creation in the UI.
+  // ---------------------------------------------------------------------------
+  const intakeDrafts = new Map();
+  let intakeAnchorHandle = null;
+  let intakeAnchorSessionId = '';
+
+  function sanitizeIntakeSchema(raw) {
+    const schema = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const fields = [];
+    for (const rawField of Array.isArray(schema.fields) ? schema.fields.slice(0, 40) : []) {
+      if (!rawField || typeof rawField !== 'object' || Array.isArray(rawField)) continue;
+      const id = typeof rawField.id === 'string' ? rawField.id.trim() : '';
+      const pathValue = typeof rawField.path === 'string' ? rawField.path.trim() : '';
+      if (!id || !pathValue || !/^[a-zA-Z][a-zA-Z0-9_.-]{0,80}$/.test(id)) continue;
+      if (!/^[a-zA-Z][a-zA-Z0-9_.[\]-]{0,120}$/.test(pathValue)) continue;
+      const type = ['text', 'textarea', 'number', 'select', 'pools', 'boolean'].includes(rawField.type)
+        ? rawField.type
+        : 'text';
+      const options = type === 'select' && Array.isArray(rawField.options)
+        ? rawField.options
+            .filter((option) => option && typeof option.value === 'string')
+            .slice(0, 40)
+            .map((option) => ({ value: option.value, label: typeof option.label === 'string' ? option.label : option.value }))
+        : undefined;
+      fields.push({
+        id,
+        path: pathValue,
+        type,
+        label: typeof rawField.label === 'string' ? rawField.label.slice(0, 200) : id,
+        help: typeof rawField.help === 'string' ? rawField.help.slice(0, 600) : '',
+        group: typeof rawField.group === 'string' ? rawField.group.slice(0, 80) : '',
+        required: rawField.required === true,
+        ...(rawField.default !== undefined ? { default: rawField.default } : {}),
+        ...(options ? { options } : {}),
+        ...(Number.isFinite(Number(rawField.min)) ? { min: Number(rawField.min) } : {}),
+        ...(Number.isFinite(Number(rawField.max)) ? { max: Number(rawField.max) } : {}),
+        ...(Number.isFinite(Number(rawField.rows)) ? { rows: Number(rawField.rows) } : {}),
+      });
+    }
+    return { fields, version: Number.isFinite(Number(schema.version)) ? Number(schema.version) : 1 };
+  }
+
+  function normalizeIntakeValue(field, value) {
+    if (value === undefined || value === null) return { value: undefined };
+    if (field.type === 'number') {
+      const numeric = Number(value);
+      if (!Number.isInteger(numeric)) return { error: `${field.label} 必须是整数` };
+      if (field.min !== undefined && numeric < field.min) return { error: `${field.label} 不能小于 ${field.min}` };
+      if (field.max !== undefined && numeric > field.max) return { error: `${field.label} 不能大于 ${field.max}` };
+      return { value: numeric };
+    }
+    if (field.type === 'boolean') return { value: value === true || value === 'true' };
+    if (field.type === 'pools') {
+      let source = value;
+      if (typeof source === 'string') {
         try {
-          handle.dispose?.();
+          source = JSON.parse(source);
         } catch {
-          // best-effort
+          return { error: `${field.label} 必须是 {资源: 数量} 对象` };
         }
       }
-      copilotHandles.clear();
-    }, 'metainfer-research-lab: copilot sessions');
+      if (!source || typeof source !== 'object' || Array.isArray(source)) {
+        return { error: `${field.label} 必须是 {资源: 数量} 对象` };
+      }
+      const pools = {};
+      for (const [key, amountRaw] of Object.entries(source)) {
+        const name = String(key).trim();
+        const amount = Number(amountRaw);
+        if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,31}$/.test(name)) return { error: `${field.label}: 非法资源名 ${name}` };
+        if (!Number.isInteger(amount) || amount < 0 || amount > 64) {
+          return { error: `${field.label}: ${name} 必须是 0..64 整数` };
+        }
+        if (amount > 0) pools[name] = amount;
+      }
+      if (Object.keys(pools).length === 0) return { error: `${field.label} 至少需要一个资源` };
+      return { value: pools };
+    }
+    if (field.type === 'select') {
+      const text = String(value).trim();
+      if (!field.options || !field.options.some((option) => option.value === text)) {
+        return { error: `${field.label} 必须是 ${(field.options ?? []).map((option) => option.value).join('/')}` };
+      }
+      return { value: text };
+    }
+    const text = String(value).trim();
+    if (text.length > 8000) return { error: `${field.label} 不能超过 8000 字符` };
+    return { value: text };
+  }
+
+  function intakeDefaults(schema) {
+    const values = {};
+    for (const field of schema.fields) {
+      if (field.default === undefined) {
+        if (field.type === 'pools') values[field.id] = { gpu: 1 };
+        else if (field.type === 'number') values[field.id] = field.min ?? 0;
+        else values[field.id] = field.type === 'boolean' ? false : '';
+        continue;
+      }
+      const normalized = normalizeIntakeValue(field, field.default);
+      values[field.id] = normalized.error ? field.default : normalized.value;
+    }
+    return values;
+  }
+
+  function intakeMissing(schema, values) {
+    return schema.fields
+      .filter((field) => {
+        if (!field.required) return false;
+        const value = values[field.id];
+        if (field.type === 'pools') return !value || typeof value !== 'object' || Object.keys(value).length === 0;
+        if (field.type === 'number') return !Number.isInteger(value);
+        if (field.type === 'boolean') return value !== true && value !== false;
+        return !(typeof value === 'string' && value.trim() !== '');
+      })
+      .map((field) => ({ id: field.id, label: field.label }));
+  }
+
+  function intakeSummary(draft) {
+    return {
+      intakeId: draft.intakeId,
+      schema: draft.schema,
+      values: draft.values,
+      missing: intakeMissing(draft.schema, draft.values),
+      ready: draft.ready,
+      projectId: draft.projectId ?? null,
+      messages: draft.messages,
+      createdAt: draft.createdAt,
+      updatedAt: draft.updatedAt,
+    };
+  }
+
+  function requireIntake(intakeId) {
+    const id = typeof intakeId === 'string' ? intakeId : '';
+    const draft = intakeDrafts.get(id);
+    if (!draft) throw new LabError('intake_not_found', `unknown intake: ${id}`, 404);
+    return draft;
+  }
+
+  function setPath(target, pathValue, value) {
+    const parts = pathValue.split('.');
+    let cursor = target;
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      const key = parts[index];
+      if (!cursor[key] || typeof cursor[key] !== 'object' || Array.isArray(cursor[key])) cursor[key] = {};
+      cursor = cursor[key];
+    }
+    cursor[parts[parts.length - 1]] = value;
+  }
+
+  function intakePayload(draft) {
+    const payload = {};
+    for (const field of draft.schema.fields) {
+      const value = draft.values[field.id];
+      if (value === undefined) continue;
+      if (typeof value === 'string' && value.trim() === '') continue;
+      setPath(payload, field.path, value);
+    }
+    if (!payload.config) payload.config = {};
+    return payload;
+  }
+
+  function startIntake(input = {}) {
+    const schema = sanitizeIntakeSchema(input.schema);
+    if (schema.fields.length === 0) throw new LabError('bad_request', 'intake schema has no fields', 400);
+    const intakeId = newSessionId();
+    const now = Date.now();
+    const draft = {
+      intakeId,
+      schema,
+      values: intakeDefaults(schema),
+      messages: [],
+      ready: false,
+      projectId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    intakeDrafts.set(intakeId, draft);
+    return intakeSummary(draft);
+  }
+
+  function readIntake(intakeId) {
+    return intakeSummary(requireIntake(intakeId));
+  }
+
+  function patchIntake(intakeId, patch) {
+    const draft = requireIntake(intakeId);
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+      throw new LabError('bad_request', 'values must be an object', 400);
+    }
+    const byId = new Map(draft.schema.fields.map((field) => [field.id, field]));
+    const rejected = [];
+    for (const [fieldId, raw] of Object.entries(patch)) {
+      const field = byId.get(fieldId);
+      if (!field) {
+        rejected.push({ id: fieldId, error: 'unknown field' });
+        continue;
+      }
+      const normalized = normalizeIntakeValue(field, raw);
+      if (normalized.error) {
+        rejected.push({ id: fieldId, error: normalized.error });
+        continue;
+      }
+      if (normalized.value === undefined) delete draft.values[fieldId];
+      else draft.values[fieldId] = normalized.value;
+    }
+    draft.updatedAt = Date.now();
+    return { ...intakeSummary(draft), rejected };
+  }
+
+  function readyIntake(intakeId) {
+    const draft = requireIntake(intakeId);
+    const missing = intakeMissing(draft.schema, draft.values);
+    draft.ready = missing.length === 0;
+    draft.updatedAt = Date.now();
+    return {
+      ...intakeSummary(draft),
+      ...(missing.length > 0 ? { error: 'missing required fields' } : {}),
+    };
+  }
+
+  async function ensureIntakeAnchor() {
+    const live = intakeAnchorSessionId ? ctx.agents.get(intakeAnchorSessionId) : null;
+    if (live) return live;
+    const sessionId = intakeAnchorSessionId || newSessionId();
+    const model = resolveModelSelection(ctx, null, null, 'controller');
+    const handle = await ctx.agents.create({
+      sessionId,
+      // An anchor is only a durable private parent; it never runs a turn.
+      meta: { cwd: os.homedir(), origin: 'subagent', agentPreset: 'lab-controller' },
+      agentOptions: model,
+      setup: async (agentCtx) => {
+        await ctx.agentPresets.mount(agentCtx, 'lab-controller');
+      },
+    });
+    intakeAnchorSessionId = sessionId;
+    intakeAnchorHandle = handle;
+    return handle.agent;
+  }
+
+  function intakePrompt(draft, userText) {
+    const history = draft.messages
+      .slice(-20)
+      .map((message) => `${message.role === 'assistant' ? 'Assistant' : 'Human'}: ${message.text}`)
+      .join('\n\n') || '(none)';
+    return [
+      'You are the new-project intake assistant of MetaInfer Research Lab.',
+      `The intakeId for the metainfer_lab tool is: ${draft.intakeId}`,
+      'Use metainfer_lab({action:"intake_read", intakeId:"..."}) to inspect the schema and current values.',
+      'Use metainfer_lab({action:"intake_patch", intakeId:"...", values:{fieldId:value}}) to fill fields.',
+      'Use metainfer_lab({action:"intake_ready", intakeId:"..."}) only after the required fields are present and the human agrees.',
+      'The human clicks the confirm button in the UI; never create the project yourself.',
+      'Ask only for missing or uncertain fields, use defaults for the rest, and keep replies short.',
+      '',
+      '# Form schema and current draft',
+      JSON.stringify({ schema: draft.schema, values: draft.values, missing: intakeMissing(draft.schema, draft.values) }, null, 2),
+      '',
+      '# Conversation so far',
+      history,
+      '',
+      `Human: ${userText}`,
+    ].join('\n');
+  }
+
+  async function messageIntake(intakeId, rawText) {
+    const draft = requireIntake(intakeId);
+    const userText = typeof rawText === 'string' ? rawText.trim() : '';
+    if (!userText) throw new LabError('bad_request', 'message text is required', 400);
+    if (userText.length > 8000) throw new LabError('bad_request', 'message text is too long', 400);
+    draft.messages.push({ role: 'user', text: userText, at: Date.now() });
+    const anchor = await ensureIntakeAnchor();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error('intake turn timed out')), 120_000);
+    timer.unref?.();
+    let activation;
+    try {
+      activation = await ctx.subagents.startActivation({
+        provider: 'spawn',
+        label: `mirl-intake/${draft.intakeId}`,
+        delivery: 'caller',
+        signal: controller.signal,
+        childId: newSessionId(),
+        request: {
+          parent: anchor,
+          cwd: os.homedir(),
+          prompt: [{ type: 'text', text: intakePrompt(draft, userText) }],
+          agentPreset: 'lab-intake',
+        },
+      });
+      const result = await activation.result;
+      const reply = chatTextOf(result?.output).trim();
+      if (result?.stopReason !== 'completed') {
+        throw new Error(reply || `intake assistant stopped: ${result?.stopReason}`);
+      }
+      draft.messages.push({ role: 'assistant', text: reply || '(no reply)', at: Date.now() });
+      draft.updatedAt = Date.now();
+      if (draft.messages.length > 60) draft.messages = draft.messages.slice(-60);
+      return { ...intakeSummary(draft), reply: reply || '' };
+    } finally {
+      clearTimeout(timer);
+      if (activation) {
+        try {
+          await activation.dispose();
+        } catch {
+          // already settled
+        }
+      }
+    }
+  }
+
+  async function confirmIntake(intakeId, options = {}) {
+    const draft = requireIntake(intakeId);
+    const missing = intakeMissing(draft.schema, draft.values);
+    if (missing.length > 0) {
+      throw new LabError('intake_incomplete', `missing required fields: ${missing.map((field) => field.label).join(', ')}`, 400);
+    }
+    const result = await createProject(intakePayload(draft));
+    draft.projectId = result.project.id;
+    draft.ready = true;
+    draft.updatedAt = Date.now();
+    let started = false;
+    let startError = null;
+    if (options.start === true) {
+      try {
+        await runtime.start(result.project.id, result.rootNode.id);
+        started = true;
+      } catch (error) {
+        startError = error instanceof Error ? error.message : String(error);
+      }
+    }
+    return {
+      ...intakeSummary(draft),
+      project: result.project,
+      rootNode: result.rootNode,
+      revision: result.revision,
+      started,
+      startError,
+    };
+  }
+
+  function discardIntake(intakeId) {
+    const draft = requireIntake(intakeId);
+    intakeDrafts.delete(draft.intakeId);
+    return { intakeId: draft.intakeId, discarded: true };
+  }
+
+  if (typeof ctx.effect === 'function') {
+    ctx.effect(() => () => {
+      intakeDrafts.clear();
+      try {
+        intakeAnchorHandle?.dispose?.();
+      } catch {
+        // best-effort
+      }
+      intakeAnchorHandle = null;
+      intakeAnchorSessionId = '';
+    }, 'metainfer-research-lab: intake sessions');
   }
 
   async function getChat(projectId) {
@@ -1096,6 +1657,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         workerPrefix: DEFAULT_WORKER_PREFIX,
         advisor: DEFAULT_ADVISOR_PROMPT,
         scheduler: DEFAULT_SCHEDULER_PROMPT,
+        merge: DEFAULT_MERGE_PROMPT,
+        gc: DEFAULT_GC_PROMPT,
       },
       promptPlaceholders: PROMPT_PLACEHOLDERS,
     };
@@ -1158,6 +1721,64 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   async function messageNode(projectId, nodeId, text) {
     return runtime.message(projectId, nodeId, text);
+  }
+
+  async function getSessionTranscript(projectId, sessionId, afterSeq = 0) {
+    const project = requireProject(projectId);
+    const id = typeof sessionId === 'string' ? sessionId : '';
+    if (!id) throw new LabError('bad_request', 'sessionId is required', 400);
+    const allowed = new Set();
+    const add = (value) => { if (typeof value === 'string' && value) allowed.add(value); };
+    add(project.controllerSessionId);
+    for (const entry of project.copilotSessions || []) add(entry?.id);
+    add(project.activeCopilotSessionId);
+    for (const node of store.listNodes(projectId)) {
+      add(node.anchorSessionId); add(node.sessionId);
+      for (const attempt of node.attempts || []) {
+        add(attempt.sessionId); add(attempt.anchorSessionId);
+      }
+    }
+    if (orchestrator && typeof orchestrator.listRuns === 'function') {
+      try {
+        const listed = await orchestrator.listRuns(projectId);
+        const runs = Array.isArray(listed) ? listed : (Array.isArray(listed?.runs) ? listed.runs : []);
+        for (const run of runs) add(run.sessionId);
+      } catch {
+        // A run index failure must not make controller/node transcripts unreadable.
+      }
+    }
+    if (!allowed.has(id)) throw new LabError('session_not_found', `session does not belong to project: ${id}`, 404);
+    const after = Number.isFinite(Number(afterSeq)) ? Math.max(0, Math.trunc(Number(afterSeq))) : 0;
+    let snapshot;
+    try {
+      snapshot = await ctx.sessionQuery.readSurface(id);
+    } catch {
+      return { sessionId: id, rows: [], nextSeq: after, unavailable: true };
+    }
+    const rows = [];
+    const textOf = (blocks) => (Array.isArray(blocks) ? blocks : [])
+      .map((block) => (block && block.type === 'text' && typeof block.text === 'string' ? block.text : ''))
+      .filter(Boolean).join('\n').trim();
+    for (const event of Array.isArray(snapshot?.events) ? snapshot.events : []) {
+      const seq = event?.seq;
+      if (!Number.isFinite(seq) || seq <= after) continue;
+      const data = event?.data ?? {};
+      if (event.type === 'user/message') {
+        const text = textOf(data.content);
+        if (text) rows.push({ seq, at: event.time, kind: 'user', text });
+      } else if (event.type === 'assistant/message') {
+        for (const block of data.message?.content ?? []) {
+          if (block?.type === 'text' && block.text) rows.push({ seq, at: event.time, kind: 'assistant', text: block.text });
+          else if (block?.type === 'reasoning' && block.text) rows.push({ seq, at: event.time, kind: 'reasoning', text: block.text });
+          else if (block?.type === 'tool-call') rows.push({ seq, at: event.time, kind: 'tool', name: block.name, args: block.arguments });
+        }
+      } else if (event.type === 'tool/result') {
+        rows.push({ seq, at: event.time, kind: 'tool-result', text: textOf(data.message?.content), error: Boolean(data.message?.isError) });
+      }
+    }
+    rows.sort((a, b) => a.seq - b.seq || (a.at ?? 0) - (b.at ?? 0));
+    const nextSeq = rows.length ? Math.max(...rows.map((row) => row.seq)) : after;
+    return { sessionId: id, header: snapshot?.header ?? null, rows, nextSeq };
   }
 
   async function getTranscript(projectId, nodeId, afterSeq) {
@@ -1357,7 +1978,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'run') return getRun(input?.projectId, input?.runId);
     if (action === 'chat') return projectChat(input?.projectId, input?.text);
     if (action === 'clear_chat') return clearProjectChat(input?.projectId);
-    if (action === 'copilot') return openCopilot(input?.projectId);
+    if (action === 'copilot') return openCopilot(input?.projectId, { create: input?.create === true, title: input?.title, sessionId: input?.sessionId });
+    if (action === 'intake_read') return readIntake(input?.intakeId);
+    if (action === 'intake_patch') return patchIntake(input?.intakeId, input?.values);
+    if (action === 'intake_ready') return readyIntake(input?.intakeId);
+    if (action === 'intake_start') return startIntake(input);
+    if (action === 'intake_message') return messageIntake(input?.intakeId, input?.text);
+    if (action === 'intake_confirm') return confirmIntake(input?.intakeId, { start: input?.start === true });
+    if (action === 'intake_discard') return discardIntake(input?.intakeId);
     throw new LabError('unknown_command', `unknown metainfer_lab action: ${String(action)}`, 400);
   }
 
@@ -1392,6 +2020,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     projectChat,
     getCopilot,
     openCopilot,
+    createPrivateCopilotSession,
+    startIntake,
+    readIntake,
+    patchIntake,
+    readyIntake,
+    messageIntake,
+    confirmIntake,
+    discardIntake,
     getCluster,
     getClusterConfig,
     updateClusterConfig,
@@ -1400,6 +2036,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     cancelNode,
     messageNode,
     getTranscript,
+    getSessionTranscript,
     step,
     createSuccessor,
     createMergeNode,

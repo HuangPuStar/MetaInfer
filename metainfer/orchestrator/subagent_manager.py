@@ -19,6 +19,7 @@ process alive and observable.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
@@ -33,7 +34,7 @@ from typing import Any, Dict, List, Literal, Optional
 # Exit codes / signals that indicate infrastructure rather than logic failure.
 # 124 = timeout (coreutils convention), 137 = SIGKILL (128+9), 143 = SIGTERM (128+15).
 _INFRA_EXIT_CODES = {124, 137, 143}
-AgentBackend = Literal["claude", "codex", "pi"]
+AgentBackend = Literal["claude", "codex", "pi", "dsh"]
 
 
 # Claude Code "effort" levels map onto pi's ``--thinking`` levels 1:1 for
@@ -56,8 +57,10 @@ def _normalize_agent_backend(value: str) -> AgentBackend:
         return "codex"
     if v in {"pi", "pi-coding-agent", "earendil"}:
         return "pi"
+    if v in {"dsh", "deepseek-harness", "deepseek_harness"}:
+        return "dsh"
     raise ValueError(
-        f"invalid agent backend {value!r}; expected 'claude', 'codex', or 'pi'"
+        f"invalid agent backend {value!r}; expected 'claude', 'codex', 'pi', or 'dsh'"
     )
 
 
@@ -177,6 +180,8 @@ class SubAgentManager:
         claude_bin: str = "ccb",
         codex_bin: str = "codex",
         pi_bin: str = "pi",
+        dsh_bin: str = "dsh",
+        dsh_profile: str = "metainfer-headless",
         agent_backend: AgentBackend = "claude",
         default_model: Optional[str] = None,
         max_concurrent: int = 4,
@@ -202,6 +207,8 @@ class SubAgentManager:
         self.claude_bin = claude_bin
         self.codex_bin = codex_bin
         self.pi_bin = pi_bin
+        self.dsh_bin = dsh_bin
+        self.dsh_profile = dsh_profile
         self.default_model = default_model
         self.max_concurrent = max_concurrent
         # Per-task token / cost budget (TokenBudget instance or None to
@@ -420,7 +427,8 @@ class SubAgentManager:
             try:
                 handle.started_at = time.time()
                 handle.last_output_at = handle.started_at
-                with open(spec.prompt_file, "rb") as prompt_fp:
+                prompt_path = self._prompt_file_for_attempt(spec, attempt)
+                with open(prompt_path, "rb") as prompt_fp:
                     proc = subprocess.Popen(
                         cmd,
                         stdin=prompt_fp,
@@ -666,6 +674,8 @@ class SubAgentManager:
             return self._build_codex_command(spec)
         if self.agent_backend == "pi":
             return self._build_pi_command(spec)
+        if self.agent_backend == "dsh":
+            return self._build_dsh_command(spec)
         return self._build_claude_command(spec)
 
     def _build_claude_command(self, spec: AgentSpec) -> List[str]:
@@ -791,6 +801,96 @@ class SubAgentManager:
         cmd += list(spec.extra_args)
         return cmd
 
+    def _build_dsh_command(self, spec: AgentSpec) -> List[str]:
+        """Run one DeepSeek Harness headless task via its JSON event stream.
+
+        DSH headless accepts a task on stdin with ``-`` and emits durable,
+        line-delimited run events.  A first turn cannot pin an arbitrary
+        session id (unlike ccb); the manager captures the id from the opening
+        ``session`` event and uses it for later ``resume_session_id`` turns.
+        Claude-specific flags in ``extra_args`` are deliberately not forwarded:
+        the DSH CLI would reject them.
+        """
+        cmd = [self.dsh_bin, "--profile", self.dsh_profile, "--json"]
+        if spec.resume_session_id:
+            cmd += ["--session-id", spec.resume_session_id]
+        cmd.append("-")
+        return cmd
+
+    def _prompt_file_for_attempt(self, spec: AgentSpec, attempt: int) -> Path:
+        """Combine a DSH prompt with the active expert-skill overlay, if any.
+
+        The overlay is produced by the MetaInfer trajectory registry and handed
+        to this process through ``METAINFER_DSH_SKILLS_FILE``.  Only a role
+        match is applied; an unreadable/malformed overlay is ignored so it
+        cannot prevent an agent from launching.
+        """
+
+        if self.agent_backend != "dsh":
+            return spec.prompt_file
+        path_value = os.environ.get("METAINFER_DSH_SKILLS_FILE")
+        if not path_value:
+            return spec.prompt_file
+        try:
+            payload = json.loads(Path(path_value).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return spec.prompt_file
+        entries = payload.get("entries") if isinstance(payload, dict) else None
+        if not isinstance(entries, dict):
+            return spec.prompt_file
+        spec_role = str(spec.role or "").strip().lower()
+        role_groups = (
+            {"advisor", "reviewer", "review"},
+            {"worker", "implementer", "executor"},
+        )
+
+        def role_matches(skill_role: str) -> bool:
+            if spec_role == skill_role:
+                return True
+            for group in role_groups:
+                if spec_role in group and skill_role in group:
+                    return True
+            return False
+
+        selected = []
+        for role, entry in entries.items():
+            if not isinstance(entry, dict):
+                continue
+            if not role_matches(str(role or "").strip().lower()):
+                continue
+            try:
+                percent = int(entry.get("canaryPercent", 100))
+            except (TypeError, ValueError):
+                percent = 100
+            if percent < 100:
+                seed = os.environ.get("METAINFER_TASK_ID") or spec.name
+                digest = hashlib.sha256(
+                    f"{entry.get('releaseId')}:{seed}".encode("utf-8")
+                ).hexdigest()
+                if int(digest[:8], 16) % 100 >= max(0, percent):
+                    continue
+            selected.append(entry)
+        if not selected:
+            return spec.prompt_file
+        lines = ["## Active expert skill", ""]
+        for entry in selected:
+            lines.append(f"<!-- METAINFER_SKILL_RELEASE:{entry.get('releaseId')};ROLE:{entry.get('role') or 'custom'} -->")
+            lines.append(f"Skill: {entry.get('skillName')} (version {entry.get('skillVersion')})")
+            lines.append("Apply these reviewed changes where relevant:")
+            for item in entry.get("changes") or []:
+                if isinstance(item, dict) and item.get("change"):
+                    lines.append(f"- [{item.get('type') or 'change'}] {item.get('change')}")
+            lines.append("")
+        try:
+            original = spec.prompt_file.read_text(encoding="utf-8")
+        except OSError:
+            return spec.prompt_file
+        combined = "\n".join(lines) + "\n\n" + original
+        target = spec.log_dir / f"{spec.name}.attempt{attempt}.prompt.txt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(combined, encoding="utf-8")
+        return target
+
     def _build_env(self, spec: AgentSpec) -> Dict[str, str]:
         env = dict(os.environ)
         env.update(spec.env_overrides)
@@ -806,7 +906,7 @@ class SubAgentManager:
         env["METAINFER_ROOT"] = str(_paths.root_dir())
         # Keep the agent from going interactive
         env.setdefault("DISABLE_INTERACTIVITY", "1")
-        if self.agent_backend in ("codex", "pi"):
+        if self.agent_backend in ("codex", "pi", "dsh"):
             return env
         # bypassPermissions under EUID=0 normally trips a hard exit
         # ("--dangerously-skip-permissions cannot be used with root/sudo
@@ -842,6 +942,8 @@ class SubAgentManager:
         usage: Optional[Dict[str, Any]] = None
         if self.agent_backend == "pi":
             final_text, session_id, usage = self._extract_pi_result(events)
+        elif self.agent_backend == "dsh":
+            final_text, session_id, usage = self._extract_dsh_result(events)
         else:
             for ev in reversed(events):
                 if ev.get("type") == "item.completed":
@@ -919,6 +1021,59 @@ class SubAgentManager:
             failure_mode=failure_mode,
             usage=usage,
         )
+
+    def _extract_dsh_result(
+        self, events: List[Dict[str, Any]]
+    ) -> tuple[str, Optional[str], Optional[Dict[str, Any]]]:
+        """Parse the DSH headless ``--json`` projection.
+
+        The projection emits a leading ``session`` event, per-step ``status``
+        events (with usage when complete), and a terminal ``final`` event.
+        Usage keys are converted to the canonical ccb/result shape consumed by
+        the token-budget layer.
+        """
+        session_id: Optional[str] = None
+        final_text = ""
+        totals = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "total_tokens": 0,
+        }
+        saw_usage = False
+        for ev in events:
+            etype = ev.get("type")
+            if etype == "session" and isinstance(ev.get("sessionId"), str):
+                session_id = ev["sessionId"]
+            elif etype == "final" and isinstance(ev.get("text"), str):
+                final_text = ev["text"]
+            elif etype == "status" and ev.get("phase") == "step_end":
+                usage = ev.get("usage")
+                if not isinstance(usage, dict):
+                    continue
+                saw_usage = True
+                mapping = (
+                    ("inputTokens", "input_tokens"),
+                    ("outputTokens", "output_tokens"),
+                    ("cacheReadTokens", "cache_read_input_tokens"),
+                    ("cacheWriteTokens", "cache_creation_input_tokens"),
+                    ("totalTokens", "total_tokens"),
+                )
+                for source, target in mapping:
+                    try:
+                        totals[target] += int(usage.get(source) or 0)
+                    except (TypeError, ValueError):
+                        pass
+        usage_result: Optional[Dict[str, Any]] = None
+        if saw_usage:
+            usage_result = {
+                "type": "result",
+                "usage": totals,
+                "total_cost_usd": 0.0,
+                "session_id": session_id,
+            }
+        return final_text, session_id, usage_result
 
     def _extract_pi_result(
         self, events: List[Dict[str, Any]]

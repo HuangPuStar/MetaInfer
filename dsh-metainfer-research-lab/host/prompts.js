@@ -15,6 +15,12 @@ You never write code and never run experiments. Decide which planned nodes shoul
 /** Worker prefix defaults to no extra project-specific instructions. */
 export const DEFAULT_WORKER_PREFIX = '';
 
+export const DEFAULT_MERGE_PROMPT = `You are the interactive merge agent of MetaInfer Research Lab.
+You resolve the merged result of multiple completed parent experiments and explain what the merge contains.`;
+
+export const DEFAULT_GC_PROMPT = `You are the post-mortem and cleanup agent (GC) of MetaInfer Research Lab.
+The Host has already terminated the node and released resources; explain the failure and flag leftovers.`;
+
 export const WORKER_RULES = `- You execute exactly one experiment node and then stop.
 - Work only inside your assigned git worktree. Do NOT run git write commands
   (commit/checkout/branch/tag/worktree/push); the lab commits for you.
