@@ -8176,7 +8176,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'rl-workspace-main' }, body),
         h(ActivityLog, { events, onSelectNode: setSelectedId, onOpenRun: openRuns, t }),
         copilotOpen
-          ? h(CopilotDrawer, {
+          ? h(CopilotDrawerMemo, {
               projectId,
               onClose: closeCopilot,
               openNativeSession,
@@ -8598,6 +8598,12 @@ window.__ModuleLoader__.load({
         ),
       );
     }
+
+    // The workspace polls /state and /events every few seconds while a run is
+    // live, which re-renders WorkspaceScreen. Without this memo the embedded
+    // native conversation (the largest DOM subtree in the drawer) is reconciled
+    // on every poll, which makes scrolling and pointer input stutter.
+    const CopilotDrawerMemo = React.memo(CopilotDrawer);
 
     /** Compact live expert-run chip for the workspace top bar. */
     function ExpertChip({ runs, onOpen, t }) {

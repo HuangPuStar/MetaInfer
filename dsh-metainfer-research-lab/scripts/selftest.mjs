@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openStore } from '../host/store.js';
@@ -379,6 +380,19 @@ await test('HTTP malformed body returns the error envelope', async () => {
   const payload = await callHttp(`${PREFIX}/commands`, { method: 'POST', rawBody: 'not-json' });
   assert.equal(payload.ok, false);
   assert.equal(payload.error.code, 'bad_request');
+});
+
+await test('copilot drawer embeds an active conversation and is memoized', async () => {
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
+  assert.ok(
+    source.includes("renderFactorySlot('conversation.content', { variant: 'embedded', phase: 'active', hero: false })"),
+    'the drawer must request an embedded, active conversation',
+  );
+  assert.ok(
+    source.includes('const CopilotDrawerMemo = React.memo(CopilotDrawer);'),
+    'the drawer must be memoized so workspace polling does not re-render the native conversation',
+  );
+  assert.ok(source.includes('h(CopilotDrawerMemo, {'), 'WorkspaceScreen must render the memoized drawer');
 });
 
 disposeRoutes();
