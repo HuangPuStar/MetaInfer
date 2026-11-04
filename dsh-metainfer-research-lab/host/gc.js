@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_GC_PROMPT } from './prompts.js';
 
 /**
  * GC (after-care) runner: after a deterministic termination, spawn one cheap
@@ -46,8 +47,9 @@ function gcPrompt(project, node, termination) {
     },
     termination,
   };
+  const custom = project.config?.prompts?.gc;
   return [
-    'You are the post-mortem and cleanup agent (GC) of MetaInfer Research Lab.',
+    custom && custom.trim() ? custom.trim() : DEFAULT_GC_PROMPT,
     'The deterministic watchdog already killed this node\'s agent tree and processes; the Host has',
     'already released its resources. You never decide whether to kill anything. Read the report below,',
     'inspect the worktree read-only if useful, and produce a short postmortem.',

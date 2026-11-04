@@ -111,9 +111,11 @@ export function fleetWarnings(raw) {
     if (seen.has(machine.machineId)) warnings.push(`duplicate fleet machineId: ${machine.machineId}`);
     seen.add(machine.machineId);
     if (!machine.ssh.host) warnings.push(`fleet machine ${machine.machineId}: ssh.host is required`);
-    if (!machine.container.workdir) warnings.push(`fleet machine ${machine.machineId}: container.workdir is required`);
+    if (machine.container.runtime !== 'none' && !machine.container.workdir) {
+      warnings.push(`fleet machine ${machine.machineId}: container.workdir is required`);
+    }
     if (Object.keys(machine.labels ?? {}).length === 0) {
-      warnings.push(`fleet machine ${machine.machineId}: no labels (e.g. gpuModel/rack/interconnect) — natural-language placement preferences cannot target it`);
+      warnings.push(`fleet machine ${machine.machineId}: no labels (e.g. gpuModel/rack/interconnect) — label-based placement cannot target it; use an explicit machineId (IP or name) or add labels`);
     }
     if (machine.container.runtime !== 'none' && !machine.container.name) {
       warnings.push(`fleet machine ${machine.machineId}: container.name is required for ${machine.container.runtime}`);
@@ -209,12 +211,59 @@ export async function loadClusterConfig(filePath) {
   }
 }
 
-/** Discover GPUs: explicit config devices first, otherwise best-effort nvidia-smi. */
+/** Run a best-effort command and return stdout (empty string on failure). */
+function execText(command, args) {
+  return new Promise((resolve) => {
+    execFile(command, args, { timeout: 5000, maxBuffer: 1024 * 1024 }, (error, stdout) => {
+      resolve(error ? '' : String(stdout ?? ''));
+    });
+  });
+}
+
+/** Parse `hy-smi --showproductname/--showmemavailable/--showid` output. */
+function hySmiDevices(productText, memoryText, idText) {
+  const models = new Map();
+  for (const match of String(productText).matchAll(/HCU\[(\d+)\]\s*:\s*Card Series:\s*([^\n]+)/g)) {
+    models.set(Number(match[1]), match[2].trim());
+  }
+  const memories = new Map();
+  for (const match of String(memoryText).matchAll(/HCU\[(\d+)\]\s*:\s*Available memory size \(MiB\):\s*(\d+)/g)) {
+    memories.set(Number(match[1]), Number(match[2]));
+  }
+  const ids = new Set();
+  for (const text of [productText, memoryText, idText]) {
+    for (const match of String(text).matchAll(/HCU\[(\d+)\]/g)) ids.add(Number(match[1]));
+  }
+  return [...ids]
+    .sort((left, right) => left - right)
+    .map((index) => ({
+      index,
+      model: models.get(index) ?? 'Hygon DCU',
+      memoryMiB: memories.get(index) ?? 0,
+    }));
+}
+
+/** Detect Hygon DCU devices through hy-smi; empty when the driver is absent. */
+async function detectHySmiDevices(machineId) {
+  if (process.platform === 'win32') return [];
+  const [product, memory, ids] = await Promise.all([
+    execText('hy-smi', ['--showproductname']),
+    execText('hy-smi', ['--showmemavailable']),
+    execText('hy-smi', ['--showid']),
+  ]);
+  return hySmiDevices(product, memory, ids).map((device) => ({
+    id: `${machineId}:${device.index}`,
+    model: device.model,
+    memoryMiB: device.memoryMiB,
+  }));
+}
+
+/** Discover GPUs: explicit config, nvidia-smi, then Hygon hy-smi. */
 export async function detectDevices(config, machineId) {
   if (Array.isArray(config.devices) && config.devices.length > 0) {
     return config.devices.map((device) => ({ ...device, id: `${machineId}:${device.id}` }));
   }
-  return new Promise((resolve) => {
+  const nvidia = await new Promise((resolve) => {
     execFile(
       process.platform === 'win32' ? 'nvidia-smi.exe' : 'nvidia-smi',
       ['--query-gpu=index,uuid,name,memory.total', '--format=csv,noheader,nounits'],
@@ -234,6 +283,8 @@ export async function detectDevices(config, machineId) {
       },
     );
   });
+  if (nvidia.length > 0) return nvidia;
+  return detectHySmiDevices(machineId);
 }
 
 function nextFreeDevices(state, machineId, amount) {
@@ -263,6 +314,8 @@ function renderDashboardHtml({ clusterId, coordinatorId, url }) {
   header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:baseline; flex-wrap:wrap; }
   h1 { font-size:18px; margin:0; }
   .muted { color:var(--muted); font-size:12px; }
+  .device-list { display:flex; flex-direction:column; gap:2px; }
+  .device-row { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; white-space:nowrap; }
   main { padding:20px 24px; display:grid; gap:18px; }
   section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
   h2 { font-size:14px; margin:0 0 10px; color:var(--accent); font-weight:600; }
@@ -310,7 +363,9 @@ function renderDashboardHtml({ clusterId, coordinatorId, url }) {
     localStorage.setItem('dsh-cluster-token', $('token').value.trim());
     window.location.search = '?token=' + encodeURIComponent($('token').value.trim());
   });
-  function row(cells) { return '<tr>' + cells.map((cell) => '<td>' + esc(cell) + '</td>').join('') + '</tr>'; }
+  function row(cells) {
+    return '<tr>' + cells.map((cell) => '<td>' + (cell && typeof cell === 'object' && typeof cell.html === 'string' ? cell.html : esc(cell)) + '</td>').join('') + '</tr>';
+  }
   async function refresh() {
     const t = token();
     if (!t) { $('err').style.display = 'block'; $('err').textContent = '需要 cluster token：填写后点“连接”。'; return; }
@@ -327,12 +382,20 @@ function renderDashboardHtml({ clusterId, coordinatorId, url }) {
         '<span class="chip">空闲 <b class="' + (gpu.free > 0 ? 'ok' : 'bad') + '">' + gpu.free + '</b></span>' +
         '<span class="chip">队列 <b>' + (data.queue?.length ?? 0) + '</b></span>' +
         '<span class="chip">机器 <b>' + (data.machines?.length ?? 0) + '</b></span>';
-      $('machines').innerHTML = (data.machines ?? []).map((machine) => row([
-        machine.machineId,
-        machine.online ? 'online' : 'offline',
-        (machine.instances ?? []).join(', '),
-        (machine.devices ?? []).map((device) => device.id + ' · ' + device.model + (device.memoryMiB ? ' · ' + device.memoryMiB + 'MiB' : '')).join(' | '),
-      ])).join('') || '<tr><td colspan="4" class="muted">没有注册机器</td></tr>';
+      $('machines').innerHTML = (data.machines ?? []).map((machine) => {
+        const devices = machine.devices ?? [];
+        const deviceCell = devices.length === 0
+          ? '<span class="muted">—</span>'
+          : '<div class="device-list">' + devices.map((device) => '<div class="device-row">'
+            + esc(device.id) + ' · ' + esc(device.model) + (device.memoryMiB ? ' · ' + esc(device.memoryMiB) + 'MiB' : '')
+            + '</div>').join('') + '</div>';
+        return row([
+          machine.machineId,
+          machine.online ? 'online' : 'offline',
+          (machine.instances ?? []).join(', '),
+          { html: deviceCell },
+        ]);
+      }).join('') || '<tr><td colspan="4" class="muted">没有注册机器</td></tr>';
       const now = Date.now();
       $('leases').innerHTML = (data.leases ?? []).map((lease) => row([
         lease.leaseId,
@@ -461,6 +524,15 @@ export function createCoordinator({ config, stateFile }) {
 
   function online(machine) {
     return Date.now() - (machine.lastHeartbeatAt ?? 0) <= ONLINE_MS;
+  }
+
+  /** Instances that registered/heartbeat within the online window. */
+  function activeInstances(machine, now = Date.now()) {
+    const seen = machine?.instanceSeenAt;
+    if (!seen || typeof seen !== 'object' || Array.isArray(seen)) return [];
+    return Object.entries(seen)
+      .filter(([, at]) => Number.isFinite(Number(at)) && now - Number(at) <= ONLINE_MS)
+      .map(([id]) => id);
   }
 
   function queueOrder() {
@@ -764,9 +836,16 @@ export function createCoordinator({ config, stateFile }) {
       registeredAt: Date.now(),
     };
     if (Array.isArray(devices)) machine.devices = devices;
-    const instances = new Set(machine.instances ?? []);
-    if (instanceId) instances.add(instanceId);
-    machine.instances = [...instances];
+    const now = Date.now();
+    const seen = machine.instanceSeenAt && typeof machine.instanceSeenAt === 'object' && !Array.isArray(machine.instanceSeenAt)
+      ? { ...machine.instanceSeenAt }
+      : {};
+    if (instanceId) seen[instanceId] = now;
+    for (const [id, at] of Object.entries(seen)) {
+      if (!Number.isFinite(Number(at)) || now - Number(at) > ONLINE_MS) delete seen[id];
+    }
+    machine.instanceSeenAt = seen;
+    machine.instances = Object.keys(seen);
     machine.userId = userId ?? machine.userId ?? null;
     if (labels && typeof labels === 'object' && !Array.isArray(labels)) {
       machine.labels = Object.fromEntries(
@@ -775,7 +854,7 @@ export function createCoordinator({ config, stateFile }) {
     } else if (!machine.labels) {
       machine.labels = {};
     }
-    machine.lastHeartbeatAt = Date.now();
+    machine.lastHeartbeatAt = now;
     state.machines[machineId] = machine;
     const granted = dispatchQueue();
     void persist();
@@ -895,7 +974,26 @@ export function createCoordinator({ config, stateFile }) {
     return { expired: changed, granted: granted.length };
   }
 
+  /** Drop offline machines that no active lease still references. */
+  function pruneOfflineMachines() {
+    const heldMachines = new Set();
+    for (const lease of Object.values(state.leases)) {
+      if (lease.machineId) heldMachines.add(lease.machineId);
+      for (const group of lease.machines ?? []) {
+        if (group?.machineId) heldMachines.add(group.machineId);
+      }
+    }
+    let changed = false;
+    for (const [machineId, machine] of Object.entries(state.machines)) {
+      if (online(machine) || heldMachines.has(machineId)) continue;
+      delete state.machines[machineId];
+      changed = true;
+    }
+    if (changed) void persist();
+  }
+
   function status() {
+    pruneOfflineMachines();
     const leasedDevices = new Set();
     for (const lease of Object.values(state.leases)) {
       for (const deviceId of lease.deviceIds ?? []) leasedDevices.add(deviceId);
@@ -904,7 +1002,7 @@ export function createCoordinator({ config, stateFile }) {
       machineId: machine.machineId,
       devices: machine.devices,
       labels: machine.labels ?? {},
-      instances: machine.instances,
+      instances: activeInstances(machine),
       online: online(machine),
       lastHeartbeatAt: machine.lastHeartbeatAt,
     }));
@@ -1071,6 +1169,15 @@ export function createClusterManager({ ctx, config, logger }) {
     : (config.role === 'coordinator' ? 'coordinator' : config.role === 'client' ? 'client' : 'both');
   const machineId = config.machineId ?? `machine-${process.pid}`;
   const instanceId = config.instanceId ?? `dsh-${process.pid}-${randomUUID().slice(0, 6)}`;
+  const selfHosts = new Set([os.hostname().toLowerCase()]);
+  try {
+    for (const addresses of Object.values(os.networkInterfaces())) {
+      for (const address of addresses ?? []) selfHosts.add(String(address.address ?? '').toLowerCase());
+    }
+  } catch {
+    // Best-effort identity detection; a missing interface list must not stop the cluster.
+  }
+  const isSelfHost = (host) => selfHosts.has(String(host ?? '').trim().toLowerCase());
   const listenUrl = `http://${config.listen.host}:${config.listen.port}`;
   const coordinatorUrl = config.url ?? listenUrl;
   let coordinator = null;
@@ -1182,9 +1289,12 @@ export function createClusterManager({ ctx, config, logger }) {
   function sshExec(machine, remoteCommand) {
     return new Promise((resolve, reject) => {
       const command = machine.ssh?.command || 'ssh';
+      // Run through a login shell: GPU vendor tools such as hy-smi often
+      // live in /opt/hyhal/bin, which is only on the login PATH.
+      const loginCommand = `bash -lc ${shQuote(remoteCommand)}`;
       execFile(
         command,
-        sshArgs(machine, remoteCommand),
+        sshArgs(machine, loginCommand),
         { timeout: 20_000, maxBuffer: 4 * 1024 * 1024 },
         (error, stdout, stderr) => {
           if (error) {
@@ -1197,6 +1307,25 @@ export function createClusterManager({ ctx, config, logger }) {
     });
   }
 
+  function shQuote(value) {
+    return `'${String(value).replace(/'/g, `'\\''`)}'`;
+  }
+
+  /** Build a hy-smi command that runs on the fleet host or inside its container. */
+  function fleetHySmiCommand(machine, args) {
+    const container = machine.container ?? {};
+    const command = ['hy-smi', ...args].join(' ');
+    if (container.runtime === 'docker' || container.runtime === 'podman') {
+      if (!container.name) throw new Error(`${machine.machineId}: container.name is required`);
+      return `${container.runtime} exec ${shQuote(container.name)} ${command}`;
+    }
+    if (container.runtime === 'apptainer') {
+      if (!container.name) throw new Error(`${machine.machineId}: container.name is required`);
+      return `apptainer exec ${shQuote(container.name)} ${command}`;
+    }
+    return command;
+  }
+
   async function discoverFleetDevices(machine) {
     if (Array.isArray(machine.devices) && machine.devices.length > 0) {
       return machine.devices.map((device, index) => ({
@@ -1206,11 +1335,16 @@ export function createClusterManager({ ctx, config, logger }) {
         memoryMiB: device.memoryMiB ?? 0,
       }));
     }
-    const stdout = await sshExec(
-      machine,
-      'nvidia-smi --query-gpu=index,uuid,name,memory.total --format=csv,noheader,nounits',
-    );
-    return String(stdout)
+    let nvidia = '';
+    try {
+      nvidia = await sshExec(
+        machine,
+        'nvidia-smi --query-gpu=index,uuid,name,memory.total --format=csv,noheader,nounits',
+      );
+    } catch {
+      // No NVIDIA driver; try Hygon hy-smi below.
+    }
+    const nvidiaDevices = String(nvidia)
       .split('\n')
       .map((line) => line.split(',').map((part) => part.trim()))
       .filter((parts) => parts.length >= 4)
@@ -1220,11 +1354,33 @@ export function createClusterManager({ ctx, config, logger }) {
         model: name || 'GPU',
         memoryMiB: Number(memory) || 0,
       }));
+    if (nvidiaDevices.length > 0) return nvidiaDevices;
+
+    const [product, memory, ids] = await Promise.all([
+      sshExec(machine, fleetHySmiCommand(machine, ['--showproductname'])).catch(() => ''),
+      sshExec(machine, fleetHySmiCommand(machine, ['--showmemavailable'])).catch(() => ''),
+      sshExec(machine, fleetHySmiCommand(machine, ['--showid'])).catch(() => ''),
+    ]);
+    const hygonDevices = hySmiDevices(product, memory, ids);
+    if (hygonDevices.length === 0) {
+      throw new Error(`${machine.machineId}: no GPU detected through nvidia-smi or hy-smi`);
+    }
+    return hygonDevices.map((device) => ({
+      id: `${machine.machineId}:${device.index}`,
+      localId: String(device.index),
+      model: device.model,
+      memoryMiB: device.memoryMiB,
+    }));
   }
 
   async function registerFleetMachines() {
     if (fleetConfig.enabled !== true || fleetConfig.machines.length === 0) return;
     for (const machine of fleetConfig.machines) {
+      if (isSelfHost(machine.ssh.host) && devices.length > 0) {
+        fleetErrors.set(machine.machineId, 'self host: local devices are already registered; remove it from fleet or use local placement');
+        fleetInventory.delete(machine.machineId);
+        continue;
+      }
       try {
         let devices = fleetInventory.get(machine.machineId);
         if (!devices || devices.length === 0) {
@@ -1604,7 +1760,9 @@ export function createClusterAdmin({ ctx, store, configPath, logger }) {
       }
       seenFleet.add(machine.machineId);
       if (!machine.ssh.host) throw new LabError('bad_request', `fleet machine ${machine.machineId}: ssh.host is required`, 400);
-      if (!machine.container.workdir) throw new LabError('bad_request', `fleet machine ${machine.machineId}: container.workdir is required`, 400);
+      if (machine.container.runtime !== 'none' && !machine.container.workdir) {
+        throw new LabError('bad_request', `fleet machine ${machine.machineId}: container.workdir is required`, 400);
+      }
       if (machine.container.runtime !== 'none' && !machine.container.name) {
         throw new LabError('bad_request', `fleet machine ${machine.machineId}: container.name is required`, 400);
       }

@@ -3,7 +3,8 @@
  *
  * Wires the storage domain, GitEngine, lab service and HTTP routes. The bundle is
  * installed as a linked local directory, so it must not import `@deepseek-ai/*`
- * packages: only Node built-ins and our own `zod` dependency are imported.
+ * packages: only Node built-ins, the MCP SDK, and our own `zod` dependency are
+ * imported.
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -16,6 +17,9 @@ import { createTranscriptReader } from './host/transcript.js';
 import { createOrchestrator } from './host/orchestrator.js';
 import { registerAgentTool } from './host/agent-tool.js';
 import { registerHttpRoutes } from './host/http.js';
+import { registerTrajectoryWeb } from './host/trajectory-web.js';
+import { registerMcp } from './host/mcp.js';
+import { ensureTrajectoryBackend } from './host/trajectory-backend.js';
 import { reconcileRunningNodes, reconcileRunningRuns } from './host/reconcile.js';
 import { createGcRunner } from './host/gc.js';
 import { createAutoController } from './host/auto.js';
@@ -96,7 +100,7 @@ export async function apply(ctx) {
     auto,
     cluster,
     clusterAdmin,
-    version: '0.8.9-v3',
+    version: '0.11.0',
   });
 
   // Publish the Host service for future phases (routes and agent tools share it).
@@ -111,6 +115,27 @@ export async function apply(ctx) {
     () => registerHttpRoutes(ctx, service),
     'metainfer-research-lab: http routes',
   );
+
+  const webServer = ctx.get('webServer');
+  if (webServer) {
+    const trajectoryBackend = await ensureTrajectoryBackend(ctx.logger);
+    ctx.effect(
+      () => () => {
+        if (trajectoryBackend.owned && trajectoryBackend.process) {
+          try { trajectoryBackend.process.kill('SIGTERM'); } catch { /* already gone */ }
+        }
+      },
+      'metainfer-research-lab: trajectory backend lifecycle',
+    );
+    ctx.effect(
+      () => registerTrajectoryWeb(ctx, webServer),
+      'metainfer-research-lab: trajectory web bridge',
+    );
+    ctx.effect(
+      () => registerMcp(ctx, webServer, service),
+      'metainfer-research-lab: MCP control surface',
+    );
+  }
 
   ctx.effect(
     () => registerAgentTool(ctx, service),
@@ -162,6 +187,6 @@ export async function apply(ctx) {
   );
 
   ctx.logger?.info?.(`metainfer-research-lab: cluster mode=${clusterInfo.mode} enabled=${Boolean(clusterInfo.enabled)}`);
-  await writeActivationMarker('0.8.9-v3');
+  await writeActivationMarker('0.11.0');
   ctx.logger?.info?.(`metainfer-research-lab: M4 host ready (reconciled ${reconciled.length} running node(s))`);
 }

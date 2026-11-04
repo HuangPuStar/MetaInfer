@@ -350,3 +350,166 @@ def test_bootstrap_factory_reads_pi_env(monkeypatch):
             assert mgr.pi_bin == "/usr/local/bin/pi"
         finally:
             mgr.shutdown()
+
+
+def test_dsh_command_uses_headless_json_stream():
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        mgr = SubAgentManager(agent_backend="dsh", dsh_bin="dsh-dev", dsh_profile="headless")
+        assert mgr._build_command(_spec(tmp)) == [
+            "dsh-dev", "--profile", "headless", "--json", "-",
+        ]
+
+
+def test_dsh_command_uses_custom_profile():
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        mgr = SubAgentManager(agent_backend="dsh", dsh_bin="dsh-dev", dsh_profile="metainfer-headless")
+        assert mgr._build_command(_spec(tmp))[2] == "metainfer-headless"
+
+
+def test_dsh_resume_command_threads_session_id():
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        mgr = SubAgentManager(agent_backend="dsh", dsh_bin="dsh-dev", dsh_profile="headless")
+        assert mgr._build_command(_spec(tmp, resume_session_id="session-123")) == [
+            "dsh-dev", "--profile", "headless", "--json",
+            "--session-id", "session-123", "-",
+        ]
+
+
+def test_materialize_dsh_json_stream_result():
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        spec = _spec(tmp)
+        events = [
+            {"type": "session", "sessionId": "session-abc", "cwd": str(tmp / "work")},
+            {"type": "status", "phase": "step_end", "turn": 1, "step": 1,
+             "usage": {"inputTokens": 100, "outputTokens": 7,
+                       "cacheReadTokens": 20, "cacheWriteTokens": 0,
+                       "totalTokens": 127}},
+            {"type": "final", "text": "finished"},
+        ]
+        spec.events_file(1).write_text(
+            "\n".join(json.dumps(e) for e in events) + "\n",
+            encoding="utf-8",
+        )
+        handle = AgentHandle(
+            spec=spec,
+            attempt=1,
+            process=_FakeProcess(0),  # type: ignore[arg-type]
+            started_at=time.time() - 1,
+            last_output_at=time.time(),
+        )
+        mgr = SubAgentManager(agent_backend="dsh")
+        result = mgr._materialize_result(handle, spec, 1)
+        assert result.success
+        assert result.final_text == "finished"
+        assert result.session_id == "session-abc"
+        assert result.usage is not None
+        assert result.usage["usage"]["input_tokens"] == 100
+        assert result.usage["usage"]["output_tokens"] == 7
+        assert result.usage["usage"]["cache_read_input_tokens"] == 20
+        assert result.usage["usage"]["total_tokens"] == 127
+        assert result.usage["session_id"] == "session-abc"
+
+
+def test_dsh_normalize_accepts_aliases():
+    from metainfer.orchestrator.subagent_manager import _normalize_agent_backend
+    assert _normalize_agent_backend("dsh") == "dsh"
+    assert _normalize_agent_backend("DSH") == "dsh"
+    assert _normalize_agent_backend("deepseek-harness") == "dsh"
+    assert _normalize_agent_backend("deepseek_harness") == "dsh"
+
+
+def test_bootstrap_factory_reads_dsh_env(monkeypatch):
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        monkeypatch.setenv("METAINFER_AGENT_BACKEND", "dsh")
+        monkeypatch.setenv("METAINFER_DSH_BIN", "/usr/local/bin/dsh-dev")
+        monkeypatch.setenv("METAINFER_DSH_PROFILE", "metainfer-headless")
+        mgr = make_subagent_manager(
+            claude_bin="ccb",
+            model=None,
+            permission_mode="bypassPermissions",
+            effort="max",
+            extra_add_dirs=[],
+            snapshot_file=tmp / "agents.json",
+        )
+        try:
+            assert mgr.agent_backend == "dsh"
+            assert mgr.dsh_bin == "/usr/local/bin/dsh-dev"
+            assert mgr.dsh_profile == "metainfer-headless"
+        finally:
+            mgr.shutdown()
+
+
+def test_dsh_prompt_overlay_applies_matching_skill(tmp_path, monkeypatch):
+    spec = _spec(tmp_path)
+    spec.role = "reviewer"
+    overlay = tmp_path / "runtime-skills.json"
+    overlay.write_text(json.dumps({
+        "version": 1,
+        "entries": {
+            "reviewer": {
+                "skillId": "s1", "skillName": "Evidence gate", "skillVersion": 1,
+                "releaseId": "r1",
+                "changes": [{"type": "rubric", "change": "require verification output"}],
+            },
+        },
+    }), encoding="utf-8")
+    monkeypatch.setenv("METAINFER_DSH_SKILLS_FILE", str(overlay))
+    mgr = SubAgentManager(agent_backend="dsh")
+    combined = mgr._prompt_file_for_attempt(spec, 1)
+    text = combined.read_text(encoding="utf-8")
+    assert "Active expert skill" in text
+    assert "METAINFER_SKILL_RELEASE:r1" in text
+    assert "require verification output" in text
+    assert "do work" in text
+
+    spec.role = "implementer"
+    assert mgr._prompt_file_for_attempt(spec, 1) == spec.prompt_file
+
+
+def test_dsh_canary_overlay_is_deterministic(tmp_path, monkeypatch):
+    import hashlib
+
+    spec = _spec(tmp_path)
+    spec.role = "reviewer"
+    overlay = tmp_path / "runtime-skills.json"
+    overlay.write_text(json.dumps({
+        "version": 1,
+        "entries": {
+            "reviewer": {
+                "skillId": "s1", "skillName": "Canary gate", "skillVersion": 1,
+                "releaseId": "r1", "canaryPercent": 10,
+                "changes": [{"type": "rubric", "change": "canary change"}],
+            },
+        },
+    }), encoding="utf-8")
+    monkeypatch.setenv("METAINFER_DSH_SKILLS_FILE", str(overlay))
+
+    allowed = None
+    for index in range(2000):
+        seed = f"task-{index}"
+        digest = hashlib.sha256(f"r1:{seed}".encode()).hexdigest()
+        if int(digest[:8], 16) % 100 < 10:
+            allowed = seed
+            break
+    assert allowed is not None
+    monkeypatch.setenv("METAINFER_TASK_ID", allowed)
+    mgr = SubAgentManager(agent_backend="dsh")
+    combined = mgr._prompt_file_for_attempt(spec, 1)
+    assert "canary change" in combined.read_text(encoding="utf-8")
+
+    # A task outside the canary bucket gets the original prompt.
+    skipped = None
+    for index in range(2000):
+        seed = f"other-{index}"
+        digest = hashlib.sha256(f"r1:{seed}".encode()).hexdigest()
+        if int(digest[:8], 16) % 100 >= 10:
+            skipped = seed
+            break
+    assert skipped is not None
+    monkeypatch.setenv("METAINFER_TASK_ID", skipped)
+    assert mgr._prompt_file_for_attempt(spec, 1) == spec.prompt_file

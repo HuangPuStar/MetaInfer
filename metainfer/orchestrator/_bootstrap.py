@@ -176,6 +176,8 @@ def make_subagent_manager(
     claude_bin: str,
     codex_bin: Optional[str] = None,
     pi_bin: Optional[str] = None,
+    dsh_bin: Optional[str] = None,
+    dsh_profile: Optional[str] = None,
     agent_backend: Optional[str] = None,
     model: Optional[str],
     permission_mode: str,
@@ -214,10 +216,30 @@ def make_subagent_manager(
         or os.environ.get("METAINFER_PI_BIN")
         or "pi"
     )
+    resolved_dsh_bin = (
+        dsh_bin
+        or os.environ.get("METAINFER_DSH_BIN")
+        or "dsh"
+    )
+    resolved_dsh_profile = (
+        dsh_profile
+        or os.environ.get("METAINFER_DSH_PROFILE")
+        or "metainfer-headless"
+    )
+    if resolved_agent_backend == "dsh":
+        try:
+            from metainfer.server.agent_settings import ensure_dsh_profile
+            ensure_dsh_profile(resolved_dsh_profile)
+        except (ImportError, ValueError):
+            # Custom externally managed profiles are valid; errors surface in the
+            # DSH process rather than silently changing the requested profile.
+            pass
     return SubAgentManager(
         claude_bin=claude_bin,
         codex_bin=resolved_codex_bin,
         pi_bin=resolved_pi_bin,
+        dsh_bin=resolved_dsh_bin,
+        dsh_profile=resolved_dsh_profile,
         agent_backend=resolved_agent_backend,
         default_model=model,
         permission_mode=permission_mode,

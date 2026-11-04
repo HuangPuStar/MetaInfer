@@ -55,7 +55,7 @@ function usePluginBody(detailViewModule) {
   return Body;
 }
 
-export function TaskDetailView({ taskId, taskType, run, status, onChange, label, detailViewModule = null }) {
+export function TaskDetailView({ taskId, taskType, run, status, onChange, label, detailViewModule = null, onOpenTrajectories = null }) {
   // Shell-fetches only what the shell chrome needs. Everything that's
   // task-specific (iterations, charts, state-graph, retrospective) is
   // fetched by the plugin body itself via its own runtime-api.
@@ -179,6 +179,10 @@ export function TaskDetailView({ taskId, taskType, run, status, onChange, label,
           </span>
         </div>
         <div class="task-controls">
+          ${onOpenTrajectories
+            ? html`<button class="btn ghost" title="Open DSH trajectories linked to this task"
+                onClick=${() => onOpenTrajectories(taskId)}>Trajectories</button>`
+            : null}
           ${running
             ? html`<button class="btn danger"
                 onClick=${() => onControl("kill", { force: true })}>Kill</button>`
