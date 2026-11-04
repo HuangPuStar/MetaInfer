@@ -151,6 +151,9 @@ window.__ModuleLoader__.load({
     // #region dictionaries — `zh` is the key-set source of truth; `en` mirrors it.
     const zh = {
       panel: '科研实验台',
+      'trajectory.panel': '轨迹与技能',
+      'trajectory.open': '轨迹与技能',
+      'trajectory.back': '返回科研实验台',
       title: 'MetaInfer Research Lab · 科研实验台',
       subtitle: '用动态 DAG 组织科研实验：每个节点绑定独立 git worktree 与 subagent 会话。',
       badge: 'M1 · 项目与 DAG 画布',
@@ -186,6 +189,32 @@ window.__ModuleLoader__.load({
 
       'wizard.title': '新建项目',
       'wizard.close': '关闭新建项目浮窗',
+      'intake.title': '自然语言创建项目',
+      'intake.close': '关闭自然语言创建',
+      'intake.intro': '用对话描述项目；助手按手工表单字段帮你补全，最后确认创建。未填写的字段使用默认值。',
+      'intake.chat': '对话',
+      'intake.empty': '还没有消息。先描述你的项目目标、仓库路径和初始任务。',
+      'intake.placeholder': '例如：在 /home/sglang-das 上优化 Qwen3.8，先做正确性验证，4 张本地 GPU…',
+      'intake.send': '发送',
+      'intake.sending': '思考中…',
+      'intake.preview': '当前配置',
+      'intake.missing': '还需填写',
+      'intake.ready': '必填项已齐，可以创建',
+      'intake.starting': '正在准备对话…',
+      'intake.error': '对话失败',
+      'intake.confirm': '确认创建',
+      'intake.creating': '创建中…',
+      'intake.help.repoPath': '本地 git 仓库绝对路径',
+      'intake.help.baseBranch': '留空使用仓库默认分支',
+      'intake.help.name': '项目显示名称',
+      'intake.help.brief': '研究目标 / 背景',
+      'intake.help.initialPrompt': '根节点要执行的初始任务',
+      'intake.help.pools': '资源池，例如 {"gpu":4}',
+      'intake.help.timeout': '节点默认执行时限（分钟）',
+      'intake.group.repo': '仓库',
+      'intake.group.research': '研究设置',
+      'intake.group.limits': '并发与资源',
+      'intake.group.timeouts': '执行时限',
       'guide.open': '新手指引',
       'guide.title': '让实验自己生长',
       'guide.subtitle': '科研工作流的新心智模型',
@@ -577,6 +606,10 @@ window.__ModuleLoader__.load({
       'ws.composer.disabled.sealed': '该节点已封存，对话只读。',
       'ws.composer.disabled.status': '仅已完成的叶子节点可继续对话。',
       'ws.composer.error': '发送失败',
+      'ws.copilot.layoutProbe': '布局',
+      'ws.copilot.layoutProbeHint': '点一下收集原生嵌入的布局链路，可直接粘贴反馈',
+      'ws.copilot.layoutProbeCopied': '布局链路已复制',
+      'ws.copilot.layoutProbeFailed': '复制失败，请手动选取下方文本',
       'log.type.node.messaged': '节点对话',
       'log.type.node.terminated': '节点终止',
       'ws.step.running': '正在执行 Step…',
@@ -723,6 +756,8 @@ window.__ModuleLoader__.load({
       'ws.settings.acceptMode.hint': '人工确认模式下新提案先进入待确认队列，不阻塞已建立节点的执行。',
       'ws.settings.maxProposalsPerPass': '每轮最多提案数',
       'ws.settings.maxPendingProposals': '待确认提案上限',
+      'ws.settings.advisorTimeoutSeconds': '专家组超时（秒）',
+      'ws.settings.advisorTimeoutSeconds.hint': '单次 advisor/reviewer 运行的最长等待时间；默认 180 秒（原为硬编码 3 分钟）。',
       'ws.settings.maxCycles': '最大 cycle 数',
       'ws.settings.maxWallClockMinutes': '最长运行时间（分钟）',
       'ws.settings.idleCycleLimit': '空转熔断（连续无进展轮数）',
@@ -1119,6 +1154,7 @@ window.__ModuleLoader__.load({
       'ws.clusterConfig.fleet.container.runtime': '容器运行时',
       'ws.clusterConfig.fleet.container.name': '容器名',
       'ws.clusterConfig.fleet.container.workdir': '容器工作目录',
+      'ws.clusterConfig.fleet.baremetal.hint': '裸机模式（runtime=none）：SSH 直接在远端主机执行，无需容器名/工作目录；请用 pathMap 把 worktree 映射到远端可访问路径，并确保远端已有代码与 Python/DCU 环境。',
       'ws.clusterConfig.fleet.container.user': '容器内用户',
       'ws.clusterConfig.fleet.container.env': '环境变量（每行 KEY=VALUE）',
       'ws.clusterConfig.fleet.container.env.invalid': '环境变量每行应为 KEY=VALUE 格式',
@@ -1279,6 +1315,9 @@ window.__ModuleLoader__.load({
       'ws.copilot.failed': '错误',
       'ws.copilot.nativeTitle': '项目 Copilot（原生会话）',
       'ws.copilot.session': 'Session',
+      'ws.copilot.sessionPicker': '切换 Copilot 会话',
+      'ws.copilot.newSession': '＋ 新会话',
+      'ws.copilot.noSessions': '还没有私密会话',
       'ws.copilot.loading': '正在准备原生 Copilot 会话…',
       'ws.copilot.loadError': '原生 Copilot 会话不可用',
       'ws.copilot.embedUnavailable': '当前运行时不支持嵌入原生会话，请在 DSH 原生窗口中打开。',
@@ -1365,6 +1404,9 @@ window.__ModuleLoader__.load({
 
     const en = {
       panel: 'Research Lab',
+      'trajectory.panel': 'Trajectories & Skills',
+      'trajectory.open': 'Trajectories & Skills',
+      'trajectory.back': 'Back to Research Lab',
       title: 'MetaInfer Research Lab',
       subtitle: 'Organise research experiments as a living DAG: every node owns its own git worktree and subagent session.',
       badge: 'M1 · projects & DAG canvas',
@@ -1400,6 +1442,32 @@ window.__ModuleLoader__.load({
 
       'wizard.title': 'New project',
       'wizard.close': 'Close new-project dialog',
+      'intake.title': 'Create project with natural language',
+      'intake.close': 'Close natural-language creation',
+      'intake.intro': 'Describe the project in conversation; the assistant fills the same fields as the manual form, and you confirm creation. Unfilled fields use defaults.',
+      'intake.chat': 'Conversation',
+      'intake.empty': 'No messages yet. Start with the project goal, repository path and initial task.',
+      'intake.placeholder': 'e.g. optimize Qwen3.8 in /home/sglang-das, correctness first, four local GPUs…',
+      'intake.send': 'Send',
+      'intake.sending': 'Thinking…',
+      'intake.preview': 'Current form',
+      'intake.missing': 'Still required',
+      'intake.ready': 'Required fields complete; ready to create',
+      'intake.starting': 'Preparing the conversation…',
+      'intake.error': 'Conversation failed',
+      'intake.confirm': 'Confirm and create',
+      'intake.creating': 'Creating…',
+      'intake.help.repoPath': 'Absolute path to a local git repository',
+      'intake.help.baseBranch': 'Leave empty to use the repository default branch',
+      'intake.help.name': 'Project display name',
+      'intake.help.brief': 'Research goal / background',
+      'intake.help.initialPrompt': 'Initial task for the root node',
+      'intake.help.pools': 'Resource pools, e.g. {"gpu":4}',
+      'intake.help.timeout': 'Default node timebox in minutes',
+      'intake.group.repo': 'Repository',
+      'intake.group.research': 'Research setup',
+      'intake.group.limits': 'Concurrency and resources',
+      'intake.group.timeouts': 'Time limits',
       'guide.open': 'Quick start',
       'guide.title': 'Let experiments grow themselves',
       'guide.subtitle': 'A mental model for modern research',
@@ -1791,6 +1859,10 @@ window.__ModuleLoader__.load({
       'ws.composer.disabled.sealed': 'This node is sealed; the conversation is read-only.',
       'ws.composer.disabled.status': 'Only completed leaf nodes can continue their conversation.',
       'ws.composer.error': 'Could not send the message',
+      'ws.copilot.layoutProbe': 'Layout',
+      'ws.copilot.layoutProbeHint': 'Collect the embedded native layout chain as text you can paste back',
+      'ws.copilot.layoutProbeCopied': 'Layout chain copied',
+      'ws.copilot.layoutProbeFailed': 'Copy failed; select the text below manually',
       'log.type.node.messaged': 'node message',
       'log.type.node.terminated': 'node terminated',
       'ws.step.running': 'Running Step…',
@@ -1937,6 +2009,8 @@ window.__ModuleLoader__.load({
       'ws.settings.acceptMode.hint': 'In human-approval mode new proposals wait in the pending queue without blocking established nodes.',
       'ws.settings.maxProposalsPerPass': 'Max proposals per pass',
       'ws.settings.maxPendingProposals': 'Max pending proposals',
+      'ws.settings.advisorTimeoutSeconds': 'Advisor timeout (seconds)',
+      'ws.settings.advisorTimeoutSeconds.hint': 'Maximum wait for one advisor/reviewer run; default 180 s (previously hard-coded at 3 minutes).',
       'ws.settings.maxCycles': 'Max cycles',
       'ws.settings.maxWallClockMinutes': 'Max wall clock (minutes)',
       'ws.settings.idleCycleLimit': 'Idle fuse (consecutive no-progress cycles)',
@@ -2333,6 +2407,7 @@ window.__ModuleLoader__.load({
       'ws.clusterConfig.fleet.container.runtime': 'Container runtime',
       'ws.clusterConfig.fleet.container.name': 'Container name',
       'ws.clusterConfig.fleet.container.workdir': 'Container workdir',
+      'ws.clusterConfig.fleet.baremetal.hint': 'Bare metal (runtime=none): SSH executes directly on the remote host; no container name/workdir is needed. Use pathMap to map the worktree to a remote-visible path and make sure the code and Python/DCU environment already exist there.',
       'ws.clusterConfig.fleet.container.user': 'Container user',
       'ws.clusterConfig.fleet.container.env': 'Environment (one KEY=VALUE per line)',
       'ws.clusterConfig.fleet.container.env.invalid': 'Each environment line must be KEY=VALUE',
@@ -2493,6 +2568,9 @@ window.__ModuleLoader__.load({
       'ws.copilot.failed': 'Error',
       'ws.copilot.nativeTitle': 'Project Copilot (native session)',
       'ws.copilot.session': 'Session',
+      'ws.copilot.sessionPicker': 'Switch Copilot session',
+      'ws.copilot.newSession': '＋ New session',
+      'ws.copilot.noSessions': 'No private session yet',
       'ws.copilot.loading': 'Preparing the native Copilot session…',
       'ws.copilot.loadError': 'The native Copilot session is unavailable',
       'ws.copilot.embedUnavailable': 'This runtime cannot embed a native session; open it in a DSH native window instead.',
@@ -2665,7 +2743,11 @@ window.__ModuleLoader__.load({
       '.rl-copilot-native-title { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 500; line-height: 20px; }',
       '.rl-copilot-native-hint { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
       '.rl-copilot-native-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }',
-      '.rl-copilot-native-view { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: 100%; overflow: auto; }',
+      '.rl-copilot-native-view { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: 100%; overflow: hidden; }',
+      '.rl-copilot-native-view > [data-conversation-content] { flex: 1 1 auto; min-height: 0; height: 100%; }',
+      '.rl-copilot-native-view [data-conversation-scroll] { flex: 1 1 auto; min-height: 0; overflow-y: auto !important; justify-content: flex-start !important; }',
+      '.rl-copilot-native-view [data-composer-seat] { position: sticky !important; inset-block-end: 0 !important; inset-inline: 0 !important; z-index: 8; flex: 0 0 auto !important; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-copilot-probe { margin: 0; padding: 8px 14px; max-height: 38vh; overflow: auto; border-bottom: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 16px; white-space: pre; }',
       '.rl-copilot-native-loading { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; padding: 24px; }',
       '.rl-copilot-native-fallback { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-height: 0; padding: 18px; overflow: auto; }',
       '.rl-copilot { box-sizing: border-box; display: flex; flex-direction: column; flex: none; width: 380px; max-width: 42%; min-width: 300px; height: 100%; border-left: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
@@ -2950,6 +3032,11 @@ window.__ModuleLoader__.load({
       '.rl-cluster-line { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 11.5px; line-height: 17px; overflow-wrap: anywhere; }',
       '.rl-cluster-mono { font-family: ' + MONO + '; color: var(--dsw-alias-label-primary); }',
       '.rl-cluster-card { display: flex; flex-direction: column; gap: 1px; padding: 5px 7px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; }',
+      '.rl-device-list { display: flex; flex-direction: column; gap: 3px; margin-top: 3px; }',
+      '.rl-device-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 4px 7px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 6px; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; }',
+      '.rl-device-row .rl-device-id { color: var(--dsw-alias-label-primary); font-family: ' + MONO + '; overflow-wrap: anywhere; }',
+      '.rl-device-row .rl-device-model { color: var(--dsw-alias-label-primary); font-weight: 510; }',
+      '.rl-device-row .rl-device-memory { margin-left: auto; white-space: nowrap; }',
       '.rl-cluster-config { display: flex; flex-direction: column; gap: 10px; }',
       '.rl-page-head .rl-btn { flex: none; }',
       '.rl-config-section { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; }',
@@ -4752,6 +4839,20 @@ window.__ModuleLoader__.load({
       return numberOr(nodeTimestampsOf(node).createdAt, 0);
     }
 
+    /**
+     * Recency used by the task list: a finished node is ordered by its
+     * completion time, an active/planned node by its last activity or creation.
+     * The task list shows the newest task first.
+     */
+    function nodeRecencyOf(node) {
+      const timestamps = nodeTimestampsOf(node);
+      const completedAt = finiteNumber(timestamps.completedAt);
+      if (completedAt !== null && completedAt > 0) return completedAt;
+      const lastActivityAt = finiteNumber(timestamps.lastActivityAt);
+      if (lastActivityAt !== null && lastActivityAt > 0) return lastActivityAt;
+      return numberOr(timestamps.createdAt, 0);
+    }
+
     /** Stable ordering helper: creation time, then the original list order. */
     function creationOrder(leftNode, leftOrder, rightNode, rightOrder) {
       const leftAt = nodeTimeOf(leftNode);
@@ -6307,20 +6408,24 @@ window.__ModuleLoader__.load({
       const { state, retry, removeProject } = useProjectsData(t);
       const [clusterConfigOpen, setClusterConfigOpen] = React.useState(false);
       const [createOpen, setCreateOpen] = React.useState(false);
+      const [intakeOpen, setIntakeOpen] = React.useState(false);
       const [guideOpen, setGuideOpen] = React.useState(false);
       const [deleteTarget, setDeleteTarget] = React.useState(null);
       const [deleteBusy, setDeleteBusy] = React.useState(false);
       const [deleteError, setDeleteError] = React.useState('');
 
       React.useEffect(() => {
-        if (!createOpen) return undefined;
+        if (!createOpen && !intakeOpen) return undefined;
         if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
         const onKeyDown = (event) => {
-          if (event.key === 'Escape') setCreateOpen(false);
+          if (event.key === 'Escape') {
+            setCreateOpen(false);
+            setIntakeOpen(false);
+          }
         };
         document.addEventListener('keydown', onKeyDown);
         return () => document.removeEventListener('keydown', onKeyDown);
-      }, [createOpen]);
+      }, [createOpen, intakeOpen]);
 
       const requestDelete = React.useCallback((project) => {
         setDeleteError('');
@@ -6383,6 +6488,12 @@ window.__ModuleLoader__.load({
               onClick: () => setCreateOpen(true),
             }),
             h(LabButton, {
+              label: '💬 ' + t('intake.title'),
+              variant: 'ghost',
+              title: t('intake.title'),
+              onClick: () => setIntakeOpen(true),
+            }),
+            h(LabButton, {
               label: '? ' + t('guide.open'),
               variant: 'ghost',
               title: t('guide.title'),
@@ -6433,6 +6544,16 @@ window.__ModuleLoader__.load({
                 ),
               ),
             )
+          : null,
+        intakeOpen
+          ? h(IntakeModal, {
+              t,
+              onClose: () => setIntakeOpen(false),
+              onCreated: (projectId) => {
+                setIntakeOpen(false);
+                onOpenProject(projectId);
+              },
+            })
           : null,
         guideOpen
           ? h(GuideModal, {
@@ -6584,29 +6705,87 @@ window.__ModuleLoader__.load({
 
     // #region create-project wizard
     /**
+     * Canonical new-project form metadata. The manual wizard and the
+     * natural-language intake both use these field ids/paths/defaults; the
+     * intake flow sends this schema to the Host so the conversation adapts to
+     * the same form (including fields added here later).
+     */
+    function projectFormSchema(t) {
+      return {
+        version: 1,
+        fields: [
+          { id: 'repoPath', path: 'repoPath', type: 'text', label: t('wizard.repoPath'), help: t('intake.help.repoPath'), required: true, group: 'repo', default: '' },
+          { id: 'baseBranch', path: 'baseBranch', type: 'text', label: t('wizard.repo.baseBranch'), help: t('intake.help.baseBranch'), required: false, group: 'repo', default: '' },
+          { id: 'name', path: 'name', type: 'text', label: t('wizard.name'), help: t('intake.help.name'), required: true, group: 'research', default: '' },
+          { id: 'brief', path: 'brief', type: 'textarea', label: t('wizard.brief'), help: t('intake.help.brief'), required: true, group: 'research', rows: 3, default: '' },
+          { id: 'initialPrompt', path: 'initialPrompt', type: 'textarea', label: t('wizard.initialPrompt'), help: t('intake.help.initialPrompt'), required: true, group: 'research', rows: 4, default: '' },
+          { id: 'resourcePools', path: 'config.resourcePools', type: 'pools', label: t('wizard.pools'), help: t('intake.help.pools'), required: true, group: 'limits', default: { gpu: 1 } },
+          { id: 'maxRunningNodes', path: 'config.maxRunningNodes', type: 'number', label: t('wizard.maxRunningNodes'), help: '', required: false, group: 'limits', min: 1, max: 64, default: 4 },
+          { id: 'maxNodes', path: 'config.maxNodes', type: 'number', label: t('wizard.maxNodes'), help: '', required: false, group: 'limits', min: 1, max: 1000, default: 60 },
+          { id: 'nodeTimeoutMinutes', path: 'config.nodeTimeoutMinutes', type: 'number', label: t('wizard.nodeTimeoutMinutes'), help: t('intake.help.timeout'), required: false, group: 'timeouts', min: 1, max: 1440, default: 10 },
+          { id: 'maxNodeTimeoutMinutes', path: 'config.maxNodeTimeoutMinutes', type: 'number', label: t('wizard.maxNodeTimeoutMinutes'), help: '', required: false, group: 'timeouts', min: 1, max: 1440, default: 240 },
+        ],
+      };
+    }
+
+    function projectFormDefaults(schema) {
+      const values = {};
+      for (const field of schema.fields) values[field.id] = field.default;
+      return values;
+    }
+
+    function setProjectFormPath(target, pathValue, value) {
+      const parts = String(pathValue).split('.');
+      let cursor = target;
+      for (let index = 0; index < parts.length - 1; index += 1) {
+        const key = parts[index];
+        if (!cursor[key] || typeof cursor[key] !== 'object' || Array.isArray(cursor[key])) cursor[key] = {};
+        cursor = cursor[key];
+      }
+      cursor[parts[parts.length - 1]] = value;
+    }
+
+    /** Build the create-project payload from schema paths (manual and NL share this shape). */
+    function projectFormPayload(schema, values, overrides = {}) {
+      const payload = {};
+      for (const field of schema.fields) {
+        const value = Object.prototype.hasOwnProperty.call(overrides, field.id)
+          ? overrides[field.id]
+          : values[field.id];
+        if (value === undefined || value === null) continue;
+        if (typeof value === 'string' && value.trim() === '') continue;
+        setProjectFormPath(payload, field.path, value);
+      }
+      if (!payload.config || typeof payload.config !== 'object') payload.config = {};
+      return payload;
+    }
+
+    /**
      * Two-section wizard: validate the Git repository (GET /repo) and collect the
      * research setup, then POST one project and open its workspace.
      */
     function CreateProjectWizard({ t, onCreated, embedded = false }) {
-      const [repoPath, setRepoPath] = React.useState('');
+      const formSchema = React.useMemo(() => projectFormSchema(t), [t]);
+      const formDefaults = React.useMemo(() => projectFormDefaults(formSchema), [formSchema]);
+      const [values, setValues] = React.useState(() => projectFormDefaults(formSchema));
       const [repoPhase, setRepoPhase] = React.useState('idle');
       const [repoInfo, setRepoInfo] = React.useState(null);
       const [repoError, setRepoError] = React.useState('');
-      const [baseBranch, setBaseBranch] = React.useState('');
-      const [name, setName] = React.useState('');
       const [nameTouched, setNameTouched] = React.useState(false);
-      const [brief, setBrief] = React.useState('');
-      const [initialPrompt, setInitialPrompt] = React.useState('');
-      const [pools, setPools] = React.useState([{ id: 'pool-1', key: 'gpu', value: '1' }]);
-      const [maxRunningNodes, setMaxRunningNodes] = React.useState(String(DEFAULT_CONFIG.maxRunningNodes));
-      const [maxNodes, setMaxNodes] = React.useState(String(DEFAULT_CONFIG.maxNodes));
-      const [nodeTimeoutMinutes, setNodeTimeoutMinutes] = React.useState(String(DEFAULT_CONFIG.nodeTimeoutMinutes));
-      const [maxNodeTimeoutMinutes, setMaxNodeTimeoutMinutes] = React.useState(String(DEFAULT_CONFIG.maxNodeTimeoutMinutes));
+      const [pools, setPools] = React.useState(() => {
+        const initial = formDefaults.resourcePools && typeof formDefaults.resourcePools === 'object'
+          ? formDefaults.resourcePools
+          : { gpu: 1 };
+        return Object.entries(initial).map(([key, value], index) => ({ id: 'pool-' + (index + 1), key, value: String(value) }));
+      });
       const [createPhase, setCreatePhase] = React.useState('idle');
       const [createError, setCreateError] = React.useState('');
       const poolSeqRef = React.useRef(1);
       const repoAbortRef = React.useRef(null);
       const createAbortRef = React.useRef(null);
+      const setValue = React.useCallback((id, value) => {
+        setValues((previous) => ({ ...previous, [id]: value }));
+      }, []);
 
       React.useEffect(() => () => {
         if (repoAbortRef.current !== null) repoAbortRef.current.abort();
@@ -6614,7 +6793,7 @@ window.__ModuleLoader__.load({
       }, []);
 
       const validateRepo = async () => {
-        const path = repoPath.trim();
+        const path = String(values.repoPath === undefined || values.repoPath === null ? '' : values.repoPath).trim();
         if (!path) {
           setRepoPhase('error');
           setRepoError(t('wizard.repoPath.required'));
@@ -6634,11 +6813,17 @@ window.__ModuleLoader__.load({
           }
           setRepoInfo(info);
           setRepoPhase('valid');
-          setBaseBranch((previous) => (previous && info.branches.indexOf(previous) >= 0 ? previous : info.defaultBranch));
-          setName((previous) => {
-            if (nameTouched && previous.trim()) return previous;
-            const suggested = basenameOfPath(info.repoRoot || path);
-            return suggested || previous;
+          setValues((previous) => {
+            const next = { ...previous };
+            next.repoPath = info.repoRoot || path;
+            next.baseBranch = previous.baseBranch && info.branches.indexOf(previous.baseBranch) >= 0
+              ? previous.baseBranch
+              : info.defaultBranch;
+            if (!(nameTouched && String(previous.name || '').trim())) {
+              const suggested = basenameOfPath(info.repoRoot || path);
+              if (suggested) next.name = suggested;
+            }
+            return next;
           });
         } catch (error) {
           if (isAbortError(error)) return;
@@ -6677,15 +6862,15 @@ window.__ModuleLoader__.load({
           setCreateError(t('wizard.required.repo'));
           return;
         }
-        if (!name.trim()) {
+        if (!String(values.name === undefined || values.name === null ? '' : values.name).trim()) {
           setCreateError(t('wizard.required.name'));
           return;
         }
-        if (!brief.trim()) {
+        if (!String(values.brief === undefined || values.brief === null ? '' : values.brief).trim()) {
           setCreateError(t('wizard.required.brief'));
           return;
         }
-        if (!initialPrompt.trim()) {
+        if (!String(values.initialPrompt === undefined || values.initialPrompt === null ? '' : values.initialPrompt).trim()) {
           setCreateError(t('wizard.required.prompt'));
           return;
         }
@@ -6699,25 +6884,13 @@ window.__ModuleLoader__.load({
         const controller = new AbortController();
         createAbortRef.current = controller;
         try {
-          const payload = await api.createProject(
-            {
-              name: name.trim(),
-              brief: brief.trim(),
-              repoPath: repoInfo.repoRoot || repoPath.trim(),
-              baseBranch: baseBranch || repoInfo.defaultBranch,
-              initialPrompt: initialPrompt.trim(),
-              config: {
-                resourcePools: collected.value,
-                maxRunningNodes: parseInteger(maxRunningNodes, DEFAULT_CONFIG.maxRunningNodes),
-                maxNodes: parseInteger(maxNodes, DEFAULT_CONFIG.maxNodes),
-                nodeTimeoutMinutes: parseInteger(nodeTimeoutMinutes, DEFAULT_CONFIG.nodeTimeoutMinutes),
-                maxNodeTimeoutMinutes: parseInteger(maxNodeTimeoutMinutes, DEFAULT_CONFIG.maxNodeTimeoutMinutes),
-              },
-            },
-            controller.signal,
-            t,
-          );
-          const record = asObject(payload);
+          const payload = projectFormPayload(formSchema, values, {
+            repoPath: repoInfo.repoRoot || String(values.repoPath || '').trim(),
+            baseBranch: values.baseBranch || repoInfo.defaultBranch,
+            resourcePools: collected.value,
+          });
+          const response = await api.createProject(payload, controller.signal, t);
+          const record = asObject(response);
           const project = record.project !== null && typeof record.project === 'object' ? record.project : null;
           const createdId = project !== null ? projectIdOf(project) : firstString(record.projectId, record.id);
           if (!createdId) {
@@ -6740,9 +6913,48 @@ window.__ModuleLoader__.load({
         const branches = repoInfo.branches.length > 0
           ? repoInfo.branches
           : (repoInfo.defaultBranch ? [repoInfo.defaultBranch] : []);
-        const choices = baseBranch && branches.indexOf(baseBranch) < 0 ? [baseBranch].concat(branches) : branches;
+        const currentBranch = String(values.baseBranch || '');
+        const choices = currentBranch && branches.indexOf(currentBranch) < 0 ? [currentBranch].concat(branches) : branches;
         branchOptions = choices.map((branch) => ({ value: branch, label: branch }));
       }
+      const placeholders = {
+        name: t('wizard.name.placeholder'),
+        brief: t('wizard.brief.placeholder'),
+        initialPrompt: t('wizard.initialPrompt.placeholder'),
+      };
+      const renderPlainField = (field) => {
+        const value = values[field.id] === undefined || values[field.id] === null ? '' : values[field.id];
+        const hint = field.help || '';
+        const onChange = (event) => {
+          setValue(field.id, event.target.value);
+          if (field.id === 'name') setNameTouched(true);
+        };
+        if (field.type === 'textarea') {
+          return h(LabField, { key: field.id, label: field.label, hint },
+            h(LabTextarea, {
+              value,
+              rows: field.rows || 3,
+              placeholder: placeholders[field.id] || '',
+              ariaLabel: field.label,
+              onChange,
+            }));
+        }
+        return h(LabField, { key: field.id, label: field.label, hint },
+          h(LabInput, {
+            type: field.type === 'number' ? 'number' : 'text',
+            value,
+            ...(field.min !== undefined ? { min: field.min } : {}),
+            ...(field.max !== undefined ? { max: field.max } : {}),
+            placeholder: placeholders[field.id] || '',
+            ariaLabel: field.label,
+            onChange,
+          }));
+      };
+      const researchFields = formSchema.fields.filter((field) => field.group === 'research');
+      const researchGridFields = researchFields.filter((field) => field.type !== 'textarea');
+      const researchTextFields = researchFields.filter((field) => field.type === 'textarea');
+      const limitNumberFields = formSchema.fields.filter((field) => field.group === 'limits' && field.type === 'number');
+      const timeoutFields = formSchema.fields.filter((field) => field.group === 'timeouts');
 
       return h(
         'section',
@@ -6768,11 +6980,11 @@ window.__ModuleLoader__.load({
               'div',
               { className: 'rl-form-row' },
               h(LabInput, {
-                value: repoPath,
+                value: values.repoPath === undefined || values.repoPath === null ? '' : values.repoPath,
                 placeholder: t('wizard.repoPath.placeholder'),
                 ariaLabel: t('wizard.repoPath'),
                 onChange: (event) => {
-                  setRepoPath(event.target.value);
+                  setValue('repoPath', event.target.value);
                   if (repoPhase !== 'idle') setRepoPhase('idle');
                   if (repoInfo !== null) setRepoInfo(null);
                   if (repoError) setRepoError('');
@@ -6813,10 +7025,10 @@ window.__ModuleLoader__.load({
                       { className: 'rl-field' },
                       h('span', { className: 'rl-label' }, t('wizard.repo.baseBranch')),
                       h(LabSelect, {
-                        value: baseBranch,
+                        value: values.baseBranch === undefined || values.baseBranch === null ? '' : values.baseBranch,
                         options: branchOptions,
                         ariaLabel: t('wizard.repo.baseBranch'),
-                        onChange: (event) => setBaseBranch(event.target.value),
+                        onChange: (event) => setValue('baseBranch', event.target.value),
                       }),
                     )
                   : null,
@@ -6828,49 +7040,8 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'rl-section' },
           h('h3', { className: 'rl-section-title' }, t('wizard.section.research')),
-          h(
-            'div',
-            { className: 'rl-form-grid' },
-            h(
-              'div',
-              { className: 'rl-field' },
-              h('span', { className: 'rl-label' }, t('wizard.name')),
-              h(LabInput, {
-                value: name,
-                placeholder: t('wizard.name.placeholder'),
-                ariaLabel: t('wizard.name'),
-                onChange: (event) => {
-                  setName(event.target.value);
-                  setNameTouched(true);
-                },
-              }),
-            ),
-          ),
-          h(
-            'div',
-            { className: 'rl-field' },
-            h('span', { className: 'rl-label' }, t('wizard.brief')),
-            h(LabTextarea, {
-              value: brief,
-              placeholder: t('wizard.brief.placeholder'),
-              ariaLabel: t('wizard.brief'),
-              rows: 3,
-              onChange: (event) => setBrief(event.target.value),
-            }),
-          ),
-          h(
-            'div',
-            { className: 'rl-field' },
-            h('span', { className: 'rl-label' }, t('wizard.initialPrompt')),
-            h(LabTextarea, {
-              value: initialPrompt,
-              placeholder: t('wizard.initialPrompt.placeholder'),
-              ariaLabel: t('wizard.initialPrompt'),
-              rows: 4,
-              onChange: (event) => setInitialPrompt(event.target.value),
-            }),
-          ),
-
+          h('div', { className: 'rl-form-grid' }, researchGridFields.map(renderPlainField)),
+          researchTextFields.map(renderPlainField),
           h(
             'div',
             { className: 'rl-field' },
@@ -6905,48 +7076,13 @@ window.__ModuleLoader__.load({
             ),
             h(LabButton, { label: t('wizard.pool.add'), variant: 'ghost', onClick: addPool }),
           ),
-
-          h(
-            'div',
-            { className: 'rl-form-grid' },
-            h(LabField, { label: t('wizard.maxRunningNodes') },
-              h(LabInput, {
-                type: 'number',
-                value: maxRunningNodes,
-                ariaLabel: t('wizard.maxRunningNodes'),
-                onChange: (event) => setMaxRunningNodes(event.target.value),
-              })),
-            h(LabField, { label: t('wizard.maxNodes') },
-              h(LabInput, {
-                type: 'number',
-                value: maxNodes,
-                ariaLabel: t('wizard.maxNodes'),
-                onChange: (event) => setMaxNodes(event.target.value),
-              })),
-          ),
+          h('div', { className: 'rl-form-grid' }, limitNumberFields.map(renderPlainField)),
           h('h3', { className: 'rl-section-title' }, t('wizard.timeouts')),
-          h(
-            'div',
-            { className: 'rl-form-grid' },
-            h(LabField, { label: t('wizard.nodeTimeoutMinutes') },
-              h(LabInput, {
-                type: 'number',
-                value: nodeTimeoutMinutes,
-                ariaLabel: t('wizard.nodeTimeoutMinutes'),
-                onChange: (event) => setNodeTimeoutMinutes(event.target.value),
-              })),
-            h(LabField, { label: t('wizard.maxNodeTimeoutMinutes') },
-              h(LabInput, {
-                type: 'number',
-                value: maxNodeTimeoutMinutes,
-                ariaLabel: t('wizard.maxNodeTimeoutMinutes'),
-                onChange: (event) => setMaxNodeTimeoutMinutes(event.target.value),
-              })),
-          ),
+          h('div', { className: 'rl-form-grid' }, timeoutFields.map(renderPlainField)),
           h(
             'p',
             { className: 'rl-hint' },
-            t('wizard.timeouts.hint', { max: parseInteger(maxNodeTimeoutMinutes, DEFAULT_CONFIG.maxNodeTimeoutMinutes) }),
+            t('wizard.timeouts.hint', { max: parseInteger(values.maxNodeTimeoutMinutes, formDefaults.maxNodeTimeoutMinutes) }),
           ),
         ),
 
@@ -6966,6 +7102,220 @@ window.__ModuleLoader__.load({
       );
     }
     // #endregion
+
+    /**
+     * Natural-language new-project intake. The agent fills a Host-side draft
+     * derived from the same form metadata as the manual wizard; the human sees
+     * the current values and clicks confirm to create the project.
+     */
+    function IntakeModal({ t, onClose, onCreated }) {
+      const [phase, setPhase] = React.useState('starting');
+      const [intakeId, setIntakeId] = React.useState('');
+      const [schema, setSchema] = React.useState(() => projectFormSchema(t));
+      const [values, setValues] = React.useState({});
+      const [missing, setMissing] = React.useState([]);
+      const [messages, setMessages] = React.useState([]);
+      const [text, setText] = React.useState('');
+      const [busy, setBusy] = React.useState(false);
+      const [creating, setCreating] = React.useState(false);
+      const [error, setError] = React.useState('');
+      const [createError, setCreateError] = React.useState('');
+      const createdRef = React.useRef(false);
+      const bottomRef = React.useRef(null);
+
+      React.useEffect(() => {
+        let alive = true;
+        (async () => {
+          try {
+            const data = await api.command({ type: 'project.intake_start', schema: projectFormSchema(t) }, undefined, t);
+            if (!alive) return;
+            const record = asObject(data);
+            setIntakeId(firstString(record.intakeId));
+            if (record.schema && typeof record.schema === 'object') setSchema(record.schema);
+            setValues(asObject(record.values));
+            setMissing(asArray(record.missing));
+            setMessages(asArray(record.messages));
+            setPhase('ready');
+          } catch (startError) {
+            if (!alive) return;
+            setError(describeError(startError, t));
+            setPhase('error');
+          }
+        })();
+        return () => { alive = false; };
+      }, [t]);
+
+      React.useEffect(() => {
+        const node = bottomRef.current;
+        if (node !== null && node !== undefined && typeof node.scrollIntoView === 'function') {
+          try { node.scrollIntoView({ block: 'end' }); } catch { /* ignore */ }
+        }
+      }, [messages, busy]);
+
+      const close = () => {
+        if (intakeId !== '' && createdRef.current !== true) {
+          api.command({ type: 'project.intake_discard', intakeId }, undefined, t).catch(() => {});
+        }
+        onClose();
+      };
+
+      const send = async () => {
+        const message = text.trim();
+        if (message === '' || busy || intakeId === '' || creating) return;
+        setBusy(true);
+        setError('');
+        setText('');
+        setMessages((previous) => previous.concat([{ role: 'user', text: message, at: Date.now() }]));
+        try {
+          const data = await api.command({ type: 'project.intake_message', intakeId, text: message }, undefined, t);
+          const record = asObject(data);
+          if (Array.isArray(record.messages)) setMessages(asArray(record.messages));
+          setValues(asObject(record.values));
+          setMissing(asArray(record.missing));
+        } catch (sendError) {
+          setError(describeError(sendError, t));
+        } finally {
+          setBusy(false);
+        }
+      };
+
+      const confirm = async () => {
+        if (intakeId === '' || creating || busy || missing.length > 0) return;
+        setCreating(true);
+        setCreateError('');
+        try {
+          const data = await api.command({ type: 'project.intake_confirm', intakeId, start: true }, undefined, t);
+          const record = asObject(data);
+          const project = asObject(record.project);
+          const createdId = projectIdOf(project) || firstString(record.projectId);
+          if (createdId === '') {
+            setCreateError(t('wizard.error.noProject'));
+            setCreating(false);
+            return;
+          }
+          createdRef.current = true;
+          onCreated(createdId);
+        } catch (confirmError) {
+          setCreateError(describeError(confirmError, t));
+          setCreating(false);
+        }
+      };
+
+      const formatValue = (field) => {
+        const value = values[field.id];
+        if (value === undefined || value === null || value === '') return '—';
+        if (field.type === 'pools') return JSON.stringify(value);
+        if (field.type === 'boolean') return value ? 'true' : 'false';
+        return String(value);
+      };
+      const missingIds = new Set(missing.map((item) => firstString(asObject(item).id)).filter(Boolean));
+      const groups = [];
+      const groupIndex = new Map();
+      for (const field of asArray(schema.fields)) {
+        const key = firstString(field.group) || 'general';
+        if (!groupIndex.has(key)) {
+          const entry = { key, fields: [] };
+          groupIndex.set(key, entry);
+          groups.push(entry);
+        }
+        groupIndex.get(key).fields.push(field);
+      }
+
+      return h(
+        'div',
+        { className: 'rl-overlay-layer rl-overlay-layer-top' },
+        h(
+          'div',
+          { className: 'rl-modal rl-modal-wide', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('intake.title') },
+          h(
+            'div',
+            { className: 'rl-modal-head' },
+            h('h2', { className: 'rl-modal-title' }, t('intake.title')),
+            h(LabButton, { label: '✕', variant: 'ghost', title: t('intake.close'), onClick: close }),
+          ),
+          h(
+            'div',
+            { className: 'rl-modal-body' },
+            h('p', { className: 'rl-hint' }, t('intake.intro')),
+            h(
+              'div',
+              { style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(250px, 340px)', gap: '14px', alignItems: 'start' } },
+              h(
+                'div',
+                { className: 'rl-section' },
+                h('h3', { className: 'rl-section-title' }, t('intake.chat')),
+                h(
+                  'div',
+                  { style: { display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '46vh', overflow: 'auto', paddingRight: '4px' } },
+                  messages.length === 0 ? h('p', { className: 'rl-hint' }, t('intake.empty')) : null,
+                  messages.map((message, index) => {
+                    const role = firstString(asObject(message).role) === 'assistant' ? 'assistant' : 'user';
+                    return h(
+                      'div',
+                      { key: 'intake-message-' + index, className: 'rl-copilot-message' + (role === 'user' ? ' rl-copilot-message-user' : '') },
+                      h('div', { className: 'rl-copilot-message-head' }, h('span', { className: 'rl-copilot-message-role' }, role === 'user' ? t('ws.copilot.user') : t('ws.copilot.assistant'))),
+                      h('p', { className: 'rl-copilot-message-text' }, String(asObject(message).text ?? '')),
+                    );
+                  }),
+                  busy ? h('div', { className: 'rl-copilot-thinking' }, t('intake.sending')) : null,
+                  h('div', { ref: bottomRef }),
+                ),
+                error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, t('intake.error') + ': ' + error) : null,
+                h(LabTextarea, {
+                  value: text,
+                  rows: 3,
+                  placeholder: t('intake.placeholder'),
+                  ariaLabel: t('intake.placeholder'),
+                  disabled: phase !== 'ready' || busy || creating,
+                  onChange: (event) => setText(event.target.value),
+                }),
+                h(
+                  'div',
+                  { className: 'rl-form-actions' },
+                  h(LabButton, {
+                    label: busy ? t('intake.sending') : t('intake.send'),
+                    variant: 'primary',
+                    disabled: busy || creating || phase !== 'ready' || text.trim() === '',
+                    onClick: send,
+                  }),
+                ),
+              ),
+              h(
+                'div',
+                { className: 'rl-section' },
+                h('h3', { className: 'rl-section-title' }, t('intake.preview')),
+                phase === 'starting' ? h('p', { className: 'rl-hint' }, t('intake.starting')) : null,
+                missing.length > 0
+                  ? h('p', { className: 'rl-hint' }, t('intake.missing') + ': ' + missing.map((item) => firstString(asObject(item).label) || firstString(asObject(item).id)).join(', '))
+                  : (phase !== 'starting' ? h('span', { className: 'rl-chip' }, t('intake.ready')) : null),
+                groups.map((group) => h(
+                  'div',
+                  { key: 'intake-group-' + group.key, className: 'rl-field' },
+                  h('h4', { className: 'rl-section-title' }, t('intake.group.' + group.key, { fallback: group.key })),
+                  group.fields.map((field) => h(
+                    'div',
+                    { key: 'intake-value-' + field.id, className: 'rl-field' },
+                    h('span', { className: 'rl-label' }, firstString(field.label) + (missingIds.has(field.id) ? ' *' : '')),
+                    h('span', { className: 'rl-hint', style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, formatValue(field)),
+                  )),
+                )),
+                createError !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, t('wizard.error') + ': ' + createError) : null,
+                h(
+                  'div',
+                  { className: 'rl-form-actions' },
+                  h(LabButton, {
+                    label: creating ? t('intake.creating') : t('intake.confirm'),
+                    variant: 'primary',
+                    disabled: creating || busy || missing.length > 0 || intakeId === '',
+                    onClick: confirm,
+                  }),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     /** DSH-native session/trajectory controls for one node (read-only history). */
     function NativeSessionPanel({ node, onOpenSession, t }) {
@@ -7114,7 +7464,7 @@ window.__ModuleLoader__.load({
 
     // #region workspace
     /** Full workspace: top bar, node rail, DAG canvas, inspector, log and transcript drawer. */
-    function WorkspaceScreen({ projectId, initialNodeId, onBack, openNativeSession, retainCopilotSession, SessionProvider, renderFactorySlot, t }) {
+    function WorkspaceScreen({ projectId, initialNodeId, onBack, openNativeSession, retainCopilotSession, SessionProvider, renderFactorySlot, onOpenTrajectory, t }) {
       const { snapshot, events, offline, retry, reload, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t);
       const [selectedId, setSelectedId] = React.useState(null);
       const [continueNodeId, setContinueNodeId] = React.useState(null);
@@ -7809,6 +8159,7 @@ window.__ModuleLoader__.load({
           runs: runsFeed.state.runs,
           copilotOpen,
           onToggleCopilot: toggleCopilot,
+          onOpenTrajectory,
           onBack,
           t,
         }),
@@ -7991,7 +8342,10 @@ window.__ModuleLoader__.load({
       const [reference, setReference] = React.useState(null);
       const [reason, setReason] = React.useState('');
       const [attempt, setAttempt] = React.useState(0);
+      const [sessions, setSessions] = React.useState([]);
+      const [parentSessionId, setParentSessionId] = React.useState('');
       const referenceRef = React.useRef(null);
+      const requestRef = React.useRef({ sessionId: '', create: false });
 
       React.useEffect(() => {
         if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
@@ -8004,6 +8358,8 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         let alive = true;
+        const request = requestRef.current && typeof requestRef.current === 'object' ? requestRef.current : {};
+        requestRef.current = { sessionId: '', create: false };
         setPhase('loading');
         setSessionId('');
         setReused(false);
@@ -8011,11 +8367,23 @@ window.__ModuleLoader__.load({
         setReason('');
         (async () => {
           try {
-            const data = await api.command({ type: 'project.copilot', projectId }, undefined, t);
+            const body = { type: 'project.copilot', projectId };
+            if (firstString(request.sessionId) !== '') body.sessionId = firstString(request.sessionId);
+            if (request.create === true) body.create = true;
+            const data = await api.command(body, undefined, t);
             if (!alive) return;
             const record = asObject(data);
             const id = firstString(record.sessionId);
             const isReused = record.reused === true;
+            const parent = firstString(record.parentSessionId);
+            const list = asArray(record.sessions)
+              .filter((entry) => entry !== null && typeof entry === 'object' && firstString(entry.id) !== '' && entry.private !== false)
+              .map((entry) => ({
+                id: firstString(entry.id),
+                title: firstString(entry.title) || firstString(entry.id),
+              }));
+            setSessions(list);
+            setParentSessionId(parent);
             if (id === '') {
               setPhase('fallback');
               setReason(t('ws.copilot.loadError'));
@@ -8023,7 +8391,7 @@ window.__ModuleLoader__.load({
             }
             setSessionId(id);
             setReused(isReused);
-            const ref = typeof retainCopilotSession === 'function' ? retainCopilotSession(id) : null;
+            const ref = typeof retainCopilotSession === 'function' ? retainCopilotSession(id, parent, attempt) : null;
             if (ref === null || ref === undefined) {
               setPhase('fallback');
               setReason(t('ws.copilot.embedUnavailable'));
@@ -8061,6 +8429,21 @@ window.__ModuleLoader__.load({
         };
       }, [projectId, attempt, retainCopilotSession, t]);
 
+      const switchCopilotSession = (nextId) => {
+        const id = firstString(nextId);
+        if (id === '' || id === sessionId) return;
+        requestRef.current = { sessionId: id, create: false };
+        setAttempt((value) => value + 1);
+      };
+      const createCopilotSession = () => {
+        requestRef.current = { sessionId: '', create: true };
+        setAttempt((value) => value + 1);
+      };
+      const currentSessionTitle = (() => {
+        for (const entry of sessions) if (entry.id === sessionId) return entry.title;
+        return '';
+      })();
+
       const openNative = (view) => {
         const id = firstString(sessionId);
         if (id === '') return;
@@ -8093,6 +8476,54 @@ window.__ModuleLoader__.load({
           ),
         );
 
+      const [probe, setProbe] = React.useState(null);
+      // The embedded native body keys its composer-seat CSS on data-content-phase; the
+      // factory slot may not forward the prop, so stamp it once the session is mounted.
+      React.useEffect(() => {
+        if (typeof document === 'undefined') return undefined;
+        const stamp = () => {
+          const root = document.querySelector('.rl-copilot-native');
+          const content = root === null ? null : root.querySelector('[data-conversation-content]');
+          if (content !== null && content.getAttribute('data-content-phase') !== 'active') {
+            content.setAttribute('data-content-phase', 'active');
+          }
+        };
+        stamp();
+        const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(stamp) : 0;
+        return () => {
+          if (typeof cancelAnimationFrame === 'function' && raf !== 0) cancelAnimationFrame(raf);
+        };
+      }, [attempt, sessionId]);
+      const runLayoutProbe = () => {
+        try {
+          const root = typeof document === 'undefined' ? null : document.querySelector('.rl-copilot-native');
+          const seat = root === null ? null : root.querySelector('[data-composer-seat]');
+          const rows = [];
+          let cursor = seat;
+          for (let guard = 0; cursor !== null && cursor !== undefined && guard < 24; guard += 1) {
+            const style = window.getComputedStyle(cursor);
+            const rect = cursor.getBoundingClientRect();
+            const slot = cursor.getAttribute('data-slot') || cursor.getAttribute('data-conversation-region') || '';
+            rows.push(
+              `${cursor.tagName.toLowerCase()}${slot === '' ? '' : '[' + slot + ']'} | y=${Math.round(rect.top)} h=${Math.round(rect.height)} | client=${cursor.clientHeight} scroll=${cursor.scrollHeight} | pos=${style.position} ovf=${style.overflowY} disp=${style.display} flex=${style.flex} h=${style.height} | ${String(cursor.className).slice(0, 64)}`,
+            );
+            if (root !== null && cursor === root) break;
+            cursor = cursor.parentElement;
+          }
+          const text = [
+            `window=${window.innerWidth}x${window.innerHeight}`,
+            `drawer=${root === null ? 'missing' : Math.round(root.getBoundingClientRect().height)}`,
+            ...rows,
+          ].join('\n');
+          setProbe(text);
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(text).catch(() => {});
+          }
+        } catch (error) {
+          setProbe('probe failed: ' + describeError(error, t));
+        }
+      };
+
       let body;
       if (phase === 'loading') {
         body = h('div', { className: 'rl-copilot-native-loading' }, h(LabLoading, { label: t('ws.copilot.loading') }));
@@ -8109,7 +8540,7 @@ window.__ModuleLoader__.load({
           h(
             SessionProvider,
             { session: reference },
-            h('div', { className: 'rl-copilot-native-view' }, renderFactorySlot('conversation.content', {})),
+            h('div', { className: 'rl-copilot-native-view' }, renderFactorySlot('conversation.content', { variant: 'embedded', phase: 'active', hero: false })),
           ),
         );
       }
@@ -8124,7 +8555,22 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'rl-copilot-native-head' },
             h('span', { className: 'rl-copilot-native-title' }, t('ws.copilot.nativeTitle')),
+            h(LabSelect, {
+              value: sessionId,
+              ariaLabel: t('ws.copilot.sessionPicker'),
+              options: sessions.length > 0
+                ? sessions.map((entry) => ({ value: entry.id, label: entry.title }))
+                : [{ value: '', label: t('ws.copilot.noSessions') }],
+              onChange: (event) => switchCopilotSession(event.target.value),
+            }),
+            h(LabButton, {
+              label: t('ws.copilot.newSession'),
+              variant: 'ghost',
+              disabled: phase === 'loading',
+              onClick: () => createCopilotSession(),
+            }),
             reused ? h('span', { className: 'rl-chip' }, t('ws.copilot.reused')) : (sessionId !== '' ? h('span', { className: 'rl-chip' }, t('ws.copilot.created')) : null),
+            currentSessionTitle !== '' ? h('span', { className: 'rl-chip' }, currentSessionTitle) : null,
             sessionId !== '' ? h('span', { className: 'rl-chip rl-chip-mono' }, sessionId) : null,
             h('span', { className: 'rl-hint rl-copilot-native-hint' }, t('ws.copilot.embeddedHint')),
             h(LabButton, {
@@ -8139,8 +8585,15 @@ window.__ModuleLoader__.load({
               disabled: sessionId === '',
               onClick: () => openNative('trajectory'),
             }),
+            h(LabButton, {
+              label: t('ws.copilot.layoutProbe'),
+              variant: 'ghost',
+              title: t('ws.copilot.layoutProbeHint'),
+              onClick: runLayoutProbe,
+            }),
             h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.copilot.close'), onClick: onClose }),
           ),
+          probe === null ? null : h('pre', { className: 'rl-copilot-probe', title: 'Click to close', onClick: () => setProbe(null) }, probe),
           h('div', { className: 'rl-copilot-native-body' }, body),
         ),
       );
@@ -8203,6 +8656,7 @@ window.__ModuleLoader__.load({
       runs,
       copilotOpen,
       onToggleCopilot,
+      onOpenTrajectory,
       onBack,
       t,
     }) {
@@ -8297,6 +8751,13 @@ window.__ModuleLoader__.load({
             variant: 'ghost',
             onClick: onToggleCopilot,
           }),
+          h(LabButton, {
+            label: '⌁ ' + t('trajectory.open'),
+            variant: 'ghost',
+            title: t('trajectory.open'),
+            disabled: !project,
+            onClick: () => onOpenTrajectory(project),
+          }),
           h(LabButton, { label: '⚙', variant: 'ghost', title: t('ws.settings.open'), onClick: onOpenSettings }),
           h(
             'div',
@@ -8390,7 +8851,7 @@ window.__ModuleLoader__.load({
 
     /** Left rail: nodes grouped by status with counts; clicking selects. */
     function NodeRail({ project, nodes, selectedId, onSelect, t }) {
-      const grouped = React.useMemo(() => {
+      const orderedGroups = React.useMemo(() => {
         const buckets = {};
         for (const status of STATUS_ORDER) buckets[status] = [];
         for (const node of nodes) {
@@ -8399,15 +8860,23 @@ window.__ModuleLoader__.load({
           buckets[status].push(node);
         }
         for (const status of STATUS_ORDER) {
-          buckets[status] = buckets[status].slice().sort((left, right) => nodeTimeOf(left) - nodeTimeOf(right));
+          buckets[status] = buckets[status].slice().sort((left, right) =>
+            nodeRecencyOf(right) - nodeRecencyOf(left)
+            || nodeTimeOf(right) - nodeTimeOf(left)
+            || String(nodeIdOf(left)).localeCompare(String(nodeIdOf(right))));
         }
-        return buckets;
+        return STATUS_ORDER
+          .filter((status) => buckets[status].length > 0)
+          .map((status) => ({
+            status,
+            bucket: buckets[status],
+            newest: nodeRecencyOf(buckets[status][0]),
+          }))
+          .sort((left, right) =>
+            right.newest - left.newest
+            || STATUS_ORDER.indexOf(left.status) - STATUS_ORDER.indexOf(right.status));
       }, [nodes]);
-      const groups = [];
-      for (const status of STATUS_ORDER) {
-        const bucket = grouped[status];
-        if (bucket.length === 0) continue;
-        groups.push(
+      const groups = orderedGroups.map(({ status, bucket }) =>
           h(
             'div',
             { key: status, className: 'rl-rail-group' },
@@ -8443,7 +8912,6 @@ window.__ModuleLoader__.load({
             }),
           ),
         );
-      }
       return h(
         'aside',
         { className: 'rl-rail', 'aria-label': t('ws.rail.title') },
@@ -9734,6 +10202,9 @@ window.__ModuleLoader__.load({
                           options: CLUSTER_FLEET_RUNTIMES.map((runtime) => ({ value: runtime, label: runtime })),
                           onChange: (event) => onMachine(machine.key, 'containerRuntime', event.target.value),
                         })),
+                      machine.containerRuntime === 'none'
+                        ? h('p', { className: 'rl-hint' }, t('ws.clusterConfig.fleet.baremetal.hint'))
+                        : null,
                       h(LabField, { label: t('ws.clusterConfig.fleet.container.name') },
                         h(LabInput, {
                           value: machine.containerName,
@@ -10724,6 +11195,23 @@ window.__ModuleLoader__.load({
       const fleetMachines = asArray(fleet.machines).filter((machine) => machine !== null && typeof machine === 'object');
       const pools = clusterPoolsOf(cluster);
       const poolKeys = Object.keys(pools);
+      const deviceList = (devices) => {
+        const list = asArray(devices).filter((device) => device !== null && typeof device === 'object');
+        if (list.length === 0) return h('p', { className: 'rl-hint' }, '—');
+        return h(
+          'div',
+          { className: 'rl-device-list' },
+          list.map((device, index) => h(
+            'div',
+            { key: firstString(device.id) || 'device-' + index, className: 'rl-device-row' },
+            h('span', { className: 'rl-device-id' }, firstString(device.id) || '—'),
+            h('span', { className: 'rl-device-model' }, firstString(device.model) || '—'),
+            finiteNumber(device.memoryMiB) !== null
+              ? h('span', { className: 'rl-device-memory' }, t('ws.cluster.memory', { memory: Math.round(numberOr(device.memoryMiB, 0)) }))
+              : null,
+          )),
+        );
+      };
       let body;
       if (state.phase === 'loading' && state.cluster === null) {
         body = h(LabLoading, { label: t('ws.cluster.loading') });
@@ -10777,12 +11265,8 @@ window.__ModuleLoader__.load({
                   'div',
                   { key: firstString(machine.machineId) || 'machine-' + index, className: 'rl-cluster-card' },
                   h('p', { className: 'rl-cluster-line rl-cluster-mono' }, firstString(machine.machineId) || '—'),
-                  asArray(machine.devices).map((device, deviceIndex) => h(
-                    'p',
-                    { key: deviceIndex, className: 'rl-cluster-line' },
-                    t('ws.cluster.devices') + ': ' + firstString(device.id) + ' · ' + firstString(device.model)
-                      + (finiteNumber(device.memoryMiB) !== null ? ' · ' + t('ws.cluster.memory', { memory: Math.round(numberOr(device.memoryMiB, 0)) }) : ''),
-                  )),
+                  h('p', { className: 'rl-cluster-line rl-hint' }, t('ws.cluster.devices')),
+                  deviceList(machine.devices),
                   finiteNumber(machine.lastHeartbeatAt) !== null
                     ? h('p', { className: 'rl-cluster-line rl-hint' }, t('ws.cluster.heartbeat') + ': ' + formatDateTime(machine.lastHeartbeatAt, t))
                     : null,
@@ -10841,7 +11325,8 @@ window.__ModuleLoader__.load({
                         h('p', { className: 'rl-cluster-line rl-cluster-mono' }, t('ws.cluster.fleet.machine') + ': ' + (firstString(machine.machineId) || '—')),
                         h('p', { className: 'rl-cluster-line' }, t('ws.cluster.fleet.ssh') + ': ' + (firstString(machine.sshHost) || '—') + (firstString(machine.sshUser) ? '@' + firstString(machine.sshUser) : '')),
                         h('p', { className: 'rl-cluster-line' }, t('ws.cluster.fleet.container') + ': ' + firstString(container.runtime) + (firstString(container.name) ? ' / ' + firstString(container.name) : '')),
-                        h('p', { className: 'rl-cluster-line' }, t('ws.cluster.fleet.devices') + ': ' + (devices.length > 0 ? devices.map((device) => firstString(device.id) + (firstString(device.model) ? ' (' + firstString(device.model) + ')' : '')).join(', ') : '—')),
+                        h('p', { className: 'rl-cluster-line' }, t('ws.cluster.fleet.devices')),
+                        deviceList(devices),
                         h(
                           'div',
                           { className: 'rl-project-chips' },
@@ -11630,6 +12115,7 @@ window.__ModuleLoader__.load({
         acceptMode: advisor.acceptMode === 'confirm' ? 'confirm' : 'auto',
         maxProposalsPerPass: String(numberOr(advisor.maxProposalsPerPass, 3)),
         maxPendingProposals: String(numberOr(advisor.maxPendingProposals, 20)),
+        advisorTimeoutSeconds: String(numberOr(advisor.timeoutSeconds, 180)),
         maxCycles: String(numberOr(auto.maxCycles, 50)),
         maxWallClockMinutes: String(Math.round(numberOr(auto.maxWallClockMs, 6 * 3600000) / 60000)),
         idleCycleLimit: String(numberOr(auto.idleCycleLimit, 3)),
@@ -11685,6 +12171,7 @@ window.__ModuleLoader__.load({
       advisor.acceptMode = draft.acceptMode === 'confirm' ? 'confirm' : 'auto';
       advisor.maxProposalsPerPass = parseInteger(draft.maxProposalsPerPass, 3);
       advisor.maxPendingProposals = parseInteger(draft.maxPendingProposals, 20);
+      advisor.timeoutSeconds = Math.max(30, Math.min(1800, parseInteger(draft.advisorTimeoutSeconds, 180)));
       auto.maxCycles = parseInteger(draft.maxCycles, 50);
       auto.maxWallClockMs = Math.max(1, parseInteger(draft.maxWallClockMinutes, 360)) * 60000;
       auto.idleCycleLimit = parseInteger(draft.idleCycleLimit, 3);
@@ -12065,6 +12552,18 @@ window.__ModuleLoader__.load({
                     onChange: (event) => setField('maxPendingProposals', event.target.value),
                   })),
               ),
+              h(LabField, {
+                label: t('ws.settings.advisorTimeoutSeconds'),
+                hint: t('ws.settings.advisorTimeoutSeconds.hint'),
+              },
+                h(LabInput, {
+                  type: 'number',
+                  min: 30,
+                  max: 1800,
+                  value: draft.advisorTimeoutSeconds,
+                  ariaLabel: t('ws.settings.advisorTimeoutSeconds'),
+                  onChange: (event) => setField('advisorTimeoutSeconds', event.target.value),
+                })),
             ),
             h(
               'div',
@@ -13435,6 +13934,8 @@ window.__ModuleLoader__.load({
       const SessionProvider = typeof props.SessionProvider === 'function' ? props.SessionProvider : null;
       const renderFactorySlot = typeof props.renderFactorySlot === 'function' ? props.renderFactorySlot : null;
       const [activeProjectId, setActiveProjectId] = React.useState(() => labNavigation.projectId || null);
+      const [trajectoryOpen, setTrajectoryOpen] = React.useState(false);
+      const [trajectoryProject, setTrajectoryProject] = React.useState(null);
       const initialNodeId = labNavigation.nodeId;
       React.useEffect(() => {
         if (labNavigation.returnTarget === true && activeProjectId === labNavigation.projectId) clearNativeReturnTarget();
@@ -13446,6 +13947,21 @@ window.__ModuleLoader__.load({
       const backToList = React.useCallback(() => {
         setActiveProjectId(null);
       }, []);
+      const openTrajectory = React.useCallback((project) => {
+        setTrajectoryProject(project || null);
+        setTrajectoryOpen(true);
+      }, []);
+      const closeTrajectory = React.useCallback(() => {
+        setTrajectoryOpen(false);
+        setTrajectoryProject(null);
+      }, []);
+      if (trajectoryOpen) {
+        return h(
+          MetainferLabErrorBoundary,
+          { t },
+          h(TrajectoryPage, { onClose: closeTrajectory, t, project: trajectoryProject }),
+        );
+      }
       return h(
         MetainferLabErrorBoundary,
         { t },
@@ -13460,6 +13976,7 @@ window.__ModuleLoader__.load({
               retainCopilotSession,
               SessionProvider,
               renderFactorySlot,
+              onOpenTrajectory: openTrajectory,
               t,
             }),
       );
@@ -13501,6 +14018,70 @@ window.__ModuleLoader__.load({
     }
     // #endregion
 
+    // #region trajectory page
+    /**
+     * Mount the MetaInfer trajectory UI inside the Research Lab panel.
+     * The module loader resolves the rewritten assets through the Host bridge;
+     * there is no iframe, no second sidebar entry and no second browser origin.
+     */
+    function TrajectoryPage({ onClose, t, project }) {
+      const hostRef = React.useRef(null);
+      const [error, setError] = React.useState('');
+      const projectId = project && typeof project.id === 'string' ? project.id : '';
+      const projectName = project ? projectNameOf(project) : '';
+      const repoPath = project ? projectRepoPath(project) : '';
+      React.useEffect(() => {
+        let dispose = null;
+        let cancelled = false;
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = '/metainfer/trajectory-assets/trajectory.css';
+        document.head.appendChild(link);
+        import('/metainfer/trajectory-assets/mount.js')
+          .then((module) => {
+            if (cancelled || !hostRef.current) return;
+            dispose = module.mount(hostRef.current, { projectId, projectName, repoPath });
+          })
+          .catch((reason) => {
+            if (!cancelled) setError(String(reason?.message || reason));
+          });
+        return () => {
+          cancelled = true;
+          if (typeof dispose === 'function') dispose();
+          link.remove();
+        };
+      }, [projectId, projectName, repoPath]);
+      return h(
+        'div',
+        { className: 'mirl-trajectory-page' },
+        h(LabStyle),
+        h('style', null,
+          '.mirl-trajectory-page { box-sizing: border-box; display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; background: var(--dsw-alias-bg-base);'
+          + ' --bg: var(--dsw-alias-bg-base); --bg-elev: var(--dsw-alias-bg-layer-1); --panel: var(--dsw-alias-bg-layer-1); --panel-2: var(--dsw-alias-bg-layer-2);'
+          + ' --fg: var(--dsw-alias-label-primary); --fg-dim: var(--dsw-alias-label-secondary); --muted: var(--dsw-alias-label-secondary);'
+          + ' --border: var(--dsw-alias-border-l2); --border-soft: var(--dsw-alias-border-l1);'
+          + ' --accent: var(--dsw-alias-brand-primary); --accent-2: var(--dsw-alias-brand-primary); --purple: #8b5cf6;'
+          + ' --ok: #22c55e; --err: #ef4444; --warn: #f59e0b; --idle: var(--dsw-alias-label-secondary);'
+          + ' --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 16px; --fs-mono: 11.5px;'
+          + ' --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-8: 32px;'
+          + ' --radius-sm: 4px; --radius: 8px; --radius-lg: 12px; --shadow-2: 0 8px 24px rgba(0,0,0,.18); }'
+          + '.mirl-trajectory-host { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: auto; }'
+          + '.mirl-trajectory-error { margin: 24px; padding: 14px 16px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 13px; line-height: 20px; }'
+          + '.mirl-trajectory-bar { display: flex; align-items: center; gap: 8px; flex: none; padding: 8px 14px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }'),
+        h('div', { className: 'mirl-trajectory-bar' },
+          h('button', {
+            type: 'button',
+            className: 'rl-btn rl-btn-ghost',
+            onClick: typeof onClose === 'function' ? onClose : undefined,
+          }, '← ' + (typeof t === 'function' ? t('trajectory.back') : '返回科研实验台'))),
+        error
+          ? h('div', { className: 'mirl-trajectory-error', role: 'alert' }, error)
+          : h('div', { className: 'mirl-trajectory-host', ref: hostRef }),
+      );
+    }
+
+    // #endregion
+
     return {
       inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'layout'],
       apply(ctx) {
@@ -13510,12 +14091,15 @@ window.__ModuleLoader__.load({
         );
         const t = ctx.locale.bind(NS);
         const openNativeSession = buildNativeOpener(ctx);
-        /** Retain the persistent Copilot session for an embedded native Conversation. */
+        /** Retain a private Copilot subagent session for an embedded native Conversation. */
         const retainCopilotSession = (sessionId) => {
           const id = firstString(sessionId);
           if (id === '') return null;
           try {
             if (ctx.sessions === null || ctx.sessions === undefined || typeof ctx.sessions.retain !== 'function') return null;
+            // A private Copilot is a durable subagent child; the catalog
+            // supplies its exact parent address. Ordinary legacy sessions fall
+            // back to their plain id.
             let target = id;
             if (typeof ctx.sessions.subagentAddress === 'function') {
               const address = ctx.sessions.subagentAddress(id);
@@ -13575,6 +14159,7 @@ window.__ModuleLoader__.load({
             MetainferLabIcon,
           ),
         );
+
       },
     };
   },

@@ -3,7 +3,9 @@
  * Step cycle. All LLM calls happen outside project locks; validation and node
  * creation happen inside them.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { LabError } from './git-engine.js';
 import { cleanModelRef, validateModelSelection } from './models.js';
@@ -12,6 +14,47 @@ import { advisorCandidates, buildAdvisorSnapshot, buildSchedulerSnapshot, prompt
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
+
+/**
+ * Read the platform-published expert-skill overlay.  The MetaInfer trajectory
+ * registry writes this file; the Lab only consumes it for advisor/scheduler
+ * prompts and never mutates it.
+ */
+function activeSkillSection(roles, seed = '') {
+  const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+  const file = process.env.MIRL_ACTIVE_SKILLS_FILE
+    || path.join(dshHome, 'metainfer-research-lab', 'active-skills.json');
+  let payload;
+  try {
+    payload = JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    return '';
+  }
+  const entries = payload && typeof payload === 'object' ? payload.entries : null;
+  if (!entries || typeof entries !== 'object') return '';
+  const wanted = new Set(roles);
+  const lines = [];
+  for (const [role, entry] of Object.entries(entries)) {
+    if (!wanted.has(String(role)) || !entry || typeof entry !== 'object') continue;
+    const percent = Number(entry.canaryPercent ?? 100);
+    if (Number.isFinite(percent) && percent < 100) {
+      const digest = createHash('sha256')
+        .update(`${entry.releaseId}:${seed}`)
+        .digest('hex');
+      if (parseInt(digest.slice(0, 8), 16) % 100 >= Math.max(0, percent)) continue;
+    }
+    lines.push(`<!-- METAINFER_SKILL_RELEASE:${entry.releaseId};ROLE:${role} -->`);
+    lines.push(`Skill: ${entry.skillName || entry.skillId} (version ${entry.skillVersion || '?'})`);
+    lines.push('Apply these reviewed expert-skill changes where relevant:');
+    for (const change of entry.changes || []) {
+      if (change && typeof change.change === 'string' && change.change.trim()) {
+        lines.push(`- [${change.type || 'change'}] ${change.change.trim()}`);
+      }
+    }
+    lines.push('');
+  }
+  return lines.length === 0 ? '' : ['# Active expert skill', ...lines].join('\n');
+}
 
 const ADVISOR_SCHEMA = {
   type: 'object',
@@ -91,6 +134,7 @@ function advisorPrompt(project, snapshot, lens) {
   return [
     lens ? `Perspective for this review pass (one of several independent reviewers): ${lens}` : '',
     custom && custom.trim() ? custom.trim() : DEFAULT_ADVISOR_PROMPT,
+    activeSkillSection(['advisor', 'reviewer'], project.id),
     '',
     '# Rules',
     '1. Only propose successors whose parentId is in candidateParents. A parent must be completed.',
@@ -140,6 +184,7 @@ function schedulerPrompt(project, snapshot) {
     : DEFAULT_SCHEDULER_PROMPT;
   return [
     base,
+    activeSkillSection(['scheduler'], project.id),
     clusterSection,
     '',
     '# Rules',
@@ -298,6 +343,13 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     }
   }
 
+  /** Per-project advisor wall-clock budget (seconds -> ms), with the legacy default. */
+  function advisorTimeoutMs(project) {
+    const seconds = Number(project?.config?.advisor?.timeoutSeconds ?? 180);
+    const bounded = Number.isFinite(seconds) ? Math.max(30, Math.min(1800, Math.round(seconds))) : 180;
+    return bounded * 1000;
+  }
+
   async function runRole(project, role, cycle, promptText, schema, inputSnapshot, options = {}) {
     const controller = await ensureController(project);
     const id = runId();
@@ -306,6 +358,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       ? { ...options.modelOverride }
       : roleModel(project, role);
     const preset = role === 'advisor' ? 'lab-advisor' : 'lab-scheduler';
+    const timeoutMs = Math.max(
+      30_000,
+      Math.min(1_800_000, Number(options.timeoutMs) || ROLE_RUN_TIMEOUT_MS),
+    );
     const record = {
       id,
       projectId: project.id,
@@ -316,6 +372,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       status: 'running',
       inputSnapshot,
       lens: options.lens ?? null,
+      timeoutMs,
       startedAt: Date.now(),
     };
     await store.saveRun(project.id, record);
@@ -345,8 +402,8 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
         activation.result,
         new Promise((_, reject) => {
           const timer = setTimeout(
-            () => reject(new LabError('run_timeout', `${role} run exceeded ${ROLE_RUN_TIMEOUT_MS / 1000}s`, 504)),
-            ROLE_RUN_TIMEOUT_MS,
+            () => reject(new LabError('run_timeout', `${role} run exceeded ${timeoutMs / 1000}s`, 504)),
+            timeoutMs,
           );
           timer.unref?.();
         }),
@@ -390,9 +447,20 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
 
   function normalizeNeeds(raw, project) {
     if (raw === undefined || raw === null) return { needs: {}, error: null };
-    if (!Array.isArray(raw)) return { needs: {}, error: 'needs must be an array of {key, amount}' };
+    // Two callers exist: advisor structured output sends [{key, amount}] while
+    // the agent tool / project config use the compact {gpu: 4} form. Accept
+    // both here so a user-facing `successor` call cannot fail on a shape the
+    // tool description advertises.
+    let entries;
+    if (Array.isArray(raw)) {
+      entries = raw;
+    } else if (typeof raw === 'object') {
+      entries = Object.entries(raw).map(([key, amount]) => ({ key, amount }));
+    } else {
+      return { needs: {}, error: 'needs must be an object {gpu: 4} or an array of {key, amount}' };
+    }
     const needs = {};
-    for (const item of raw) {
+    for (const item of entries) {
       const key = typeof item?.key === 'string' ? item.key.trim() : '';
       const amount = Number(item?.amount);
       if (!key) return { needs: {}, error: 'needs[].key is required' };
@@ -751,6 +819,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
               snapshot,
               {
                 lens: reviewer.lens || `reviewer-${index + 1}`,
+                timeoutMs: advisorTimeoutMs(project),
                 modelOverride: reviewer.provider && reviewer.model
                   ? {
                       provider: reviewer.provider,
@@ -760,7 +829,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
                   : undefined,
               },
             )))
-          : [await runRole(project, 'advisor', cycle, advisorPrompt(project, snapshot), ADVISOR_SCHEMA, snapshot)];
+          : [await runRole(project, 'advisor', cycle, advisorPrompt(project, snapshot), ADVISOR_SCHEMA, snapshot, { timeoutMs: advisorTimeoutMs(project) })];
         cycle.advisorRunIds = runs.map((run) => run.record.id);
         cycle.advisorRunId = cycle.advisorRunIds[0] ?? null;
         const successful = runs.filter((run) => !run.failure && run.record.output);

@@ -21,6 +21,8 @@ import { TaskDetailView } from "app/task-detail";
 import { NewTaskView } from "app/new-task";
 import { ConfirmActionModal } from "app/confirm-action-modal";
 import { ClusterOverview } from "app/cluster-overview";
+import { TrajectoryView } from "app/trajectory-view";
+import { AgentSettings } from "app/agent-settings";
 import { labelFor } from "app/utils";
 
 function App() {
@@ -42,6 +44,10 @@ function App() {
   const [closeTarget, setCloseTarget] = useState(null);
   // Cluster admin view visibility. Toggled by the topbar button.
   const [showCluster, setShowCluster] = useState(false);
+  // DSH trajectory analysis view visibility.
+  const [showTrajectories, setShowTrajectories] = useState(false);
+  const [trajectoryQuery, setTrajectoryQuery] = useState("");
+  const [showAgentSettings, setShowAgentSettings] = useState(false);
 
   // SSE subscription. Single connection, lives for the app's lifetime.
   const sseRef = useRef(null);
@@ -135,6 +141,8 @@ function App() {
 
   const onNewTask = (newId) => {
     setShowNewTask(false);
+    setShowCluster(false);
+    setShowTrajectories(false);
     setActiveId(newId);
     refreshList();
   };
@@ -152,27 +160,40 @@ function App() {
     <${Shell}
       tabs=${tabs}
       activeId=${activeId}
-      onSelectTab=${setActiveId}
+      onSelectTab=${(id) => { setShowCluster(false); setShowTrajectories(false); setActiveId(id); }}
       onCloseTab=${(t) => setCloseTarget(t)}
       counts=${counts}
       listErr=${listErr}
       onNewTask=${() => setShowNewTask(true)}
       onRefresh=${refreshList}
-      onShowCluster=${() => setShowCluster(true)}>
+      onShowTrajectories=${() => { setShowCluster(false); setTrajectoryQuery(""); setShowTrajectories(true); }}
+      onShowAgentSettings=${() => setShowAgentSettings(true)}
+      onShowCluster=${() => { setShowTrajectories(false); setShowCluster(true); }}>
       ${showCluster
         ? html`<${ClusterOverview} onClose=${() => setShowCluster(false)} />`
-        : (active
-          ? html`<${TaskDetailView}
-              taskId=${active.id}
-              taskType=${active.type}
-              run=${cached?.run}
-              status=${active.status}
-              label=${cached?.label || active.label}
-              detailViewModule=${cached?.detail_view_module || active?.detail_view_module || null}
-              onChange=${refreshTick}
-              onOpenRetro=${() => {}} />`
-          : html`<${EmptyState} onNewTask=${() => setShowNewTask(true)} />`)}
+        : showTrajectories
+          ? html`<${TrajectoryView} initialQuery=${trajectoryQuery} onClose=${() => setShowTrajectories(false)} />`
+          : (active
+            ? html`<${TaskDetailView}
+                taskId=${active.id}
+                taskType=${active.type}
+                run=${cached?.run}
+                status=${active.status}
+                label=${cached?.label || active.label}
+                detailViewModule=${cached?.detail_view_module || active?.detail_view_module || null}
+                onChange=${refreshTick}
+                onOpenRetro=${() => {}}
+                onOpenTrajectories=${(taskId) => {
+                  setShowCluster(false);
+                  setTrajectoryQuery(taskId || "");
+                  setShowTrajectories(true);
+                }} />`
+            : html`<${EmptyState} onNewTask=${() => setShowNewTask(true)} />`)}
     </${Shell}>
+
+    ${showAgentSettings ? html`
+      <${AgentSettings} onClose=${() => setShowAgentSettings(false)} />
+    ` : null}
 
     ${showNewTask ? html`
       <${NewTaskView}
@@ -203,7 +224,7 @@ function App() {
 
 function Shell({
   tabs, activeId, onSelectTab, onCloseTab,
-  counts, listErr, onNewTask, onRefresh, onShowCluster, children,
+  counts, listErr, onNewTask, onRefresh, onShowCluster, onShowTrajectories, onShowAgentSettings, children,
 }) {
   return html`
     <div class="topbar">
@@ -216,6 +237,8 @@ function Shell({
         ${listErr ? html`<span class="topbar-err">${listErr}</span>` : null}
       </div>
       <div class="topbar-right">
+        <button class="btn ghost" onClick=${onShowTrajectories}>◫ Trajectories</button>
+        <button class="btn ghost" onClick=${onShowAgentSettings}>Agent</button>
         <button class="btn ghost" onClick=${onShowCluster}>▦ Cluster</button>
         <button class="btn ghost" onClick=${onRefresh}>↻</button>
         <button class="btn primary" onClick=${onNewTask}>+ New Task</button>

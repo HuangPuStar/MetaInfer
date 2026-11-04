@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Protocol
 
+from . import agent_settings as _agent_settings
 from . import paths as _paths
 from . import proc as _proc
 from . import runtime as _runtime
@@ -277,6 +278,8 @@ class LocalLauncher:
             log_fp.close()
             raise
         env = dict(os.environ)
+        # A UI-selected backend is applied to every newly spawned orchestrator.
+        _agent_settings.apply_to_env(env)
         # Pin METAINFER_ROOT to the WebUI's resolved root so the
         # orchestrator (and its sub-agent grandchildren) compute the same
         # root as the WebUI. Without this, paths.root_dir() in the
@@ -285,6 +288,10 @@ class LocalLauncher:
         # produce a wildly wrong root, diverging from the WebUI and from
         # worker daemons started with an explicit METAINFER_ROOT.
         env["METAINFER_ROOT"] = str(_paths.root_dir())
+        # Active expert-skill overlays are consumed by the DSH backend.
+        env["METAINFER_DSH_SKILLS_FILE"] = str(
+            _paths.home_dir() / "trajectory" / "runtime-skills.json"
+        )
         # Make sure the orchestrator subprocess can import the metainfer
         # package even when launched from a dev checkout (where the
         # package isn't pip-installed). PYTHONPATH is the parent's
