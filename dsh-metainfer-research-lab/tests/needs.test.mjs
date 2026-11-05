@@ -147,6 +147,24 @@ test('gpu may be requested without a pool only when the cluster coordinator is o
   assert.match(normalizeNeeds({ cpu: 4 }, project({}), cluster).error, /unknown resource: cpu/);
 });
 
+test('an invalid stored pool value is treated as no capacity (review: residual R1)', () => {
+  // A legacy/hand-edited `resourcePools` entry that is not a finite number must not make
+  // `total > NaN` (always false) disable the cap.
+  assert.match(
+    normalizeNeeds({ cpu: 1 }, { config: { resourcePools: { cpu: 'garbage' } } }).error,
+    /needs cpu=1 exceeds pool/,
+  );
+  assert.match(
+    normalizeNeeds({ gpu: 4 }, { config: { resourcePools: { gpu: 'garbage' } } }).error,
+    /needs gpu=4 exceeds pool/,
+  );
+  // With the coordinator on, a non-numeric gpu value behaves like no quota.
+  assert.deepEqual(
+    normalizeNeeds({ gpu: 4 }, { config: { resourcePools: { gpu: 'garbage' } } }, { clusterEnabled: true }),
+    { needs: { gpu: 4 }, error: null },
+  );
+});
+
 test('a gpu pool of 0 means "no local quota" only for leased nodes', () => {
   assert.deepEqual(
     normalizeNeeds({ gpu: 4 }, project({ gpu: 0 }), { clusterEnabled: true }),

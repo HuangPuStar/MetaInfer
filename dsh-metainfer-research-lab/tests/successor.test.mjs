@@ -213,3 +213,24 @@ test('createProject rejects an uppercase pool key (one key rule with needs)', as
     (error) => error.code === 'bad_request' && /invalid resource key: GPU/.test(error.message),
   );
 });
+
+test('the intake form uses the one resource-key rule', async () => {
+  const { lab } = await makeFixture('repo-intake');
+  const started = await lab.startIntake({
+    schema: {
+      fields: [{ id: 'pools', path: 'config.resourcePools', type: 'pools', label: 'resourcePools', required: true }],
+    },
+  });
+  const intakeId = started.intakeId;
+
+  // Uppercase and reserved pool names are rejected while the form is being filled in,
+  // instead of surviving until createProject() rejects the whole project.
+  const upper = await lab.patchIntake(intakeId, { pools: { GPU: 1 } });
+  assert.match(upper.rejected[0].error, /非法资源名/);
+  const reserved = await lab.patchIntake(intakeId, { pools: { machines: 2 } });
+  assert.match(reserved.rejected[0].error, /非法资源名/);
+  // The 0..64 cap is gone for pools as well.
+  const big = await lab.patchIntake(intakeId, { pools: { cpu: 96 } });
+  assert.deepEqual(big.rejected, []);
+  assert.deepEqual(big.values.pools, { cpu: 96 });
+});

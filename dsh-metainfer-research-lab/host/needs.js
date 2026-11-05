@@ -126,9 +126,13 @@ export function normalizeNeeds(raw, project, { clusterEnabled = false } = {}) {
     // A `gpu` pool of 0 means "no local quota" — but only for leased nodes: without the
     // coordinator the runtime counts against the pool (`ensureCapacity`) and would reject
     // this node at start, so the request must fail here instead.
-    const leasedGpu = key === 'gpu' && poolTotal === 0 && clusterEnabled;
-    const capped = hasPool && Number.isFinite(poolTotal) && !leasedGpu;
-    if (capped && total > poolTotal) {
+    // A hand-edited/legacy pool value that is not a finite number must not disable the cap
+    // (a NaN comparison is always false); treat it as 0, like runtime.js does.
+    const limit = Number.isFinite(poolTotal) ? poolTotal : 0;
+    // `runtime.js` only enforces the gpu quota when it is > 0, and skips `ensureCapacity`
+    // for leased nodes, so a 0 (or invalid) gpu pool means "no local quota" in cluster mode.
+    const leasedGpu = key === 'gpu' && clusterEnabled && limit === 0;
+    if (hasPool && !leasedGpu && total > limit) {
       return { needs: {}, error: `needs ${key}=${total} exceeds pool` };
     }
     needs[key] = total;
