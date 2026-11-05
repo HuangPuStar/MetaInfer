@@ -147,11 +147,14 @@ test('gpu may be requested without a pool only when the cluster coordinator is o
   assert.match(normalizeNeeds({ cpu: 4 }, project({}), cluster).error, /unknown resource: cpu/);
 });
 
-test('a gpu pool of 0 means "no local quota" and does not cap leased GPUs', () => {
+test('a gpu pool of 0 means "no local quota" only for leased nodes', () => {
   assert.deepEqual(
     normalizeNeeds({ gpu: 4 }, project({ gpu: 0 }), { clusterEnabled: true }),
     { needs: { gpu: 4 }, error: null },
   );
+  // Without the coordinator the runtime counts against the (zero) pool, so the node could
+  // never start: reject it here, as the previous normalizer did.
+  assert.match(normalizeNeeds({ gpu: 4 }, project({ gpu: 0 })).error, /needs gpu=4 exceeds pool/);
   // A non-zero gpu pool is the per-project quota and is still enforced.
   assert.match(
     normalizeNeeds({ gpu: 4 }, project({ gpu: 2 }), { clusterEnabled: true }).error,

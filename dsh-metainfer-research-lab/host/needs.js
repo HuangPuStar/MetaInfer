@@ -20,14 +20,12 @@
  *     rejected, so a malformed payload can never silently drop or inflate a requirement.
  *   - `machines` is a placement hint, not a pool resource: 1..8 when present, and the last
  *     value wins for repeated entries (these are not additive quantities).
- *   - every other key must be declared in `project.config.resourcePools`, except `gpu`:
- *     the cluster coordinator leases whole GPUs and `resourcePools.gpu` is only an optional
- *     per-project quota (runtime.js skips `ensureCapacity` for leased nodes), so a GPU node
- *     is valid without a local pool — but only when the coordinator is enabled. Without it
- *     the node could never start, so the request is rejected at edit time instead.
+ *   - `gpu` may be requested without a local pool, or against a `gpu: 0` pool, only while the
+ *     cluster coordinator is enabled: it leases whole GPUs and `resourcePools.gpu` is then an
+ *     optional per-project quota that `runtime.js` skips for leased nodes. Without the
+ *     coordinator the node could never start, so the request is rejected at creation/edit time.
  *   - the accumulated amount must not exceed the declared pool size, so duplicate entries in
- *     the array form cannot smuggle a larger request past the check. A `gpu` pool of 0 means
- *     "no local quota" and does not cap leased GPUs, matching runtime.js.
+ *     the array form cannot smuggle a larger request past the check.
  *   - key lookups use own properties only: `constructor` matches the key pattern and would
  *     otherwise be read from `Object.prototype` and string-concatenated into `needs`.
  */
@@ -125,8 +123,11 @@ export function normalizeNeeds(raw, project, { clusterEnabled = false } = {}) {
     }
     if (amount === 0) continue;
     const total = (hasOwn(needs, key) ? needs[key] : 0) + amount;
-    // A `gpu` pool of 0 means "no local quota"; leased GPUs are bounded by the coordinator.
-    const capped = hasPool && Number.isFinite(poolTotal) && !(key === 'gpu' && poolTotal === 0);
+    // A `gpu` pool of 0 means "no local quota" — but only for leased nodes: without the
+    // coordinator the runtime counts against the pool (`ensureCapacity`) and would reject
+    // this node at start, so the request must fail here instead.
+    const leasedGpu = key === 'gpu' && poolTotal === 0 && clusterEnabled;
+    const capped = hasPool && Number.isFinite(poolTotal) && !leasedGpu;
     if (capped && total > poolTotal) {
       return { needs: {}, error: `needs ${key}=${total} exceeds pool` };
     }
