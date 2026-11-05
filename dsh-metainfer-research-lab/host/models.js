@@ -257,8 +257,13 @@ async function providerCatalog(ctx) {
     value = await Promise.all(providers.map(async (provider) => {
       let models = [];
       try {
+        // `llm.listModels` takes the registered provider ROUTE ID
+        // (`deepseek-official`, `tencent-token-plan`, …). `listProviders()`
+        // returns that id in `id` and a human display name in `name`; passing
+        // the display name makes the runtime throw NO_ADAPTER, which the catch
+        // below would otherwise turn into an empty catalog for every provider.
         models = typeof llm.listModels === 'function'
-          ? (await llm.listModels(provider.name)).map((model) => ({ id: model.id, name: model.name ?? model.id }))
+          ? (await llm.listModels(provider.id)).map((model) => ({ id: model.id, name: model.name ?? model.id }))
           : [];
       } catch {
         models = [];
