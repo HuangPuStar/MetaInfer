@@ -25,6 +25,9 @@
     "@modelcontextprotocol/server": "^2.2.0",
     "zod": "^4.4.3"
   },
+  "scripts": {
+    "test": "node --test tests/"
+  },
   "dsh": {
     "bundle": {
       "patch": [
