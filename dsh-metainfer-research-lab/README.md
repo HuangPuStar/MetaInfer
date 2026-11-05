@@ -27,6 +27,16 @@
                     └──────────────────────────────────────────────┘
 ```
 
+## 节点 worktree 文件浏览
+
+节点检查器提供 **「查看 worktree 文件」**。它复用 DSH 官方实现，不自建文件预览器：
+
+- `@deepseek-ai/dsh-client-ui-sidebar-files`：DSH 原生文件树；
+- `@deepseek-ai/dsh-client-ui-sidebar-documentpreview`：文本、Markdown、PDF、图片等预览；
+- `@deepseek-ai/dsh-client-ui-sidebar-right`：把文件页放进 DSH 原生右侧栏。
+
+点击后 Host 会确保该节点 worktree 存在，再打开该节点会话的文件侧栏。若 worktree 因磁盘回收被删除，Host 会先 `git worktree prune`，再从节点分支重新切出；planned 节点则从记录的基础提交创建分支。预览页头提供文件下载按钮，下载由 Lab Host 校验路径后流式返回，不依赖第三方文件服务。整个过程不会启动实验。
+
 ## 文档索引
 
 | 文档 | 内容 | 适合谁 |

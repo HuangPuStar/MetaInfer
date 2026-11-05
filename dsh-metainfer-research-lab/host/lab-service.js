@@ -6,6 +6,7 @@
  */
 import path from 'node:path';
 import os from 'node:os';
+import { realpath, stat } from 'node:fs/promises';
 import { LabError } from './git-engine.js';
 import { buildModelCatalog, cleanModelRef, resolveModelSelection, validateModelSelection } from './models.js';
 import { compilePlacementPolicy, describePlacementSpec, sanitizePlacementSpec } from './placement.js';
@@ -1723,6 +1724,94 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return runtime.message(projectId, nodeId, text);
   }
 
+  /**
+   * Resolve a previewed absolute path to a regular file inside a managed node
+   * worktree. Symlinks that escape the worktree are rejected.
+   */
+  async function resolveWorktreeFile(filePath) {
+    const requested = typeof filePath === 'string' ? filePath.trim() : '';
+    if (!requested || !path.isAbsolute(requested)) {
+      throw new LabError('bad_request', 'absolute file path is required', 400);
+    }
+    let resolved;
+    try {
+      resolved = await realpath(requested);
+    } catch {
+      throw new LabError('file_not_found', `file not found: ${requested}`, 404);
+    }
+    let matched = null;
+    for (const project of store.listProjects()) {
+      const root = project.repo?.worktreeRoot;
+      if (!root) continue;
+      let rootReal;
+      try {
+        rootReal = await realpath(root);
+      } catch {
+        continue;
+      }
+      const relative = path.relative(rootReal, resolved);
+      if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+        matched = project;
+        break;
+      }
+    }
+    if (!matched) throw new LabError('file_not_found', 'file is outside managed worktrees', 404);
+    let info;
+    try {
+      info = await stat(resolved);
+    } catch {
+      throw new LabError('file_not_found', `file not found: ${requested}`, 404);
+    }
+    if (!info.isFile()) throw new LabError('bad_request', 'path is not a regular file', 400);
+    return { path: resolved, name: path.basename(resolved), size: info.size, projectId: matched.id };
+  }
+
+  /**
+   * Ensure a node's worktree exists for browsing. A worktree deleted to reclaim
+   * disk is recreated from the node branch; a planned node gets its branch at
+   * the recorded base commit. No experiment is started.
+   */
+  async function ensureNodeWorktree(projectId, nodeId) {
+    if (!runtime) throw new LabError('unavailable', 'runtime is not wired', 503);
+    const project = requireProject(projectId);
+    const node = requireNode(projectId, nodeId);
+    if (!node.git || !node.git.worktreePath) {
+      throw new LabError('worktree_not_recorded', 'node has no recorded worktree path', 404);
+    }
+    const ensured = await git.ensureWorktree(project, node);
+    let sessionId = typeof node.sessionId === 'string' ? node.sessionId : '';
+    let sessionAvailable = false;
+    if (sessionId && ctx.sessionQuery) {
+      try {
+        await ctx.sessionQuery.readSession(sessionId);
+        sessionAvailable = true;
+      } catch {
+        sessionAvailable = false;
+      }
+    }
+    if (!sessionAvailable) {
+      if (!node.anchorSessionId) {
+        throw new LabError('session_unavailable', 'node has no usable session for file browsing', 404);
+      }
+      await runtime.ensureAnchor(project, node);
+      sessionId = node.anchorSessionId;
+    }
+    if (!ensured.reused) {
+      await store.appendEvent(project, 'worktree/ensured', {
+        nodeId,
+        data: { path: ensured.worktreePath, branch: node.git.branch },
+      });
+    }
+    return {
+      projectId,
+      nodeId,
+      worktreePath: ensured.worktreePath,
+      branch: node.git.branch,
+      sessionId,
+      recreated: !ensured.reused,
+    };
+  }
+
   async function getSessionTranscript(projectId, sessionId, afterSeq = 0) {
     const project = requireProject(projectId);
     const id = typeof sessionId === 'string' ? sessionId : '';
@@ -1962,6 +2051,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'delete_project') return deleteProject(input?.projectId, { removeWorktrees: input?.removeWorktrees === true });
     if (action === 'cancel_node') return runtime.cancel(input?.projectId, input?.nodeId);
     if (action === 'message_node') return runtime.message(input?.projectId, input?.nodeId, input?.text);
+    if (action === 'node_files') return ensureNodeWorktree(input?.projectId, input?.nodeId);
     if (action === 'transcript') return getTranscript(input?.projectId, input?.nodeId, input?.afterSeq);
     if (action === 'step') return orchestrator.step(input?.projectId, input?.trigger ?? 'manual');
     if (action === 'successor') return orchestrator.createSuccessor(input?.projectId, input?.nodeId, input);
@@ -2037,6 +2127,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     messageNode,
     getTranscript,
     getSessionTranscript,
+    ensureNodeWorktree,
+    resolveWorktreeFile,
     step,
     createSuccessor,
     createMergeNode,

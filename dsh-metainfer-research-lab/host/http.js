@@ -10,6 +10,10 @@
  * business results. Malformed JSON also answers the envelope so the UI can show
  * one consistent error path.
  */
+import { createReadStream } from 'node:fs';
+import path from 'node:path';
+import { Readable } from 'node:stream';
+
 const PREFIX = '/api/metainfer-research-lab';
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -32,6 +36,29 @@ function fail(error) {
 
 function query(request) {
   return new URL(request.url, 'http://localhost').searchParams;
+}
+
+const MIME_BY_EXT = {
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.markdown': 'text/markdown; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.zip': 'application/zip',
+  '.log': 'text/plain; charset=utf-8',
+};
+
+function mimeOf(name) {
+  return MIME_BY_EXT[path.extname(name).toLowerCase()] ?? 'application/octet-stream';
 }
 
 async function readJsonBody(request) {
@@ -146,6 +173,27 @@ export function registerHttpRoutes(ctx, service) {
     ));
   });
 
+  route(`${PREFIX}/files/info`, ['GET'], async (request) => {
+    const file = await service.resolveWorktreeFile(query(request).get('path'));
+    return ok({ managed: true, name: file.name, size: file.size, projectId: file.projectId });
+  });
+
+  route(`${PREFIX}/files/download`, ['GET'], async (request) => {
+    const requested = query(request).get('path');
+    const file = await service.resolveWorktreeFile(requested);
+    const encoded = encodeURIComponent(file.name);
+    const ascii = file.name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+    return new Response(Readable.toWeb(createReadStream(file.path)), {
+      status: 200,
+      headers: {
+        'content-type': mimeOf(file.name),
+        'content-length': String(file.size),
+        'content-disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`,
+        'cache-control': 'no-store',
+      },
+    });
+  });
+
   route(`${PREFIX}/commands`, ['POST'], async (request) => {
     const body = await readJsonBody(request);
     const type = body.type;
@@ -174,6 +222,9 @@ export function registerHttpRoutes(ctx, service) {
     }
     if (type === 'node.message') {
       return ok(await service.messageNode(body.projectId, body.nodeId, body.text));
+    }
+    if (type === 'node.files') {
+      return ok(await service.ensureNodeWorktree(body.projectId, body.nodeId));
     }
     if (type === 'cluster.config') {
       return ok(await service.updateClusterConfig(body));

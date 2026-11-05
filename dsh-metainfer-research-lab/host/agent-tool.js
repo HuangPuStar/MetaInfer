@@ -21,6 +21,7 @@ const ACTION_ENUM = [
   'delete_project',
   'cancel_node',
   'message_node',
+  'node_files',
   'transcript',
   'step',
   'successor',
