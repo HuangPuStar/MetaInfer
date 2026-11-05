@@ -35,6 +35,8 @@ window.__ModuleLoader__.load({
       events: 'api/metainfer-research-lab/events',
       commands: 'api/metainfer-research-lab/commands',
       runs: 'api/metainfer-research-lab/runs',
+      filesInfo: 'api/metainfer-research-lab/files/info',
+      filesDownload: 'api/metainfer-research-lab/files/download',
     };
 
     /** Poll cadence while the page is visible. */
@@ -1248,6 +1250,13 @@ window.__ModuleLoader__.load({
       'ws.native.attemptOpen': '尝试 {index} 轨迹',
       'ws.native.openFailed': '无法打开原生会话',
       'ws.native.noSession': '该节点还没有可打开的会话',
+      'ws.files.open': '查看 worktree 文件',
+      'ws.files.openHint': '在 DSH 文件侧栏浏览该节点 worktree；支持文本、Markdown 和 PDF 预览。若 worktree 已被删除，会先从节点分支重新切出。',
+      'ws.files.failed': '无法打开 worktree 文件浏览',
+      'ws.files.download': '下载',
+      'ws.files.downloading': '下载中…',
+      'ws.files.downloadHint': '下载当前预览的 worktree 文件',
+      'ws.files.downloadError': '文件下载失败',
       'ws.native.devHint': '如果 Trajectory 标签未显示，请在 DSH 设置 → 通用 → 显示代码工作视图 中开启；未开启时会自动回退到对话。',
       'ws.native.continue': '继续对话',
       'ws.native.continueTitle': '继续对话',
@@ -2501,6 +2510,13 @@ window.__ModuleLoader__.load({
       'ws.native.attemptOpen': 'Attempt {index} trajectory',
       'ws.native.openFailed': 'Could not open the native session',
       'ws.native.noSession': 'This node has no session to open yet',
+      'ws.files.open': 'View worktree files',
+      'ws.files.openHint': 'Browse this node worktree in the DSH file sidebar; text, Markdown, and PDF previews are supported. A deleted worktree is recreated from the node branch first.',
+      'ws.files.failed': 'Could not open the worktree file browser',
+      'ws.files.download': 'Download',
+      'ws.files.downloading': 'Downloading…',
+      'ws.files.downloadHint': 'Download the currently previewed worktree file',
+      'ws.files.downloadError': 'File download failed',
       'ws.native.devHint': 'If the Trajectory tab is hidden, enable DSH Settings → General → Show code work view; otherwise DSH falls back to Chat automatically.',
       'ws.native.continue': 'Continue conversation',
       'ws.native.continueTitle': 'Continue conversation',
@@ -2698,7 +2714,10 @@ window.__ModuleLoader__.load({
       '.rl-error-text { margin: 0; color: var(--dsw-alias-state-error-primary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }',
       '.rl-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }',
       '.rl-form-row { display: flex; align-items: flex-end; gap: 8px; }',
-      '.rl-form-actions { display: flex; justify-content: flex-end; gap: 8px; }',
+      '.rl-form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }',
+      '.rl-files-actions { display: flex; margin: 8px 0; }',
+      '.rl-files-button { flex: 1 1 auto; width: 100%; height: auto; min-height: 28px; padding: 5px 10px; white-space: normal; line-height: 18px; }',
+      '.rl-file-download { white-space: nowrap; }',
       '.rl-form-row > .rl-input { flex: 1 1 auto; }',
       '.rl-form-row > .rl-input[type=number] { flex: 0 0 96px; }',
       '.rl-form-row > .rl-btn { flex: none; }',
@@ -5533,20 +5552,83 @@ window.__ModuleLoader__.load({
     }
 
     /** Small shared button. */
-    function LabButton({ label, onClick, variant, disabled, title }) {
-      let className = 'rl-btn';
-      if (variant === 'primary') className += ' rl-btn-primary';
-      else if (variant === 'ghost') className += ' rl-btn-ghost';
+    function LabButton({ label, onClick, variant, disabled, title, className }) {
+      let classes = 'rl-btn';
+      if (variant === 'primary') classes += ' rl-btn-primary';
+      else if (variant === 'ghost') classes += ' rl-btn-ghost';
+      if (typeof className === 'string' && className !== '') classes += ' ' + className;
       return h(
         'button',
         {
           type: 'button',
-          className,
+          className: classes,
           disabled: disabled === true,
           title: typeof title === 'string' ? title : undefined,
           onClick: typeof onClick === 'function' ? onClick : undefined,
         },
         label,
+      );
+    }
+
+    /** Download the file currently shown by DSH's official document preview. */
+    function DocumentDownloadAction({ absolutePath, t }) {
+      const target = firstString(absolutePath);
+      const [busy, setBusy] = React.useState(false);
+      const [error, setError] = React.useState('');
+      const [managed, setManaged] = React.useState(false);
+      React.useEffect(() => {
+        if (target === '') { setManaged(false); return undefined; }
+        let cancelled = false;
+        setManaged(false);
+        fetch(ROUTES.filesInfo + '?path=' + encodeURIComponent(target))
+          .then((response) => response.json().catch(() => null))
+          .then((payload) => {
+            if (!cancelled) setManaged(Boolean(payload && payload.ok === true && payload.data && payload.data.managed === true));
+          })
+          .catch(() => { if (!cancelled) setManaged(false); });
+        return () => { cancelled = true; };
+      }, [target]);
+      if (target === '' || !managed) return null;
+      const name = target.split(/[\\/]/).filter(Boolean).pop() || 'download';
+      const download = async () => {
+        if (busy) return;
+        setBusy(true);
+        setError('');
+        try {
+          const response = await fetch(ROUTES.filesDownload + '?path=' + encodeURIComponent(target));
+          const contentType = response.headers.get('content-type') || '';
+          if (contentType.indexOf('application/json') >= 0) {
+            let payload = null;
+            try { payload = await response.json(); } catch { payload = null; }
+            throw new Error(payload?.error?.message || t('ws.files.downloadError'));
+          }
+          if (!response.ok) throw new Error(t('ws.files.downloadError'));
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = name;
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (reason) {
+          setError(reason instanceof Error ? reason.message : String(reason));
+        } finally {
+          setBusy(false);
+        }
+      };
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: 'rl-btn rl-btn-ghost rl-btn-sm rl-file-download',
+          disabled: busy,
+          title: error || t('ws.files.downloadHint'),
+          'aria-label': busy ? t('ws.files.downloading') : t('ws.files.download'),
+          onClick: download,
+        },
+        busy ? t('ws.files.downloading') : '⭳ ' + t('ws.files.download'),
       );
     }
 
@@ -7318,7 +7400,7 @@ window.__ModuleLoader__.load({
     }
 
     /** DSH-native session/trajectory controls for one node (read-only history). */
-    function NativeSessionPanel({ node, onOpenSession, t }) {
+    function NativeSessionPanel({ node, onOpenSession, onOpenFiles, t }) {
       const sessionId = nodeSessionIdOf(node);
       const attempts = nodeAttemptsOf(node).filter((attempt) => attemptSessionIdOf(attempt) !== '');
       return h(
@@ -7326,9 +7408,19 @@ window.__ModuleLoader__.load({
         { className: 'rl-section' },
         h('h3', { className: 'rl-section-title' }, t('ws.native.title')),
         h('p', { className: 'rl-hint' }, t('ws.native.hint')),
+        h('p', { className: 'rl-hint' }, t('ws.files.openHint')),
         sessionId !== ''
           ? h(LabInfoRow, { label: t('ws.native.sessionId'), value: sessionId, mono: true })
           : h('p', { className: 'rl-hint' }, t('ws.native.noSession')),
+        h(
+          'div',
+          { className: 'rl-files-actions' },
+          h(LabButton, {
+            className: 'rl-files-button',
+            label: t('ws.files.open'),
+            onClick: () => onOpenFiles(),
+          }),
+        ),
         h(
           'div',
           { className: 'rl-form-actions' },
@@ -7464,7 +7556,7 @@ window.__ModuleLoader__.load({
 
     // #region workspace
     /** Full workspace: top bar, node rail, DAG canvas, inspector, log and transcript drawer. */
-    function WorkspaceScreen({ projectId, initialNodeId, onBack, openNativeSession, retainCopilotSession, SessionProvider, renderFactorySlot, onOpenTrajectory, t }) {
+    function WorkspaceScreen({ projectId, initialNodeId, onBack, openNativeSession, openNativeFiles, retainCopilotSession, SessionProvider, renderFactorySlot, onOpenTrajectory, t }) {
       const { snapshot, events, offline, retry, reload, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t);
       const [selectedId, setSelectedId] = React.useState(null);
       const [continueNodeId, setContinueNodeId] = React.useState(null);
@@ -7716,6 +7808,32 @@ window.__ModuleLoader__.load({
         }
         openSessionNative(sessionId, view, nodeId);
       }, [nodes, openSessionNative, t]);
+      const openNodeFiles = React.useCallback(async (nodeId) => {
+        if (busyRef.current !== '') return;
+        const key = 'node.files:' + nodeId;
+        busyRef.current = key;
+        setBusyKey(key);
+        setActionError('');
+        try {
+          const data = await api.command(
+            { type: 'node.files', projectId, nodeId },
+            undefined,
+            t,
+          );
+          const sessionId = firstString(data.sessionId);
+          if (sessionId === '') throw new Error(t('ws.files.failed'));
+          if (typeof openNativeFiles !== 'function') throw new Error(t('ws.files.failed'));
+          const result = openNativeFiles(sessionId, { projectId, nodeId });
+          if (result === null || result === undefined || result.ok !== true) {
+            throw new Error(t('ws.files.failed'));
+          }
+        } catch (error) {
+          if (!isAbortError(error)) setActionError(describeError(error, t));
+        } finally {
+          busyRef.current = '';
+          setBusyKey('');
+        }
+      }, [openNativeFiles, projectId, t]);
       const requestContinue = React.useCallback((nodeId) => {
         setSelectedId(nodeId);
         setContinueNodeId(nodeId);
@@ -8096,6 +8214,7 @@ window.__ModuleLoader__.load({
             onSave: saveNode,
             onAction: handleNodeAction,
             onOpenSession: openSessionNative,
+            onOpenFiles: openNodeFiles,
             onContinue: requestContinue,
             onSuccessor: openSuccessor,
             onProposalAction: requestProposalAction,
@@ -9316,7 +9435,7 @@ window.__ModuleLoader__.load({
      * Right inspector: prompt + success criteria and timebox editors (planned
      * nodes only), plus read-only Git/timestamp readback.
      */
-    function NodeInspector({ project, nodes, node, now, busyKey, onSave, onAction, onOpenSession, onContinue, onSuccessor, onProposalAction, onOpenRun, onRetryRequest, onOpenMergeCreate, onFinishMerge, onEscalate, modelOptions, modelProviders, clusterEnabled, t }) {
+    function NodeInspector({ project, nodes, node, now, busyKey, onSave, onAction, onOpenSession, onOpenFiles, onContinue, onSuccessor, onProposalAction, onOpenRun, onRetryRequest, onOpenMergeCreate, onFinishMerge, onEscalate, modelOptions, modelProviders, clusterEnabled, t }) {
       const nodeKey = node === null ? '' : nodeIdOf(node);
       const [promptDraft, setPromptDraft] = React.useState('');
       const [criteriaDraft, setCriteriaDraft] = React.useState('');
@@ -9647,7 +9766,7 @@ window.__ModuleLoader__.load({
               })
             : null,
         ),
-        h(NativeSessionPanel, { node, onOpenSession: (sessionId, view) => onOpenSession(sessionId, view, nodeKeyId), t }),
+        h(NativeSessionPanel, { node, onOpenSession: (sessionId, view) => onOpenSession(sessionId, view, nodeKeyId), onOpenFiles: () => onOpenFiles(nodeKeyId), t }),
         isMergeNode
           ? h(MergeSection, { node, nodes, busy, onFinish: () => onFinishMerge(nodeKeyId), t })
           : null,
@@ -13930,6 +14049,7 @@ window.__ModuleLoader__.load({
     function MetainferLabPage(props) {
       const t = typeof props.t === 'function' ? props.t : (key) => key;
       const openNativeSession = typeof props.openNativeSession === 'function' ? props.openNativeSession : null;
+      const openNativeFiles = typeof props.openNativeFiles === 'function' ? props.openNativeFiles : null;
       const retainCopilotSession = typeof props.retainCopilotSession === 'function' ? props.retainCopilotSession : null;
       const SessionProvider = typeof props.SessionProvider === 'function' ? props.SessionProvider : null;
       const renderFactorySlot = typeof props.renderFactorySlot === 'function' ? props.renderFactorySlot : null;
@@ -13973,6 +14093,7 @@ window.__ModuleLoader__.load({
               initialNodeId,
               onBack: backToList,
               openNativeSession,
+              openNativeFiles,
               retainCopilotSession,
               SessionProvider,
               renderFactorySlot,
@@ -14083,7 +14204,7 @@ window.__ModuleLoader__.load({
     // #endregion
 
     return {
-      inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'layout'],
+      inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'layout', 'sidebarRight'],
       apply(ctx) {
         ctx.effect(
           () => ctx.locale.register(NS, { zh, en }),
@@ -14091,6 +14212,29 @@ window.__ModuleLoader__.load({
         );
         const t = ctx.locale.bind(NS);
         const openNativeSession = buildNativeOpener(ctx);
+        /** Open a node worktree in DSH's native file sidebar (files + document preview plugins). */
+        const openNativeFiles = (sessionId, context) => {
+          const result = openNativeSession(sessionId, 'chat', context);
+          if (result === null || result === undefined || result.ok !== true) return result;
+          const show = () => {
+            try {
+              // openTab is keyed to the on-screen Session selected above;
+              // openTabIn also covers a Session whose tab store was adopted.
+              if (ctx.sidebarRight && typeof ctx.sidebarRight.openTab === 'function') {
+                ctx.sidebarRight.openTab('files', { revealIfOpened: true });
+              }
+              if (ctx.sidebarRight && typeof ctx.sidebarRight.openTabIn === 'function') {
+                ctx.sidebarRight.openTabIn(firstString(sessionId), 'files', { revealIfOpened: true });
+              }
+            } catch {
+              // The native session still opened; a shell without the files tab
+              // simply keeps the conversation visible.
+            }
+          };
+          if (typeof setTimeout === 'function') setTimeout(show, 100);
+          else show();
+          return result;
+        };
         /** Retain a private Copilot subagent session for an embedded native Conversation. */
         const retainCopilotSession = (sessionId) => {
           const id = firstString(sessionId);
@@ -14141,9 +14285,21 @@ window.__ModuleLoader__.load({
               key: PANEL_ID,
               locale: NS,
               children: { 'metainfer-lab.copilot.scope': { kind: 'single', scope: 'session' } },
-              inject: () => ({ t, openNativeSession, retainCopilotSession }),
+              inject: () => ({ t, openNativeSession, openNativeFiles, retainCopilotSession }),
             },
             MetainferLabPage,
+          ),
+        );
+
+        ctx.slots.inject('sidebar.right.tab.document.actions', () =>
+          ctx.slots.register(
+            {
+              name: 'sidebar.right.tab.document.actions',
+              id: 'metainfer-download',
+              locale: NS,
+              inject: () => ({ t }),
+            },
+            DocumentDownloadAction,
           ),
         );
 

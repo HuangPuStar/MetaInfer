@@ -3,7 +3,7 @@
  * The Host plugin runs unsandboxed by design (documented trust boundary); the
  * worker agents never run git write commands.
  */
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 /** Structured business error carrying a stable code for HTTP envelopes. */
@@ -169,6 +169,16 @@ export function createGitEngine(ctx) {
       return { worktreePath, reused: true };
     }
 
+    // The worktree may have been deleted to reclaim disk while its git
+    // registration survived. Prune stale registrations before adding it back.
+    let present = false;
+    try { present = (await stat(worktreePath)).isDirectory(); } catch { present = false; }
+    if (!present) {
+      await runGit(['-C', project.repo.path, 'worktree', 'prune'], {
+        cwd: project.repo.path,
+        timeoutMs: 60_000,
+      });
+    }
     const add = await runGit(
       ['-C', project.repo.path, 'worktree', 'add', '-b', node.git.branch, worktreePath, node.git.baseCommit],
       { cwd: project.repo.path, timeoutMs: 60_000 },

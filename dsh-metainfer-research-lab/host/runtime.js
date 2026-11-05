@@ -1832,6 +1832,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     pumpLeases,
     startLeasePump,
     decorateNodes,
+    ensureAnchor,
     onSessionEvent,
     dispose,
   };
