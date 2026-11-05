@@ -393,6 +393,22 @@ Step 完成后在活动日志插入一条 `cycle` 摘要，并在顶栏短暂显
 **统一响应**：`{ok:true, data}` 或 `{ok:false, error:{code, message, details?}}`；HTTP 状态 200 表达业务结果。
 所有命令走 Host 的 `ctx.metainferLab` 服务方法（UI 与未来 Agent 工具共用同一实现）。
 
+**`needs` 载荷与校验**：UI / HTTP / MCP / agent tool 一律使用 map（`{"gpu":2,"machines":2}`）；advisor 的结构化输出
+因 DSH schema 子集限制使用 `[{key,amount}]` 数组。两种形状统一由 `host/needs.js::normalizeNeeds()` 归一化为 map
+后再校验与存储，`createProject` / `node.edit` / `node.successor` / advisor 提案 / MCP / agent tool 不得各自解析。
+规则（`host/needs.js` 为唯一实现）：
+
+- 资源名为小写 `^[a-z][a-z0-9_-]{0,31}$`；`runtime` / `auto` 按字面读取 `needs.gpu` / `needs.machines`，大写键会绕过
+  GPU 租约与放置逻辑，因此 `normalizeResourcePools()` 用同一条规则校验池键（`machines` 为保留键，不能做池名）。
+  历史项目若存有大写池键，需改名后重新保存配置（该键此前也无法在 `node.edit` 路径请求）。
+- 数量为非负整数（数字或纯数字字符串）；`true` / `null` / `[2]` / `""` / `"0x10"` / `"2e1"` / 小数 / 负数一律拒绝，
+  不再依赖 `Number()` 的宽松转换。**没有 64 上限**，容量由池大小约束。
+- `machines` 是放置提示（不是池资源）：存在时为 1..8，重复条目取最后一个值。
+- 其余键必须存在于 `project.config.resourcePools`，且**累计**数量不得超过池容量（数组形式的重复条目不会绕过校验）。
+- `gpu` 例外：集群模式下由 coordinator 整卡租约授予，项目可以不声明 gpu 池（此时 `gpu` 池为 0 或缺失都表示
+  “无本地配额”）；未启用集群时必须声明 gpu 池，否则该节点永远起不来，因此在创建/编辑时即报错。
+- 先校验键与数量、再丢弃 0；全部为 0 的 map 归一化为 `{}`。
+
 **轮询策略**：
 - 面板可见且 `document.visibilityState==='visible'` 时：`state` 1.5s；`transcript`（抽屉打开时）1s；`events` 2s。
 - 页面隐藏时暂停所有轮询；恢复可见立即拉一次。

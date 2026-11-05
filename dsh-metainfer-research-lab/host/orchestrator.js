@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { LabError } from './git-engine.js';
 import { cleanModelRef, validateModelSelection } from './models.js';
+import { normalizeNeeds } from './needs.js';
 import { newSessionId } from './store.js';
 import { advisorCandidates, buildAdvisorSnapshot, buildSchedulerSnapshot, promptHash } from './snapshot.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
@@ -445,38 +446,6 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     return { record, failure };
   }
 
-  function normalizeNeeds(raw, project) {
-    if (raw === undefined || raw === null) return { needs: {}, error: null };
-    // Two callers exist: advisor structured output sends [{key, amount}] while
-    // the agent tool / project config use the compact {gpu: 4} form. Accept
-    // both here so a user-facing `successor` call cannot fail on a shape the
-    // tool description advertises.
-    let entries;
-    if (Array.isArray(raw)) {
-      entries = raw;
-    } else if (typeof raw === 'object') {
-      entries = Object.entries(raw).map(([key, amount]) => ({ key, amount }));
-    } else {
-      return { needs: {}, error: 'needs must be an object {gpu: 4} or an array of {key, amount}' };
-    }
-    const needs = {};
-    for (const item of entries) {
-      const key = typeof item?.key === 'string' ? item.key.trim() : '';
-      const amount = Number(item?.amount);
-      if (!key) return { needs: {}, error: 'needs[].key is required' };
-      if (!Number.isInteger(amount) || amount < 0) return { needs: {}, error: `needs[${key}] must be a non-negative integer` };
-      if (key === 'machines') {
-        if (amount < 1 || amount > 8) return { needs: {}, error: 'needs[machines] must be 1..8' };
-        needs.machines = amount;
-        continue;
-      }
-      if (!(key in (project.config.resourcePools ?? {}))) return { needs: {}, error: `unknown resource: ${key}` };
-      if (amount > (project.config.resourcePools[key] ?? 0)) return { needs: {}, error: `needs ${key}=${amount} exceeds pool` };
-      needs[key] = (needs[key] ?? 0) + amount;
-    }
-    return { needs, error: null };
-  }
-
   function checkProposal(project, proposal, nodes, candidateIds) {
     const parentId = typeof proposal?.parentId === 'string' ? proposal.parentId : '';
     if (!parentId) return { ok: false, reason: 'parentId is required' };
@@ -488,7 +457,9 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     const prompt = typeof proposal.prompt === 'string' ? proposal.prompt.trim() : '';
     if (!title || title.length > 120) return { ok: false, reason: 'title must be 1..120 characters' };
     if (prompt.length < 10 || prompt.length > 8000) return { ok: false, reason: 'prompt must be 10..8000 characters' };
-    const { needs, error } = normalizeNeeds(proposal.needs, project);
+    const { needs, error } = normalizeNeeds(proposal.needs, project, {
+      clusterEnabled: cluster?.enabled === true,
+    });
     if (error) return { ok: false, reason: error };
     const maxMinutes = project.config.maxNodeTimeoutMinutes ?? 240;
     const timeboxMinutes = Number.isInteger(proposal.timeboxMinutes)
@@ -946,7 +917,9 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       const prompt = typeof input?.prompt === 'string' ? input.prompt.trim() : '';
       if (!title || title.length > 120) throw new LabError('bad_request', 'title must be 1..120 characters', 400);
       if (prompt.length < 10 || prompt.length > 8000) throw new LabError('bad_request', 'prompt must be 10..8000 characters', 400);
-      const { needs, error } = normalizeNeeds(input?.needs, project);
+      const { needs, error } = normalizeNeeds(input?.needs, project, {
+        clusterEnabled: cluster?.enabled === true,
+      });
       if (error) throw new LabError('bad_request', error, 400);
       const maxMinutes = project.config.maxNodeTimeoutMinutes ?? 240;
       const timeboxMinutes = Number.isInteger(input?.timeboxMinutes)

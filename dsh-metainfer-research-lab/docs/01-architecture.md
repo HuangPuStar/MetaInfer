@@ -180,7 +180,7 @@ interface ModelRef {
 }
 
 interface ProjectConfig {
-  resourcePools: Record<string, number>;      // { gpu: 2 }；键任意，Host 只做加总校验
+  resourcePools: Record<string, number>;      // { gpu: 2 }；键须小写（见 host/needs.js），Host 做加总校验
   maxRunningNodes: number;                     // 默认 min(4, 资源池能支撑值)
   maxNodes: number;                            // 默认 60
   nodeTimeoutMs: number;                       // 节点默认硬超时，默认 10min（600000）

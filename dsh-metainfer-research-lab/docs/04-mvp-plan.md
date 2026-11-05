@@ -46,7 +46,7 @@
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `resourcePools` | `{ gpu: 1 }` | 资源池；键任意，Host 只做加总校验 |
+| `resourcePools` | `{ gpu: 1 }` | 资源池；键须小写（`machines` 为保留键），Host 做加总校验 |
 | `maxRunningNodes` | `4` | 同时运行的节点上限（真正约束并发的是它和资源池；`maxActiveSubagents` 按树计，不构成瓶颈） |
 | `maxNodes` | `60` | 项目节点总数上限（硬上限） |
 | `nodeTimeoutMs` | `10min` | 节点默认硬超时；到点由 Host watchdog **确定性终止**（不是 Agent 决定） |

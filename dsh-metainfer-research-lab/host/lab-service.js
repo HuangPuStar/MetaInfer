@@ -9,6 +9,7 @@ import os from 'node:os';
 import { realpath, stat } from 'node:fs/promises';
 import { LabError } from './git-engine.js';
 import { buildModelCatalog, cleanModelRef, resolveModelSelection, validateModelSelection } from './models.js';
+import { RESERVED_NEEDS_KEYS, RESOURCE_KEY_PATTERN, normalizeNeeds } from './needs.js';
 import { compilePlacementPolicy, describePlacementSpec, sanitizePlacementSpec } from './placement.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_GC_PROMPT, DEFAULT_MERGE_PROMPT, DEFAULT_SCHEDULER_PROMPT, DEFAULT_WORKER_PREFIX, PROMPT_PLACEHOLDERS } from './prompts.js';
 import { newProjectId, newSessionId } from './store.js';
@@ -45,8 +46,16 @@ function normalizeResourcePools(raw) {
   }
   const pools = {};
   for (const [key, value] of Object.entries(raw)) {
-    if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,31}$/.test(key)) {
-      throw new LabError('bad_request', `invalid resource key: ${key}`);
+    if (!RESOURCE_KEY_PATTERN.test(key)) {
+      // Same rule as needs.js: `needs` is looked up by literal lowercase name
+      // (`needs.gpu`, `needs.machines`), so an uppercase pool key could never be
+      // requested. Reject it here instead of accepting a dead config.
+      throw new LabError('bad_request', `invalid resource key: ${key} (lowercase letters, digits, "_" or "-", starting with a letter)`);
+    }
+    if (RESERVED_NEEDS_KEYS.includes(key)) {
+      // `machines` is a placement hint consumed by normalizeNeeds, and runtime.js skips it
+      // in resource accounting, so a pool with that name would be permanently shadowed.
+      throw new LabError('bad_request', `resource key "${key}" is reserved for the placement hint`);
     }
     const amount = Number(value);
     if (!Number.isInteger(amount) || amount < 0) {
@@ -66,28 +75,6 @@ function normalizeModelRef(raw, field) {
     ? undefined
     : text(raw.reasoningEffort, `${field}.reasoningEffort`, { max: 40 });
   return { provider, model, ...(reasoningEffort ? { reasoningEffort } : {}) };
-}
-
-function normalizeNeeds(raw, project) {
-  if (raw === undefined || raw === null) return { needs: {}, error: null };
-  if (typeof raw !== 'object' || Array.isArray(raw)) {
-    return { needs: {}, error: 'needs must be an object like {"gpu": 1}' };
-  }
-  const needs = {};
-  for (const [key, value] of Object.entries(raw)) {
-    const name = String(key).trim();
-    const amount = Number(value);
-    if (!/^[a-z][a-z0-9_-]{0,31}$/.test(name)) {
-      return { needs: {}, error: `invalid resource name: ${name}` };
-    }
-    if (!Number.isInteger(amount) || amount < 0 || amount > 64) {
-      return { needs: {}, error: `resource ${name} must be an integer 0..64` };
-    }
-    if (amount === 0) continue;
-    needs[name] = amount;
-  }
-  void project;
-  return { needs, error: null };
 }
 
 function normalizeConfig(raw, base = undefined) {
@@ -444,7 +431,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const config = normalizeConfig(input?.config);
     let rootNeeds = {};
     if (input?.needs !== undefined) {
-      const checked = normalizeNeeds(input.needs, { config });
+      const checked = normalizeNeeds(input.needs, { config }, {
+        clusterEnabled: cluster?.enabled === true,
+      });
       if (checked.error) throw new LabError('bad_request', checked.error, 400);
       rootNeeds = checked.needs;
     }
@@ -638,7 +627,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         changed = true;
       }
       if (input?.needs !== undefined) {
-        const checked = normalizeNeeds(input.needs, project);
+        const checked = normalizeNeeds(input.needs, project, {
+          clusterEnabled: cluster?.enabled === true,
+        });
         if (checked.error) throw new LabError('bad_request', checked.error, 400);
         node.needs = checked.needs;
         changed = true;
