@@ -242,7 +242,7 @@ Citation:
 ```
 @misc{miao2026metainferknowledgellminference,
       title={MetaInfer: A Knowledge Only LLM Inference Engine Generator SKILL Toolbox}, 
-      author={Zhenwen Miao and Honglin Wang and Mingheng Mi},
+      author={Zhenwen Miao and Honglin Wang and Mingheng Mi and Pu Wang and Hai Zhang},
       year={2026},
       eprint={2607.12875},
       archivePrefix={arXiv},
