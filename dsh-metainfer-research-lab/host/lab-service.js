@@ -1267,9 +1267,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       for (const [key, amountRaw] of Object.entries(source)) {
         const name = String(key).trim();
         const amount = Number(amountRaw);
-        if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,31}$/.test(name)) return { error: `${field.label}: 非法资源名 ${name}` };
-        if (!Number.isInteger(amount) || amount < 0 || amount > 64) {
-          return { error: `${field.label}: ${name} 必须是 0..64 整数` };
+        // Same key rule as normalizeResourcePools()/needs.js: an uppercase pool key
+        // could never be requested, and `machines` is a reserved placement hint.
+        if (!RESOURCE_KEY_PATTERN.test(name) || RESERVED_NEEDS_KEYS.includes(name)) {
+          return { error: `${field.label}: 非法资源名 ${name}（小写字母开头，仅含小写字母/数字/_/-，且不能是 machines）` };
+        }
+        if (!Number.isInteger(amount) || amount < 0) {
+          return { error: `${field.label}: ${name} 必须是非负整数` };
         }
         if (amount > 0) pools[name] = amount;
       }
