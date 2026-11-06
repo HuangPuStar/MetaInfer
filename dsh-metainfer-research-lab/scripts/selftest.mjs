@@ -13,6 +13,7 @@ import { openStore } from '../host/store.js';
 import { createGitEngine } from '../host/git-engine.js';
 import { createLabService } from '../host/lab-service.js';
 import { registerHttpRoutes } from '../host/http.js';
+import { isBlankModelRef } from '../host/models.js';
 
 const DEMO_REPO = process.env.MIRL_DEMO_REPO
   ? path.resolve(process.env.MIRL_DEMO_REPO)
@@ -182,7 +183,7 @@ await test('listProjects summary', async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].nodeCount, 1);
   assert.equal(list[0].id, project.id);
-  assert.equal(list[0].repoPath, DEMO_REPO);
+  assert.equal(path.resolve(list[0].repoPath), path.resolve(DEMO_REPO));
 });
 
 await test('reject invalid config', async () => {
@@ -253,8 +254,8 @@ async function callHttp(pathname, { method = 'GET', query = '', rawBody = undefi
   return response.json();
 }
 
-await test('routes: all thirteen endpoints registered', async () => {
-  assert.equal(routes.length, 13);
+await test('routes: all fourteen endpoints registered', async () => {
+  assert.equal(routes.length, 14);
   const expected = [
     [`${PREFIX}/health`, 'GET'],
     [`${PREFIX}/projects`, 'GET'],
@@ -379,6 +380,17 @@ await test('HTTP malformed body returns the error envelope', async () => {
   const payload = await callHttp(`${PREFIX}/commands`, { method: 'POST', rawBody: 'not-json' });
   assert.equal(payload.ok, false);
   assert.equal(payload.error.code, 'bad_request');
+});
+
+await test('blank advisor recommendedModel means inherit default', async () => {
+  assert.equal(isBlankModelRef({ provider: '', model: '', reasoningEffort: '' }), true);
+  assert.equal(isBlankModelRef({ profileId: '   ' }), true);
+  assert.equal(isBlankModelRef({}), true);
+  assert.equal(isBlankModelRef({ rationale: 'no override' }), true);
+  assert.equal(isBlankModelRef(null), false);
+  assert.equal(isBlankModelRef('dsh/gpt-6.1-sol'), false);
+  assert.equal(isBlankModelRef({ provider: 'dsh' }), false);
+  assert.equal(isBlankModelRef({ provider: 'dsh', model: 'gpt-6.1-sol' }), false);
 });
 
 disposeRoutes();

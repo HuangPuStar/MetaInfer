@@ -37,6 +37,12 @@ export function cleanModelRef(ref) {
   };
 }
 
+/** True when a model ref object carries no usable values (e.g. advisor sent empty strings meaning "inherit"). */
+export function isBlankModelRef(ref) {
+  if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return false;
+  return !['profileId', 'provider', 'model', 'reasoningEffort'].some((key) => trimString(ref[key], 200));
+}
+
 export function modelRefLabel(ref) {
   if (!ref) return 'default';
   const providerPart = ref.provider ? `${ref.provider}/` : '';
