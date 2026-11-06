@@ -102,6 +102,7 @@ Codex 使用本机 Codex 原生登录/配置，不通过 DSH 模型 API。首次
 | [docs/03-ui-spec.md](docs/03-ui-spec.md) | 界面信息架构、DAG 画布、节点检查器、对话抽屉、模式开关/Step、空状态、视觉规范 | 想做前端/交互 |
 | [docs/04-mvp-plan.md](docs/04-mvp-plan.md) | MVP 范围（做什么/不做什么）、里程碑、验收场景、风险、待拍板问题 | 想排期或验收 |
 | [docs/06-multi-tenant-and-model-routing.md](docs/06-multi-tenant-and-model-routing.md) | V3 设计与实现：轻量多实例整卡 GPU 协调器、节点级模型/强度、成本预算；第 9 节为协调器使用/可视化/多协调器治理手册 | 想部署集群或做模型路由 |
+| [docs/07-repository-setup.md](docs/07-repository-setup.md) | 本地/远程仓库自动准备、Git 安装确认、权限边界与离线回归 | 新建项目或排查仓库错误 |
 | [cluster.example.json](cluster.example.json) | 协调器/client 配置样例（默认关闭） | 部署多机共享 GPU |
 
 ## 设计结论速览（TL;DR）
@@ -145,9 +146,7 @@ Codex 使用本机 Codex 原生登录/配置，不通过 DSH 模型 API。首次
 
 1. 浏览器打开/刷新 `http://127.0.0.1:3080`（Host 热加载后，client 需刷新一次页面加载当前版本）。
 2. 左侧栏点击 **MetaInfer Research Lab** 图标打开面板。
-3. 点「新建项目」，仓库路径填 `../metainfer-demo-repo`（或任意本地 git 仓库；Windows 用绝对路径如
-   `C:\path\to\metainfer-demo-repo`），填写研究 brief / 根节点 prompt /
-   时间盒（分钟）与资源需求；Host 会校验仓库并创建首个节点（planned）。
+3. 点「新建项目」，填写本地**绝对目录**（例如 Windows 的 `C:\path\to\project`）或 Git 仓库 URL，点「准备仓库」。新目录/空库自动就绪，缺 Git 时先确认安装；不自动提交已有文件或推送。填写研究 brief、至少 10 字符的根节点 prompt、时间盒与资源需求，再创建首个 planned 节点。安装/授权边界见[仓库自动准备](docs/07-repository-setup.md)。
 4. 选中 planned 节点 → **▶ 启动**：Host 创建独立 git worktree、anchor + worker subagent，完成后自动 commit；
    running 卡片有截止倒计时，可取消/查看对话/继续对话。
 5. 手动模式点 **▶ Step** 触发一轮 advisor + scheduler；运行记录里可看提案/调度/评审详情。
