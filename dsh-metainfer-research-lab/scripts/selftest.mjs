@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openStore } from '../host/store.js';
@@ -182,7 +183,7 @@ await test('listProjects summary', async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].nodeCount, 1);
   assert.equal(list[0].id, project.id);
-  assert.equal(list[0].repoPath, DEMO_REPO);
+  assert.equal(path.resolve(list[0].repoPath), path.resolve(DEMO_REPO));
 });
 
 await test('reject invalid config', async () => {
@@ -253,8 +254,8 @@ async function callHttp(pathname, { method = 'GET', query = '', rawBody = undefi
   return response.json();
 }
 
-await test('routes: all thirteen endpoints registered', async () => {
-  assert.equal(routes.length, 13);
+await test('routes: all fourteen endpoints registered', async () => {
+  assert.equal(routes.length, 14);
   const expected = [
     [`${PREFIX}/health`, 'GET'],
     [`${PREFIX}/projects`, 'GET'],
@@ -379,6 +380,24 @@ await test('HTTP malformed body returns the error envelope', async () => {
   const payload = await callHttp(`${PREFIX}/commands`, { method: 'POST', rawBody: 'not-json' });
   assert.equal(payload.ok, false);
   assert.equal(payload.error.code, 'bad_request');
+});
+
+await test('copilot drawer embeds an active conversation and is memoized', async () => {
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
+  assert.ok(
+    source.includes("renderFactorySlot('conversation.content', { variant: 'embedded', phase: 'active', hero: false })"),
+    'the drawer must request an embedded, active conversation',
+  );
+  assert.ok(
+    source.includes('const CopilotDrawerMemo = React.memo('),
+    'the drawer must be memoized so workspace polling does not re-render the native conversation',
+  );
+  assert.ok(
+    source.includes('.rl-workspace-main[data-copilot-open="true"] .rl-workspace-grid { content-visibility: hidden; }'),
+    'the workspace grid must skip painting while the drawer is open',
+  );
+  assert.ok(source.includes('data-copilot-open'), 'WorkspaceScreen must mark the workspace while the drawer is open');
+  assert.ok(source.includes('h(CopilotDrawerMemo, {'), 'WorkspaceScreen must render the memoized drawer');
 });
 
 disposeRoutes();

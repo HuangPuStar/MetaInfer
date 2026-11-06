@@ -2755,6 +2755,7 @@ window.__ModuleLoader__.load({
       '.rl-workspace-main { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }',
       '.rl-workspace-main > .rl-workspace-grid { flex: 1 1 auto; min-width: 0; }',
       '.rl-workspace-grid { display: grid; grid-template-columns: clamp(180px, 18vw, 240px) minmax(0, 1fr) clamp(260px, 26vw, 340px); flex: 1 1 auto; min-width: 0; min-height: 0; }',
+      '.rl-workspace-main[data-copilot-open="true"] .rl-workspace-grid { content-visibility: hidden; }',
       '.rl-copilot-native-layer { position: fixed; inset: 0; z-index: 60; display: flex; align-items: stretch; justify-content: stretch; padding: 16px; pointer-events: none; }',
       '.rl-copilot-native-backdrop { position: fixed; inset: 0; z-index: 59; background: var(--dsw-alias-bg-mask-2, transparent); pointer-events: auto; }',
       '.rl-copilot-native { position: relative; z-index: 60; box-sizing: border-box; display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; width: min(96vw, calc(100vw - 32px)); max-width: calc(100vw - 32px); height: min(96vh, calc(100vh - 32px)); height: min(96vh, calc(100dvh - 32px)); max-height: calc(100vh - 32px); margin: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-family: inherit; font-size: 13px; line-height: 20px; pointer-events: auto; overflow: hidden; }',
@@ -8292,10 +8293,10 @@ window.__ModuleLoader__.load({
             )
           : null,
         stepInfo !== null ? h(StepBanner, { info: stepInfo, onDismiss: () => setStepInfo(null), t }) : null,
-        h('div', { className: 'rl-workspace-main' }, body),
+        h('div', { className: 'rl-workspace-main', 'data-copilot-open': copilotOpen ? 'true' : undefined }, body),
         h(ActivityLog, { events, onSelectNode: setSelectedId, onOpenRun: openRuns, t }),
         copilotOpen
-          ? h(CopilotDrawer, {
+          ? h(CopilotDrawerMemo, {
               projectId,
               onClose: closeCopilot,
               openNativeSession,
@@ -8465,6 +8466,13 @@ window.__ModuleLoader__.load({
       const [parentSessionId, setParentSessionId] = React.useState('');
       const referenceRef = React.useRef(null);
       const requestRef = React.useRef({ sessionId: '', create: false });
+      const tRef = React.useRef(t);
+      tRef.current = t;
+      const retainRef = React.useRef(retainCopilotSession);
+      retainRef.current = retainCopilotSession;
+      const loadCountRef = React.useRef(0);
+      const renderCountRef = React.useRef(0);
+      renderCountRef.current += 1;
 
       React.useEffect(() => {
         if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
@@ -8477,6 +8485,7 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         let alive = true;
+        loadCountRef.current += 1;
         const request = requestRef.current && typeof requestRef.current === 'object' ? requestRef.current : {};
         requestRef.current = { sessionId: '', create: false };
         setPhase('loading');
@@ -8489,7 +8498,7 @@ window.__ModuleLoader__.load({
             const body = { type: 'project.copilot', projectId };
             if (firstString(request.sessionId) !== '') body.sessionId = firstString(request.sessionId);
             if (request.create === true) body.create = true;
-            const data = await api.command(body, undefined, t);
+            const data = await api.command(body, undefined, tRef.current);
             if (!alive) return;
             const record = asObject(data);
             const id = firstString(record.sessionId);
@@ -8505,15 +8514,16 @@ window.__ModuleLoader__.load({
             setParentSessionId(parent);
             if (id === '') {
               setPhase('fallback');
-              setReason(t('ws.copilot.loadError'));
+              setReason(tRef.current('ws.copilot.loadError'));
               return;
             }
             setSessionId(id);
             setReused(isReused);
-            const ref = typeof retainCopilotSession === 'function' ? retainCopilotSession(id, parent, attempt) : null;
+            const retain = retainRef.current;
+            const ref = typeof retain === 'function' ? retain(id, parent, attempt) : null;
             if (ref === null || ref === undefined) {
               setPhase('fallback');
-              setReason(t('ws.copilot.embedUnavailable'));
+              setReason(tRef.current('ws.copilot.embedUnavailable'));
               return;
             }
             referenceRef.current = ref;
@@ -8523,7 +8533,7 @@ window.__ModuleLoader__.load({
             } catch (error) {
               if (!alive) return;
               setPhase('fallback');
-              setReason(t('ws.copilot.embedFailed') + ': ' + describeError(error, t));
+              setReason(tRef.current('ws.copilot.embedFailed') + ': ' + describeError(error, tRef.current));
               return;
             }
             if (!alive) return;
@@ -8531,7 +8541,7 @@ window.__ModuleLoader__.load({
           } catch (error) {
             if (!alive || isAbortError(error)) return;
             setPhase('fallback');
-            setReason(describeError(error, t));
+            setReason(describeError(error, tRef.current));
           }
         })();
         return () => {
@@ -8546,7 +8556,7 @@ window.__ModuleLoader__.load({
             }
           }
         };
-      }, [projectId, attempt, retainCopilotSession, t]);
+      }, [projectId, attempt]);
 
       const switchCopilotSession = (nextId) => {
         const id = firstString(nextId);
@@ -8632,6 +8642,7 @@ window.__ModuleLoader__.load({
           const text = [
             `window=${window.innerWidth}x${window.innerHeight}`,
             `drawer=${root === null ? 'missing' : Math.round(root.getBoundingClientRect().height)}`,
+            `loads=${loadCountRef.current} renders=${renderCountRef.current} nodes=${root === null ? 0 : root.querySelectorAll('*').length} docNodes=${document.querySelectorAll('*').length} heapMB=${typeof performance !== 'undefined' && performance.memory !== undefined ? Math.round(performance.memory.usedJSHeapSize / 1048576) : 'n/a'} phase=${root === null || root.querySelector('[data-conversation-content]') === null ? '' : (root.querySelector('[data-conversation-content]').getAttribute('data-content-phase') || '')}`,
             ...rows,
           ].join('\n');
           setProbe(text);
@@ -8717,6 +8728,20 @@ window.__ModuleLoader__.load({
         ),
       );
     }
+
+    // The workspace polls /state and /events every few seconds while a run is
+    // live, which re-renders WorkspaceScreen. Without this memo the embedded
+    // native conversation (the largest DOM subtree in the drawer) is reconciled
+    // on every poll, which makes scrolling and pointer input stutter.
+    const CopilotDrawerMemo = React.memo(
+      CopilotDrawer,
+      (previous, next) => previous.projectId === next.projectId
+        && previous.onClose === next.onClose
+        && previous.openNativeSession === next.openNativeSession
+        && previous.retainCopilotSession === next.retainCopilotSession
+        && previous.SessionProvider === next.SessionProvider
+        && previous.renderFactorySlot === next.renderFactorySlot,
+    );
 
     /** Compact live expert-run chip for the workspace top bar. */
     function ExpertChip({ runs, onOpen, t }) {
