@@ -37,6 +37,62 @@
 
 点击后 Host 会确保该节点 worktree 存在，再打开该节点会话的文件侧栏。若 worktree 因磁盘回收被删除，Host 会先 `git worktree prune`，再从节点分支重新切出；planned 节点则从记录的基础提交创建分支。预览页头提供文件下载按钮，下载由 Lab Host 校验路径后流式返回，不依赖第三方文件服务。整个过程不会启动实验。
 
+## Local Agent 执行驱动与轨迹
+
+节点可以脱离 DSH 本地 worker，交给官方本地 Agent SDK 执行。当前已接入 Codex：
+
+- SDK：`@openai/codex-sdk`，驱动本地 `codex`（默认包内 CLI，也可用 `codexPath` 指向本机安装）；
+- 事件：`thread.started`、`turn.started`、`item.started/updated/completed`、`turn.completed`；
+- 轨迹：原始事件逐条写入 `~/.dsh/metainfer-research-lab/executions/<project>/<node>/<attempt>.jsonl`；
+- 展示：节点检查器「执行轨迹」实时轮询，结束后保留完整记录；
+- 报告：Codex `outputSchema` 直接生成结构化节点报告；
+- 恢复：`threadId` 持久化，重试时可恢复同一 Codex thread。
+
+项目配置示例：
+
+```json
+{
+  "execution": {
+    "profiles": {
+      "dsh": { "driver": "dsh" },
+      "codex": { "driver": "codex" },
+      "codex-strong": {
+        "driver": "codex",
+        "model": "gpt-5-codex",
+        "reasoningEffort": "high"
+      }
+    },
+    "taskTypes": {
+      "code": "codex-strong"
+    }
+  }
+}
+```
+
+专家在 proposal 中可给出 `executionProfile` 或 `taskType`；节点检查器也可为 planned 节点选择 profile。不同 profile 可以指向不同本地 runtime、模型或推理强度。专家自身的模型仍由 `config.models.advisor` / `config.models.scheduler` 等角色配置决定。
+
+Codex 使用本机 Codex 原生登录/配置，不通过 DSH 模型 API。首次使用前需要完成 `codex login`，并确认 `~/.codex` 或 `codexPath` 指向的本地 Codex 可用。
+
+## Dashboard
+
+项目主界面顶部导航条有一个 **Dashboard** 按钮；打开后是全屏半透明面板，不改变 DAG 画布的尺寸或位置。
+
+- 支持多个 widget；标题栏鼠标拖动位置，右下角拖动调整大小；
+- 调整大小时自动推挤重叠的周边 widget，并对齐到网格和相邻 widget 的边缘/中心；
+- 鼠标悬停 widget 标题栏显示齿轮；点击查看该 widget 的运作机理：数据来源、计算/展示规则、生成模式、布局、原始 config/data；
+- widget 类型：metric、text、list、activity、chart（多 series 折线图）；
+- UI 侧边包含 Dashboard Chat：用自然语言添加、修改、删除 widget；
+- Dashboard Chat 由 `lab-dashboard` subagent 处理，返回 reply 和完整 widget 列表，并可同时修改刷新间隔/启停/模式；
+- 已存在 widget 的 id 和拖动位置会保留，新 widget 由 Host 分配默认位置；
+- 每个 widget 自己拥有数据采集逻辑：
+  - `config.collector: "agent"` + `config.query`：为该 widget 单独调用 dashboard subagent；
+  - `config.collector: "script"` + `config.script`：为该 widget 单独执行确定性脚本；
+  - 后台刷新逐个 widget 独立执行，不使用一份共享逻辑；
+- 跨 widget 数据共享暂未实现，后续先做设计；
+- 活动日志与 Dashboard 在同一个面板中；
+- 布局持久化在 `project.dashboard.widgets[].layout`；聊天记录持久化在 `project.dashboard.chat`；
+- 同一项目同时只允许一个 dashboard refresh/chat run；chat 有 120 秒超时和即时 pending UI。
+
 ## 文档索引
 
 | 文档 | 内容 | 适合谁 |

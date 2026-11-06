@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { LabError } from './git-engine.js';
 import { cleanModelRef, validateModelSelection } from './models.js';
+import { resolveExecutionProfile } from './execution.js';
 import { newSessionId } from './store.js';
 import { advisorCandidates, buildAdvisorSnapshot, buildSchedulerSnapshot, promptHash } from './snapshot.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
@@ -95,6 +96,8 @@ const ADVISOR_SCHEMA = {
               rationale: { type: 'string' },
             },
           },
+          executionProfile: { type: 'string' },
+          taskType: { type: 'string' },
         },
         required: ['parentId', 'title', 'prompt', 'rationale'],
         additionalProperties: false,
@@ -149,6 +152,8 @@ function advisorPrompt(project, snapshot, lens) {
     '8. Submit your entire answer through structured_output.',
     '9. Optional: recommend a model for a proposal via recommendedModel {profileId or provider/model/reasoningEffort, rationale}.',
     '   It is only honored when the project enables advisor model selection and the Host allowlist accepts it.',
+    '10. Optional: set executionProfile (or taskType mapped by config.execution.taskTypes) to select a',
+    '    local execution runtime such as a Codex profile. The Host rejects unknown profiles.',
     '',
     '# Snapshot',
     JSON.stringify(snapshot, null, 2),
@@ -502,6 +507,15 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       return { ok: false, reason: 'duplicate proposal (same parent and prompt hash)' };
     }
     if (nodes.length >= (project.config.maxNodes ?? 60)) return { ok: false, reason: 'maxNodes reached' };
+    let execution;
+    try {
+      execution = resolveExecutionProfile(project, {
+        executionProfile: proposal.executionProfile,
+        taskType: proposal.taskType,
+      });
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    }
     return {
       ok: true,
       parent,
@@ -512,6 +526,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
         needs,
         timeboxMinutes,
         model: null,
+        execution,
       },
     };
   }
@@ -552,6 +567,16 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
       ...(spec.model ? { model: spec.model } : {}),
+      execution: spec.execution
+        ? {
+            profile: spec.execution.profile,
+            driver: spec.execution.driver,
+            ...(spec.execution.model ? { model: spec.execution.model } : {}),
+            ...(spec.execution.reasoningEffort ? { reasoningEffort: spec.execution.reasoningEffort } : {}),
+            ...(spec.execution.codexPath ? { codexPath: spec.execution.codexPath } : {}),
+          }
+        : { profile: 'dsh', driver: 'dsh' },
+      taskType: spec.execution?.taskType ?? '',
       needs: spec.needs ?? {},
       timeboxMs: spec.timeboxMinutes * 60_000,
       anchorSessionId: newSessionId(),
@@ -604,6 +629,16 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
       ...(spec.model ? { model: spec.model } : {}),
+      execution: spec.execution
+        ? {
+            profile: spec.execution.profile,
+            driver: spec.execution.driver,
+            ...(spec.execution.model ? { model: spec.execution.model } : {}),
+            ...(spec.execution.reasoningEffort ? { reasoningEffort: spec.execution.reasoningEffort } : {}),
+            ...(spec.execution.codexPath ? { codexPath: spec.execution.codexPath } : {}),
+          }
+        : { profile: 'dsh', driver: 'dsh' },
+      taskType: spec.execution?.taskType ?? '',
       needs: spec.needs ?? {},
       timeboxMs: spec.timeboxMinutes * 60_000,
       anchorSessionId: newSessionId(),
@@ -959,6 +994,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       if (nodes.length >= (project.config.maxNodes ?? 60)) {
         throw new LabError('max_nodes', 'maxNodes reached for this project', 409);
       }
+      const execution = resolveExecutionProfile(project, {
+        executionProfile: input?.executionProfile,
+        taskType: input?.taskType,
+      });
       const node = await createChild(project, parent, {
         title,
         prompt,
@@ -968,6 +1007,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
         model: validatedModel
           ? { ...cleanModelRef(validatedModel), source: 'user' }
           : null,
+        execution,
       }, { createdBy: 'user' });
       return { node, revision: project.revision };
     });
@@ -1033,6 +1073,13 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     }
     return store.withProjectLock(projectId, async () => {
       const project = requireProject(projectId);
+      const execution = resolveExecutionProfile(project, {
+        executionProfile: input?.executionProfile,
+        taskType: input?.taskType,
+      });
+      if (execution.driver !== 'dsh') {
+        throw new LabError('bad_request', 'merge nodes require the dsh execution profile', 400);
+      }
       const ids = Array.isArray(input?.parentIds)
         ? [...new Set(input.parentIds.filter((id) => typeof id === 'string'))]
         : [];
@@ -1092,6 +1139,8 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
         createdBy: 'user',
         createdByRunId: null,
         ...(validatedModel ? { model: { ...cleanModelRef(validatedModel), source: 'user' } } : {}),
+        execution: { profile: 'dsh', driver: 'dsh' },
+        taskType: execution.taskType,
         needs: {},
         timeboxMs: timeboxMinutes * 60_000,
         anchorSessionId: newSessionId(),

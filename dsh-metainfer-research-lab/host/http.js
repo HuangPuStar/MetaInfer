@@ -194,6 +194,37 @@ export function registerHttpRoutes(ctx, service) {
     });
   });
 
+  route(`${PREFIX}/dashboard`, ['GET', 'POST'], async (request) => {
+    const params = query(request);
+    if (request.method === 'GET') return ok(await service.getDashboard(params.get('projectId')));
+    const body = await readJsonBody(request);
+    return ok(await service.updateDashboard(body.projectId, body));
+  });
+
+  route(`${PREFIX}/dashboard/refresh`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    return ok(await service.refreshDashboard(body.projectId, { force: true }));
+  });
+
+  route(`${PREFIX}/dashboard/chat`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    return ok(await service.chatDashboard(body.projectId, body.text));
+  });
+
+  route(`${PREFIX}/dashboard/layout`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    return ok(await service.updateDashboardLayout(body.projectId, body.layouts));
+  });
+
+  route(`${PREFIX}/execution`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(await service.getExecutionEvents(
+      params.get('projectId'),
+      params.get('nodeId'),
+      params.get('after') ?? 0,
+    ));
+  });
+
   route(`${PREFIX}/commands`, ['POST'], async (request) => {
     const body = await readJsonBody(request);
     const type = body.type;

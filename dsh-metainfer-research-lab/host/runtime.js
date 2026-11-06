@@ -15,6 +15,8 @@ import {
   resolveModelSelection,
   validateModelSelection,
 } from './models.js';
+import { isDshExecution, EXECUTION_DRIVERS } from './execution.js';
+import { ExecutionLog, executionLogPath } from './execution-log.js';
 import { newSessionId } from './store.js';
 import { prepareRemoteRun } from './remote-run.js';
 import { DEFAULT_MERGE_PROMPT, DEFAULT_WORKER_PREFIX, WORKER_RULES } from './prompts.js';
@@ -527,7 +529,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     return [
       custom && custom.trim() ? custom.trim() : DEFAULT_MERGE_PROMPT,
       `Worktree: ${node.git.worktreePath} (branch ${node.git.branch}). Work only inside it.`,
-      `Model for this attempt: ${selection?.provider ?? 'default'}/${selection?.model ?? 'default'}${selection?.reasoningEffort ? ` (reasoning effort: ${selection.reasoningEffort})` : ''}`,
+      external
+        ? `Execution profile: ${node.execution?.profile ?? 'external'} (driver ${node.execution?.driver ?? 'unknown'}${node.execution?.model ? `, model ${node.execution.model}` : ''})`
+        : `Model for this attempt: ${selection?.provider ?? 'default'}/${selection?.model ?? 'default'}${selection?.reasoningEffort ? ` (reasoning effort: ${selection.reasoningEffort})` : ''}`,
       `Parents merged into this worktree: ${JSON.stringify(parents, null, 2)}`,
       `Merge state: ${state}. Conflict files: ${JSON.stringify(node.merge?.conflictFiles ?? [])}.`,
       state === 'conflict'
@@ -594,7 +598,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     });
   }
 
-  function workerPrompt(project, node, selection, remotePrompt = '') {
+  function workerPrompt(project, node, selection, remotePrompt = '', external = false) {
     const customPrefix = typeof project.config?.prompts?.workerPrefix === 'string'
       ? project.config.prompts.workerPrefix.trim()
       : '';
@@ -604,6 +608,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     const ancestors = ancestorSummaries(project.id, node.parentId)
       .map((item, index) => `${index + 1}. ${item.title} — ${item.summary || '(no report)'} @ ${item.headCommit ?? 'n/a'}`)
       .join('\n');
+    const rules = external
+      ? WORKER_RULES.split('\n').filter((line) => !line.includes('structured_output')).join('\n')
+      : WORKER_RULES;
     return [
       ...(customPrefix ? ['# Project-specific worker instructions', customPrefix, ''] : []),
       '# Project',
@@ -630,7 +637,16 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       `- Resources requested: ${needs}. Do not launch work beyond these.`,
       ...(node.needs?.machines > 1 ? [`- Placement: ${node.needs.machines} remote machines (fleet lease).`] : []),
       `- Time box: ${Math.round((node.timeboxMs ?? 600000) / 60000)} minutes (hard deadline enforced by the lab).`,
-      WORKER_RULES,
+      rules,
+      ...(external ? [
+        '',
+        '# Final response contract',
+        'End your final answer with exactly one fenced JSON object:',
+        '```json',
+        '{"summary":"...","changes":["..."],"metrics":[{"name":"...","value":"...","unit":"..."}],"reproduce":["..."],"success":true,"blockers":[],"next":[],"risks":[]}',
+        '```',
+        'Do not call structured_output; the Host stores this block as the node report.',
+      ] : []),
       remotePrompt,
     ].join('\n');
   }
@@ -805,7 +821,22 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       node.git.headCommit = commit.head;
       node.report = result?.structured && typeof result.structured === 'object' ? result.structured : null;
       node.reportText = blocksText(result?.output) || node.reportText || '';
-      applyUsage(project, node, await sessionUsage(node.sessionId));
+      if (entry.external) {
+        node.executionThreadId = result?.threadId ?? node.executionThreadId;
+        node.executionRun = {
+          ...(node.executionRun ?? {}),
+          status: 'completed',
+          endedAt: Date.now(),
+          threadId: node.executionThreadId ?? null,
+        };
+      }
+      applyUsage(
+        project,
+        node,
+        entry.external && result?.usage
+          ? externalUsage(result.usage)
+          : await sessionUsage(node.sessionId),
+      );
       endAttempt(node, { stopReason: 'completed', status: 'completed' });
       node.status = 'completed';
       node.error = undefined;
@@ -871,17 +902,140 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     await persistNode(project, node, 'node/failed', { data: { stage: 'start', message: node.error.message } });
   }
 
+  /** Normalize Codex SDK usage into the Lab token shape. */
+  function externalUsage(usage) {
+    if (!usage || typeof usage !== 'object') return null;
+    const inputTokens = Number(usage.input_tokens ?? 0) || 0;
+    const outputTokens = Number(usage.output_tokens ?? 0) || 0;
+    const cacheReadTokens = Number(usage.cached_input_tokens ?? 0) || 0;
+    const cacheWriteTokens = Number(usage.cache_write_input_tokens ?? 0) || 0;
+    return {
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+    };
+  }
+
+  async function startExternalNode(project, node, execution) {
+    const driver = EXECUTION_DRIVERS[execution.driver];
+    if (typeof driver !== 'function') {
+      throw new LabError('unavailable', `execution driver "${execution.driver}" is not registered`, 503);
+    }
+    const runId = `${node.id}-a${node.currentAttempt}`;
+    const log = new ExecutionLog(executionLogPath(project.id, node.id, runId));
+    await log.init();
+    await log.append({
+      type: 'run/started',
+      profile: execution.profile,
+      driver: execution.driver,
+      model: execution.model ?? null,
+      reasoningEffort: execution.reasoningEffort ?? null,
+      worktreePath: node.git.worktreePath,
+    });
+    node.executionRun = {
+      runId,
+      profile: execution.profile,
+      driver: execution.driver,
+      model: execution.model ?? null,
+      reasoningEffort: execution.reasoningEffort ?? null,
+      logPath: log.filePath,
+      status: 'running',
+      startedAt: Date.now(),
+    };
+    await persistNode(project, node, 'node/execution_started', {
+      data: { runId, driver: execution.driver, profile: execution.profile, logPath: log.filePath },
+    });
+
+    const controller = new AbortController();
+    let settled = false;
+    const prompt = workerPrompt(project, node, null, '', true);
+    const resultPromise = (async () => {
+      try {
+        const result = await driver({
+          cwd: node.git.worktreePath,
+          prompt,
+          outputSchema: NODE_REPORT_SCHEMA,
+          model: execution.model,
+          reasoningEffort: execution.reasoningEffort,
+          codexPath: execution.codexPath,
+          signal: controller.signal,
+          threadId: node.executionThreadId,
+          onEvent: (event) => log.append(event),
+        });
+        await log.append({
+          type: 'run/completed',
+          threadId: result.threadId ?? null,
+          finalResponse: result.finalResponse ?? '',
+          usage: result.usage ?? null,
+        });
+        return {
+          stopReason: 'completed',
+          output: [{ type: 'text', text: result.finalResponse ?? '' }],
+          structured: result.report ?? null,
+          usage: result.usage ?? null,
+          threadId: result.threadId ?? null,
+        };
+      } catch (error) {
+        await log.append({
+          type: 'run/failed',
+          message: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      } finally {
+        settled = true;
+      }
+    })();
+    const activation = {
+      result: resultPromise,
+      dispose: async () => {
+        if (settled) return;
+        controller.abort();
+        await log.append({ type: 'run/cancelled' });
+      },
+    };
+    active.set(keyOf(project.id, node.id), {
+      projectId: project.id,
+      nodeId: node.id,
+      project,
+      node,
+      activation,
+      phase: 'running',
+      external: true,
+      execution,
+      executionLog: log,
+    });
+    deadlines.set(keyOf(project.id, node.id), node.deadlineAt);
+    resultPromise.then(
+      (result) => finish(project.id, node.id, result).catch(() => {}),
+      (error) => finishFailure(project.id, node.id, error),
+    );
+    return { node: store.getNode(project.id, node.id), revision: project.revision };
+  }
+
   async function start(projectId, nodeId, options = {}) {
     const preProject = requireProject(projectId);
     const preNode = requireNode(projectId, nodeId);
     if (preNode.status !== 'planned') {
       throw new LabError('node_not_startable', `node ${nodeId} is ${preNode.status}, expected planned`, 409);
     }
-    const selection = await resolveNodeSelection(
-      preProject,
-      preNode,
-      preNode.kind === 'merge' ? 'merge' : 'worker',
-    );
+    const execution = preNode.execution && typeof preNode.execution === 'object'
+      ? preNode.execution
+      : { profile: 'dsh', driver: 'dsh' };
+    const externalExecution = !isDshExecution(execution);
+    const selection = externalExecution
+      ? {
+          provider: `execution:${execution.profile}`,
+          model: execution.model ?? 'native',
+          ...(execution.reasoningEffort ? { reasoningEffort: execution.reasoningEffort } : {}),
+          source: 'execution-profile',
+        }
+      : await resolveNodeSelection(
+          preProject,
+          preNode,
+          preNode.kind === 'merge' ? 'merge' : 'worker',
+        );
     const gpuNeed = Math.max(0, Math.floor(Number(preNode.needs?.gpu ?? 0)));
     // machines is a fleet placement hint that only exists together with GPU work.
     // CPU-only nodes must not be rejected by the default machines=1.
@@ -1056,6 +1210,15 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
 
     try {
       await git.ensureWorktree(project, node);
+      if (externalExecution) {
+        if (node.kind === 'merge') {
+          throw new LabError('bad_request', 'merge nodes require the dsh execution profile', 400);
+        }
+        if (node.lease?.placement === 'fleet') {
+          throw new LabError('unsupported', 'external execution profiles currently require local placement', 409);
+        }
+        return await startExternalNode(project, node, execution);
+      }
       const anchor = await ensureAnchor(project, node);
       let remotePrompt = '';
       if (node.lease?.placement === 'fleet') {
@@ -1187,6 +1350,14 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     deadlines.delete(key);
     const project = store.getProject(projectId);
     const node = store.getNode(projectId, nodeId);
+    if (node && entry.external) {
+      node.executionRun = {
+        ...(node.executionRun ?? {}),
+        status: 'failed',
+        endedAt: Date.now(),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
     if (project && node) await failNode(project, node, error, 'run');
     try {
       await entry.activation.dispose();
@@ -1219,6 +1390,18 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     } catch {
       // ignore dispose failure; the reaper still runs
     }
+    if (entry.external) {
+      try {
+        entry.node.executionRun = {
+          ...(entry.node.executionRun ?? {}),
+          status: kind === 'cancelled' ? 'cancelled' : 'terminated',
+          endedAt: Date.now(),
+          termination: kind,
+        };
+      } catch {
+        // status is best-effort
+      }
+    }
     const killedJobs = await killSessionJobs(entry.node.sessionId);
     const reaped = await reapWorktree(entry.node.git.worktreePath);
     const gpu = await checkGpu(reaped.killedPids);
@@ -1226,6 +1409,14 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     const project = store.getProject(projectId);
     const node = store.getNode(projectId, nodeId);
     if (project && node) {
+      if (entry.external) {
+        node.executionRun = {
+          ...(node.executionRun ?? entry.node.executionRun ?? {}),
+          status: kind === 'cancel' ? 'cancelled' : 'terminated',
+          endedAt: Date.now(),
+          termination: kind,
+        };
+      }
       try {
         const commit = await git.commitWorktree(project, node, `dshex(${node.id}): ${node.title} (${kind})`);
         node.git.headCommit = commit.head;
@@ -1395,6 +1586,13 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     if (trimmed.length > 8000) throw new LabError('bad_request', 'message text is too long', 400);
     const guardProject = requireProject(projectId);
     const guardNode = requireNode(projectId, nodeId);
+    if (!isDshExecution(guardNode.execution)) {
+      throw new LabError(
+        'not_continuable',
+        'this node uses an external one-shot execution profile and cannot receive follow-up messages',
+        409,
+      );
+    }
     if (cluster?.enabled && Number(guardNode.needs?.gpu ?? 0) > 0) {
       throw new LabError(
         'gpu_followup_requires_attempt',

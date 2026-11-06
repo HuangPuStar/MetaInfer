@@ -142,6 +142,11 @@ export async function apply(ctx) {
     'metainfer-research-lab: agent tool',
   );
 
+  ctx.effect(
+    () => service.startDashboardScheduler(),
+    'metainfer-research-lab: dashboard scheduler',
+  );
+
   ctx.effect(() => {
     const timer = setInterval(() => {
       runtime.tick().catch(() => {});

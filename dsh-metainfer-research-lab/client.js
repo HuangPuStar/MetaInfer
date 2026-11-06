@@ -35,6 +35,11 @@ window.__ModuleLoader__.load({
       events: 'api/metainfer-research-lab/events',
       commands: 'api/metainfer-research-lab/commands',
       runs: 'api/metainfer-research-lab/runs',
+      execution: 'api/metainfer-research-lab/execution',
+      dashboard: 'api/metainfer-research-lab/dashboard',
+      dashboardRefresh: 'api/metainfer-research-lab/dashboard/refresh',
+      dashboardChat: 'api/metainfer-research-lab/dashboard/chat',
+      dashboardLayout: 'api/metainfer-research-lab/dashboard/layout',
       filesInfo: 'api/metainfer-research-lab/files/info',
       filesDownload: 'api/metainfer-research-lab/files/download',
     };
@@ -1257,6 +1262,60 @@ window.__ModuleLoader__.load({
       'ws.files.downloading': '下载中…',
       'ws.files.downloadHint': '下载当前预览的 worktree 文件',
       'ws.files.downloadError': '文件下载失败',
+      'ws.execution.title': '执行轨迹',
+      'ws.execution.hint': '展示本地 Agent runtime 的流式事件、工具调用和最终报告；运行中自动刷新。',
+      'ws.execution.running': '运行中',
+      'ws.execution.done': '已结束',
+      'ws.execution.empty': '尚无执行事件。',
+      'ws.execution.error': '读取执行轨迹失败',
+      'ws.execution.profile': '执行 profile',
+      'ws.execution.driver': '驱动',
+      'ws.execution.model': '模型',
+      'ws.execution.noEvents': '等待 Agent 产生事件…',
+      'dashboard.title': 'Dashboard',
+      'dashboard.toggle': 'Open or close the dashboard',
+      'dashboard.toggle': '打开或关闭 Dashboard',
+      'dashboard.empty': '还没有 widget。用 Dashboard Chat 描述你想跟踪的指标。',
+      'dashboard.hint': 'Widget 通过 Dashboard Chat 添加/修改；后台按设定间隔更新，数据可由脚本或 dashboard subagent 提供。',
+      'dashboard.refresh': '立即刷新',
+      'dashboard.refreshing': '刷新中…',
+      'dashboard.error': 'dashboard 更新失败',
+      'dashboard.dragHint': '拖动标题栏移动 widget',
+      'dashboard.resizeHint': '拖动右下角调整 widget 大小',
+      'dashboard.configure': '查看 widget 运作机理',
+      'dashboard.mechanism': '运作机理',
+      'dashboard.source': '数据来源',
+      'dashboard.collector': '采集器',
+      'dashboard.query': '数据获取指令',
+      'dashboard.queryMissing': '未配置独立采集 prompt（旧 widget）；请在 Dashboard Chat 中要求补全。',
+      'dashboard.script': '采集脚本',
+      'dashboard.formula': '计算/展示规则',
+      'dashboard.rawConfig': '原始配置',
+      'dashboard.layout': '布局',
+      'dashboard.updatedAt': '最近更新',
+      'dashboard.generatedBy': '生成方式',
+      'dashboard.mechanismHint': '这个 widget 的数据由 Dashboard agent 或确定性脚本生成；下面说明它如何得到并展示当前结果。',
+      'dashboard.rawData': '当前数据',
+      'dashboard.mechMetric': '展示 data.value/unit/status/detail。',
+      'dashboard.mechText': '展示 data.body（或 detail）中的文本。',
+      'dashboard.mechList': '逐项展示 data.items。',
+      'dashboard.mechChart': '将 data.series 中每条 series 的 points 按 x 等距、y 线性映射为折线。',
+      'dashboard.mechActivity': '读取项目活动日志最后 8 条事件。',
+      'dashboard.agentMode': 'Dashboard agent（lab-dashboard）周期收集/整理。',
+      'dashboard.scriptMode': '项目仓库中的确定性脚本输出。',
+      'dashboard.close': '关闭 Dashboard',
+      'dashboard.widgets': 'Dashboard widgets',
+      'dashboard.chat': 'Dashboard Chat',
+      'dashboard.chatHint': '用自然语言添加、修改或删除 widget，也可以调整刷新频率和后台更新。',
+      'dashboard.chatEmpty': '描述你想添加或修改的 widget。',
+      'dashboard.chatPlaceholder': '例如：添加一个 GPU 利用率 widget；把 Nodes 改成失败节点数；每 5 分钟刷新。',
+      'dashboard.chatSend': '发送',
+      'dashboard.chatSending': '处理中…',
+      'dashboard.chatThinking': '正在生成 dashboard…',
+      'dashboard.chart': '折线图',
+      'dashboard.chartEmpty': '暂无图表数据',
+      'dashboard.chatWorkingHint': 'Agent 正在读取项目数据和生成 widget，可能需要几分钟；你可以继续使用其他面板。',
+      'ws.execution.profileHint': '不同 profile 可对应不同本地 Agent runtime / 模型级别；运行中的节点不可修改。',
       'ws.native.devHint': '如果 Trajectory 标签未显示，请在 DSH 设置 → 通用 → 显示代码工作视图 中开启；未开启时会自动回退到对话。',
       'ws.native.continue': '继续对话',
       'ws.native.continueTitle': '继续对话',
@@ -2517,6 +2576,58 @@ window.__ModuleLoader__.load({
       'ws.files.downloading': 'Downloading…',
       'ws.files.downloadHint': 'Download the currently previewed worktree file',
       'ws.files.downloadError': 'File download failed',
+      'ws.execution.title': 'Execution trace',
+      'ws.execution.hint': 'Streamed local agent-runtime events, tool calls, and the final report; refreshes while running.',
+      'ws.execution.running': 'Running',
+      'ws.execution.done': 'Finished',
+      'ws.execution.empty': 'No execution events yet.',
+      'ws.execution.error': 'Could not read the execution trace',
+      'ws.execution.profile': 'Execution profile',
+      'ws.execution.driver': 'Driver',
+      'ws.execution.model': 'Model',
+      'ws.execution.noEvents': 'Waiting for the agent to emit events…',
+      'dashboard.title': 'Dashboard',
+      'dashboard.empty': 'No widgets yet. Describe the metrics you want in Dashboard Chat.',
+      'dashboard.hint': 'Widgets are added and edited through Dashboard Chat; the background refresh uses a script or dashboard subagent.',
+      'dashboard.refresh': 'Refresh now',
+      'dashboard.refreshing': 'Refreshing…',
+      'dashboard.error': 'Dashboard refresh failed',
+      'dashboard.dragHint': 'Drag the title bar to move this widget',
+      'dashboard.resizeHint': 'Drag the bottom-right corner to resize this widget',
+      'dashboard.configure': 'Inspect widget mechanism',
+      'dashboard.mechanism': 'How this widget works',
+      'dashboard.source': 'Data source',
+      'dashboard.collector': 'Collector',
+      'dashboard.query': 'Data-acquisition instruction',
+      'dashboard.queryMissing': 'No independent collector prompt (legacy widget). Ask Dashboard Chat to add one.',
+      'dashboard.script': 'Collector script',
+      'dashboard.formula': 'Computation / rendering rule',
+      'dashboard.rawConfig': 'Raw config',
+      'dashboard.layout': 'Layout',
+      'dashboard.updatedAt': 'Last updated',
+      'dashboard.generatedBy': 'Produced by',
+      'dashboard.mechanismHint': 'This widget is produced by the dashboard agent or a deterministic script; the details below explain how the current result is obtained and rendered.',
+      'dashboard.rawData': 'Current data',
+      'dashboard.mechMetric': 'Renders data.value / unit / status / detail.',
+      'dashboard.mechText': 'Renders text from data.body (or detail).',
+      'dashboard.mechList': 'Renders each entry in data.items.',
+      'dashboard.mechChart': 'Maps each series in data.series to a line: x is evenly spaced, y is scaled linearly.',
+      'dashboard.mechActivity': 'Reads the latest 8 project activity events.',
+      'dashboard.agentMode': 'Dashboard agent (lab-dashboard) collects/updates on schedule.',
+      'dashboard.scriptMode': 'Deterministic script output from the project repository.',
+      'dashboard.close': 'Close dashboard',
+      'dashboard.widgets': 'Dashboard widgets',
+      'dashboard.chat': 'Dashboard Chat',
+      'dashboard.chatHint': 'Use natural language to add, edit, or remove widgets, and to adjust the refresh schedule.',
+      'dashboard.chatEmpty': 'Describe the widget you want to add or change.',
+      'dashboard.chatPlaceholder': 'e.g. Add a GPU utilization widget; change Nodes to failed nodes; refresh every 5 minutes.',
+      'dashboard.chatSend': 'Send',
+      'dashboard.chatSending': 'Working…',
+      'dashboard.chatThinking': 'Generating dashboard…',
+      'dashboard.chart': 'Line chart',
+      'dashboard.chartEmpty': 'No chart data yet',
+      'dashboard.chatWorkingHint': 'The agent is reading project data and generating widgets; this can take several minutes and you can keep using other panels.',
+      'ws.execution.profileHint': 'Profiles can target different local agent runtimes or model tiers; a running node cannot be changed.',
       'ws.native.devHint': 'If the Trajectory tab is hidden, enable DSH Settings → General → Show code work view; otherwise DSH falls back to Chat automatically.',
       'ws.native.continue': 'Continue conversation',
       'ws.native.continueTitle': 'Continue conversation',
@@ -2718,6 +2829,67 @@ window.__ModuleLoader__.load({
       '.rl-files-actions { display: flex; margin: 8px 0; }',
       '.rl-files-button { flex: 1 1 auto; width: 100%; height: auto; min-height: 28px; padding: 5px 10px; white-space: normal; line-height: 18px; }',
       '.rl-file-download { white-space: nowrap; }',
+      '.rl-execution-events { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow: auto; margin-top: 8px; padding: 6px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-execution-event { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 6px; align-items: start; padding: 4px 6px; border-bottom: 0.5px solid var(--dsw-alias-border-l1); }',
+      '.rl-execution-event:last-child { border-bottom: 0; }',
+      '.rl-execution-seq { color: var(--dsw-alias-label-tertiary); font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace; }',
+      '.rl-execution-type { color: var(--dsw-alias-label-secondary); font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }',
+      '.rl-execution-text { margin: 0; min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--dsw-alias-label-primary); font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace; }',
+      '.rl-workspace-shell { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; min-width: 0; }',
+      '.rl-dash-overlay { position: fixed; z-index: 80; inset: 0; padding: 18px; background: color-mix(in srgb, #080a0e 72%, transparent); -webkit-backdrop-filter: blur(18px) saturate(1.1); backdrop-filter: blur(18px) saturate(1.1); }',
+      '.rl-dash-window { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; border: 0.5px solid color-mix(in srgb, var(--dsw-alias-border-l2) 78%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 72%, transparent); box-shadow: 0 24px 80px rgba(0, 0, 0, 0.36); overflow: hidden; }',
+      '.rl-dash-head { display: flex; align-items: center; gap: 10px; flex: none; min-height: 44px; padding: 8px 12px; border-bottom: 0.5px solid color-mix(in srgb, var(--dsw-alias-border-l2) 70%, transparent); background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 82%, transparent); }',
+      '.rl-dash-head-title { font-size: 14px; font-weight: 500; color: var(--dsw-alias-label-primary); }',
+      '.rl-dash-head-hint { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
+      '.rl-dash-head-actions { display: flex; align-items: center; gap: 6px; flex: none; }',
+      '.rl-dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) 310px; flex: 1 1 auto; min-height: 0; min-width: 0; }',
+      '.rl-dash-canvas { position: relative; min-width: 0; min-height: 260px; overflow: auto; background-image: radial-gradient(color-mix(in srgb, var(--dsw-alias-border-l1) 60%, transparent) 0.5px, transparent 0.5px); background-size: 18px 18px; }',
+      '.rl-dash-empty { margin: 24px; color: var(--dsw-alias-label-tertiary); font-size: 12px; }',
+      '.rl-dw { position: absolute; display: flex; flex-direction: column; min-width: 0; border: 0.5px solid color-mix(in srgb, var(--dsw-alias-border-l2) 88%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 82%, transparent); box-shadow: 0 8px 24px rgba(0,0,0,.18); overflow: hidden; }',
+      '.rl-dw-dragging { z-index: 5; box-shadow: 0 18px 46px rgba(0,0,0,.32); opacity: .94; }',
+      '.rl-dw-resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 45%, color-mix(in srgb, var(--dsw-alias-label-tertiary) 60%, transparent) 46% 55%, transparent 56% 65%, color-mix(in srgb, var(--dsw-alias-label-tertiary) 60%, transparent) 66% 75%, transparent 76%); }',
+      '.rl-dw-head { display: flex; align-items: center; gap: 6px; flex: none; min-height: 30px; padding: 5px 8px; border-bottom: 0.5px solid var(--dsw-alias-border-l1); cursor: grab; user-select: none; touch-action: none; }',
+      '.rl-dw-head:active { cursor: grabbing; }',
+      '.rl-dw-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-primary); }',
+      '.rl-dw-config { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-tertiary); font-size: 13px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .12s ease; flex: none; }',
+      '.rl-dw-head:hover .rl-dw-config, .rl-dw-config:focus-visible { opacity: 1; }',
+      '.rl-dw-config:hover { background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); }',
+      '.rl-dw-type { flex: none; padding: 1px 5px; border-radius: 4px; background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 80%, transparent); color: var(--dsw-alias-label-tertiary); font: 10px/14px ui-monospace, SFMono-Regular, Menlo, monospace; }',
+      '.rl-dw-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 10px; }',
+      '.rl-dw-metric { display: flex; flex-direction: column; gap: 2px; }',
+      '.rl-dw-value { font: 600 24px/30px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dsw-alias-label-primary); overflow-wrap: anywhere; }',
+      '.rl-dw-ok { color: var(--dsw-alias-state-success-primary, #22c55e); }',
+      '.rl-dw-warn { color: var(--dsw-alias-state-warning-primary, #f59e0b); }',
+      '.rl-dw-error { color: var(--dsw-alias-state-error-primary); }',
+      '.rl-dw-idle { color: var(--dsw-alias-label-secondary); }',
+      '.rl-dw-unit { color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
+      '.rl-dw-detail, .rl-dw-text { margin: 4px 0 0; color: var(--dsw-alias-label-secondary); font-size: 11.5px; line-height: 17px; white-space: pre-wrap; overflow-wrap: anywhere; }',
+      '.rl-dw-list { margin: 0; padding-left: 16px; color: var(--dsw-alias-label-secondary); font-size: 11.5px; line-height: 18px; }',
+      '.rl-dw-chart { display: flex; flex-direction: column; gap: 4px; min-height: 0; }',
+      '.rl-dw-chart svg { width: 100%; height: auto; min-height: 72px; display: block; }',
+      '.rl-dw-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--dsw-alias-label-tertiary); font-size: 10px; line-height: 14px; }',
+      '.rl-dw-legend-item { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+      '.rl-dw-legend-dot { width: 7px; height: 7px; border-radius: 2px; flex: none; display: inline-block; }',
+      '.rl-dw-activity { display: flex; flex-direction: column; gap: 3px; }',
+      '.rl-dw-activity-row { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+      '.rl-dash-chat { display: flex; flex-direction: column; gap: 6px; min-height: 0; padding: 10px; border-left: 0.5px solid color-mix(in srgb, var(--dsw-alias-border-l2) 70%, transparent); background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 68%, transparent); }',
+      '.rl-dash-chat-title { margin: 0; font-size: 13px; color: var(--dsw-alias-label-primary); }',
+      '.rl-dash-chat-list { flex: 1 1 auto; min-height: 80px; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 2px; }',
+      '.rl-dash-msg { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 80%, transparent); }',
+      '.rl-dash-msg-user { border: 0.5px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, transparent); }',
+      '.rl-dash-msg-pending { opacity: .75; border: 0.5px dashed color-mix(in srgb, var(--dsw-alias-border-l2) 90%, transparent); }',
+      '.rl-dash-msg-error { border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 55%, transparent); }',
+      '.rl-dash-msg-role { color: var(--dsw-alias-label-tertiary); font: 10px/14px ui-monospace, SFMono-Regular, Menlo, monospace; }',
+      '.rl-dash-msg-text { color: var(--dsw-alias-label-primary); font-size: 11.5px; line-height: 17px; white-space: pre-wrap; overflow-wrap: anywhere; }',
+      '.rl-dash-error { margin: 0; padding: 6px 12px; color: var(--dsw-alias-state-error-primary); font-size: 11.5px; }',
+      '.rl-dw-mech-overlay { position: absolute; z-index: 20; inset: 0; display: flex; align-items: center; justify-content: center; padding: 18px; background: color-mix(in srgb, #080a0e 58%, transparent); backdrop-filter: blur(8px); }',
+      '.rl-dw-mech { width: min(620px, 100%); max-height: 82%; overflow: auto; padding: 14px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); box-shadow: 0 20px 60px rgba(0,0,0,.35); }',
+      '.rl-dw-mech-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }',
+      '.rl-dw-mech-title { font-size: 15px; font-weight: 500; color: var(--dsw-alias-label-primary); }',
+      '.rl-dw-mech-subtitle { margin: 12px 0 4px; font-size: 12px; color: var(--dsw-alias-label-secondary); }',
+      '.rl-dw-mech-code { margin: 0; max-height: 180px; overflow: auto; padding: 8px; border-radius: 8px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }',
+      '.rl-dash-window .rl-log { flex: none; max-height: clamp(120px, 20vh, 240px); margin: 0; border: 0; border-top: 0.5px solid color-mix(in srgb, var(--dsw-alias-border-l2) 70%, transparent); border-radius: 0; background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 78%, transparent); }',
+      '@media (max-width: 760px) { .rl-dash-overlay { padding: 6px; } .rl-dash-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(180px, 34vh); } .rl-dash-chat { border-left: 0; border-top: 0.5px solid var(--dsw-alias-border-l2); } .rl-dash-head-hint { display: none; } }',
       '.rl-form-row > .rl-input { flex: 1 1 auto; }',
       '.rl-form-row > .rl-input[type=number] { flex: 0 0 96px; }',
       '.rl-form-row > .rl-btn { flex: none; }',
@@ -3365,6 +3537,31 @@ window.__ModuleLoader__.load({
       },
       command(body, signal, t) {
         return requestJson(ROUTES.commands, { method: 'POST', body, signal }, t);
+      },
+      fetchDashboard(projectId, signal, t) {
+        return requestJson(ROUTES.dashboard + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
+      },
+      saveDashboard(projectId, spec, signal, t) {
+        return requestJson(ROUTES.dashboard, { method: 'POST', body: { projectId, spec }, signal }, t);
+      },
+      refreshDashboard(projectId, signal, t) {
+        return requestJson(ROUTES.dashboardRefresh, { method: 'POST', body: { projectId }, signal }, t);
+      },
+      chatDashboard(projectId, text, signal, t) {
+        return requestJson(ROUTES.dashboardChat, { method: 'POST', body: { projectId, text }, signal }, t);
+      },
+      saveDashboardLayout(projectId, layouts, signal, t) {
+        return requestJson(ROUTES.dashboardLayout, { method: 'POST', body: { projectId, layouts }, signal }, t);
+      },
+      fetchExecution(projectId, nodeId, after, signal, t) {
+        const cursor = Number.isFinite(Number(after)) ? Math.max(0, Math.trunc(Number(after))) : 0;
+        return requestJson(
+          ROUTES.execution + '?projectId=' + encodeURIComponent(projectId)
+            + '&nodeId=' + encodeURIComponent(nodeId)
+            + '&after=' + encodeURIComponent(String(cursor)),
+          { signal },
+          t,
+        );
       },
 
 
@@ -7554,6 +7751,593 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** Human-readable summary of one streamed execution event. */
+    function executionEventText(event) {
+      const data = asObject(event?.data);
+      const type = firstString(event?.type);
+      if (type === 'run/started') {
+        return 'run/started · ' + firstString(data.profile) + ' · ' + firstString(data.driver) + (data.model ? ' · ' + firstString(data.model) : '');
+      }
+      if (type === 'run/completed') return 'run/completed' + (data.threadId ? ' · thread ' + firstString(data.threadId) : '');
+      if (type === 'run/failed') return 'run/failed · ' + firstString(data.message);
+      if (type === 'run/cancelled') return 'run/cancelled';
+      const item = asObject(data.item);
+      const itemType = firstString(item.type);
+      if (itemType === 'command_execution') {
+        return 'command · ' + firstString(item.command) + (item.aggregated_output ? '\n' + firstString(item.aggregated_output).slice(0, 4000) : '');
+      }
+      if (itemType === 'agent_message') return 'agent · ' + firstString(item.text);
+      if (itemType === 'reasoning') return 'reasoning · ' + firstString(item.text);
+      if (itemType === 'file_change') {
+        const changes = asArray(item.changes).map((change) => firstString(asObject(change).path)).filter(Boolean);
+        return 'file_change · ' + changes.join(', ');
+      }
+      if (itemType === 'mcp_tool_call') return 'mcp · ' + firstString(item.server) + '/' + firstString(item.tool);
+      if (itemType === 'web_search') return 'web_search · ' + firstString(item.query);
+      if (itemType === 'todo_list') return 'todo_list · ' + asArray(item.items).length + ' items';
+      if (itemType === 'error') return 'error · ' + firstString(item.message);
+      try { return type + ' · ' + JSON.stringify(data).slice(0, 1200); } catch { return type; }
+    }
+
+    /** Live/persisted trace of one external execution run. */
+    function ExecutionTraceSection({ node, t }) {
+      const run = asObject(node.executionRun);
+      const runId = firstString(run.runId);
+      const [events, setEvents] = React.useState([]);
+      const [running, setRunning] = React.useState(run.status === 'running');
+      const [error, setError] = React.useState('');
+      React.useEffect(() => {
+        if (runId === '') return undefined;
+        setEvents([]);
+        setRunning(run.status === 'running');
+        setError('');
+        let cancelled = false;
+        let after = 0;
+        let timer = null;
+        const tick = async () => {
+          try {
+            const data = await api.fetchExecution(node.projectId, node.id, after, undefined, t);
+            if (cancelled) return;
+            after = Number.isFinite(Number(data.next)) ? Number(data.next) : after;
+            const incoming = asArray(data.events);
+            if (incoming.length > 0) setEvents((previous) => [...previous, ...incoming].slice(-300));
+            setRunning(data.running === true);
+            setError('');
+            if (data.running === true) timer = setTimeout(tick, 1200);
+          } catch (reason) {
+            if (cancelled) return;
+            setError(describeError(reason, t));
+          }
+        };
+        void tick();
+        return () => {
+          cancelled = true;
+          if (timer !== null) clearTimeout(timer);
+        };
+      }, [runId, node.projectId, node.id, t]);
+      if (runId === '') return null;
+      return h(
+        'div',
+        { className: 'rl-section' },
+        h('h3', { className: 'rl-section-title' }, t('ws.execution.title')),
+        h('p', { className: 'rl-hint' }, t('ws.execution.hint')),
+        h(LabInfoRow, { label: t('ws.execution.profile'), value: firstString(run.profile) || '—', mono: true }),
+        h(LabInfoRow, { label: t('ws.execution.driver'), value: firstString(run.driver) || '—', mono: true }),
+        h(LabInfoRow, { label: t('ws.execution.model'), value: firstString(run.model) || 'native', mono: true }),
+        h('span', { className: 'rl-chip' }, running ? t('ws.execution.running') : t('ws.execution.done')),
+        error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, t('ws.execution.error') + ': ' + error) : null,
+        events.length === 0
+          ? h('p', { className: 'rl-hint' }, running ? t('ws.execution.noEvents') : t('ws.execution.empty'))
+          : h(
+              'div',
+              { className: 'rl-execution-events' },
+              events.map((event) => h(
+                'div',
+                { key: String(event.seq), className: 'rl-execution-event' },
+                h('span', { className: 'rl-execution-seq' }, '#' + String(event.seq)),
+                h('span', { className: 'rl-execution-type' }, firstString(event.type)),
+                h('pre', { className: 'rl-execution-text' }, executionEventText(event)),
+              )),
+            ),
+      );
+    }
+
+    /** Project-level dashboard: natural-language spec plus scheduled/generated metrics. */
+    /** Minimal dependency-free SVG line chart for a dashboard widget. */
+    function DashboardChart({ series, t }) {
+      const list = asArray(series).filter((item) => asArray(asObject(item).points).length > 0);
+      if (list.length === 0) return h('p', { className: 'rl-dw-text' }, t('dashboard.chartEmpty'));
+      const all = [];
+      for (const item of list) for (const point of asArray(asObject(item).points)) all.push(Number(asObject(point).y) || 0);
+      const minY = Math.min(...all);
+      const maxY = Math.max(...all);
+      const span = Math.max(1, maxY - minY);
+      const width = 320;
+      const height = 132;
+      const left = 8;
+      const top = 8;
+      const bottom = 20;
+      const plotW = width - left - 8;
+      const plotH = height - top - bottom;
+      const colors = ['#60a5fa', '#f59e0b', '#34d399', '#f472b6'];
+      const paths = list.map((item, seriesIndex) => {
+        const points = asArray(asObject(item).points);
+        const coords = points.map((point, index) => {
+          const x = points.length <= 1 ? left : left + (plotW * index) / (points.length - 1);
+          const y = top + plotH - ((Number(asObject(point).y) || 0) - minY) / span * plotH;
+          return x.toFixed(1) + ',' + y.toFixed(1);
+        });
+        return { name: firstString(asObject(item).name) || 'series ' + (seriesIndex + 1), points: coords.join(' '), color: colors[seriesIndex % colors.length], last: points[points.length - 1] };
+      });
+      return h(
+        'div',
+        { className: 'rl-dw-chart' },
+        h(
+          'svg',
+          { viewBox: '0 0 ' + width + ' ' + height, role: 'img', 'aria-label': t('dashboard.chart'), preserveAspectRatio: 'none' },
+          h('line', { x1: left, y1: top + plotH, x2: left + plotW, y2: top + plotH, stroke: 'var(--dsw-alias-border-l2)', strokeWidth: 0.5 }),
+          ...paths.map((path) => h('polyline', {
+            key: path.name,
+            points: path.points,
+            fill: 'none',
+            stroke: path.color,
+            strokeWidth: 1.6,
+            strokeLinejoin: 'round',
+            strokeLinecap: 'round',
+          })),
+        ),
+        h('div', { className: 'rl-dw-legend' }, paths.map((path) => h('span', { key: path.name, className: 'rl-dw-legend-item' },
+          h('i', { className: 'rl-dw-legend-dot', style: { background: path.color } }),
+          path.name + (path.last ? ' · ' + String(asObject(path.last).y) : ''),
+        ))),
+      );
+    }
+
+    const DASH_GRID = 8;
+    const DASH_GAP = 12;
+    const DASH_PAD = 16;
+
+    function dashSnap(value, targets, threshold = 8) {
+      let best = Number(value);
+      let bestDistance = threshold + 1;
+      for (const target of targets) {
+        const distance = Math.abs(Number(value) - target);
+        if (distance < bestDistance) { bestDistance = distance; best = target; }
+      }
+      const grid = Math.round(Number(value) / DASH_GRID) * DASH_GRID;
+      if (Math.abs(Number(value) - grid) <= 4 && Math.abs(Number(value) - grid) < bestDistance) {
+        best = grid;
+        bestDistance = Math.abs(Number(value) - grid);
+      }
+      return bestDistance <= threshold ? best : Number(value);
+    }
+
+    function dashTargets(widgets, exceptId) {
+      const xs = [];
+      const ys = [];
+      for (const widget of widgets) {
+        if (widget.id === exceptId) continue;
+        const layout = asObject(widget.layout);
+        const x = Number(layout.x) || 0;
+        const y = Number(layout.y) || 0;
+        const width = Number(layout.w) || 0;
+        const height = Number(layout.h) || 0;
+        xs.push(x, x + width / 2, x + width);
+        ys.push(y, y + height / 2, y + height);
+      }
+      return { xs, ys };
+    }
+
+    function dashOverlaps(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    /** Move widgets that collide with a resized widget to its right or below. */
+    function pushDashboardWidgets(widgets, fixedId, canvasWidth) {
+      const fixed = widgets.find((widget) => widget.id === fixedId);
+      if (!fixed) return widgets;
+      const placed = [{ id: fixed.id, ...asObject(fixed.layout) }];
+      const rest = widgets
+        .filter((widget) => widget.id !== fixedId)
+        .sort((a, b) => (Number(asObject(a.layout).y) || 0) - (Number(asObject(b.layout).y) || 0) || (Number(asObject(a.layout).x) || 0) - (Number(asObject(b.layout).x) || 0));
+      const limit = Math.max(320, Number(canvasWidth) || 1200);
+      for (const widget of rest) {
+        const layout = asObject(widget.layout);
+        let next = {
+          x: Number(layout.x) || DASH_PAD,
+          y: Number(layout.y) || DASH_PAD,
+          w: Number(layout.w) || 280,
+          h: Number(layout.h) || 160,
+        };
+        let guard = 0;
+        while (guard++ < 80) {
+          const blockers = placed.filter((other) => dashOverlaps(next, other));
+          if (blockers.length === 0) break;
+          const right = Math.max(...blockers.map((other) => other.x + other.w)) + DASH_GAP;
+          const below = Math.max(...blockers.map((other) => other.y + other.h)) + DASH_GAP;
+          if (right + next.w <= limit - DASH_PAD) {
+            next.x = right;
+          } else {
+            next.x = DASH_PAD;
+            next.y = below;
+          }
+        }
+        placed.push({ id: widget.id, ...next });
+      }
+      const byId = new Map(placed.map((layout) => [layout.id, layout]));
+      return widgets.map((widget) => {
+        const layout = byId.get(widget.id);
+        return layout ? { ...widget, layout } : widget;
+      });
+    }
+
+    /** One draggable dashboard widget. */
+    function DashboardWidget({ widget, widgets, events, onLayout, onConfigure, t }) {
+      const [dragging, setDragging] = React.useState(null);
+      const [resizing, setResizing] = React.useState(null);
+      const targets = dashTargets(widgets ?? [], widget.id);
+      const layout = asObject(widget.layout);
+      const x = Number.isFinite(Number(layout.x)) ? Number(layout.x) : 16;
+      const y = Number.isFinite(Number(layout.y)) ? Number(layout.y) : 16;
+      const w = Number.isFinite(Number(layout.w)) ? Number(layout.w) : 280;
+      const height = Number.isFinite(Number(layout.h)) ? Number(layout.h) : 160;
+      const onPointerDown = (event) => {
+        if (event.button !== undefined && event.button !== 0) return;
+        event.preventDefault();
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const origin = { x, y };
+        setDragging({ x, y });
+        const snappedPosition = (eventX, eventY) => {
+          const rawX = Math.max(0, origin.x + eventX - startX);
+          const rawY = Math.max(0, origin.y + eventY - startY);
+          let nextX = dashSnap(rawX, targets.xs);
+          let nextY = dashSnap(rawY, targets.ys);
+          const rightSnap = dashSnap(rawX + w, targets.xs);
+          if (Math.abs(rightSnap - (rawX + w)) < Math.abs(nextX - rawX)) nextX = Math.max(0, rightSnap - w);
+          const bottomSnap = dashSnap(rawY + height, targets.ys);
+          if (Math.abs(bottomSnap - (rawY + height)) < Math.abs(nextY - rawY)) nextY = Math.max(0, bottomSnap - height);
+          return { x: nextX, y: nextY };
+        };
+        const move = (moveEvent) => {
+          setDragging(snappedPosition(moveEvent.clientX, moveEvent.clientY));
+        };
+        const up = (upEvent) => {
+          document.removeEventListener('pointermove', move);
+          document.removeEventListener('pointerup', up);
+          const next = { ...snappedPosition(upEvent.clientX, upEvent.clientY), w, h: height };
+          setDragging(null);
+          onLayout(widget.id, next);
+        };
+        document.addEventListener('pointermove', move);
+        document.addEventListener('pointerup', up, { once: true });
+      };
+      const onResizePointerDown = (event) => {
+        if (event.button !== undefined && event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const origin = { w, h: height };
+        setResizing(origin);
+        const snappedSize = (eventX, eventY) => {
+          const rawRight = x + origin.w + eventX - startX;
+          const rawBottom = y + origin.h + eventY - startY;
+          const right = dashSnap(rawRight, targets.xs);
+          const bottom = dashSnap(rawBottom, targets.ys);
+          return {
+            w: Math.max(180, Math.min(900, right - x)),
+            h: Math.max(100, Math.min(700, bottom - y)),
+          };
+        };
+        const move = (moveEvent) => {
+          setResizing(snappedSize(moveEvent.clientX, moveEvent.clientY));
+        };
+        const up = (upEvent) => {
+          document.removeEventListener('pointermove', move);
+          document.removeEventListener('pointerup', up);
+          const next = { x, y, ...snappedSize(upEvent.clientX, upEvent.clientY) };
+          setResizing(null);
+          onLayout(widget.id, next, 'resize');
+        };
+        document.addEventListener('pointermove', move);
+        document.addEventListener('pointerup', up, { once: true });
+      };
+      const position = dragging ?? { x, y };
+      const width = resizing?.w ?? w;
+      const heightNow = resizing?.h ?? height;
+      const data = asObject(widget.data);
+      const type = firstString(widget.type) || 'metric';
+      const status = firstString(data.status) || 'idle';
+      return h(
+        'section',
+        {
+          className: 'rl-dw' + (dragging ? ' rl-dw-dragging' : ''),
+          style: { left: position.x + 'px', top: position.y + 'px', width: width + 'px', height: heightNow + 'px' },
+          'aria-label': firstString(widget.title) || 'widget',
+        },
+        h(
+          'div',
+          { className: 'rl-dw-head', onPointerDown, title: t('dashboard.dragHint') },
+          h('span', { className: 'rl-dw-title' }, firstString(widget.title) || 'Widget'),
+          h('button', {
+            type: 'button',
+            className: 'rl-dw-config',
+            title: t('dashboard.configure'),
+            'aria-label': t('dashboard.configure'),
+            onPointerDown: (event) => event.stopPropagation(),
+            onClick: (event) => { event.stopPropagation(); onConfigure(widget); },
+          }, '⚙'),
+          h('span', { className: 'rl-dw-type' }, type),
+        ),
+        h(
+          'div',
+          { className: 'rl-dw-body' },
+          type === 'metric'
+            ? h(
+                'div',
+                { className: 'rl-dw-metric' },
+                h('span', { className: 'rl-dw-value rl-dw-' + status }, firstString(data.value) || '—'),
+                firstString(data.unit) ? h('span', { className: 'rl-dw-unit' }, firstString(data.unit)) : null,
+                firstString(data.detail) ? h('p', { className: 'rl-dw-detail' }, firstString(data.detail)) : null,
+              )
+            : type === 'text'
+              ? h('p', { className: 'rl-dw-text' }, firstString(data.body) || firstString(data.detail) || '—')
+              : type === 'list'
+                ? (asArray(data.items).length > 0
+                    ? h('ul', { className: 'rl-dw-list' }, asArray(data.items).map((item, index) => h('li', { key: index }, String(item))))
+                    : h('p', { className: 'rl-dw-text' }, '—'))
+                : type === 'chart'
+                  ? h(DashboardChart, { series: asArray(data.series), t })
+                  : h(
+                    'div',
+                    { className: 'rl-dw-activity' },
+                    asArray(events).slice(-8).reverse().map((event, index) => h('div', { key: index, className: 'rl-dw-activity-row' }, eventSummary(event, t))),
+                  ),
+        ),
+        h('div', {
+          className: 'rl-dw-resize',
+          title: t('dashboard.resizeHint'),
+          'aria-label': t('dashboard.resizeHint'),
+          onPointerDown: onResizePointerDown,
+        }),
+      );
+    }
+
+    /** Read-only explanation of how one widget is produced and rendered. */
+    function WidgetMechanismDialog({ widget, spec, t, onClose }) {
+      const config = asObject(widget.config);
+      const data = asObject(widget.data);
+      const type = firstString(widget.type) || 'metric';
+      const source = firstString(config.source, config.metric, config.description) || '—';
+      const formula = firstString(config.formula)
+        || (type === 'chart' ? t('dashboard.mechChart') : type === 'text' ? t('dashboard.mechText') : type === 'list' ? t('dashboard.mechList') : type === 'activity' ? t('dashboard.mechActivity') : t('dashboard.mechMetric'));
+      const mode = firstString(asObject(spec).mode) === 'script' ? t('dashboard.scriptMode') : t('dashboard.agentMode');
+      return h(
+        'div',
+        { className: 'rl-dw-mech-overlay', role: 'dialog', 'aria-modal': 'true', onClick: onClose },
+        h(
+          'div',
+          { className: 'rl-dw-mech', onClick: (event) => event.stopPropagation() },
+          h('div', { className: 'rl-dw-mech-head' },
+            h('span', { className: 'rl-dw-mech-title' }, firstString(widget.title) || 'Widget'),
+            h(LabButton, { label: '✕', variant: 'ghost', title: t('dashboard.close'), onClick: onClose }),
+          ),
+          h('p', { className: 'rl-hint' }, t('dashboard.mechanismHint')),
+          h(LabInfoRow, { label: t('dashboard.mechanism'), value: formula }),
+          h(LabInfoRow, { label: t('dashboard.source'), value: source }),
+          h(LabInfoRow, { label: t('dashboard.collector'), value: firstString(config.collector) || (firstString(config.script) ? 'script' : 'agent') }),
+          h(LabInfoRow, {
+            label: t('dashboard.query'),
+            value: firstString(config.query) || t('dashboard.queryMissing'),
+          }),
+          firstString(config.script) ? h(LabInfoRow, { label: t('dashboard.script'), value: firstString(config.script) }) : null,
+          h(LabInfoRow, { label: t('dashboard.generatedBy'), value: mode }),
+          h(LabInfoRow, { label: t('dashboard.updatedAt'), value: widget.updatedAt ? new Date(widget.updatedAt).toLocaleString() : '—' }),
+          h(LabInfoRow, { label: t('dashboard.layout'), value: JSON.stringify(asObject(widget.layout)) }),
+          h('h4', { className: 'rl-dw-mech-subtitle' }, t('dashboard.rawConfig')),
+          h('pre', { className: 'rl-dw-mech-code' }, JSON.stringify(config, null, 2)),
+          h('h4', { className: 'rl-dw-mech-subtitle' }, t('dashboard.rawData')),
+          h('pre', { className: 'rl-dw-mech-code' }, JSON.stringify(data, null, 2)),
+        ),
+      );
+    }
+
+    /** Full-screen translucent dashboard with free-moving widgets and a widget-editing chat. */
+    function DashboardPanel({ projectId, events, onSelectNode, onOpenRun, open, onClose, t }) {
+      const [dashboard, setDashboard] = React.useState(null);
+      const [widgets, setWidgets] = React.useState([]);
+      const [busy, setBusy] = React.useState('');
+      const [error, setError] = React.useState('');
+      const [chatText, setChatText] = React.useState('');
+      const [chatBusy, setChatBusy] = React.useState(false);
+      const [layoutError, setLayoutError] = React.useState('');
+      const canvasRef = React.useRef(null);
+      const [configWidget, setConfigWidget] = React.useState(null);
+      const load = React.useCallback(async () => {
+        try {
+          const data = await api.fetchDashboard(projectId, undefined, t);
+          setDashboard(data);
+          setWidgets(asArray(data.widgets));
+          setError('');
+        } catch (reason) {
+          setError(describeError(reason, t));
+        }
+      }, [projectId, t]);
+      React.useEffect(() => {
+        if (!open) return undefined;
+        let cancelled = false;
+        let timer = null;
+        const tick = async () => {
+          if (cancelled) return;
+          await load();
+          if (!cancelled) timer = setTimeout(tick, 5000);
+        };
+        void tick();
+        return () => { cancelled = true; if (timer !== null) clearTimeout(timer); };
+      }, [open, load]);
+      const refresh = async () => {
+        if (busy !== '') return;
+        setBusy('refresh');
+        setError('');
+        try {
+          const refreshed = await api.refreshDashboard(projectId, undefined, t);
+          setDashboard(refreshed);
+          setWidgets(asArray(refreshed.widgets));
+        } catch (reason) {
+          setError(describeError(reason, t));
+        } finally {
+          setBusy('');
+        }
+      };
+      const sendChat = async () => {
+        const message = chatText.trim();
+        if (!message || chatBusy || dashboard?.chatting === true) return;
+        setChatBusy(true);
+        setError('');
+        const pending = { role: 'assistant', text: t('dashboard.chatThinking'), at: Date.now(), pending: true };
+        setDashboard((previous) => previous
+          ? { ...previous, chat: [...asArray(previous.chat), { role: 'user', text: message, at: Date.now() }, pending] }
+          : previous);
+        setChatText('');
+        try {
+          const updated = await api.chatDashboard(projectId, message, undefined, t);
+          setDashboard(updated);
+          setWidgets(asArray(updated.widgets));
+          setChatText('');
+        } catch (reason) {
+          const messageText = describeError(reason, t);
+          setError(messageText);
+          setDashboard((previous) => previous
+            ? {
+                ...previous,
+                chat: asArray(previous.chat).map((entry) => (
+                  entry && entry.pending ? { ...entry, pending: false, error: true, text: messageText } : entry
+                )),
+              }
+            : previous);
+        } finally {
+          setChatBusy(false);
+        }
+      };
+      const moveWidget = async (id, layout, mode) => {
+        let next = widgets.map((widget) => widget.id === id ? { ...widget, layout } : widget);
+        if (mode === 'resize') {
+          const canvasWidth = canvasRef.current?.clientWidth ?? 1200;
+          next = pushDashboardWidgets(next, id, canvasWidth);
+        }
+        setWidgets(next);
+        setLayoutError('');
+        try {
+          const updated = await api.saveDashboardLayout(
+            projectId,
+            next.map((widget) => ({ id: widget.id, ...asObject(widget.layout) })),
+            undefined,
+            t,
+          );
+          setDashboard(updated);
+          setWidgets(asArray(updated.widgets));
+        } catch (reason) {
+          setLayoutError(describeError(reason, t));
+        }
+      };
+      if (!open) return null;
+      const spec = dashboard?.spec ?? null;
+      const chat = asArray(dashboard?.chat);
+      const lastRun = dashboard?.lastRun ?? null;
+      const chatting = chatBusy || dashboard?.chatting === true;
+      return h(
+        'div',
+        { className: 'rl-dash-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('dashboard.title') },
+        h(
+          'div',
+          { className: 'rl-dash-window' },
+          h(
+            'div',
+            { className: 'rl-dash-head' },
+            h('span', { className: 'rl-dash-head-title' }, firstString(asObject(spec).title) || t('dashboard.title')),
+            h('span', { className: 'rl-dash-head-hint' }, t('dashboard.hint')),
+            h('div', { className: 'rl-dash-head-actions' },
+              h(LabButton, {
+                label: busy === 'refresh' ? t('dashboard.refreshing') : t('dashboard.refresh'),
+                variant: 'ghost',
+                disabled: busy !== '',
+                onClick: refresh,
+              }),
+              h(LabButton, { label: '✕', variant: 'ghost', title: t('dashboard.close'), onClick: onClose }),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'rl-dash-grid' },
+            h(
+              'div',
+              { className: 'rl-dash-canvas', role: 'region', 'aria-label': t('dashboard.widgets'), ref: canvasRef },
+              widgets.length === 0
+                ? h('p', { className: 'rl-dash-empty' }, t('dashboard.empty'))
+                : widgets.map((widget) => h(DashboardWidget, {
+                    key: widget.id,
+                    widget,
+                    widgets,
+                    events,
+                    onLayout: moveWidget,
+                    onConfigure: setConfigWidget,
+                    t,
+                  })),
+              layoutError !== '' ? h('div', { className: 'rl-dash-error', role: 'alert' }, layoutError) : null,
+            ),
+            h(
+              'aside',
+              { className: 'rl-dash-chat', 'aria-label': t('dashboard.chat') },
+              h('h3', { className: 'rl-dash-chat-title' }, t('dashboard.chat')),
+              h('p', { className: 'rl-hint' }, t('dashboard.chatHint')),
+              h(
+                'div',
+                { className: 'rl-dash-chat-list' },
+                chat.length === 0
+                  ? h('p', { className: 'rl-hint' }, t('dashboard.chatEmpty'))
+                  : chat.map((message, index) => h(
+                      'div',
+                      { key: index, className: 'rl-dash-msg rl-dash-msg-' + (firstString(asObject(message).role) || 'assistant') + (asObject(message).pending ? ' rl-dash-msg-pending' : '') + (asObject(message).error ? ' rl-dash-msg-error' : '') },
+                      h('span', { className: 'rl-dash-msg-role' }, firstString(asObject(message).role) === 'user' ? 'you' : 'agent'),
+                      h('span', { className: 'rl-dash-msg-text' }, asObject(message).pending ? t('dashboard.chatThinking') : firstString(asObject(message).text)),
+                    )),
+              ),
+              chatting ? h('p', { className: 'rl-hint' }, t('dashboard.chatWorkingHint')) : null,
+              h(LabTextarea, {
+                value: chatText,
+                rows: 3,
+                placeholder: t('dashboard.chatPlaceholder'),
+                disabled: chatting,
+                onChange: (event) => setChatText(event.target.value),
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                    event.preventDefault();
+                    void sendChat();
+                  }
+                },
+              }),
+              h(
+                'div',
+                { className: 'rl-form-actions' },
+                h(LabButton, {
+                  label: chatting ? t('dashboard.chatSending') : t('dashboard.chatSend'),
+                  variant: 'primary',
+                  disabled: chatting || chatText.trim() === '',
+                  onClick: () => void sendChat(),
+                }),
+              ),
+            ),
+          ),
+          error !== '' || lastRun?.status === 'error'
+            ? h('p', { className: 'rl-dash-error', role: 'alert' }, t('dashboard.error') + ': ' + (error || firstString(lastRun?.error)))
+            : null,
+          h(ActivityLog, { events: Array.isArray(events) ? events : [], onSelectNode, onOpenRun, t }),
+          configWidget ? h(WidgetMechanismDialog, { widget: configWidget, spec, t, onClose: () => setConfigWidget(null) }) : null,
+        ),
+      );
+    }
+
     // #region workspace
     /** Full workspace: top bar, node rail, DAG canvas, inspector, log and transcript drawer. */
     function WorkspaceScreen({ projectId, initialNodeId, onBack, openNativeSession, openNativeFiles, retainCopilotSession, SessionProvider, renderFactorySlot, onOpenTrajectory, t }) {
@@ -7567,6 +8351,7 @@ window.__ModuleLoader__.load({
       const [successorOpen, setSuccessorOpen] = React.useState(false);
       const [successorNodeId, setSuccessorNodeId] = React.useState(null);
       const [runsOpen, setRunsOpen] = React.useState(false);
+      const [dashboardOpen, setDashboardOpen] = React.useState(false);
       const [runsInitialRunId, setRunsInitialRunId] = React.useState(null);
       const [autoBusy, setAutoBusy] = React.useState(false);
       const [autoConfirmOpen, setAutoConfirmOpen] = React.useState(false);
@@ -8262,6 +9047,8 @@ window.__ModuleLoader__.load({
           autoBusy,
           onStep: runStep,
           onOpenRuns: () => openRuns(null),
+          dashboardOpen,
+          onToggleDashboard: () => setDashboardOpen((value) => !value),
           onAutoStart: () => setAutoConfirmOpen(true),
           onAutoStop: stopAuto,
           onAutoResume: resumeAuto,
@@ -8292,8 +9079,18 @@ window.__ModuleLoader__.load({
             )
           : null,
         stepInfo !== null ? h(StepBanner, { info: stepInfo, onDismiss: () => setStepInfo(null), t }) : null,
-        h('div', { className: 'rl-workspace-main' }, body),
-        h(ActivityLog, { events, onSelectNode: setSelectedId, onOpenRun: openRuns, t }),
+        h('div', { className: 'rl-workspace-shell' },
+          h(DashboardPanel, {
+            projectId,
+            events,
+            onSelectNode: setSelectedId,
+            onOpenRun: openRuns,
+            open: dashboardOpen,
+            onClose: () => setDashboardOpen(false),
+            t,
+          }),
+          h('div', { className: 'rl-workspace-main' }, body),
+        ),
         copilotOpen
           ? h(CopilotDrawer, {
               projectId,
@@ -8759,6 +9556,8 @@ window.__ModuleLoader__.load({
       autoBusy,
       onStep,
       onOpenRuns,
+      dashboardOpen,
+      onToggleDashboard,
       onAutoStart,
       onAutoStop,
       onAutoResume,
@@ -8924,6 +9723,12 @@ window.__ModuleLoader__.load({
                 )
               : null,
           ),
+          h(LabButton, {
+            label: '◫ ' + t('dashboard.title'),
+            variant: dashboardOpen === true ? 'primary' : 'ghost',
+            title: t('dashboard.toggle'),
+            onClick: onToggleDashboard,
+          }),
           h(LabButton, { label: t('ws.runs.open'), variant: 'ghost', onClick: onOpenRuns }),
           autoStatus === 'off'
             ? h(
@@ -9766,6 +10571,46 @@ window.__ModuleLoader__.load({
               })
             : null,
         ),
+        (() => {
+          const execution = asObject(node.execution);
+          const profile = firstString(execution.profile);
+          const executionConfig = asObject(asObject(project.config).execution);
+          const profiles = Object.keys(asObject(executionConfig.profiles));
+          if (profile === '') return null;
+          return h(
+            'div',
+            { className: 'rl-section' },
+            h('h3', { className: 'rl-section-title' }, t('ws.execution.title')),
+            h(LabInfoRow, { label: t('ws.execution.profile'), value: profile, mono: true }),
+            h(LabInfoRow, { label: t('ws.execution.driver'), value: firstString(execution.driver) || 'dsh', mono: true }),
+            h(LabInfoRow, { label: t('ws.execution.model'), value: firstString(execution.model) || 'native', mono: true }),
+            editable && profiles.length > 0
+              ? h(
+                  'div',
+                  { className: 'rl-form-row' },
+                  h(LabSelect, {
+                    value: profile,
+                    options: profiles.map((name) => ({ value: name, label: name })),
+                    disabled: savingField !== '',
+                    ariaLabel: t('ws.execution.profile'),
+                    onChange: (event) => {
+                      const next = event.target.value;
+                      if (next === profile) return;
+                      setSavingField('execution');
+                      setSaveError('');
+                      Promise.resolve(onSave({ executionProfile: next })).then((result) => {
+                        setSavingField('');
+                        if (result && result.ok) setSaved(true);
+                        else setSaveError(result?.error || t('ws.inspector.error'));
+                      });
+                    },
+                  }),
+                )
+              : null,
+            h('p', { className: 'rl-hint' }, t('ws.execution.profileHint')),
+          );
+        })(),
+        h(ExecutionTraceSection, { node, t }),
         h(NativeSessionPanel, { node, onOpenSession: (sessionId, view) => onOpenSession(sessionId, view, nodeKeyId), onOpenFiles: () => onOpenFiles(nodeKeyId), t }),
         isMergeNode
           ? h(MergeSection, { node, nodes, busy, onFinish: () => onFinishMerge(nodeKeyId), t })

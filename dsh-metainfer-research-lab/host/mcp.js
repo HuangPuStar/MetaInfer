@@ -64,6 +64,8 @@ function createServer(service) {
         repoPath: z.string().min(1).max(4096).describe('Absolute path to an existing git repository'),
         baseBranch: z.string().min(1).max(256).optional(),
         needs: z.record(z.string(), z.number()).optional(),
+        executionProfile: z.string().min(1).max(64).optional(),
+        taskType: z.string().min(1).max(64).optional(),
         config: z.record(z.string(), z.unknown()).optional().describe('Lab project config; validated by the Host'),
         prompts: z.object({
           workerPrefix: z.string().max(8000).optional(),
@@ -90,6 +92,8 @@ function createServer(service) {
           repoPath: args.repoPath,
           ...(args.baseBranch ? { baseBranch: args.baseBranch } : {}),
           ...(args.needs ? { needs: args.needs } : {}),
+          ...(args.executionProfile ? { executionProfile: args.executionProfile } : {}),
+          ...(args.taskType ? { taskType: args.taskType } : {}),
           config,
         });
         return ok({

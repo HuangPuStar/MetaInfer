@@ -6,11 +6,15 @@
  */
 import path from 'node:path';
 import os from 'node:os';
+import { spawn } from 'node:child_process';
 import { realpath, stat } from 'node:fs/promises';
 import { LabError } from './git-engine.js';
 import { buildModelCatalog, cleanModelRef, resolveModelSelection, validateModelSelection } from './models.js';
 import { compilePlacementPolicy, describePlacementSpec, sanitizePlacementSpec } from './placement.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_GC_PROMPT, DEFAULT_MERGE_PROMPT, DEFAULT_SCHEDULER_PROMPT, DEFAULT_WORKER_PREFIX, PROMPT_PLACEHOLDERS } from './prompts.js';
+import { DEFAULT_EXECUTION_PROFILES, normalizeExecutionProfile, resolveExecutionProfile } from './execution.js';
+import { ExecutionLog } from './execution-log.js';
+import { DEFAULT_DASHBOARD_SPEC, DASHBOARD_CHAT_SCHEMA, WIDGET_DATA_RESULT_SCHEMA, sanitizeDashboardSpec, normalizeWidgets, normalizeWidgetData, applyWidgetLayouts, buildWidgetPrompt, buildDashboardChatPrompt } from './dashboard.js';
 import { newProjectId, newSessionId } from './store.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
@@ -139,6 +143,10 @@ function normalizeConfig(raw, base = undefined) {
     nodeTimeoutMinutes,
     maxNodeTimeoutMinutes,
     workerSandboxMode,
+    execution: {
+      profiles: previous.execution?.profiles ?? { ...DEFAULT_EXECUTION_PROFILES },
+      taskTypes: previous.execution?.taskTypes ?? {},
+    },
   };
 
   if (input.models !== undefined) {
@@ -151,11 +159,11 @@ function normalizeConfig(raw, base = undefined) {
         ? input.models.roles
         : {}),
     };
-    for (const role of ['worker', 'advisor', 'scheduler', 'controller', 'merge', 'gc']) {
+    for (const role of ['worker', 'advisor', 'scheduler', 'controller', 'merge', 'gc', 'dashboard']) {
       if (input.models[role] !== undefined) roleInputs[role] = input.models[role];
     }
     for (const [role, raw] of Object.entries(roleInputs)) {
-      if (!['worker', 'advisor', 'scheduler', 'controller', 'merge', 'gc'].includes(role)) continue;
+      if (!['worker', 'advisor', 'scheduler', 'controller', 'merge', 'gc', 'dashboard'].includes(role)) continue;
       const normalized = normalizeModelRef(raw, `config.models.${role}`);
       if (normalized) {
         models[role] = normalized; // flat form used by existing settings UI
@@ -166,7 +174,7 @@ function normalizeConfig(raw, base = undefined) {
       if (normalized) models.default = normalized;
     }
     models.roles = Object.fromEntries(
-      Object.entries(models).filter(([key]) => ['worker', 'advisor', 'scheduler', 'controller', 'merge', 'gc'].includes(key)),
+      Object.entries(models).filter(([key]) => ['worker', 'advisor', 'scheduler', 'controller', 'merge', 'gc', 'dashboard'].includes(key)),
     );
     config.models = models;
   }
@@ -278,6 +286,44 @@ function normalizeConfig(raw, base = undefined) {
       routing.maxAttempts = integer(input.routing.maxAttempts, 'config.routing.maxAttempts', routing.maxAttempts, 1, 3);
     }
     config.routing = routing;
+  }
+
+  if (input.execution !== undefined) {
+    if (typeof input.execution !== 'object' || Array.isArray(input.execution)) {
+      throw new LabError('bad_request', 'config.execution must be an object');
+    }
+    const execution = {
+      profiles: { ...(previous.execution?.profiles ?? DEFAULT_EXECUTION_PROFILES) },
+      taskTypes: { ...(previous.execution?.taskTypes ?? {}) },
+    };
+    if (input.execution.profiles !== undefined) {
+      if (typeof input.execution.profiles !== 'object' || Array.isArray(input.execution.profiles)) {
+        throw new LabError('bad_request', 'config.execution.profiles must be an object');
+      }
+      for (const [key, value] of Object.entries(input.execution.profiles)) {
+        if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(key)) {
+          throw new LabError('bad_request', `invalid execution profile name: ${key}`);
+        }
+        execution.profiles[key] = normalizeExecutionProfile(value);
+      }
+    }
+    if (input.execution.taskTypes !== undefined) {
+      if (typeof input.execution.taskTypes !== 'object' || Array.isArray(input.execution.taskTypes)) {
+        throw new LabError('bad_request', 'config.execution.taskTypes must be an object');
+      }
+      for (const [taskType, rawProfile] of Object.entries(input.execution.taskTypes)) {
+        const key = taskType.trim();
+        const profile = typeof rawProfile === 'string' ? rawProfile.trim() : '';
+        if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(key)) {
+          throw new LabError('bad_request', `invalid task type: ${taskType}`);
+        }
+        if (!execution.profiles[profile]) {
+          throw new LabError('bad_request', `task type ${key} uses unknown execution profile ${profile}`);
+        }
+        execution.taskTypes[key] = profile;
+      }
+    }
+    config.execution = execution;
   }
 
   if (input.prompts !== undefined) {
@@ -442,6 +488,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const baseBranch = text(input?.baseBranch, 'baseBranch', { max: 256 }) || repo.defaultBranch;
     const baseCommit = await git.resolveBranch(repo.repoRoot, baseBranch);
     const config = normalizeConfig(input?.config);
+    const rootExecution = resolveExecutionProfile({ config }, {
+      executionProfile: input?.executionProfile,
+      taskType: input?.taskType ?? 'general',
+    });
     let rootNeeds = {};
     if (input?.needs !== undefined) {
       const checked = normalizeNeeds(input.needs, { config });
@@ -483,6 +533,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       prompt: initialPrompt,
       successCriteria: '',
       status: 'planned',
+      execution: {
+        profile: rootExecution.profile,
+        driver: rootExecution.driver,
+        ...(rootExecution.model ? { model: rootExecution.model } : {}),
+        ...(rootExecution.reasoningEffort ? { reasoningEffort: rootExecution.reasoningEffort } : {}),
+        ...(rootExecution.codexPath ? { codexPath: rootExecution.codexPath } : {}),
+      },
+      taskType: rootExecution.taskType,
       parentId: null,
       createdBy: 'seed',
       needs: rootNeeds,
@@ -570,6 +628,372 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     };
   }
 
+  const dashboardRuns = new Map();
+  const dashboardChatRuns = new Map();
+
+  function dashboardOf(project) {
+    const stored = project.dashboard && typeof project.dashboard === 'object' ? project.dashboard : {};
+    return {
+      spec: sanitizeDashboardSpec(stored.spec ?? DEFAULT_DASHBOARD_SPEC, DEFAULT_DASHBOARD_SPEC),
+      widgets: Array.isArray(stored.widgets) ? stored.widgets : [],
+      chat: Array.isArray(stored.chat) ? stored.chat.slice(-60) : [],
+      lastRun: stored.lastRun ?? null,
+      lastChat: stored.lastChat ?? null,
+      nextRunAt: stored.nextRunAt ?? null,
+      updatedAt: stored.updatedAt ?? null,
+    };
+  }
+
+  function dashboardSnapshot(project) {
+    const nodes = store.listNodes(project.id).map((node) => ({
+      id: node.id,
+      title: node.title,
+      status: node.status,
+      kind: node.kind ?? 'experiment',
+      createdBy: node.createdBy,
+      execution: node.execution ?? null,
+      executionRun: node.executionRun ?? null,
+      needs: node.needs ?? {},
+      git: node.git ? { branch: node.git.branch, headCommit: node.git.headCommit } : null,
+      report: node.report ?? null,
+      reportText: (node.reportText ?? '').slice(0, 1200),
+      error: node.error ?? null,
+      timestamps: node.timestamps ?? null,
+      usage: node.usage ?? null,
+    }));
+    const runs = store.listRuns(project.id, 20).map((run) => ({
+      id: run.id,
+      role: run.role,
+      status: run.status,
+      startedAt: run.startedAt,
+      endedAt: run.endedAt,
+      proposals: Array.isArray(run.output?.proposals) ? run.output.proposals.length : 0,
+      error: run.error ?? null,
+    }));
+    return {
+      project: { id: project.id, name: project.name, brief: project.brief, mode: project.mode, revision: project.revision },
+      nodes,
+      runs,
+      resources: project.config?.resourcePools ?? {},
+      counts: {
+        total: nodes.length,
+        running: nodes.filter((node) => node.status === 'running').length,
+        completed: nodes.filter((node) => node.status === 'completed').length,
+        failed: nodes.filter((node) => node.status === 'failed').length,
+        planned: nodes.filter((node) => node.status === 'planned').length,
+      },
+    };
+  }
+
+  function runWidgetScript(script, cwd) {
+    return new Promise((resolve, reject) => {
+      const command = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
+      const args = process.platform === 'win32' ? ['/d', '/s', '/c', script] : ['-c', script];
+      const child = spawn(command, args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 120_000);
+      child.stdout?.on('data', (chunk) => { if (stdout.length < 2_000_000) stdout += chunk.toString(); });
+      child.stderr?.on('data', (chunk) => { if (stderr.length < 100_000) stderr += chunk.toString(); });
+      child.once('error', (error) => { clearTimeout(timer); reject(error); });
+      child.once('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) {
+          reject(new LabError('dashboard_script_failed', `widget script exited with code ${code}: ${stderr.trim().slice(0, 1000)}`, 500));
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout);
+          resolve(normalizeWidgetData(parsed?.data ?? parsed));
+        } catch (error) {
+          reject(error instanceof LabError ? error : new LabError('dashboard_script_invalid', `widget script did not return JSON data: ${error instanceof Error ? error.message : String(error)}`, 500));
+        }
+      });
+    });
+  }
+
+  async function runDashboardAgent(project, prompt, outputSchema = WIDGET_DATA_RESULT_SCHEMA) {
+    if (!ctx.subagents || !orchestrator) throw new LabError('unavailable', 'dashboard agent runtime is unavailable', 503);
+    const controller = await orchestrator.ensureController(project);
+    const model = resolveModelSelection(ctx, project, null, 'dashboard');
+    const abort = new AbortController();
+    const deadlineMs = 600_000;
+    let activation = null;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      abort.abort();
+      try { activation?.dispose?.().catch?.(() => {}); } catch {}
+    }, deadlineMs);
+    try {
+      activation = await ctx.subagents.startActivation({
+        provider: 'spawn',
+        label: `mir-dashboard/${project.id}`,
+        delivery: 'caller',
+        signal: abort.signal,
+        request: {
+          parent: controller,
+          cwd: project.repo.path,
+          prompt: [{ type: 'text', text: prompt }],
+          agentPreset: 'lab-dashboard',
+          agentOptions: {
+            provider: model.provider,
+            model: model.model,
+            ...(model.reasoningEffort ? { reasoningEffort: model.reasoningEffort } : {}),
+          },
+          outputSchema,
+        },
+      });
+      const timeout = new Promise((_, reject) => {
+        setTimeout(() => reject(new LabError('dashboard_timeout', `dashboard agent did not finish within ${Math.round(deadlineMs / 1000)}s`, 504)), deadlineMs + 500);
+      });
+      const result = await Promise.race([activation.result, timeout]);
+      if (timedOut) throw new LabError('dashboard_timeout', `dashboard agent did not finish within ${Math.round(deadlineMs / 1000)}s`, 504);
+      if (result.stopReason !== 'completed' || !result.structured) {
+        throw new LabError('dashboard_agent_failed', `dashboard agent stopped: ${result.stopReason}`, 500);
+      }
+      return { result: result.structured, agentSessionId: activation.childId ?? null };
+    } finally {
+      clearTimeout(timer);
+      try { await activation?.dispose(); } catch {}
+    }
+  }
+
+  async function refreshDashboard(projectId, options = {}) {
+    if (dashboardRuns.has(projectId)) return dashboardRuns.get(projectId);
+    const project = requireProject(projectId);
+    const current = dashboardOf(project);
+    if (current.spec.enabled !== true && options.force !== true) {
+      throw new LabError('dashboard_disabled', 'dashboard is disabled', 409);
+    }
+    if (current.widgets.length === 0) {
+      throw new LabError('dashboard_empty', 'dashboard has no widgets to refresh', 409);
+    }
+    const task = (async () => {
+      const startedAt = Date.now();
+      await store.withProjectLock(projectId, async () => {
+        const locked = requireProject(projectId);
+        locked.dashboard = { ...(locked.dashboard ?? {}), lastRun: { status: 'running', startedAt, error: null } };
+        await store.saveProject(locked);
+      });
+      const errors = [];
+      let updated = 0;
+      const widgets = [];
+      // Each widget owns its own collector; refresh them independently.
+      for (const widget of current.widgets) {
+        const config = widget.config && typeof widget.config === 'object' ? widget.config : {};
+        try {
+          let data;
+          let agentSessionId = null;
+          if (config.collector === 'script' || config.script) {
+            if (!config.script) throw new LabError('widget_script_required', 'widget script is empty', 400);
+            data = await runWidgetScript(config.script, project.repo.path);
+          } else {
+            const generated = await runDashboardAgent(
+              requireProject(projectId),
+              buildWidgetPrompt(requireProject(projectId), widget, dashboardSnapshot(requireProject(projectId))),
+              WIDGET_DATA_RESULT_SCHEMA,
+            );
+            data = normalizeWidgetData(generated.result.data);
+            agentSessionId = generated.agentSessionId;
+          }
+          widgets.push({
+            ...widget,
+            data,
+            updatedAt: Date.now(),
+            lastRefresh: { status: 'ok', at: Date.now(), agentSessionId, error: null },
+          });
+          updated += 1;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          errors.push({ widgetId: widget.id, title: widget.title, error: message });
+          widgets.push({
+            ...widget,
+            lastRefresh: { status: 'error', at: Date.now(), agentSessionId: null, error: message },
+          });
+        }
+      }
+      const now = Date.now();
+      const status = errors.length === 0 ? 'ok' : updated > 0 ? 'partial' : 'error';
+      await store.withProjectLock(projectId, async () => {
+        const locked = requireProject(projectId);
+        locked.dashboard = {
+          ...(locked.dashboard ?? {}),
+          spec: current.spec,
+          widgets,
+          lastRun: {
+            status,
+            startedAt,
+            endedAt: now,
+            durationMs: now - startedAt,
+            updated,
+            errors,
+            error: errors.length > 0 ? `${errors.length} widget(s) failed` : null,
+          },
+          updatedAt: now,
+          nextRunAt: current.spec.enabled ? now + current.spec.intervalMinutes * 60_000 : null,
+        };
+        locked.updatedAt = now;
+        await store.saveProject(locked);
+        await store.appendEvent(locked, status === 'ok' ? 'dashboard/updated' : 'dashboard/partial', {
+          data: { updated, errors: errors.length, durationMs: now - startedAt },
+        });
+      });
+      return dashboardOf(requireProject(projectId));
+    })();
+    dashboardRuns.set(projectId, task);
+    return task;
+  }
+
+  async function chatDashboard(projectId, textValue) {
+    const text = typeof textValue === 'string' ? textValue.trim() : '';
+    if (!text) throw new LabError('bad_request', 'dashboard chat text is required', 400);
+    if (text.length > 8000) throw new LabError('bad_request', 'dashboard chat text is too long', 400);
+    if (dashboardChatRuns.has(projectId)) return getDashboard(projectId);
+    const project = requireProject(projectId);
+    const current = dashboardOf(project);
+    const at = Date.now();
+    const userMessage = { role: 'user', text, at };
+    const pendingMessage = { role: 'assistant', text: 'Dashboard agent is working…', at, pending: true };
+    const history = [...current.chat, userMessage].slice(-60);
+    await store.withProjectLock(projectId, async () => {
+      const locked = requireProject(projectId);
+      locked.dashboard = {
+        ...(locked.dashboard ?? {}),
+        spec: current.spec,
+        widgets: current.widgets,
+        chat: [...history, pendingMessage].slice(-60),
+        lastChat: { status: 'running', startedAt: at },
+      };
+      await store.saveProject(locked);
+    });
+    const task = (async () => {
+      try {
+        const generated = await runDashboardAgent(
+          requireProject(projectId),
+          buildDashboardChatPrompt(requireProject(projectId), current.spec, dashboardSnapshot(requireProject(projectId)), current.widgets, history, text),
+          DASHBOARD_CHAT_SCHEMA,
+        );
+        const widgets = normalizeWidgets(generated.result.widgets ?? [], current.widgets);
+        const requestedSpec = generated.result.spec && typeof generated.result.spec === 'object'
+          ? generated.result.spec
+          : null;
+        const nextSpec = requestedSpec
+          ? sanitizeDashboardSpec({ ...current.spec, ...requestedSpec }, current.spec)
+          : current.spec;
+        const assistantMessage = {
+          role: 'assistant',
+          text: typeof generated.result.reply === 'string' && generated.result.reply.trim() ? generated.result.reply.trim() : 'Dashboard updated.',
+          at: Date.now(),
+        };
+        await store.withProjectLock(projectId, async () => {
+          const locked = requireProject(projectId);
+          locked.dashboard = {
+            ...(locked.dashboard ?? {}),
+            spec: nextSpec,
+            widgets,
+            chat: [...history, assistantMessage].slice(-60),
+            lastChat: { status: 'ok', startedAt: at, endedAt: Date.now(), agentSessionId: generated.agentSessionId },
+            updatedAt: Date.now(),
+            nextRunAt: nextSpec.enabled ? Date.now() + nextSpec.intervalMinutes * 60_000 : null,
+          };
+          locked.updatedAt = Date.now();
+          await store.saveProject(locked);
+          await store.appendEvent(locked, 'dashboard/chat', { data: { widgetCount: widgets.length } });
+        });
+      } catch (error) {
+        await store.withProjectLock(projectId, async () => {
+          const locked = requireProject(projectId);
+          locked.dashboard = {
+            ...(locked.dashboard ?? {}),
+            chat: [...history, { role: 'assistant', text: `Dashboard update failed: ${error instanceof Error ? error.message : String(error)}`, at: Date.now(), error: true }].slice(-60),
+            lastChat: { status: 'error', startedAt: at, endedAt: Date.now(), error: error instanceof Error ? error.message : String(error) },
+          };
+          await store.saveProject(locked);
+        });
+      } finally {
+        dashboardChatRuns.delete(projectId);
+      }
+    })();
+    dashboardChatRuns.set(projectId, task);
+    return getDashboard(projectId);
+  }
+
+  async function updateDashboardLayout(projectId, layouts) {
+    const project = requireProject(projectId);
+    const current = dashboardOf(project);
+    if (!Array.isArray(layouts)) throw new LabError('bad_request', 'layouts must be an array', 400);
+    const allowed = new Set(current.widgets.map((widget) => widget.id));
+    const safe = layouts.filter((entry) => entry && typeof entry.id === 'string' && allowed.has(entry.id));
+    project.dashboard = {
+      ...(project.dashboard ?? {}),
+      widgets: applyWidgetLayouts(current.widgets, safe),
+      updatedAt: Date.now(),
+    };
+    await store.saveProject(project);
+    return { ...dashboardOf(project), running: dashboardRuns.has(projectId) };
+  }
+
+  async function getDashboard(projectId) {
+    const project = requireProject(projectId);
+    let dash = dashboardOf(project);
+    if (dash.lastChat?.status === 'running' && !dashboardChatRuns.has(projectId)) {
+      const message = 'Dashboard chat was interrupted or timed out. Please retry.';
+      project.dashboard = {
+        ...(project.dashboard ?? {}),
+        chat: [
+          ...dash.chat.filter((entry) => !entry?.pending),
+          { role: 'assistant', text: message, at: Date.now(), error: true },
+        ].slice(-60),
+        lastChat: {
+          ...(dash.lastChat ?? {}),
+          status: 'error',
+          endedAt: Date.now(),
+          error: message,
+        },
+      };
+      await store.saveProject(project);
+      dash = dashboardOf(project);
+    }
+    return { projectId, ...dash, running: dashboardRuns.has(projectId), chatting: dashboardChatRuns.has(projectId) };
+  }
+
+  async function updateDashboard(projectId, input) {
+    const project = requireProject(projectId);
+    const current = dashboardOf(project);
+    const spec = sanitizeDashboardSpec(input?.spec ?? input, current.spec);
+    const next = {
+      ...(project.dashboard ?? {}),
+      spec,
+      widgets: current.widgets,
+      chat: current.chat,
+      lastRun: current.lastRun,
+      lastChat: current.lastChat,
+      updatedAt: Date.now(),
+      nextRunAt: spec.enabled ? Date.now() + spec.intervalMinutes * 60_000 : null,
+    };
+    project.dashboard = next;
+    project.updatedAt = Date.now();
+    await store.saveProject(project);
+    await store.appendEvent(project, 'dashboard/spec_updated', { data: { enabled: spec.enabled, intervalMinutes: spec.intervalMinutes } });
+    return { projectId, ...dashboardOf(project), running: dashboardRuns.has(projectId), chatting: dashboardChatRuns.has(projectId) };
+  }
+
+  async function tickDashboards() {
+    for (const project of store.listProjects()) {
+      const dash = dashboardOf(project);
+      if (!dash.spec.enabled) continue;
+      if (dash.nextRunAt !== null && dash.nextRunAt > Date.now()) continue;
+      if (dashboardRuns.has(project.id)) continue;
+      refreshDashboard(project.id, { force: false }).catch(() => {});
+    }
+  }
+
+  function startDashboardScheduler() {
+    const timer = setInterval(() => { tickDashboards().catch(() => {}); }, 30_000);
+    return () => clearInterval(timer);
+  }
+
   async function getEvents(projectId, after = 0) {
     requireProject(projectId);
     const parsedAfter = Number.isFinite(Number(after)) ? Math.max(0, Math.trunc(Number(after))) : 0;
@@ -649,6 +1073,18 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           source: 'user',
           ...(typeof input.reason === 'string' && input.reason.trim() ? { reason: input.reason.trim().slice(0, 500) } : {}),
         };
+        changed = true;
+      }
+      if (input?.executionProfile !== undefined || input?.taskType !== undefined) {
+        const execution = resolveExecutionProfile(project, input);
+        node.execution = {
+          profile: execution.profile,
+          driver: execution.driver,
+          ...(execution.model ? { model: execution.model } : {}),
+          ...(execution.reasoningEffort ? { reasoningEffort: execution.reasoningEffort } : {}),
+          ...(execution.codexPath ? { codexPath: execution.codexPath } : {}),
+        };
+        node.taskType = execution.taskType;
         changed = true;
       }
       if (!changed) return { node, revision: project.revision };
@@ -1766,6 +2202,24 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { path: resolved, name: path.basename(resolved), size: info.size, projectId: matched.id };
   }
 
+  /** Read the durable event trace of one node's external execution. */
+  async function getExecutionEvents(projectId, nodeId, after = 0) {
+    const node = requireNode(projectId, nodeId);
+    const run = node.executionRun;
+    if (!run || !run.logPath) {
+      return { events: [], next: 0, running: node.status === 'running', executionRun: null };
+    }
+    const log = new ExecutionLog(run.logPath);
+    const parsedAfter = Number.isFinite(Number(after)) ? Math.max(0, Math.trunc(Number(after))) : 0;
+    const result = await log.read(parsedAfter);
+    return {
+      events: result.events,
+      next: result.next,
+      running: node.status === 'running' && run.status === 'running',
+      executionRun: run,
+    };
+  }
+
   /**
    * Ensure a node's worktree exists for browsing. A worktree deleted to reclaim
    * disk is recreated from the node branch; a planned node gets its branch at
@@ -2052,6 +2506,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'cancel_node') return runtime.cancel(input?.projectId, input?.nodeId);
     if (action === 'message_node') return runtime.message(input?.projectId, input?.nodeId, input?.text);
     if (action === 'node_files') return ensureNodeWorktree(input?.projectId, input?.nodeId);
+    if (action === 'dashboard_get') return getDashboard(input?.projectId);
+    if (action === 'dashboard_update') return updateDashboard(input?.projectId, { spec: input?.dashboardSpec ?? input?.spec });
+    if (action === 'dashboard_refresh') return refreshDashboard(input?.projectId, { force: true });
+    if (action === 'dashboard_chat') return chatDashboard(input?.projectId, input?.text);
+    if (action === 'dashboard_layout') return updateDashboardLayout(input?.projectId, input?.layouts);
     if (action === 'transcript') return getTranscript(input?.projectId, input?.nodeId, input?.afterSeq);
     if (action === 'step') return orchestrator.step(input?.projectId, input?.trigger ?? 'manual');
     if (action === 'successor') return orchestrator.createSuccessor(input?.projectId, input?.nodeId, input);
@@ -2128,7 +2587,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     getTranscript,
     getSessionTranscript,
     ensureNodeWorktree,
+    getDashboard,
+    updateDashboard,
+    refreshDashboard,
+    chatDashboard,
+    updateDashboardLayout,
+    startDashboardScheduler,
     resolveWorktreeFile,
+    getExecutionEvents,
     step,
     createSuccessor,
     createMergeNode,
