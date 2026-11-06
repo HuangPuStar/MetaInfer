@@ -303,7 +303,7 @@ export async function buildModelCatalog(ctx, project) {
     });
   }
   const roles = {};
-  for (const role of ['worker', 'advisor', 'scheduler', 'controller', 'merge', 'gc']) {
+  for (const role of ['worker', 'advisor', 'scheduler', 'controller', 'merge', 'gc', 'dashboard']) {
     const selection = resolveModelSelection(ctx, project, null, role);
     roles[role] = selection;
   }
