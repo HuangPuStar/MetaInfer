@@ -1001,6 +1001,31 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { events, next: store.maxEventSeq(projectId) };
   }
 
+  async function getReplay(projectId) {
+    const state = await getState(projectId);
+    const events = store.listEvents(projectId, 0);
+    const times = [state.project.createdAt ?? Date.now(), ...events.map((event) => Number(event.at) || 0)];
+    for (const node of state.nodes) {
+      const stamps = node.timestamps && typeof node.timestamps === 'object' ? node.timestamps : {};
+      for (const value of Object.values(stamps)) if (Number.isFinite(Number(value))) times.push(Number(value));
+    }
+    const startAt = Math.min(...times);
+    const endAt = Math.max(Date.now(), ...times);
+    return {
+      projectId,
+      project: {
+        id: state.project.id,
+        name: state.project.name,
+        createdAt: state.project.createdAt,
+      },
+      startAt,
+      endAt,
+      nodes: state.nodes,
+      edges: state.edges,
+      events,
+    };
+  }
+
   async function updateProject(projectId, input) {
     return store.withProjectLock(projectId, async () => {
       const project = requireProject(projectId);
@@ -2558,6 +2583,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     createProject,
     getState,
     getEvents,
+    getReplay,
     updateProject,
     updateNode,
     startNode,
