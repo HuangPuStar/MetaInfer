@@ -22,6 +22,7 @@ const ACTION_ENUM = [
   'cancel_node',
   'message_node',
   'node_files',
+  'replay',
   'dashboard_get',
   'dashboard_update',
   'dashboard_refresh',

@@ -63,7 +63,8 @@ window.__ModuleLoader__.load({
     const GAP_X = 72;
     const GAP_Y = 28;
     const CANVAS_PAD = 80;
-    const MIN_ZOOM = 0.25;
+    /** Allow very dense DAGs to shrink almost completely; fit() can still raise it. */
+    const MIN_ZOOM = 0.01;
     const MAX_ZOOM = 1.5;
     const FIT_PAD = 48;
 
@@ -1276,6 +1277,7 @@ window.__ModuleLoader__.load({
       'dashboard.title': 'Dashboard',
       'dashboard.toggle': 'Open or close the dashboard',
       'replay.title': 'DAG growth replay',
+      'replay.short': 'Replay',
       'replay.toggle': 'Open or close DAG growth replay',
       'replay.play': 'Play replay',
       'replay.pause': 'Pause replay',
@@ -1283,6 +1285,7 @@ window.__ModuleLoader__.load({
       'replay.close': 'Exit replay',
       'dashboard.toggle': '打开或关闭 Dashboard',
       'replay.title': 'DAG 生长回放',
+      'replay.short': '回放',
       'replay.toggle': '打开或关闭 DAG 生长回放',
       'replay.play': '播放回放',
       'replay.pause': '暂停回放',
@@ -2927,10 +2930,13 @@ window.__ModuleLoader__.load({
       '.rl-spinner { box-sizing: border-box; flex: none; width: 14px; height: 14px; border: 2px solid var(--dsw-alias-border-l2); border-top-color: var(--dsw-alias-brand-primary); border-radius: 50%; animation: rl-spin 900ms linear infinite; }',
       '@keyframes rl-spin { to { transform: rotate(360deg); } }',
       '.rl-workspace { position: relative; box-sizing: border-box; display: flex; flex-direction: column; height: 100%; width: 100%; overflow: hidden; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-family: inherit; font-size: 13px; line-height: 20px; }',
-      '.rl-replay-bar { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 88%, transparent); backdrop-filter: blur(10px); color: var(--dsw-alias-label-secondary); font-size: 12px; }',
+      '.rl-canvas-replay { position: absolute; z-index: 30; left: 8px; right: 8px; bottom: 8px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 9px; overflow: hidden; box-shadow: 0 10px 28px rgba(0,0,0,.22); }',
+      '.rl-replay-bar { flex: none; min-height: 34px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 88%, transparent); backdrop-filter: blur(10px); color: var(--dsw-alias-label-secondary); font-size: 12px; }',
       '.rl-replay-label { font-weight: 500; color: var(--dsw-alias-label-primary); white-space: nowrap; }',
       '.rl-replay-play { width: 28px; height: 24px; padding: 0; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); cursor: pointer; font-size: 11px; }',
       '.rl-replay-range { flex: 1; min-width: 160px; accent-color: var(--dsw-alias-brand-primary); cursor: pointer; }',
+      '.rl-replay-bound { color: var(--dsw-alias-label-tertiary); font: 10.5px/14px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }',
+      '.rl-replay-now { color: var(--dsw-alias-label-primary); font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }',
       '.rl-replay-time { min-width: 150px; color: var(--dsw-alias-label-primary); font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }',
       '.rl-replay-hint { color: var(--dsw-alias-label-tertiary); font-size: 11px; white-space: nowrap; }',
       '.rl-replay-error { color: var(--dsw-alias-state-error-primary); font-size: 11px; white-space: nowrap; }',
@@ -8426,6 +8432,7 @@ window.__ModuleLoader__.load({
           disabled: loading || error !== '',
           onClick: onTogglePlay,
         }, playing ? '❚❚' : '▶'),
+        h('span', { className: 'rl-replay-bound' }, new Date(startAt).toLocaleString()),
         h('input', {
           className: 'rl-replay-range',
           type: 'range',
@@ -8436,7 +8443,8 @@ window.__ModuleLoader__.load({
           disabled: loading || error !== '',
           onChange: (event) => onChange(startAt + Number(event.target.value)),
         }),
-        h('span', { className: 'rl-replay-time' }, new Date(value).toLocaleString()),
+        h('span', { className: 'rl-replay-bound' }, new Date(endAt).toLocaleString()),
+        h('span', { className: 'rl-replay-now' }, new Date(value).toLocaleString()),
         loading ? h('span', { className: 'rl-replay-hint' }, t('replay.loading')) : null,
         error !== '' ? h('span', { className: 'rl-replay-error' }, error) : null,
         h(LabButton, { label: t('replay.close'), variant: 'ghost', onClick: onClose }),
@@ -9142,6 +9150,22 @@ window.__ModuleLoader__.load({
             onProposalAction: requestProposalAction,
             onRetryRequest: requestRetry,
             onEscalate: handleEscalate,
+            replayFooter: replayOpen ? h(ReplayBar, {
+              data: replayData ?? { startAt: replayAt, endAt: replayAt },
+              at: replayAt,
+              playing: replayPlaying,
+              loading: replayLoading,
+              error: replayError,
+              onChange: (value) => { setReplayAt(value); setReplayPlaying(false); },
+              onTogglePlay: () => {
+                const startAt = Number(replayData?.startAt) || replayAt;
+                const endAt = Number(replayData?.endAt) || replayAt;
+                if (replayAt >= endAt) setReplayAt(startAt);
+                setReplayPlaying((value) => !value);
+              },
+              onClose: closeReplay,
+              t,
+            }) : null,
             t,
           }),
           h(NodeInspector, {
@@ -9235,24 +9259,6 @@ window.__ModuleLoader__.load({
             )
           : null,
         stepInfo !== null ? h(StepBanner, { info: stepInfo, onDismiss: () => setStepInfo(null), t }) : null,
-        replayOpen
-          ? h(ReplayBar, {
-              data: replayData ?? { startAt: replayAt, endAt: replayAt },
-              at: replayAt,
-              playing: replayPlaying,
-              loading: replayLoading,
-              error: replayError,
-              onChange: (value) => { setReplayAt(value); setReplayPlaying(false); },
-              onTogglePlay: () => {
-                const startAt = Number(replayData?.startAt) || replayAt;
-                const endAt = Number(replayData?.endAt) || replayAt;
-                if (replayAt >= endAt) setReplayAt(startAt);
-                setReplayPlaying((value) => !value);
-              },
-              onClose: closeReplay,
-              t,
-            })
-          : null,
         h('div', { className: 'rl-workspace-shell' },
           h(DashboardPanel, {
             projectId,
@@ -9906,7 +9912,7 @@ window.__ModuleLoader__.load({
             onClick: onToggleDashboard,
           }),
           h(LabButton, {
-            label: '◷ ' + t('replay.title'),
+            label: '◷ ' + t('replay.short'),
             variant: replayOpen === true ? 'primary' : 'ghost',
             title: t('replay.toggle'),
             onClick: onToggleReplay,
@@ -10037,7 +10043,7 @@ window.__ModuleLoader__.load({
      * Background drag pans, wheel zooms around the pointer, the toolbar fits the
      * graph, and clicking empty space clears the selection.
      */
-    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, t }) {
+    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, replayFooter, t }) {
       const viewportRef = React.useRef(null);
       const [pan, setPan] = React.useState({ x: 0, y: 0 });
       const [zoom, setZoom] = React.useState(1);
@@ -10250,6 +10256,13 @@ window.__ModuleLoader__.load({
           h(LabButton, { label: '－', variant: 'ghost', onClick: () => zoomBy(1 / 1.2), title: t('ws.canvas.zoomOut') }),
         ),
         nodes.length > 0 ? h('div', { className: 'rl-canvas-hint' }, t('ws.canvas.hint')) : null,
+        replayFooter ? h('div', {
+          className: 'rl-canvas-replay',
+          onPointerDown: (event) => event.stopPropagation(),
+          onPointerMove: (event) => event.stopPropagation(),
+          onPointerUp: (event) => event.stopPropagation(),
+          onClick: (event) => event.stopPropagation(),
+        }, replayFooter) : null,
       );
     }
 
