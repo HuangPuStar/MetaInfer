@@ -33,6 +33,7 @@ window.__ModuleLoader__.load({
       repo: 'api/metainfer-research-lab/repo',
       state: 'api/metainfer-research-lab/state',
       events: 'api/metainfer-research-lab/events',
+      replay: 'api/metainfer-research-lab/replay',
       commands: 'api/metainfer-research-lab/commands',
       runs: 'api/metainfer-research-lab/runs',
       execution: 'api/metainfer-research-lab/execution',
@@ -1274,7 +1275,19 @@ window.__ModuleLoader__.load({
       'ws.execution.noEvents': '等待 Agent 产生事件…',
       'dashboard.title': 'Dashboard',
       'dashboard.toggle': 'Open or close the dashboard',
+      'replay.title': 'DAG growth replay',
+      'replay.toggle': 'Open or close DAG growth replay',
+      'replay.play': 'Play replay',
+      'replay.pause': 'Pause replay',
+      'replay.loading': 'Loading history…',
+      'replay.close': 'Exit replay',
       'dashboard.toggle': '打开或关闭 Dashboard',
+      'replay.title': 'DAG 生长回放',
+      'replay.toggle': '打开或关闭 DAG 生长回放',
+      'replay.play': '播放回放',
+      'replay.pause': '暂停回放',
+      'replay.loading': '正在加载历史…',
+      'replay.close': '退出回放',
       'dashboard.empty': '还没有 widget。用 Dashboard Chat 描述你想跟踪的指标。',
       'dashboard.hint': 'Widget 通过 Dashboard Chat 添加/修改；后台按设定间隔更新，数据可由脚本或 dashboard subagent 提供。',
       'dashboard.refresh': '立即刷新',
@@ -2914,6 +2927,13 @@ window.__ModuleLoader__.load({
       '.rl-spinner { box-sizing: border-box; flex: none; width: 14px; height: 14px; border: 2px solid var(--dsw-alias-border-l2); border-top-color: var(--dsw-alias-brand-primary); border-radius: 50%; animation: rl-spin 900ms linear infinite; }',
       '@keyframes rl-spin { to { transform: rotate(360deg); } }',
       '.rl-workspace { position: relative; box-sizing: border-box; display: flex; flex-direction: column; height: 100%; width: 100%; overflow: hidden; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-family: inherit; font-size: 13px; line-height: 20px; }',
+      '.rl-replay-bar { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 88%, transparent); backdrop-filter: blur(10px); color: var(--dsw-alias-label-secondary); font-size: 12px; }',
+      '.rl-replay-label { font-weight: 500; color: var(--dsw-alias-label-primary); white-space: nowrap; }',
+      '.rl-replay-play { width: 28px; height: 24px; padding: 0; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); cursor: pointer; font-size: 11px; }',
+      '.rl-replay-range { flex: 1; min-width: 160px; accent-color: var(--dsw-alias-brand-primary); cursor: pointer; }',
+      '.rl-replay-time { min-width: 150px; color: var(--dsw-alias-label-primary); font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }',
+      '.rl-replay-hint { color: var(--dsw-alias-label-tertiary); font-size: 11px; white-space: nowrap; }',
+      '.rl-replay-error { color: var(--dsw-alias-state-error-primary); font-size: 11px; white-space: nowrap; }',
       '.rl-topbar { position: relative; box-sizing: border-box; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: none; min-width: 0; padding: 9px 16px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
       '.rl-topbar-project { display: flex; align-items: center; gap: 10px; min-width: 0; }',
       '.rl-topbar-title { margin: 0; max-width: clamp(120px, 30vw, 300px); font-size: 15px; font-weight: 500; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
@@ -3537,6 +3557,9 @@ window.__ModuleLoader__.load({
       },
       command(body, signal, t) {
         return requestJson(ROUTES.commands, { method: 'POST', body, signal }, t);
+      },
+      fetchReplay(projectId, signal, t) {
+        return requestJson(ROUTES.replay + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
       },
       fetchDashboard(projectId, signal, t) {
         return requestJson(ROUTES.dashboard + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
@@ -8340,6 +8363,86 @@ window.__ModuleLoader__.load({
 
     // #region workspace
     /** Full workspace: top bar, node rail, DAG canvas, inspector, log and transcript drawer. */
+    /** Reconstruct the visible DAG at a point in time from node/event timestamps. */
+    function replaySnapshot(data, at) {
+      const nodes = asArray(asObject(data).nodes);
+      const edges = asArray(asObject(data).edges);
+      const events = asArray(asObject(data).events);
+      const created = new Map();
+      const status = new Map();
+      for (const node of nodes) {
+        const stamps = asObject(node.timestamps);
+        const createdAt = Number(stamps.createdAt ?? node.createdAt ?? 0);
+        if (createdAt > 0 && createdAt <= at) {
+          created.set(node.id, createdAt);
+          status.set(node.id, firstString(node.status) === 'proposed' ? 'proposed' : 'planned');
+        }
+      }
+      for (const event of events) {
+        if (Number(event.at) > at) continue;
+        const id = firstString(event.nodeId, asObject(event.data).nodeId);
+        if (!id) continue;
+        const type = firstString(event.type);
+        if (type === 'node/created' || type === 'node/proposed') {
+          if (!created.has(id)) created.set(id, Number(event.at) || 0);
+          status.set(id, type === 'node/proposed' ? 'proposed' : 'planned');
+        } else if (type === 'node/approved' || type === 'node/retried' || type === 'node/escalated') {
+          status.set(id, 'planned');
+        } else if (type === 'node/started') {
+          status.set(id, 'running');
+        } else if (type === 'node/completed') {
+          status.set(id, 'completed');
+        } else if (type === 'node/failed' || type === 'node/timeout' || type === 'node/resource_lost') {
+          status.set(id, 'failed');
+        } else if (type === 'node/cancelled' || type === 'node/rejected') {
+          status.set(id, 'cancelled');
+        }
+      }
+      const visible = new Set();
+      const resultNodes = [];
+      for (const node of nodes) {
+        if (!created.has(node.id)) continue;
+        visible.add(node.id);
+        resultNodes.push({ ...node, status: status.get(node.id) || node.status });
+      }
+      const resultEdges = edges.filter((edge) => visible.has(edge.from) && visible.has(edge.to));
+      return { nodes: resultNodes, edges: resultEdges };
+    }
+
+    /** Timeline bar for dragging through DAG growth history. */
+    function ReplayBar({ data, at, playing, loading, error, onChange, onTogglePlay, onClose, t }) {
+      const startAt = Number(asObject(data).startAt) || at;
+      const endAt = Number(asObject(data).endAt) || at;
+      const duration = Math.max(1, endAt - startAt);
+      const value = Math.max(startAt, Math.min(endAt, at));
+      return h(
+        'div',
+        { className: 'rl-replay-bar', role: 'region', 'aria-label': t('replay.title') },
+        h('span', { className: 'rl-replay-label' }, t('replay.title')),
+        h('button', {
+          type: 'button',
+          className: 'rl-replay-play',
+          title: playing ? t('replay.pause') : t('replay.play'),
+          disabled: loading || error !== '',
+          onClick: onTogglePlay,
+        }, playing ? '❚❚' : '▶'),
+        h('input', {
+          className: 'rl-replay-range',
+          type: 'range',
+          min: 0,
+          max: duration,
+          step: 1000,
+          value: value - startAt,
+          disabled: loading || error !== '',
+          onChange: (event) => onChange(startAt + Number(event.target.value)),
+        }),
+        h('span', { className: 'rl-replay-time' }, new Date(value).toLocaleString()),
+        loading ? h('span', { className: 'rl-replay-hint' }, t('replay.loading')) : null,
+        error !== '' ? h('span', { className: 'rl-replay-error' }, error) : null,
+        h(LabButton, { label: t('replay.close'), variant: 'ghost', onClick: onClose }),
+      );
+    }
+
     function WorkspaceScreen({ projectId, initialNodeId, onBack, openNativeSession, openNativeFiles, retainCopilotSession, SessionProvider, renderFactorySlot, onOpenTrajectory, t }) {
       const { snapshot, events, offline, retry, reload, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t);
       const [selectedId, setSelectedId] = React.useState(null);
@@ -8352,6 +8455,12 @@ window.__ModuleLoader__.load({
       const [successorNodeId, setSuccessorNodeId] = React.useState(null);
       const [runsOpen, setRunsOpen] = React.useState(false);
       const [dashboardOpen, setDashboardOpen] = React.useState(false);
+      const [replayOpen, setReplayOpen] = React.useState(false);
+      const [replayData, setReplayData] = React.useState(null);
+      const [replayAt, setReplayAt] = React.useState(0);
+      const [replayPlaying, setReplayPlaying] = React.useState(false);
+      const [replayLoading, setReplayLoading] = React.useState(false);
+      const [replayError, setReplayError] = React.useState('');
       const [runsInitialRunId, setRunsInitialRunId] = React.useState(null);
       const [autoBusy, setAutoBusy] = React.useState(false);
       const [autoConfirmOpen, setAutoConfirmOpen] = React.useState(false);
@@ -8968,18 +9077,63 @@ window.__ModuleLoader__.load({
         }
       }, [projectId, t]);
 
+      const openReplay = React.useCallback(async () => {
+        if (replayOpen) {
+          setReplayOpen(false);
+          setReplayPlaying(false);
+          return;
+        }
+        setReplayOpen(true);
+        setReplayLoading(true);
+        setReplayError('');
+        try {
+          const data = await api.fetchReplay(projectId, undefined, t);
+          setReplayData(data);
+          setReplayAt(Number(data.endAt) || Date.now());
+        } catch (error) {
+          setReplayError(describeError(error, t));
+        } finally {
+          setReplayLoading(false);
+        }
+      }, [projectId, replayOpen, t]);
+      const closeReplay = React.useCallback(() => {
+        setReplayOpen(false);
+        setReplayPlaying(false);
+      }, []);
+      React.useEffect(() => {
+        if (!replayPlaying || replayData === null) return undefined;
+        const startAt = Number(replayData.startAt) || 0;
+        const endAt = Number(replayData.endAt) || startAt;
+        const step = Math.max(1000, Math.ceil(Math.max(1, endAt - startAt) / 120));
+        const timer = setInterval(() => {
+          setReplayAt((value) => {
+            const next = Math.min(endAt, value + step);
+            if (next >= endAt) setReplayPlaying(false);
+            return next;
+          });
+        }, 200);
+        return () => clearInterval(timer);
+      }, [replayPlaying, replayData]);
+      const replayView = React.useMemo(
+        () => (replayOpen && replayData !== null ? replaySnapshot(replayData, replayAt) : null),
+        [replayOpen, replayData, replayAt],
+      );
+
       let body;
       if (snapshot.phase === 'ready') {
+        const displayNodes = replayView !== null ? replayView.nodes : nodes;
+        const displayEdges = replayView !== null ? replayView.edges : edges;
+        const displayNow = replayView !== null ? replayAt : now;
         body = h(
           'div',
           { className: 'rl-workspace-grid' },
-          h(NodeRail, { project, nodes, selectedId, onSelect: setSelectedId, t }),
+          h(NodeRail, { project, nodes: displayNodes, selectedId, onSelect: setSelectedId, t }),
           h(DagCanvas, {
-            nodes,
-            edges,
+            nodes: displayNodes,
+            edges: displayEdges,
             layout,
             selectedId,
-            now,
+            now: displayNow,
             busyKey,
             onSelect: setSelectedId,
             onOpenNative: openNodeNative,
@@ -9049,6 +9203,8 @@ window.__ModuleLoader__.load({
           onOpenRuns: () => openRuns(null),
           dashboardOpen,
           onToggleDashboard: () => setDashboardOpen((value) => !value),
+          replayOpen,
+          onToggleReplay: openReplay,
           onAutoStart: () => setAutoConfirmOpen(true),
           onAutoStop: stopAuto,
           onAutoResume: resumeAuto,
@@ -9079,6 +9235,24 @@ window.__ModuleLoader__.load({
             )
           : null,
         stepInfo !== null ? h(StepBanner, { info: stepInfo, onDismiss: () => setStepInfo(null), t }) : null,
+        replayOpen
+          ? h(ReplayBar, {
+              data: replayData ?? { startAt: replayAt, endAt: replayAt },
+              at: replayAt,
+              playing: replayPlaying,
+              loading: replayLoading,
+              error: replayError,
+              onChange: (value) => { setReplayAt(value); setReplayPlaying(false); },
+              onTogglePlay: () => {
+                const startAt = Number(replayData?.startAt) || replayAt;
+                const endAt = Number(replayData?.endAt) || replayAt;
+                if (replayAt >= endAt) setReplayAt(startAt);
+                setReplayPlaying((value) => !value);
+              },
+              onClose: closeReplay,
+              t,
+            })
+          : null,
         h('div', { className: 'rl-workspace-shell' },
           h(DashboardPanel, {
             projectId,
@@ -9558,6 +9732,8 @@ window.__ModuleLoader__.load({
       onOpenRuns,
       dashboardOpen,
       onToggleDashboard,
+      replayOpen,
+      onToggleReplay,
       onAutoStart,
       onAutoStop,
       onAutoResume,
@@ -9728,6 +9904,12 @@ window.__ModuleLoader__.load({
             variant: dashboardOpen === true ? 'primary' : 'ghost',
             title: t('dashboard.toggle'),
             onClick: onToggleDashboard,
+          }),
+          h(LabButton, {
+            label: '◷ ' + t('replay.title'),
+            variant: replayOpen === true ? 'primary' : 'ghost',
+            title: t('replay.toggle'),
+            onClick: onToggleReplay,
           }),
           h(LabButton, { label: t('ws.runs.open'), variant: 'ghost', onClick: onOpenRuns }),
           autoStatus === 'off'

@@ -194,6 +194,10 @@ export function registerHttpRoutes(ctx, service) {
     });
   });
 
+  route(`${PREFIX}/replay`, ['GET'], async (request) => {
+    return ok(await service.getReplay(query(request).get('projectId')));
+  });
+
   route(`${PREFIX}/dashboard`, ['GET', 'POST'], async (request) => {
     const params = query(request);
     if (request.method === 'GET') return ok(await service.getDashboard(params.get('projectId')));
