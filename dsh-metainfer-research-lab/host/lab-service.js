@@ -1004,13 +1004,29 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   async function getReplay(projectId) {
     const state = await getState(projectId);
     const events = store.listEvents(projectId, 0);
-    const times = [state.project.createdAt ?? Date.now(), ...events.map((event) => Number(event.at) || 0)];
+    // Replay spans the first node's creation through the last node activity,
+    // not project creation or the current wall clock.
+    const nodeTimes = [];
+    const nodeEventTimes = [];
     for (const node of state.nodes) {
       const stamps = node.timestamps && typeof node.timestamps === 'object' ? node.timestamps : {};
-      for (const value of Object.values(stamps)) if (Number.isFinite(Number(value))) times.push(Number(value));
+      for (const value of Object.values(stamps)) {
+        const stamp = Number(value);
+        if (Number.isFinite(stamp) && stamp > 0) nodeTimes.push(stamp);
+      }
     }
-    const startAt = Math.min(...times);
-    const endAt = Math.max(Date.now(), ...times);
+    for (const event of events) {
+      if (!event?.nodeId && !String(event?.type ?? '').startsWith('node/')) continue;
+      const stamp = Number(event.at);
+      if (Number.isFinite(stamp) && stamp > 0) nodeEventTimes.push(stamp);
+    }
+    const startCandidates = nodeTimes.length > 0 ? nodeTimes : nodeEventTimes;
+    const startAt = startCandidates.length > 0
+      ? Math.min(...startCandidates)
+      : (Number(state.project.createdAt) || Date.now());
+    const endCandidates = [...nodeTimes, ...nodeEventTimes];
+    let endAt = endCandidates.length > 0 ? Math.max(...endCandidates) : startAt + 1000;
+    if (!(endAt > startAt)) endAt = startAt + 1000;
     return {
       projectId,
       project: {
@@ -2531,6 +2547,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'cancel_node') return runtime.cancel(input?.projectId, input?.nodeId);
     if (action === 'message_node') return runtime.message(input?.projectId, input?.nodeId, input?.text);
     if (action === 'node_files') return ensureNodeWorktree(input?.projectId, input?.nodeId);
+    if (action === 'replay') return getReplay(input?.projectId);
     if (action === 'dashboard_get') return getDashboard(input?.projectId);
     if (action === 'dashboard_update') return updateDashboard(input?.projectId, { spec: input?.dashboardSpec ?? input?.spec });
     if (action === 'dashboard_refresh') return refreshDashboard(input?.projectId, { force: true });
