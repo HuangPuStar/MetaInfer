@@ -4,6 +4,7 @@
  * human-confirmation mode (waiting proposals never block running nodes).
  */
 import { LabError } from './git-engine.js';
+import { reportVersion } from './snapshot.js';
 
 function newNodeCount(nodes) {
   return nodes.length;
@@ -97,7 +98,7 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
 
   async function waiting(projectId, reason) {
     const state = stateOf(projectId);
-    if (state.status === 'waiting') return;
+    if (state.status === 'waiting' && state.pauseReason === reason) return;
     state.status = 'waiting';
     state.pauseReason = reason;
     const project = store.getProject(projectId);
@@ -109,11 +110,11 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
     const state = stateOf(projectId);
     state.status = 'running';
     state.pauseReason = null;
-    state.startedAt = Date.now();
-    state.cycles = 0;
+    // Re-entering auto is not a new budget: stop/start and resume may reset
+    // consecutive streaks, never elapsed time or already consumed cycles.
+    if (!state.startedAt) state.startedAt = Date.now();
     state.idleStreak = 0;
     state.errorStreak = 0;
-    state.lastCycleAt = 0;
     project.mode = 'auto';
     await saveEvent(project, 'auto/started', { at: state.startedAt });
     void tickOne(projectId);
@@ -140,6 +141,8 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
     if (state.status === 'off') return start(projectId);
     state.status = 'running';
     state.pauseReason = null;
+    state.idleStreak = 0;
+    state.errorStreak = 0;
     if (!state.startedAt) state.startedAt = Date.now();
     return statusOf(projectId);
   }
@@ -186,7 +189,7 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
 
   function plannedFits(project, planned, capacity) {
     return planned.some((node) => {
-      if (!capacity.canStart) return false;
+      if (!capacity.canStart || node.resourceWait) return false;
       return Object.entries(node.needs ?? {}).every(([key, amount]) => (capacity.free[key] ?? 0) >= amount);
     });
   }
@@ -205,80 +208,140 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
       if (node.status !== 'completed') return false;
       if (children.has(node.id)) return false;
       if (pendingParents.has(node.id)) return false;
-      return (node.review?.reviewedHeadCommit ?? null) !== (node.git?.headCommit ?? null);
+      return (node.review?.reviewedHeadCommit ?? null) !== (node.git?.headCommit ?? null)
+        || node.review?.reviewedReportVersion !== reportVersion(node);
     });
+  }
+
+  function budgetReason(project, nodes, state) {
+    const auto = project.config.auto ?? {};
+    if (state.cycles >= (auto.maxCycles ?? 50)) return 'maxCycles';
+    if (state.startedAt && Date.now() - state.startedAt >= (auto.maxWallClockMs ?? 6 * 60 * 60 * 1000)) {
+      return 'maxWallClock';
+    }
+    if (newNodeCount(nodes) >= (project.config.maxNodes ?? 60)) return 'maxNodes';
+    if ((auto.maxTokens ?? 0) > 0 && tokensUsed(project.id) >= auto.maxTokens) return 'maxTokens';
+    if ((auto.maxCostUsd ?? 0) > 0 && costUsed(project.id) >= auto.maxCostUsd) return 'maxCost';
+    return null;
+  }
+
+  function pendingRoles(projectId) {
+    return store.listRuns(projectId, 200).some((run) => run.status === 'running'
+      && (run.role === 'advisor' || run.role === 'scheduler'));
   }
 
   async function tickOne(projectId) {
     if (busy.has(projectId)) return;
     const state = stateOf(projectId);
-    if (state.status !== 'running') return;
+    if (state.status !== 'running' && state.status !== 'waiting') return;
     const project = store.getProject(projectId);
     if (!project) return;
-    const auto = project.config.auto ?? {};
     const nodes = store.listNodes(projectId);
-
-    // --- breakers ----------------------------------------------------------
-    if (state.cycles >= (auto.maxCycles ?? 50)) return pause(projectId, 'maxCycles');
-    if (state.startedAt && Date.now() - state.startedAt >= (auto.maxWallClockMs ?? 6 * 60 * 60 * 1000)) {
-      return pause(projectId, 'maxWallClock');
-    }
-    if (newNodeCount(nodes) >= (project.config.maxNodes ?? 60)) return pause(projectId, 'maxNodes');
-    const tokenLimit = auto.maxTokens ?? 0;
-    if (tokenLimit > 0 && tokensUsed(projectId) >= tokenLimit) return pause(projectId, 'maxTokens');
-    const costLimit = auto.maxCostUsd ?? 0;
-    if (costLimit > 0 && costUsed(projectId) >= costLimit) return pause(projectId, 'maxCost');
+    const limit = budgetReason(project, nodes, state);
+    if (limit) return pause(projectId, limit);
     if (state.errorStreak >= 3) return pause(projectId, 'errors');
+    // A manual Step may already own the role cycle. It is pending work, not idle.
+    if (pendingRoles(projectId)) {
+      state.idleStreak = 0;
+      state.status = 'running';
+      state.pauseReason = null;
+      return;
+    }
 
     const running = nodes.filter((node) => node.status === 'running');
     const planned = nodes.filter((node) => node.status === 'planned');
     const proposed = nodes.filter((node) => node.status === 'proposed');
     const actionables = actionableLeaves(project, nodes);
-
-    // Cluster mode: a queued GPU node means waiting for the coordinator, not an
-    // idle project. Do not burn cycles while the lease queue is pending/blocked.
-    if (cluster?.enabled === true) {
-      if (nodes.some((node) => node.status === 'planned' && node.resourceWait)) {
-        return waiting(projectId, 'awaitingGpu');
-      }
-      const gpuPlanned = planned.filter((node) => Number(node.needs?.gpu ?? 0) > 0);
-      if (gpuPlanned.length > 0) {
-        const clusterStatus = cluster.getStatus();
-        const freeGpu = clusterStatus?.pools?.gpu?.free;
-        if (freeGpu === 0) return waiting(projectId, 'awaitingGpu');
-      }
-    }
-
     const capacity = capacityFor(project, nodes, cluster);
     const canRunPlanned = planned.length > 0 && plannedFits(project, planned, capacity);
 
     if (actionables.length === 0 && !canRunPlanned) {
+      state.idleStreak = 0;
       if (proposed.length > 0) return waiting(projectId, 'awaitingConfirmation');
+      if (planned.length > 0) return waiting(projectId, 'resourcesQueued');
       if (running.length === 0) return pause(projectId, 'idle');
-      return undefined; // wait for a running node to finish / capacity to free
+      state.status = 'running';
+      state.pauseReason = null;
+      return undefined; // a worker is still producing evidence
     }
 
+    state.status = 'running';
+    state.pauseReason = null;
     busy.add(projectId);
     try {
+      // Freeze values, not node references: a fast follow-up can finish while
+      // Step still reviews the previous evidence, even at the same Git head.
+      const workBefore = new Map(nodes.map((node) => [node.id, {
+        status: node.status,
+        headCommit: node.git?.headCommit ?? null,
+        reportVersion: reportVersion(node),
+      }]));
       const result = await orchestrator.step(projectId, 'auto');
       state.cycles += 1;
       state.lastCycleAt = Date.now();
       const progress = result.created.length + result.started.length;
-      state.idleStreak = progress === 0 ? state.idleStreak + 1 : 0;
-      state.errorStreak = result.errors.length > 0 ? state.errorStreak + 1 : 0;
+      const hasErrors = result.errors.length > 0;
+      state.errorStreak = hasErrors ? state.errorStreak + 1 : 0;
+      if (hasErrors || progress > 0) state.idleStreak = 0;
+      // Stop/pause is explicit. Finishing an in-flight cycle never resumes it.
+      if (state.status !== 'running' && state.status !== 'waiting') return undefined;
       const fresh = store.getProject(projectId);
       if (!fresh) return undefined;
-      if (state.cycles >= (auto.maxCycles ?? 50)) return pause(projectId, 'maxCycles');
-      if (Date.now() - (state.startedAt ?? Date.now()) >= (auto.maxWallClockMs ?? 6 * 60 * 60 * 1000)) {
-        return pause(projectId, 'maxWallClock');
+      const freshNodes = store.listNodes(projectId);
+      const freshLimit = budgetReason(fresh, freshNodes, state);
+      if (freshLimit) return pause(projectId, freshLimit);
+      if (hasErrors) {
+        if (state.errorStreak >= 3) return pause(projectId, 'errors');
+        return undefined;
       }
-      if (state.idleStreak >= (auto.idleCycleLimit ?? 3)) return pause(projectId, 'noProgress');
-      if (state.errorStreak >= 3) return pause(projectId, 'errors');
+      if (progress > 0) return undefined;
+
+      // A zero-output cycle is not necessarily no progress: workers, role
+      // reviews, proposals and resource requests each have their own lifecycle.
+      const freshPlanned = freshNodes.filter((node) => node.status === 'planned');
+      const canRun = plannedFits(fresh, freshPlanned, capacityFor(fresh, freshNodes, cluster));
+      if (freshNodes.some((node) => node.status === 'running') || pendingRoles(projectId)) {
+        state.idleStreak = 0;
+        return undefined;
+      }
+      if (freshNodes.some((node) => node.status === 'proposed') && !canRun) {
+        state.idleStreak = 0;
+        return waiting(projectId, 'awaitingConfirmation');
+      }
+      if (freshPlanned.length > 0 && !canRun) {
+        state.idleStreak = 0;
+        return waiting(projectId, 'resourcesQueued');
+      }
+      const freshActionables = actionableLeaves(fresh, freshNodes);
+      const workChanged = freshNodes.some((node) => {
+        const before = workBefore.get(node.id);
+        return !before || before.status !== node.status
+          || before.headCommit !== (node.git?.headCommit ?? null)
+          || before.reportVersion !== reportVersion(node);
+      });
+      if (workChanged && (freshActionables.length > 0 || canRun)) {
+        state.idleStreak = 0;
+        return undefined; // the next cycle must see the new evidence/work
+      }
+      if (result.needUserDecision === true && !canRun) {
+        state.idleStreak = 0;
+        return pause(projectId, 'needsUserDecision');
+      }
+      if (freshActionables.length === 0 && !canRun) {
+        state.idleStreak = 0;
+        return pause(projectId, 'idle');
+      }
+      state.idleStreak += 1;
+      if (state.idleStreak >= (fresh.config.auto?.idleCycleLimit ?? 3)) return pause(projectId, 'noProgress');
       return undefined;
     } catch (error) {
-      if (error instanceof LabError && error.code === 'cycle_busy') return undefined;
+      if (error instanceof LabError && error.code === 'cycle_busy') {
+        state.idleStreak = 0;
+        return undefined;
+      }
+      state.idleStreak = 0;
       state.errorStreak += 1;
-      if (state.errorStreak >= 3) await pause(projectId, 'errors');
+      if (state.errorStreak >= 3 && state.status === 'running') await pause(projectId, 'errors');
       return undefined;
     } finally {
       busy.delete(projectId);
@@ -289,7 +352,7 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
     for (const project of store.listProjects()) {
       if (project.mode !== 'auto') continue;
       const state = stateOf(project.id);
-      if (state.status === 'running') await tickOne(project.id);
+      if (state.status === 'running' || state.status === 'waiting') await tickOne(project.id);
     }
   }
 

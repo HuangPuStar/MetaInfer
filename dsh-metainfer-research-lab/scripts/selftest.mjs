@@ -13,6 +13,7 @@ import { openStore } from '../host/store.js';
 import { createGitEngine } from '../host/git-engine.js';
 import { createLabService } from '../host/lab-service.js';
 import { registerHttpRoutes } from '../host/http.js';
+import { registerAgentTool } from '../host/agent-tool.js';
 
 const DEMO_REPO = process.env.MIRL_DEMO_REPO
   ? path.resolve(process.env.MIRL_DEMO_REPO)
@@ -80,14 +81,29 @@ async function test(name, fn) {
 
 const store = await openStore({ storageDomain: { open: async () => memoryDomain() }, logger: { info() {} } });
 const git = createGitEngine({ subprocess: fakeSubprocess() });
+const timeboxEdits = [];
+let modelLookups = 0;
 const lab = createLabService({
-  ctx: { agentDefaultModel: { currentSelection: () => ({ provider: 'test-provider', model: 'test-model' }) } },
+  ctx: {
+    agentDefaultModel: { currentSelection: () => ({ provider: 'test-provider', model: 'test-model' }) },
+    llm: { listProviders: () => { modelLookups += 1; return []; } },
+  },
   store,
   git,
   transcript: { read: async () => ({ rows: [], nextSeq: 0, running: false }) },
   runtime: {
     retry: async () => ({ node: { id: 'n-0001', status: 'running' }, revision: 1 }),
     decorateNodes: (_projectId, nodes) => nodes,
+    updateTimebox: async (projectId, nodeId, timeboxMs) => store.withProjectLock(projectId, async () => {
+      timeboxEdits.push({ projectId, nodeId, timeboxMs });
+      const currentProject = store.getProject(projectId);
+      const node = store.getNode(projectId, nodeId);
+      node.timeboxMs = timeboxMs;
+      currentProject.revision += 1;
+      await store.saveNode(projectId, node);
+      await store.saveProject(currentProject);
+      return { node, revision: currentProject.revision };
+    }),
   },
   auto: {
     stop: async () => ({ status: 'off' }),
@@ -182,7 +198,7 @@ await test('listProjects summary', async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].nodeCount, 1);
   assert.equal(list[0].id, project.id);
-  assert.equal(list[0].repoPath, DEMO_REPO);
+  assert.equal(path.resolve(list[0].repoPath), DEMO_REPO);
 });
 
 await test('reject invalid config', async () => {
@@ -253,8 +269,8 @@ async function callHttp(pathname, { method = 'GET', query = '', rawBody = undefi
   return response.json();
 }
 
-await test('routes: all thirteen endpoints registered', async () => {
-  assert.equal(routes.length, 13);
+await test('routes: all current endpoints registered', async () => {
+  assert.equal(routes.length, 22);
   const expected = [
     [`${PREFIX}/health`, 'GET'],
     [`${PREFIX}/projects`, 'GET'],
@@ -270,6 +286,16 @@ await test('routes: all thirteen endpoints registered', async () => {
     [`${PREFIX}/copilot`, 'GET'],
     [`${PREFIX}/runs`, 'GET'],
     [`${PREFIX}/commands`, 'POST'],
+    [`${PREFIX}/intake`, 'GET'],
+    [`${PREFIX}/files/info`, 'GET'],
+    [`${PREFIX}/files/download`, 'GET'],
+    [`${PREFIX}/replay`, 'GET'],
+    [`${PREFIX}/dashboard`, 'GET'],
+    [`${PREFIX}/dashboard`, 'POST'],
+    [`${PREFIX}/dashboard/refresh`, 'POST'],
+    [`${PREFIX}/dashboard/chat`, 'POST'],
+    [`${PREFIX}/dashboard/layout`, 'POST'],
+    [`${PREFIX}/execution`, 'GET'],
   ];
   for (const [pathname, method] of expected) findRoute(pathname, method);
 });
@@ -379,6 +405,158 @@ await test('HTTP malformed body returns the error envelope', async () => {
   const payload = await callHttp(`${PREFIX}/commands`, { method: 'POST', rawBody: 'not-json' });
   assert.equal(payload.ok, false);
   assert.equal(payload.error.code, 'bad_request');
+});
+
+// The runtime double checks dispatch only; real deadline/cancel/persistence paths
+// are exercised by runtime-lifecycle-selftest.mjs with controlled clocks.
+const editingTemplate = structuredClone(store.getNode(project.id, rootNode.id));
+async function editingNode(status = 'planned') {
+  const node = { ...structuredClone(editingTemplate), status };
+  project.config.maxNodeTimeoutMinutes = 240;
+  await store.saveNode(project.id, node);
+  return node;
+}
+
+await test('strict timebox validation happens before any planned-field mutation', async () => {
+  for (const minutes of [0, -1, 2.5, NaN, Infinity, null, undefined, '20', 241, 1441]) {
+    const node = await editingNode();
+    const before = structuredClone(node);
+    const revision = project.revision;
+    const calls = timeboxEdits.length;
+    await assert.rejects(() => lab.updateNode(project.id, node.id, { title: 'Must not be stored', timeboxMinutes: minutes }),
+      (error) => error.code === 'timebox_invalid');
+    assert.deepEqual(store.getNode(project.id, node.id), before);
+    assert.equal(project.revision, revision);
+    assert.equal(timeboxEdits.length, calls);
+  }
+});
+
+await test('timebox-only edits delegate for running and retryable terminal nodes without starting', async () => {
+  for (const status of ['running', 'completed', 'failed', 'cancelled', 'planned', 'proposed']) {
+    const node = await editingNode(status);
+    const calls = timeboxEdits.length;
+    const result = await lab.updateNode(project.id, node.id, { timeboxMinutes: 120 });
+    assert.equal(result.node.status, status);
+    assert.equal(result.node.timeboxMs, 120 * 60_000);
+    assert.equal(timeboxEdits.length, calls + 1);
+  }
+});
+
+await test('live mixed edits reject atomically before model capability lookup', async () => {
+  for (const field of [{ title: 'No change' }, { prompt: 'Do not replace a live task' }, { model: null },
+    { model: { provider: 'missing-provider', model: 'missing-model' } }, { needs: { gpu: 2 } },
+    { executionProfile: 'codex-strong' }, { taskType: 'analysis' }, { unknown: true }]) {
+    const node = await editingNode('running');
+    const before = structuredClone(node);
+    const revision = project.revision;
+    const calls = timeboxEdits.length;
+    const lookups = modelLookups;
+    await assert.rejects(() => lab.updateNode(project.id, node.id, { timeboxMinutes: 120, ...field }),
+      (error) => error.code === 'node_not_editable');
+    assert.deepEqual(store.getNode(project.id, node.id), before);
+    assert.equal(project.revision, revision);
+    assert.equal(timeboxEdits.length, calls);
+    assert.equal(modelLookups, lookups);
+  }
+});
+
+await test('planned and proposed mixed task edits keep their original permissions', async () => {
+  for (const status of ['planned', 'proposed']) {
+    const node = await editingNode(status);
+    const calls = timeboxEdits.length;
+    const result = await lab.updateNode(project.id, node.id, { title: 'Updated planned task', timeboxMinutes: 25 });
+    assert.equal(result.node.title, 'Updated planned task');
+    assert.equal(result.node.timeboxMs, 25 * 60_000);
+    assert.equal(timeboxEdits.length, calls);
+  }
+});
+
+await test('HTTP and agent dispatch accept transport keys on timebox-only edits', async () => {
+  const node = await editingNode('running');
+  const calls = timeboxEdits.length;
+  const response = await callHttp(PREFIX + '/commands', { method: 'POST', rawBody: JSON.stringify({
+    type: 'node.edit', projectId: project.id, nodeId: node.id, timeboxMinutes: 130,
+  }) });
+  assert.equal(response.ok, true);
+  assert.equal(response.data.node.timeboxMs, 130 * 60_000);
+  const result = await lab.agentTool({ action: 'update_node', projectId: project.id, nodeId: node.id, timeboxMinutes: 140 });
+  assert.equal(result.node.timeboxMs, 140 * 60_000);
+  assert.equal(timeboxEdits.length, calls + 2);
+  const bad = await callHttp(PREFIX + '/commands', { method: 'POST', rawBody: JSON.stringify({
+    type: 'node.edit', projectId: project.id, nodeId: node.id, timeboxMinutes: 2.5,
+  }) });
+  assert.equal(bad.ok, false);
+  assert.equal(bad.error.code, 'timebox_invalid');
+});
+
+await test('registered agent tool exposes and forwards integer timebox minutes', async () => {
+  const node = await editingNode('running');
+  let spec;
+  const disposeTool = registerAgentTool({ tools: { register(value) { spec = value; return () => {}; } } }, lab);
+  assert.deepEqual(spec.parameters.properties.timeboxMinutes, {
+    type: 'integer', minimum: 1, maximum: 1440,
+    description: 'for update_node: total minutes for the current run, or the next execution when stopped; project limit also applies',
+  });
+  const response = await spec.execute({ action: 'update_node', projectId: project.id, nodeId: node.id, timeboxMinutes: 150 });
+  assert.equal(JSON.parse(response.result).node.timeboxMs, 150 * 60_000);
+  disposeTool();
+});
+
+await test('state projects legacy follow-up evidence without overwriting stored history', async () => {
+  const node = await editingNode('completed');
+  const at = Date.now() + 1;
+  node.git.headCommit = project.repo.baseCommit;
+  node.report = { success: false, summary: 'old activation safety gate', metrics: [] };
+  node.reportText = 'fresh follow-up measurements, not a structured success claim';
+  node.followUps = [{ at, headCommit: node.git.headCommit, assistant: node.reportText }];
+  const before = structuredClone(node);
+  const state = await lab.getState(project.id);
+  assert.equal(state.nodes[0].report, null);
+  assert.equal(state.nodes[0].reportText, node.reportText);
+  assert.deepEqual(store.getNode(project.id, node.id), before);
+  assert.equal(store.getNode(project.id, node.id).report.success, false);
+  const status = await lab.agentTool({ action: 'status', projectId: project.id });
+  assert.equal(status.nodes[0].report, null);
+  assert.equal(status.nodes[0].reportText, node.reportText);
+  node.reportSource = 'activation';
+  node.report = { success: true, summary: 'new activation report', metrics: [] };
+  node.reportText = 'new activation text';
+  const fresh = await lab.getState(project.id);
+  assert.equal(fresh.nodes[0].report.summary, 'new activation report');
+});
+
+await test('node command DTOs keep legacy report projection across revision short-circuits', async () => {
+  for (const channel of ['service', 'http', 'agent']) {
+    const node = await editingNode('completed');
+    node.git.headCommit = project.repo.baseCommit;
+    node.report = { success: false, summary: 'obsolete structured report A', metrics: [] };
+    node.reportText = 'new follow-up B is the current evidence';
+    node.followUps = [{ at: Date.now() + 1, headCommit: node.git.headCommit, assistant: node.reportText }];
+    const originalReport = structuredClone(node.report);
+    const initial = await lab.getState(project.id);
+    assert.equal(initial.nodes[0].report, null);
+    let result;
+    if (channel === 'service') result = await lab.updateNode(project.id, node.id, { timeboxMinutes: 150 });
+    if (channel === 'http') {
+      const response = await callHttp(PREFIX + '/commands', { method: 'POST', rawBody: JSON.stringify({ type: 'node.edit', projectId: project.id, nodeId: node.id, timeboxMinutes: 150 }) });
+      assert.equal(response.ok, true); result = response.data;
+    }
+    if (channel === 'agent') result = await lab.agentTool({ action: 'update_node', projectId: project.id, nodeId: node.id, timeboxMinutes: 150 });
+    assert.equal(result.node.report, null, channel + ' must not reintroduce A');
+    assert.equal(result.node.reportText, node.reportText);
+    assert.deepEqual(store.getNode(project.id, node.id).report, originalReport);
+    const refresh = await callHttp(PREFIX + '/state', { query: '?projectId=' + encodeURIComponent(project.id) + '&revision=' + result.revision });
+    assert.equal(refresh.data.unchanged, true, 'same-revision refresh cannot repair a raw command DTO');
+  }
+});
+
+await test('project defaults do not silently rewrite existing node budgets', async () => {
+  const node = await editingNode();
+  node.timeboxMs = 90 * 60_000;
+  await lab.updateProject(project.id, { config: { nodeTimeoutMinutes: 20, maxNodeTimeoutMinutes: 360 } });
+  assert.equal(store.getNode(project.id, node.id).timeboxMs, 90 * 60_000);
+  assert.equal(project.config.nodeTimeoutMinutes, 20);
+  assert.equal(project.config.maxNodeTimeoutMinutes, 360);
 });
 
 disposeRoutes();

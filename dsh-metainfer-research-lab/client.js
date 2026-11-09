@@ -494,6 +494,17 @@ window.__ModuleLoader__.load({
       'ws.inspector.timebox': '执行时限',
       'ws.inspector.timebox.hint': '1–{max} 分钟',
       'ws.inspector.timebox.invalid': '请输入 1–{max} 之间的整数分钟',
+      'ws.inspector.timebox.runningHint': '这是本次运行的总时限；延长只增加剩余时间，不重启任务。',
+      'ws.inspector.timebox.futureHint': '节点未在运行；保存只调整下次执行时限，不会自动启动。',
+      'ws.inspector.timebox.lockedHint': '节点已封存，历史时限不再修改。请在新节点设置。',
+      'ws.inspector.timebox.settingsHint': '当前上限 {max} 分钟；需要更久请在项目设置提高上限（最多 1440 分钟）。',
+      'ws.inspector.timebox.nativeHint': '继续实验请使用本面板的继续对话或重试；原生会话直接输入可能不受节点时限管理。',
+      'ws.inspector.timebox.error.timebox_invalid': '请输入允许范围内的整数分钟；超过上限请先修改项目设置。',
+      'ws.inspector.timebox.error.timebox_elapsed': '新总时限已被用完，请输入更长的总时限。',
+      'ws.inspector.timebox.error.node_timebox_unavailable': '当前无法改时限。请刷新；已到期请等节点停止后调整并重试。',
+      'ws.inspector.timebox.error.node_not_editable': '运行后只能单独修改时限；任务、模型和资源请在新节点配置。',
+      'ws.inspector.timebox.error.node_sealed': '此节点已有后继或已封存，请在新节点设置时限。',
+      'ws.inspector.timebox.error.unknown': '保存失败，请刷新节点状态后重试；仍失败请查看运行记录。',
       'ws.inspector.savePrompt': '保存提示词',
       'ws.inspector.saveTimebox': '保存时限',
       'ws.inspector.saving': '保存中…',
@@ -716,9 +727,10 @@ window.__ModuleLoader__.load({
       'ws.auto.pause.maxCycles': '已达最大 cycle 数',
       'ws.auto.pause.maxWallClock': '已达最长运行时间',
       'ws.auto.pause.maxNodes': '已达节点上限',
-      'ws.auto.pause.noProgress': '连续多轮没有新进展',
-      'ws.auto.pause.idle': '空转熔断',
-      'ws.auto.pause.errors': '连续错误过多',
+      'ws.auto.pause.noProgress': '连续多轮无产出，已暂停自动调度',
+      'ws.auto.pause.idle': '暂无可调度动作，请检查最新报告',
+      'ws.auto.pause.needsUserDecision': '等待你确认或补充指令',
+      'ws.auto.pause.errors': '调度连续出错，请查看运行记录',
       'ws.auto.pause.awaitingConfirmation': '等待人工确认提案',
       'ws.auto.pause.hostRestarted': 'Host 重启后自动挡已停止，请确认后继续',
       'ws.auto.pause.unknown': '未知原因',
@@ -1822,6 +1834,17 @@ window.__ModuleLoader__.load({
       'ws.inspector.timebox': 'Timebox',
       'ws.inspector.timebox.hint': '1–{max} minutes',
       'ws.inspector.timebox.invalid': 'Enter an integer between 1 and {max} minutes',
+      'ws.inspector.timebox.runningHint': 'This is the total budget for this run. Extending adds remaining time; it does not restart the task.',
+      'ws.inspector.timebox.futureHint': 'The node is not running. Saving changes the next execution budget without starting it.',
+      'ws.inspector.timebox.lockedHint': 'This node is sealed. Set the timebox on a new node instead of changing history.',
+      'ws.inspector.timebox.settingsHint': 'Current limit: {max} minutes. Increase it in project settings if needed (up to 1440 minutes).',
+      'ws.inspector.timebox.nativeHint': 'Use Continue or Retry here to keep experiments managed. Direct input in a native session may bypass the node timebox.',
+      'ws.inspector.timebox.error.timebox_invalid': 'Enter whole minutes within the allowed range. Increase the project limit first if needed.',
+      'ws.inspector.timebox.error.timebox_elapsed': 'The new total budget is already used up. Enter a longer total timebox.',
+      'ws.inspector.timebox.error.node_timebox_unavailable': 'The timebox cannot change right now. Refresh; if expired, wait for the node to stop, then adjust and retry.',
+      'ws.inspector.timebox.error.node_not_editable': 'Only the timebox can change after a run starts. Configure tasks, models and resources on a new node.',
+      'ws.inspector.timebox.error.node_sealed': 'This node has successors or is sealed. Set the timebox on a new node.',
+      'ws.inspector.timebox.error.unknown': 'Save failed. Refresh the node and retry; check the run history if it still fails.',
       'ws.inspector.savePrompt': 'Save prompt',
       'ws.inspector.saveTimebox': 'Save timebox',
       'ws.inspector.saving': 'Saving…',
@@ -2045,8 +2068,9 @@ window.__ModuleLoader__.load({
       'ws.auto.pause.maxWallClock': 'Max wall clock reached',
       'ws.auto.pause.maxNodes': 'Max nodes reached',
       'ws.auto.pause.noProgress': 'No progress for several cycles',
-      'ws.auto.pause.idle': 'Idle fuse tripped',
-      'ws.auto.pause.errors': 'Too many consecutive errors',
+      'ws.auto.pause.idle': 'No schedulable actions; check the latest report',
+      'ws.auto.pause.needsUserDecision': 'Waiting for your decision or instructions',
+      'ws.auto.pause.errors': 'Repeated scheduling errors; check role runs',
       'ws.auto.pause.awaitingConfirmation': 'Waiting for proposal approval',
       'ws.auto.pause.hostRestarted': 'Auto mode stopped after the Host restarted; confirm to resume',
       'ws.auto.pause.unknown': 'Unknown reason',
@@ -4804,8 +4828,12 @@ window.__ModuleLoader__.load({
       return reason;
     }
     function autoPauseLabelKeyOf(reason) {
-      const known = ['maxCycles', 'maxWallClock', 'maxNodes', 'noProgress', 'idle', 'errors', 'awaitingConfirmation', 'hostRestarted', 'maxTokens', 'maxCost', 'resourcesQueued'];
+      const known = ['maxCycles', 'maxWallClock', 'maxNodes', 'noProgress', 'idle', 'errors', 'needsUserDecision', 'awaitingConfirmation', 'hostRestarted', 'maxTokens', 'maxCost', 'resourcesQueued'];
       return known.indexOf(reason) >= 0 ? 'ws.auto.pause.' + reason : 'ws.auto.pause.unknown';
+    }
+    function timeboxSaveErrorTextOf(code, t) {
+      const known = ['timebox_invalid', 'timebox_elapsed', 'node_timebox_unavailable', 'node_not_editable', 'node_sealed'];
+      return t('ws.inspector.timebox.error.' + (known.indexOf(code) >= 0 ? code : 'unknown'));
     }
     function autoLimitsOf(auto, project) {
       const limits = asObject(asObject(auto).limits);
@@ -5555,7 +5583,7 @@ window.__ModuleLoader__.load({
         const run = refreshRef.current;
         if (run) run();
       }, []);
-      /** Apply a command result locally, then reconcile with the Host. */
+      /** A partial command DTO cannot stand in for the full project revision. */
       const applyCommandResult = React.useCallback((data) => {
         const payload = asObject(data);
         const revision = finiteNumber(payload.revision);
@@ -5587,8 +5615,8 @@ window.__ModuleLoader__.load({
             error: null,
           };
         });
-        refresh();
-      }, [refresh]);
+        reload();
+      }, [reload]);
 
       return { snapshot, events, offline, refresh, retry, reload, applyAutoResult, applyCommandResult };
     }
@@ -5859,10 +5887,13 @@ window.__ModuleLoader__.load({
     }
 
     /** Single-line controlled input. */
-    function LabInput({ value, placeholder, type, disabled, ariaLabel, onChange }) {
+    function LabInput({ value, placeholder, type, disabled, ariaLabel, onChange, min, max, step }) {
       return h('input', {
         className: 'rl-input',
         type: type === 'number' ? 'number' : type === 'password' ? 'password' : 'text',
+        min: type === 'number' ? min : undefined,
+        max: type === 'number' ? max : undefined,
+        step: type === 'number' ? step : undefined,
         value: value,
         placeholder: placeholder,
         disabled: disabled === true,
@@ -8651,7 +8682,7 @@ window.__ModuleLoader__.load({
           return { ok: true };
         } catch (error) {
           if (isAbortError(error)) return { ok: false, error: t('error.unknown') };
-          return { ok: false, error: describeError(error, t) };
+          return { ok: false, error: describeError(error, t), errorCode: error instanceof LabRequestError ? error.code : '' };
         }
       }, [applyCommandResult, projectId, selectedNode, t]);
 
@@ -10432,8 +10463,8 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Right inspector: prompt + success criteria and timebox editors (planned
-     * nodes only), plus read-only Git/timestamp readback.
+     * Right inspector: planned task edits, independently managed timebox changes,
+     * and read-only Git/timestamp readback.
      */
     function NodeInspector({ project, nodes, node, now, busyKey, onSave, onAction, onOpenSession, onOpenFiles, onContinue, onSuccessor, onProposalAction, onOpenRun, onRetryRequest, onOpenMergeCreate, onFinishMerge, onEscalate, modelOptions, modelProviders, clusterEnabled, t }) {
       const nodeKey = node === null ? '' : nodeIdOf(node);
@@ -10444,8 +10475,23 @@ window.__ModuleLoader__.load({
       const [saved, setSaved] = React.useState(false);
       const [saveError, setSaveError] = React.useState('');
       const [modelDraft, setModelDraft] = React.useState(null);
+      const [timeboxError, setTimeboxError] = React.useState('');
+      const timeboxSaveRef = React.useRef(null);
+      const timeboxDirtyRef = React.useRef(false);
+      const selectedKeyRef = React.useRef(nodeKey);
+      const mountedRef = React.useRef(true);
+      selectedKeyRef.current = nodeKey;
+      const serverTimebox = node === null ? '' : String(nodeTimeboxMinutesOf(node, project));
+      React.useEffect(() => {
+        mountedRef.current = true;
+        return () => { mountedRef.current = false; timeboxSaveRef.current = null; };
+      }, []);
 
       React.useEffect(() => {
+        timeboxSaveRef.current = null;
+        timeboxDirtyRef.current = false;
+        setSavingField('');
+        setTimeboxError('');
         if (node === null) {
           setPromptDraft('');
           setCriteriaDraft('');
@@ -10462,6 +10508,9 @@ window.__ModuleLoader__.load({
         setSaved(false);
         setSaveError('');
       }, [nodeKey]); // eslint-disable-line react-hooks/exhaustive-deps
+      React.useEffect(() => {
+        if (!timeboxDirtyRef.current && timeboxSaveRef.current === null) setTimeboxDraft(serverTimebox);
+      }, [nodeKey, serverTimebox]);
 
       if (node === null) {
         return h(
@@ -10494,6 +10543,10 @@ window.__ModuleLoader__.load({
         .filter((entry) => entry.amount > 0);
       const sealedNode = nodeSealedFlagOf(node);
       const leafAndOpen = nodeIsLeafOf(node, nodes) && !sealedNode;
+      const timeboxEditable = !sealedNode && (editable || ['running', 'failed', 'cancelled', 'completed'].indexOf(status) >= 0);
+      const timeboxErrorText = timeboxError === 'input'
+        ? t('ws.inspector.timebox.invalid', { max: maxMinutes })
+        : timeboxSaveErrorTextOf(timeboxError, t);
       const proposal = nodeProposalOf(node);
       const isMergeNode = nodeIsMergeOf(node);
       const nodeUsage = nodeUsageOf(node);
@@ -10551,22 +10604,36 @@ window.__ModuleLoader__.load({
         }
       };
       const saveTimebox = async () => {
-        if (!editable || savingField !== '') return;
-        const minutes = parseInteger(timeboxDraft, 0);
-        if (minutes < 1 || minutes > maxMinutes) {
-          setSaveError(t('ws.inspector.timebox.invalid', { max: maxMinutes }));
+        if (!timeboxEditable || busy || savingField !== '' || timeboxSaveRef.current !== null || !mountedRef.current) return;
+        const minutes = Number(timeboxDraft);
+        if (!Number.isInteger(minutes) || minutes < 1 || minutes > maxMinutes) {
+          setSaveError('');
+          setTimeboxError('input');
           setSaved(false);
           return;
         }
+        const request = { nodeKey };
+        timeboxSaveRef.current = request;
+        const current = () => mountedRef.current && selectedKeyRef.current === request.nodeKey && timeboxSaveRef.current === request;
         setSavingField('timebox');
         setSaveError('');
-        const result = await onSave({ timeboxMinutes: minutes });
-        setSavingField('');
-        if (result.ok) {
-          setSaved(true);
-        } else {
-          setSaved(false);
-          setSaveError(result.error || t('ws.inspector.error'));
+        setTimeboxError('');
+        try {
+          const result = await onSave({ timeboxMinutes: minutes });
+          if (!current()) return;
+          setSaved(result?.ok === true);
+          if (result?.ok) timeboxDirtyRef.current = false;
+          else setTimeboxError(result?.errorCode || 'unknown');
+        } catch (error) {
+          if (current()) {
+            setSaved(false);
+            setTimeboxError(error?.code || 'unknown');
+          }
+        } finally {
+          if (current()) {
+            timeboxSaveRef.current = null;
+            setSavingField('');
+          }
         }
       };
 
@@ -10910,21 +10977,28 @@ window.__ModuleLoader__.load({
             h(LabInput, {
               type: 'number',
               value: timeboxDraft,
-              disabled: !editable,
+              min: 1, max: maxMinutes, step: 1,
+              disabled: !timeboxEditable || savingField !== '' || busy,
               ariaLabel: t('ws.inspector.timebox'),
               onChange: (event) => {
+                if (timeboxSaveRef.current !== null) return;
+                timeboxDirtyRef.current = true;
                 setTimeboxDraft(event.target.value);
                 setSaved(false);
                 setSaveError('');
+                setTimeboxError('');
               },
             }),
             h(LabButton, {
               label: savingField === 'timebox' ? t('ws.inspector.saving') : t('ws.inspector.saveTimebox'),
-              disabled: !editable || savingField !== '',
+              disabled: !timeboxEditable || savingField !== '' || busy,
               onClick: saveTimebox,
             }),
           ),
           h('span', { className: 'rl-hint' }, t('ws.inspector.timebox.hint', { max: maxMinutes })),
+          h('p', { className: 'rl-hint' }, t(sealedNode ? 'ws.inspector.timebox.lockedHint' : status === 'running' ? 'ws.inspector.timebox.runningHint' : 'ws.inspector.timebox.futureHint')),
+          h('p', { className: 'rl-hint' }, t('ws.inspector.timebox.settingsHint', { max: maxMinutes })),
+          h('p', { className: 'rl-hint' }, t('ws.inspector.timebox.nativeHint')),
         ),
 
         editable
@@ -10943,7 +11017,7 @@ window.__ModuleLoader__.load({
           : null,
 
         saved ? h('span', { className: 'rl-saved' }, t('ws.inspector.saved')) : null,
-        saveError ? h('p', { className: 'rl-error-text', role: 'alert' }, t('ws.inspector.error') + ': ' + saveError) : null,
+        saveError || timeboxError ? h('p', { className: 'rl-error-text', role: 'alert' }, t('ws.inspector.error') + ': ' + (timeboxError ? timeboxErrorText : saveError)) : null,
 
         nodeReport !== null || reportText !== ''
           ? h(
