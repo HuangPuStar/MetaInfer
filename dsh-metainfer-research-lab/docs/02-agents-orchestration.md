@@ -16,14 +16,35 @@
 | **scheduler** | `lab-scheduler` | 每个 cycle 的 scheduler pass | 一次性 spawn，读完结果即 dispose | 无工具，只有 `structured_output` | `SchedulerOutput` |
 | **controller** | `lab-controller` | 项目创建时创建 root 会话，按需 resume | 项目生命周期 | 无 | 不产生任务输出；项目级 parent（advisor/scheduler 的 parent，冷恢复 sender） |
 | **GC 善后** | `lab-gc` | 节点被确定性终止后（timeout/cancel/异常清理） | 一次性 spawn，异步、不阻塞资源释放 | 只读 fs + `lab_cleanup`（Host 确定性清理工具，仅 GC 可见） | `GCOutput`（postmortem） |
-| **Copilot** | `lab-chat` | 用户打开项目对话抽屉（`project.copilot`） | 每项目一个可 resume 的长期会话（`project.copilotSessionId`），跨轮持久 | 只读 fs/fs-search + `lab_project_context`；**+ compaction** | 纯文本（讨论/分析，不产生结构化任务输出） |
+| **Copilot** | `lab-chat` | 用户打开项目对话抽屉（`project.copilot`） | 每项目一个可 resume 的长期会话（`project.copilotSessionId`），跨轮持久 | 只读 fs/fs-search + `lab_project_context`；**compaction 组 + `/compact` 命令** | 纯文本（讨论/分析，不产生结构化任务输出） |
 | **node anchor**（非 LLM 角色） | `lab-controller` | 节点启动时创建 root 会话，按需 resume | 节点生命周期（封存/dispose） | 无 | 不调用 LLM；作为 worker 的 parent 与继续对话 sender；提供 `header.cwd=worktree` 的 sandbox 边界 |
 
-> **compaction 是长期会话的必需项**：`/compact`（`dsh-command-compact` 的 `inject` 含 `compaction`）、
-> `agent/pre-step` 自动压力压缩、以及 `CONTEXT_WINDOW_EXCEEDED` 溢出恢复都依赖 agent 上下文里存在
-> `compaction` 服务。凡是在多轮间持续增长历史的 preset（`lab-worker` / `lab-chat` / `lab-merge` /
-> `lab-dashboard`）都必须挂载 `compaction` 组；单轮 `structured_output` preset 则刻意不挂，避免多一次
-> 摘要请求。`tests/copilot-compaction.test.mjs` 锁定这条约束。
+> **compaction 的所有权在 preset 平面**：`dsh-web-app` 把 host 平面的 `compaction-basic`、
+> `command-compact`、`tool-result-pruner` 全部 `disabled: true`，交还给各 preset 自己挂载。
+> 因此 preset 若漏挂 compaction 组，该会话**既无自动压缩、也无 `/compact`**——历史只增不减，
+> 最终在 provider 侧撞上下文上限。
+>
+> **挂载形状**（与官方 `dsh-web-app/presets/standard.patch.yml` 一致）：
+>
+> ```yaml
+> - id: compaction
+>   name: cordis:group
+>   group: true
+>   isolate: { compaction: true, toolResultPruner: true }
+>   config:
+>     - id: compaction-basic          # 自动压缩 + 溢出恢复
+>     - id: command-compact           # 人工 /compact（交互式会话才需要）
+>     - id: tool-result-pruner
+> ```
+>
+> `isolate` 是硬性要求：preset registry 的 `leakedServices` 审计会拒绝把服务注册进 root realm
+> 的行（"Preset services require isolate realms"）。既然 compaction 必须隔离，`command-compact`
+> 就必须挂在**同一个隔离组内部**才能解析到该服务。
+>
+> **谁需要 `/compact`**：`lab-chat` 是唯一由人工键入斜杠命令的 preset，故必须带 `command-compact`。
+> `lab-worker` / `lab-merge` / `lab-dashboard` 由 Host 启动、无人输入，只需自动压缩。
+> 单轮 `structured_output` preset（advisor/scheduler/controller/gc/intake）刻意不挂，避免多余摘要请求。
+> `tests/copilot-compaction.test.mjs` 锁定上述分工。
 
 设计要点：
 

@@ -718,10 +718,21 @@ Host `0.8.7-v3`，package `0.9.0`，client 11,603 行；locale 914/914。
 
 ### V12 修复：Copilot 对话无法 compact
 
-**症状**：Copilot 抽屉里的对话无法压缩——`/compact` 无效，长对话也不自动压缩，历史一路增长直到
-provider 以上下文超限拒绝请求。
+**症状**：Copilot 抽屉里的对话无法压缩——输入 `/compact` 被当作普通消息发给模型（模型只好自己
+写一段"摘要"文字糊弄过去），长对话也不自动压缩，历史一路增长直到 provider 以上下文超限拒绝请求。
+会话日志可直接证实：`/compact` 的 4 次输入全部落成 `user/message`（`source.kind = "user"`），
+`compaction/*` 事件数为 0。
 
-**原因**：`lab-chat` preset 漏掉了 `lab-worker` / `lab-merge` / `lab-dashboard` 都有的 compaction 组：
+**根因（两层）**
+
+1. **所有权层**：`dsh-web-app/cordis.patch.yml` 把 host 平面的 `compaction-basic`、
+   `command-compact`、`tool-result-pruner` 三行全部 `disabled: true`，将 compaction 的所有权下放
+   到 agent preset 平面。
+2. **漏挂层**：`lab-chat`（项目 Copilot）的 `plugins` 里**没有任何 compaction 组**，于是该会话
+   既没有 `compaction` 服务（无 `agent/pre-step` 压力压缩、无 `CONTEXT_WINDOW_EXCEEDED` 恢复，
+   也没有命令可注册），也没有 `/compact`。
+
+**修复**：给 `lab-chat` 补上与官方 preset 同构的 compaction 组，并把 `command-compact` 放在组内：
 
 ```yaml
 - id: compaction
@@ -731,30 +742,30 @@ provider 以上下文超限拒绝请求。
   config:
     - id: compaction-basic
       name: '@deepseek-ai/dsh-compaction-basic'
+    - id: command-compact                 # 交互式会话才需要
+      name: '@deepseek-ai/dsh-command-compact'
     - id: tool-result-pruner
       name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
 ```
 
-`@deepseek-ai/dsh-command-compact` 声明 `inject = ['commands', 'compaction']` 并由
-`dsh-base/cordis.patch.yml` 按 leaf 挂载。`lab-chat` 的 agent 上下文没有 `compaction` 服务，于是三个能力
-一起缺失：
+两个硬性理由决定了这个形状：
 
-1. `/compact` 插件加载失败 → 手动压缩不可用；
-2. `dsh-compaction-basic` 的 `agent/pre-step` 压力监听器不存在 → 无自动压缩；
-3. `CONTEXT_WINDOW_EXCEEDED` 监听器不存在 → 无溢出恢复。
+- `isolate` 不可省：preset registry 的 `leakedServices` 审计拒绝把服务注册进 root realm 的行
+  （`Preset services require isolate realms`，`dsh-agent-preset-registry`）。
+- `command-compact` 必须挂在**组内**（而非同 preset 的兄弟行）：compaction 被隔离后只有同一 realm
+  内才能解析到该服务。DSH 官方的 `standard` / `ptc` / `cordis` / `minimal` 四个 preset 都是这个写法。
 
-与 `lab-worker` 的关键差异：worker 每次 activation 是一个**有界单轮**任务，Copilot 则是每项目一个
-**跨轮可 resume 的长期会话**（`project.copilotSessionId`），历史只增不减，因此必然撞上下文上限。
+**谁需要 `/compact`**：只有 `lab-chat`——唯一由人键入斜杠命令的 preset。`lab-worker` /
+`lab-merge` / `lab-dashboard` 由 Host 启动、无人输入，只需自动压缩，故不挂命令。
 
-**修复**：给 `presets.patch.yml::lab-chat` 补上与 `lab-worker` 逐字一致的 compaction 组；在
-`docs/02-agents-orchestration.md` 角色表补 `lab-chat` 行并写明「长期会话必须挂 compaction」的约束。
+**回归测试**：`tests/copilot-compaction.test.mjs`（4 例，`npm test`）断言：长期会话都挂 compaction 组；
+隔离组内必须含 `command-compact` 且该组必须 `isolate`；Host 驱动的 preset 只保留自动压缩而无命令；
+单轮 preset 刻意不挂。已验证：移除 `command-compact` 后对应用例失败，恢复后全绿。
 
-**回归测试**：`tests/copilot-compaction.test.mjs`（3 例，`npm test`）——断言所有长期会话 preset 都挂载
-compaction 组、各 preset 的 compaction 块逐字一致，并锁定单轮 preset（advisor/scheduler/controller/gc/intake）
-**刻意不挂**。已验证：回退 `presets.patch.yml` 后 2 例失败，恢复后全绿。
-
-**生效方式**：preset 在会话创建时解析，需 reload 插件或重启 `dsh web` 后新建 Copilot 会话才生效；
-已存在的 session 仍沿用旧 agent 上下文。
+**生效方式**：preset 在 **DSH 启动时** eager mount（`agent-preset-registry` 的 `register()` →
+`mountPreset()`），`mount(ctx, id)` 只做 retain + bind，不重读磁盘。因此改了 `presets.patch.yml`
+**必须重启 `dsh web`** 才生效；重启后即使 resume 一个旧会话也会用新组装（`mount()` 无
+`lastTurn` 限制，`agent-preset/locked` 只在 `select()` 抛，resume 不经过 `select()`）。
 
 ### V12 修复：Copilot resume 缺少 provider/model
 

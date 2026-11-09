@@ -208,11 +208,24 @@
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
             config: { sampleOverCapGlobResults: false }
-          # The Copilot is a long-lived, resumable discussion session, so it grows
-          # without bound while lab-worker marks a bounded one-shot task. Without
-          # this group the agent context has no `compaction` service, which means
-          # no `/compact` (dsh-command-compact injects `compaction`), no automatic
-          # pressure compaction, and no CONTEXT_WINDOW_EXCEEDED recovery.
+          # The Copilot is a long-lived, resumable discussion session: it keeps one
+          # conversation per project and grows without bound, unlike a bounded
+          # one-shot worker. Without this group the session has no compaction at
+          # all, so older history is never summarised and the turn eventually dies
+          # on the provider's context limit.
+          #
+          # Ownership matters here. `dsh-web-app` disables the host-plane
+          # `compaction-basic` / `command-compact` / `tool-result-pruner` rows
+          # (`dsh-web-app/cordis.patch.yml`, "disabled: true"), handing compaction
+          # ownership to the preset plane, so a preset that omits this group
+          # silently gets neither automatic compaction nor `/compact`.
+          #
+          # `command-compact` belongs INSIDE the group. The preset registry rejects
+          # preset rows that publish services into the root realm ("Preset services
+          # require isolate realms", dsh-agent-preset-registry), so this group must
+          # isolate `compaction`; the command then has to live in the same realm to
+          # reach it. Every shipped DSH preset follows this shape
+          # (dsh-web-app/presets/standard.patch.yml, plus ptc, cordis and minimal).
           - id: compaction
             name: cordis:group
             group: true
@@ -220,6 +233,8 @@
             config:
               - id: compaction-basic
                 name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
               - id: tool-result-pruner
                 name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
                 config: { thresholdChars: 8192, headChars: 4096, tailChars: 1024 }

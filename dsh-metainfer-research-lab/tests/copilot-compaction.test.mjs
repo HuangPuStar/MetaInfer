@@ -106,17 +106,46 @@ test('every long-lived preset mounts the compaction group', () => {
   }
 });
 
-test('compaction wiring is identical across long-lived presets', () => {
-  const blockOf = (presetId) => {
+test('the interactive Copilot also mounts the /compact command', () => {
+  // Automatic compaction alone is not enough for the Copilot: it is the one
+  // preset a human drives with slash commands, so `/compact` has to exist too.
+  // `dsh-web-app` disables the host-plane `command-compact` row and hands
+  // compaction ownership to the preset plane, while the preset registry rejects
+  // services leaked into the root realm ("Preset services require isolate
+  // realms"). The command therefore belongs inside the isolated group. Omitting
+  // it leaves the agent with automatic compaction but no `/compact`, and the
+  // typed text reaches the model as an ordinary user message.
+  const body = presets.get('lab-chat');
+  assert.ok(body, 'preset "lab-chat" should be declared in presets.patch.yml');
+  assert.match(
+    body,
+    /'@deepseek-ai\/dsh-command-compact'/,
+    'lab-chat must mount dsh-command-compact or /compact never registers',
+  );
+  // It has to be a child of the isolated group, not a sibling row: a sibling
+  // would resolve `compaction` outside the isolate realm.
+  const group = /- id: compaction\n[\s\S]*?(?=\n {10}- id: (?!compaction)[\w-]+|\n {2}- id: preset-|$)/.exec(body);
+  assert.ok(group, 'expected an indented compaction group body');
+  assert.match(
+    group[0],
+    /'@deepseek-ai\/dsh-command-compact'/,
+    'dsh-command-compact must be a child of the isolated compaction group',
+  );
+});
+
+test('host-driven presets keep auto-compaction without the slash command', () => {
+  // lab-worker / lab-merge are started by the Host and never typed into, so they
+  // need the compaction backend but not the human command. Asserting the
+  // negative keeps that distinction deliberate rather than accidental.
+  for (const presetId of ['lab-worker', 'lab-merge', 'lab-dashboard']) {
     const body = presets.get(presetId);
-    assert.ok(body, `preset "${presetId}" should be declared in presets.patch.yml`);
-    const match = /^( {10}- id: compaction\n(?: {12,}.*\n|\s*\n)*)/m.exec(body);
-    assert.ok(match, `preset "${presetId}" has no compaction block`);
-    return match[1].trimEnd();
-  };
-  const reference = blockOf('lab-worker');
-  for (const presetId of LONG_LIVED) {
-    assert.equal(blockOf(presetId), reference, `preset "${presetId}" compaction block must match lab-worker`);
+    if (!body) continue;
+    assert.match(body, /'@deepseek-ai\/dsh-compaction-basic'/, `preset "${presetId}" must keep compaction`);
+    assert.doesNotMatch(
+      body,
+      /'@deepseek-ai\/dsh-command-compact'/,
+      `preset "${presetId}" is Host-driven, so it should not mount the slash command`,
+    );
   }
 });
 
