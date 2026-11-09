@@ -16,7 +16,14 @@
 | **scheduler** | `lab-scheduler` | 每个 cycle 的 scheduler pass | 一次性 spawn，读完结果即 dispose | 无工具，只有 `structured_output` | `SchedulerOutput` |
 | **controller** | `lab-controller` | 项目创建时创建 root 会话，按需 resume | 项目生命周期 | 无 | 不产生任务输出；项目级 parent（advisor/scheduler 的 parent，冷恢复 sender） |
 | **GC 善后** | `lab-gc` | 节点被确定性终止后（timeout/cancel/异常清理） | 一次性 spawn，异步、不阻塞资源释放 | 只读 fs + `lab_cleanup`（Host 确定性清理工具，仅 GC 可见） | `GCOutput`（postmortem） |
+| **Copilot** | `lab-chat` | 用户打开项目对话抽屉（`project.copilot`） | 每项目一个可 resume 的长期会话（`project.copilotSessionId`），跨轮持久 | 只读 fs/fs-search + `lab_project_context`；**+ compaction** | 纯文本（讨论/分析，不产生结构化任务输出） |
 | **node anchor**（非 LLM 角色） | `lab-controller` | 节点启动时创建 root 会话，按需 resume | 节点生命周期（封存/dispose） | 无 | 不调用 LLM；作为 worker 的 parent 与继续对话 sender；提供 `header.cwd=worktree` 的 sandbox 边界 |
+
+> **compaction 是长期会话的必需项**：`/compact`（`dsh-command-compact` 的 `inject` 含 `compaction`）、
+> `agent/pre-step` 自动压力压缩、以及 `CONTEXT_WINDOW_EXCEEDED` 溢出恢复都依赖 agent 上下文里存在
+> `compaction` 服务。凡是在多轮间持续增长历史的 preset（`lab-worker` / `lab-chat` / `lab-merge` /
+> `lab-dashboard`）都必须挂载 `compaction` 组；单轮 `structured_output` preset 则刻意不挂，避免多一次
+> 摘要请求。`tests/copilot-compaction.test.mjs` 锁定这条约束。
 
 设计要点：
 

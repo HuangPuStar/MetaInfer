@@ -714,6 +714,47 @@ Host `0.8.7-v3`，package `0.9.0`，client 11,603 行；locale 914/914。
 - 原生 composer 直接写 Copilot session，绕过 Host chat 校验；Copilot 的只读保障依赖 preset/工具边界和 prompt，
   仍需实机确认没有 mutation 工具暴露。
 - 持久 Copilot session 的上下文会增长；需要依赖 compaction/预算策略。
+  （**已还债**：见下节「V12 修复：Copilot 对话无法 compact」。）
+
+### V12 修复：Copilot 对话无法 compact
+
+**症状**：Copilot 抽屉里的对话无法压缩——`/compact` 无效，长对话也不自动压缩，历史一路增长直到
+provider 以上下文超限拒绝请求。
+
+**原因**：`lab-chat` preset 漏掉了 `lab-worker` / `lab-merge` / `lab-dashboard` 都有的 compaction 组：
+
+```yaml
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate: { compaction: true, toolResultPruner: true }
+  config:
+    - id: compaction-basic
+      name: '@deepseek-ai/dsh-compaction-basic'
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+```
+
+`@deepseek-ai/dsh-command-compact` 声明 `inject = ['commands', 'compaction']` 并由
+`dsh-base/cordis.patch.yml` 按 leaf 挂载。`lab-chat` 的 agent 上下文没有 `compaction` 服务，于是三个能力
+一起缺失：
+
+1. `/compact` 插件加载失败 → 手动压缩不可用；
+2. `dsh-compaction-basic` 的 `agent/pre-step` 压力监听器不存在 → 无自动压缩；
+3. `CONTEXT_WINDOW_EXCEEDED` 监听器不存在 → 无溢出恢复。
+
+与 `lab-worker` 的关键差异：worker 每次 activation 是一个**有界单轮**任务，Copilot 则是每项目一个
+**跨轮可 resume 的长期会话**（`project.copilotSessionId`），历史只增不减，因此必然撞上下文上限。
+
+**修复**：给 `presets.patch.yml::lab-chat` 补上与 `lab-worker` 逐字一致的 compaction 组；在
+`docs/02-agents-orchestration.md` 角色表补 `lab-chat` 行并写明「长期会话必须挂 compaction」的约束。
+
+**回归测试**：`tests/copilot-compaction.test.mjs`（3 例，`npm test`）——断言所有长期会话 preset 都挂载
+compaction 组、各 preset 的 compaction 块逐字一致，并锁定单轮 preset（advisor/scheduler/controller/gc/intake）
+**刻意不挂**。已验证：回退 `presets.patch.yml` 后 2 例失败，恢复后全绿。
+
+**生效方式**：preset 在会话创建时解析，需 reload 插件或重启 `dsh web` 后新建 Copilot 会话才生效；
+已存在的 session 仍沿用旧 agent 上下文。
 
 ### V12 修复：Copilot resume 缺少 provider/model
 
