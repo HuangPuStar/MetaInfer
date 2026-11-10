@@ -16,8 +16,11 @@ import { DEFAULT_EXECUTION_PROFILES, normalizeExecutionProfile, resolveExecution
 import { ExecutionLog } from './execution-log.js';
 import { DEFAULT_DASHBOARD_SPEC, DASHBOARD_CHAT_SCHEMA, WIDGET_DATA_RESULT_SCHEMA, sanitizeDashboardSpec, normalizeWidgets, normalizeWidgetData, applyWidgetLayouts, buildWidgetPrompt, buildDashboardChatPrompt } from './dashboard.js';
 import { newProjectId, newSessionId } from './store.js';
+import { clampNodeTitle } from './titles.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
+// Upper bound on independent root nodes created together with a project.
+const MAX_ROOT_NODES = 8;
 
 function text(value, field, { required = false, max = 8000 } = {}) {
   if (value === undefined || value === null) {
@@ -480,8 +483,6 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   async function createProject(input) {
     const name = text(input?.name, 'name', { required: true, max: 120 });
     const brief = text(input?.brief, 'brief', { required: true, max: 8000 });
-    const initialPrompt = text(input?.initialPrompt, 'initialPrompt', { required: true, max: 8000 });
-    if (initialPrompt.length < 10) throw new LabError('bad_request', 'initialPrompt must be at least 10 characters');
     const repoPath = text(input?.repoPath, 'repoPath', { required: true, max: 4096 });
 
     const repo = await git.validateRepo(repoPath);
@@ -492,11 +493,55 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       executionProfile: input?.executionProfile,
       taskType: input?.taskType ?? 'general',
     });
-    let rootNeeds = {};
-    if (input?.needs !== undefined) {
-      const checked = normalizeNeeds(input.needs, { config });
-      if (checked.error) throw new LabError('bad_request', checked.error, 400);
-      rootNeeds = checked.needs;
+
+    // A project may open several independent root nodes, so two or more DAG
+    // branches can grow in parallel from the base commit with no edge between
+    // them. `initialPrompt` describes the single-root form; `initialNodes`
+    // generalises it to N roots. Every root gets its own branch/worktree.
+    const rootSpecs = [];
+    const initialNodes = Array.isArray(input?.initialNodes) ? input.initialNodes : null;
+    if (initialNodes && initialNodes.length > 0) {
+      if (initialNodes.length > MAX_ROOT_NODES) {
+        throw new LabError('bad_request', `initialNodes supports at most ${MAX_ROOT_NODES} root nodes`, 400);
+      }
+      const maxMinutes = config.maxNodeTimeoutMinutes ?? 240;
+      initialNodes.forEach((spec, index) => {
+        const label = `initialNodes[${index}]`;
+        // A title is a label: clamp it rather than rejecting the whole request.
+        const title = clampNodeTitle(text(spec?.title, `${label}.title`, { required: true }));
+        const prompt = text(spec?.prompt, `${label}.prompt`, { required: true, max: 8000 });
+        if (prompt.length < 10) {
+          throw new LabError('bad_request', `${label}.prompt must be at least 10 characters`, 400);
+        }
+        let needs = {};
+        if (spec?.needs !== undefined) {
+          const checked = normalizeNeeds(spec.needs, { config });
+          if (checked.error) throw new LabError('bad_request', `${label}: ${checked.error}`, 400);
+          needs = checked.needs;
+        }
+        const timeboxMinutes = spec?.timeboxMinutes === undefined
+          ? config.nodeTimeoutMinutes
+          : spec.timeboxMinutes;
+        if (!Number.isInteger(timeboxMinutes) || timeboxMinutes < 1 || timeboxMinutes > maxMinutes) {
+          throw new LabError('bad_request', `${label}.timeboxMinutes must be 1..${maxMinutes}`, 400);
+        }
+        rootSpecs.push({ title, prompt, needs, timeboxMinutes });
+      });
+    } else {
+      const initialPrompt = text(input?.initialPrompt, 'initialPrompt', { required: true, max: 8000 });
+      if (initialPrompt.length < 10) throw new LabError('bad_request', 'initialPrompt must be at least 10 characters');
+      let rootNeeds = {};
+      if (input?.needs !== undefined) {
+        const checked = normalizeNeeds(input.needs, { config });
+        if (checked.error) throw new LabError('bad_request', checked.error, 400);
+        rootNeeds = checked.needs;
+      }
+      rootSpecs.push({
+        title: '根节点',
+        prompt: initialPrompt,
+        needs: rootNeeds,
+        timeboxMinutes: config.nodeTimeoutMinutes,
+      });
     }
 
     const projectId = newProjectId();
@@ -516,57 +561,69 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       },
       mode: 'manual',
       config,
-      counters: { nextNodeSeq: 2, nodes: 1, cycles: 0, eventSeq: 0 },
+      counters: { nextNodeSeq: rootSpecs.length + 1, nodes: rootSpecs.length, cycles: 0, eventSeq: 0 },
       revision: 1,
       createdAt: now,
       updatedAt: now,
     };
 
-    const nodeId = 'n-0001';
-    const rootNode = {
-      id: nodeId,
-      projectId,
-      title: '根节点',
-      anchorSessionId: newSessionId(),
-      sessionId: newSessionId(),
-      deadlineAt: null,
-      prompt: initialPrompt,
-      successCriteria: '',
-      status: 'planned',
-      execution: {
-        profile: rootExecution.profile,
-        driver: rootExecution.driver,
-        ...(rootExecution.model ? { model: rootExecution.model } : {}),
-        ...(rootExecution.reasoningEffort ? { reasoningEffort: rootExecution.reasoningEffort } : {}),
-        ...(rootExecution.codexPath ? { codexPath: rootExecution.codexPath } : {}),
-      },
-      taskType: rootExecution.taskType,
-      parentId: null,
-      createdBy: 'seed',
-      needs: rootNeeds,
-      timeboxMs: config.nodeTimeoutMinutes * 60_000,
-      git: {
-        branch: `dshex/${projectId}/${nodeId}`,
-        worktreePath: path.join(worktreeRoot, nodeId),
-        baseCommit,
-        headCommit: null,
-      },
-      timestamps: { createdAt: now, lastActivityAt: null },
-    };
+    const rootNodes = rootSpecs.map((spec, index) => {
+      const nodeId = `n-${String(index + 1).padStart(4, '0')}`;
+      return {
+        id: nodeId,
+        projectId,
+        title: spec.title,
+        anchorSessionId: newSessionId(),
+        sessionId: newSessionId(),
+        deadlineAt: null,
+        prompt: spec.prompt,
+        successCriteria: '',
+        status: 'planned',
+        execution: {
+          profile: rootExecution.profile,
+          driver: rootExecution.driver,
+          ...(rootExecution.model ? { model: rootExecution.model } : {}),
+          ...(rootExecution.reasoningEffort ? { reasoningEffort: rootExecution.reasoningEffort } : {}),
+          ...(rootExecution.codexPath ? { codexPath: rootExecution.codexPath } : {}),
+        },
+        taskType: rootExecution.taskType,
+        parentId: null,
+        createdBy: 'seed',
+        needs: spec.needs,
+        timeboxMs: spec.timeboxMinutes * 60_000,
+        git: {
+          branch: `dshex/${projectId}/${nodeId}`,
+          worktreePath: path.join(worktreeRoot, nodeId),
+          baseCommit,
+          headCommit: null,
+        },
+        timestamps: { createdAt: now, lastActivityAt: null },
+      };
+    });
 
     await store.saveProject(project);
-    await store.saveNode(projectId, rootNode);
+    for (const node of rootNodes) {
+      await store.saveNode(projectId, node);
+    }
     await store.appendEvent(project, 'project/created', {
-      data: { name, repoPath: repo.repoRoot, baseBranch, baseCommit },
+      data: {
+        name,
+        repoPath: repo.repoRoot,
+        baseBranch,
+        baseCommit,
+        rootNodeIds: rootNodes.map((node) => node.id),
+      },
     });
-    await store.appendEvent(project, 'node/created', {
-      nodeId,
-      data: { title: rootNode.title, status: rootNode.status, createdBy: rootNode.createdBy },
-    });
+    for (const node of rootNodes) {
+      await store.appendEvent(project, 'node/created', {
+        nodeId: node.id,
+        data: { title: node.title, status: node.status, createdBy: node.createdBy, isRoot: true },
+      });
+    }
     project.updatedAt = Date.now();
     await store.saveProject(project);
 
-    return { project, rootNode, revision: project.revision };
+    return { project, rootNode: rootNodes[0], rootNodes, revision: project.revision };
   }
 
   async function getState(projectId, sinceRevision) {
@@ -716,47 +773,59 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (!ctx.subagents || !orchestrator) throw new LabError('unavailable', 'dashboard agent runtime is unavailable', 503);
     const controller = await orchestrator.ensureController(project);
     const model = resolveModelSelection(ctx, project, null, 'dashboard');
-    const abort = new AbortController();
     const deadlineMs = 600_000;
-    let activation = null;
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      abort.abort();
-      try { activation?.dispose?.().catch?.(() => {}); } catch {}
-    }, deadlineMs);
-    try {
-      activation = await ctx.subagents.startActivation({
-        provider: 'spawn',
-        label: `mir-dashboard/${project.id}`,
-        delivery: 'caller',
-        signal: abort.signal,
-        request: {
-          parent: controller,
-          cwd: project.repo.path,
-          prompt: [{ type: 'text', text: prompt }],
-          agentPreset: 'lab-dashboard',
-          agentOptions: {
-            provider: model.provider,
-            model: model.model,
-            ...(model.reasoningEffort ? { reasoningEffort: model.reasoningEffort } : {}),
+    // A dashboard edit is one very large structured_output call (the agent returns the
+    // whole widget list), and a provider can end the turn with an unusable tool payload
+    // (e.g. MALFORMED_RESPONSE). One retry keeps a single bad stream from losing the edit.
+    const maxAttempts = 2;
+    let lastReason = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const abort = new AbortController();
+      let activation = null;
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        abort.abort();
+        try { activation?.dispose?.().catch?.(() => {}); } catch {}
+      }, deadlineMs);
+      const attemptPrompt = attempt === 1
+        ? prompt
+        : `${prompt}\n\n# Retry\nThe previous attempt ended with an unusable tool payload (invalid JSON).\nProduce the same content again, but keep every string short (aim for <= 600 characters per widget query) so the structured_output payload stays small and valid.`;
+      try {
+        activation = await ctx.subagents.startActivation({
+          provider: 'spawn',
+          label: `mir-dashboard/${project.id}`,
+          delivery: 'caller',
+          signal: abort.signal,
+          request: {
+            parent: controller,
+            cwd: project.repo.path,
+            prompt: [{ type: 'text', text: attemptPrompt }],
+            agentPreset: 'lab-dashboard',
+            agentOptions: {
+              provider: model.provider,
+              model: model.model,
+              ...(model.reasoningEffort ? { reasoningEffort: model.reasoningEffort } : {}),
+            },
+            outputSchema,
           },
-          outputSchema,
-        },
-      });
-      const timeout = new Promise((_, reject) => {
-        setTimeout(() => reject(new LabError('dashboard_timeout', `dashboard agent did not finish within ${Math.round(deadlineMs / 1000)}s`, 504)), deadlineMs + 500);
-      });
-      const result = await Promise.race([activation.result, timeout]);
-      if (timedOut) throw new LabError('dashboard_timeout', `dashboard agent did not finish within ${Math.round(deadlineMs / 1000)}s`, 504);
-      if (result.stopReason !== 'completed' || !result.structured) {
-        throw new LabError('dashboard_agent_failed', `dashboard agent stopped: ${result.stopReason}`, 500);
+        });
+        const timeout = new Promise((_, reject) => {
+          setTimeout(() => reject(new LabError('dashboard_timeout', `dashboard agent did not finish within ${Math.round(deadlineMs / 1000)}s`, 504)), deadlineMs + 500);
+        });
+        const result = await Promise.race([activation.result, timeout]);
+        if (timedOut) throw new LabError('dashboard_timeout', `dashboard agent did not finish within ${Math.round(deadlineMs / 1000)}s`, 504);
+        if (result.stopReason === 'completed' && result.structured) {
+          return { result: result.structured, agentSessionId: activation.childId ?? null };
+        }
+        lastReason = result.stopReason ?? 'unknown';
+        if (result.stopReason !== 'error') break;
+      } finally {
+        clearTimeout(timer);
+        try { await activation?.dispose(); } catch {}
       }
-      return { result: result.structured, agentSessionId: activation.childId ?? null };
-    } finally {
-      clearTimeout(timer);
-      try { await activation?.dispose(); } catch {}
     }
+    throw new LabError('dashboard_agent_failed', `dashboard agent stopped: ${lastReason ?? 'unknown'}`, 500);
   }
 
   async function refreshDashboard(projectId, options = {}) {
@@ -1084,7 +1153,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       }
       let changed = false;
       if (input?.title !== undefined) {
-        node.title = text(input.title, 'title', { required: true, max: 120 });
+        // A title is a label: clamp an over-long edit instead of rejecting it.
+        node.title = clampNodeTitle(text(input.title, 'title', { required: true }));
         changed = true;
       }
       if (input?.prompt !== undefined) {
@@ -2511,7 +2581,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }
     if (action === 'create_project') {
       const result = await createProject(input);
-      return { project: result.project, rootNode: result.rootNode, revision: result.revision };
+      return {
+        project: result.project,
+        rootNode: result.rootNode,
+        rootNodes: result.rootNodes,
+        revision: result.revision,
+      };
     }
     if (action === 'state') return getState(input?.projectId);
     if (action === 'update_project') return updateProject(input?.projectId, input ?? {});

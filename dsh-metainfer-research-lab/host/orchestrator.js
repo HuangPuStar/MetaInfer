@@ -13,6 +13,7 @@ import { resolveExecutionProfile } from './execution.js';
 import { newSessionId } from './store.js';
 import { advisorCandidates, buildAdvisorSnapshot, buildSchedulerSnapshot, promptHash } from './snapshot.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
+import { clampNodeTitle, isBlank } from './titles.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 
@@ -156,7 +157,9 @@ function advisorPrompt(project, snapshot, lens) {
     '    local execution runtime such as a Codex profile. The Host rejects unknown profiles.',
     '',
     '# Snapshot',
-    JSON.stringify(snapshot, null, 2),
+    // Compact JSON: the snapshot is dominated by candidateParents and pretty-printing
+    // it costs ~13% of the prompt for no benefit to the model.
+    JSON.stringify(snapshot),
   ].join('\n');
 }
 
@@ -489,9 +492,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     const parent = nodes.find((node) => node.id === parentId);
     if (!parent || parent.status !== 'completed') return { ok: false, reason: `parent ${parentId} is not completed` };
     if (!parent.git?.headCommit) return { ok: false, reason: `parent ${parentId} has no commit` };
-    const title = typeof proposal.title === 'string' ? proposal.title.trim() : '';
+    // A title is a label, not an instruction: clamp it instead of rejecting the
+    // whole proposal (rejections here used to starve the auto driver silently).
+    const title = clampNodeTitle(proposal?.title);
     const prompt = typeof proposal.prompt === 'string' ? proposal.prompt.trim() : '';
-    if (!title || title.length > 120) return { ok: false, reason: 'title must be 1..120 characters' };
+    if (isBlank(title)) return { ok: false, reason: 'title is required' };
     if (prompt.length < 10 || prompt.length > 8000) return { ok: false, reason: 'prompt must be 10..8000 characters' };
     const { needs, error } = normalizeNeeds(proposal.needs, project);
     if (error) return { ok: false, reason: error };
@@ -512,6 +517,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       execution = resolveExecutionProfile(project, {
         executionProfile: proposal.executionProfile,
         taskType: proposal.taskType,
+        // A wrong profile name in a suggestion is not a reason to throw the
+        // experiment away; it falls back to the project default and the cycle
+        // records the correction.
+        fallbackToDefault: true,
       });
     } catch (error) {
       return { ok: false, reason: error instanceof Error ? error.message : String(error) };
@@ -519,6 +528,9 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     return {
       ok: true,
       parent,
+      executionNote: execution.profileFallback
+        ? { requestedProfile: execution.requestedProfile, usedProfile: execution.profile }
+        : null,
       spec: {
         title,
         prompt,
@@ -752,6 +764,14 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
                 runId: cycle.advisorRunId,
               });
           applied.createdNodeIds.push(node.id);
+          if (check.executionNote) {
+            // Visible, non-fatal correction: the proposal asked for a profile this
+            // project does not define, so the node runs on the default profile.
+            await persistEvent(project, 'node/profile_fallback', {
+              nodeId: node.id,
+              data: check.executionNote,
+            });
+          }
           const parent = store.getNode(projectId, check.parent.id);
           if (parent) {
             parent.review = {
@@ -977,9 +997,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       if (parent.status !== 'completed') {
         throw new LabError('node_not_sealed_source', `node ${parentId} is ${parent.status}; only completed nodes can get successors`, 409);
       }
-      const title = typeof input?.title === 'string' ? input.title.trim() : '';
+      // Clamp rather than reject: see host/titles.js.
+      const title = clampNodeTitle(input?.title);
       const prompt = typeof input?.prompt === 'string' ? input.prompt.trim() : '';
-      if (!title || title.length > 120) throw new LabError('bad_request', 'title must be 1..120 characters', 400);
+      if (isBlank(title)) throw new LabError('bad_request', 'title is required', 400);
       if (prompt.length < 10 || prompt.length > 8000) throw new LabError('bad_request', 'prompt must be 10..8000 characters', 400);
       const { needs, error } = normalizeNeeds(input?.needs, project);
       if (error) throw new LabError('bad_request', error, 400);
@@ -1100,10 +1121,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       if (nodes.length >= (project.config.maxNodes ?? 60)) {
         throw new LabError('max_nodes', 'maxNodes reached for this project', 409);
       }
-      const title = typeof input?.title === 'string' && input.title.trim()
-        ? input.title.trim()
-        : `Merge: ${parents.map((parent) => parent.title).join(' ⊕ ')}`.slice(0, 120);
-      if (title.length > 120) throw new LabError('bad_request', 'title must be 1..120 characters', 400);
+      const rawTitle = typeof input?.title === 'string' && input.title.trim()
+        ? input.title
+        : `Merge: ${parents.map((parent) => parent.title).join(' ⊕ ')}`;
+      const title = clampNodeTitle(rawTitle);
+      if (isBlank(title)) throw new LabError('bad_request', 'title is required', 400);
       const maxMinutes = project.config.maxNodeTimeoutMinutes ?? 240;
       const timeboxMinutes = Number.isInteger(input?.timeboxMinutes)
         ? input.timeboxMinutes

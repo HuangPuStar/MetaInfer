@@ -458,16 +458,24 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     const set = new Set(node.needs ? Object.keys(node.needs) : []);
     void set;
     const model = roleModel(project, 'controller');
-    const handle = await ctx.agents.create({
-      sessionId: node.anchorSessionId,
-      meta: { cwd: node.git.worktreePath, origin: 'subagent', agentPreset: 'lab-controller' },
-      agentOptions: model,
-      setup: async (agentCtx) => {
-        await ctx.agentPresets.mount(agentCtx, 'lab-controller');
-      },
-    });
-    anchorHandles.set(node.anchorSessionId, handle);
-    return handle.agent;
+    try {
+      const handle = await ctx.agents.create({
+        sessionId: node.anchorSessionId,
+        meta: { cwd: node.git.worktreePath, origin: 'subagent', agentPreset: 'lab-controller' },
+        agentOptions: model,
+        setup: async (agentCtx) => {
+          await ctx.agentPresets.mount(agentCtx, 'lab-controller');
+        },
+      });
+      anchorHandles.set(node.anchorSessionId, handle);
+      return handle.agent;
+    } catch (error) {
+      // A previous attempt may already have created this anchor session and then
+      // dropped the handle when it failed: `get()` finds nothing in memory while
+      // the session still exists on disk. Resume it instead of stranding the node.
+      if (!/already exists/i.test(String(error?.message ?? error))) throw error;
+      return resumeAnchor(project, node);
+    }
   }
 
   async function resumeAnchor(project, node) {
@@ -513,7 +521,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     return out;
   }
 
-  function mergePrompt(project, node, selection, remotePrompt = '') {
+  function mergePrompt(project, node, selection, remotePrompt = '', external = false) {
     const parents = (node.parentIds ?? [])
       .map((id) => store.getNode(project.id, id))
       .filter(Boolean)
@@ -619,7 +627,11 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       project.brief,
       '',
       '# Your node',
-      `Node: ${node.id} — ${node.title}`,
+      `Node: ${node.id}`,
+      // The title is a short label for humans and may be clamped for display. It is
+      // deliberately NOT an instruction: only the Task and Success criteria sections
+      // below define what this node must do.
+      `Node title (label only, not an instruction): ${node.title}`,
       `Base commit: ${node.git.baseCommit}`,
       `Model for this attempt: ${selection?.provider ?? 'default'}/${selection?.model ?? 'default'}${selection?.reasoningEffort ? ` (reasoning effort: ${selection.reasoningEffort})` : ''}`,
       `Working directory: ${node.git.worktreePath} (this is your git worktree; work only inside it)`,
@@ -630,7 +642,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       '# Success criteria',
       node.successCriteria || "The task's code/data/artifacts are written into the working directory and are reproducible.",
       '',
-      '# Reference: ancestor experiments',
+      '# Reference: ancestor experiments (titles are labels; the reports carry the findings)',
       ancestors || '(this is the root experiment)',
       '',
       '# Constraints',
@@ -1257,7 +1269,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
           request: {
             parent: anchor,
             cwd: node.git.worktreePath,
-            prompt: [{ type: 'text', text: mergePrompt(project, node, selection, remotePrompt) }],
+            prompt: [{ type: 'text', text: mergePrompt(project, node, selection, remotePrompt, externalExecution) }],
             agentPreset: 'lab-merge',
             agentOptions: selectionToAgentOptions(selection),
           },

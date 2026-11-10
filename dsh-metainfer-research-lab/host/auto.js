@@ -140,6 +140,10 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
     if (state.status === 'off') return start(projectId);
     state.status = 'running';
     state.pauseReason = null;
+    // A manual resume is an explicit "try again", so it must clear the failure
+    // streak: the breaker pauses at errorStreak >= 3 and would otherwise re-pause
+    // on the very next tick, making auto_resume look like a no-op.
+    state.errorStreak = 0;
     if (!state.startedAt) state.startedAt = Date.now();
     return statusOf(projectId);
   }

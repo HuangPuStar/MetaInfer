@@ -177,6 +177,45 @@ await test('events are ordered and paged', async () => {
   assert.equal(tail.events.length, 1);
 });
 
+await test('createProject with two independent root nodes', async () => {
+  const created = await lab.createProject({
+    name: 'Multi-root selftest',
+    brief: 'Two parallel DAG branches that start from the same base commit.',
+    repoPath: DEMO_REPO,
+    initialNodes: [
+      { title: 'Branch A', prompt: 'Run the branch-A experiment and report its result.' },
+      { title: 'Branch B', prompt: 'Run the branch-B experiment and report its result.' },
+    ],
+    config: { resourcePools: { gpu: 1 }, maxNodes: 10, nodeTimeoutMinutes: 10 },
+  });
+  assert.equal(created.rootNodes.length, 2);
+  assert.deepEqual(created.rootNodes.map((node) => node.id), ['n-0001', 'n-0002']);
+  assert.equal(created.project.counters.nodes, 2);
+  assert.equal(created.project.counters.nextNodeSeq, 3);
+  for (const node of created.rootNodes) {
+    assert.equal(node.parentId, null);
+    assert.equal(node.git.baseCommit, created.project.repo.baseCommit);
+    assert.equal(node.status, 'planned');
+  }
+  assert.notEqual(created.rootNodes[0].git.branch, created.rootNodes[1].git.branch);
+  const state = await lab.getState(created.project.id);
+  assert.equal(state.nodes.length, 2);
+  assert.equal(state.edges.length, 0);
+  await lab.deleteProject(created.project.id, { removeWorktrees: false });
+});
+
+await test('createProject rejects an empty initialNodes prompt', async () => {
+  await assert.rejects(
+    () => lab.createProject({
+      name: 'Bad roots',
+      brief: 'brief',
+      repoPath: DEMO_REPO,
+      initialNodes: [{ title: 'Only title', prompt: '' }],
+    }),
+    (error) => error.code === 'bad_request',
+  );
+});
+
 await test('listProjects summary', async () => {
   const list = await lab.listProjects();
   assert.equal(list.length, 1);

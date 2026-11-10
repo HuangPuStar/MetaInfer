@@ -82,6 +82,22 @@ export function registerAgentTool(ctx, service) {
         repoPath: { type: 'string', description: 'absolute local git repository path' },
         brief: { type: 'string' },
         initialPrompt: { type: 'string' },
+        initialNodes: {
+          type: 'array',
+          description:
+            'for create_project: 1..8 independent root nodes (no parent/child edge). Each item {title, prompt, needs?, timeboxMinutes?}; overrides initialPrompt when present.',
+          items: {
+            type: 'object',
+            additionalProperties: true,
+            properties: {
+              title: { type: 'string' },
+              prompt: { type: 'string' },
+              needs: { type: 'object', additionalProperties: true },
+              timeboxMinutes: { type: 'number' },
+            },
+            required: ['title', 'prompt'],
+          },
+        },
         baseBranch: { type: 'string' },
         needs: { type: 'object', additionalProperties: true, description: 'node resource needs, e.g. {"gpu":2,"machines":2}; successor/create_merge also accept [{"key":"gpu","amount":2}]' },
         parentIds: { type: 'array', items: { type: 'string' }, description: 'for create_merge: 2..4 completed parent node ids' },

@@ -59,7 +59,7 @@ export function normalizeExecutionProfile(raw) {
  * Resolve a node's profile from an explicit profile, a task type mapping, or
  * the project default.
  * @param {object} project project record.
- * @param {{executionProfile?: string, taskType?: string}} input requested selection.
+ * @param {{executionProfile?: string, taskType?: string, fallbackToDefault?: boolean}} input requested selection.
  */
 export function resolveExecutionProfile(project, input = {}) {
   const execution = project?.config?.execution ?? {};
@@ -74,11 +74,27 @@ export function resolveExecutionProfile(project, input = {}) {
     ? profileName(input.executionProfile, 'executionProfile')
     : (typeof mapped === 'string' && mapped ? mapped : DEFAULT_EXECUTION_PROFILE);
   if (!profiles[requested]) {
-    throw new LabError('bad_request', `unknown execution profile: ${requested}`, 400);
+    if (input.fallbackToDefault !== true) {
+      throw new LabError('bad_request', `unknown execution profile: ${requested}`, 400);
+    }
+    // A suggestion that names a profile this project does not define ("default"
+    // and "auto" are the usual ones) must not discard the proposal that carried
+    // it: selection metadata is not the experiment. Fall back to the project
+    // default and let the caller report the correction.
+    const fallback = normalizeExecutionProfile(profiles[DEFAULT_EXECUTION_PROFILE]);
+    return {
+      profile: DEFAULT_EXECUTION_PROFILE,
+      requestedProfile: requested,
+      profileFallback: true,
+      taskType,
+      ...fallback,
+    };
   }
   const profile = normalizeExecutionProfile(profiles[requested]);
   return {
     profile: requested,
+    requestedProfile: requested,
+    profileFallback: false,
     taskType,
     ...profile,
   };

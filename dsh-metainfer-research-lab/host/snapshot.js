@@ -150,7 +150,7 @@ function nodeSummary(node, kind, children) {
  * ancestors (the review board focuses on leaves, not the whole graph).
  * @returns {Map<string, object>} candidate id -> summary.
  */
-export function advisorCandidates(store, project, ancestorDepth = 2) {
+export function advisorCandidates(store, project, ancestorDepth = project?.config?.advisor?.ancestorDepth ?? 2) {
   const nodes = store.listNodes(project.id);
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const children = childrenIndex(nodes.filter((node) => node.status !== 'proposed'));
