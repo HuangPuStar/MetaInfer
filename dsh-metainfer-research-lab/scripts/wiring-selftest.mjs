@@ -49,7 +49,7 @@ await test('the Host index builds a kernel and passes dispatchOnce to auto + ser
   assert.match(index, /let service = null/);
   assert.match(index, /service\s*\?\s*service\.dispatchOnce\(projectId, \{ \.\.\.options, includeStatus: false \}\)/);
   assert.match(index, /createAutoController\(\{ store, kernel, orchestrator, cluster, dispatchOnce: autoDispatch \}\)/);
-  assert.match(index, /dispatchOnce,\n\s+version/);
+  assert.match(index, /dispatchOnce,\n\s+operatorAuthority,\n\s+version/);
 });
 
 await test('the agent tool authorizes every call from the DSH session, not from args', async () => {
@@ -72,6 +72,7 @@ await test('dag_query / dag_get are registered in the tool enum and dispatched b
 });
 
 await test('Stage 3-5 surfaces are wired from HTTP through the service and into the client', async () => {
+  const index = await source('index.js');
   const http = await source('host/http.js');
   const serviceSource = await source('host/lab-service.js');
   const dispatcherSource = await source('host/dispatch/dispatch-once.js');
@@ -92,6 +93,11 @@ await test('Stage 3-5 surfaces are wired from HTTP through the service and into 
   assert.match(client, /fetchObserver/);
   assert.match(client, /fetchDisputeClasses/);
   assert.match(client, /ObserverPanel/);
+  assert.match(http, /x-metainfer-operator/);
+  assert.match(client, /x-metainfer-operator/);
+  assert.match(index, /createOperatorAuthority/);
+  assert.match(index, /__METAINFER_OPERATOR_TOKEN__/);
+  assert.match(index, /webserver\/index-inject/);
 });
 
 await test('the prompt tells the model to call dag_query, so a tool call really returns rows', async () => {

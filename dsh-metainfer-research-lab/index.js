@@ -26,6 +26,7 @@ import { createAutoController } from './host/auto.js';
 import { createClusterAdmin } from './host/cluster.js';
 import { createKernel } from './host/kernel/instance.js';
 import { createDispatchOnce } from './host/dispatch/dispatch-once.js';
+import { createOperatorAuthority } from './host/operator-token.js';
 import { createLocalPoolBroker, createClusterBroker } from './host/dispatch/brokers.js';
 
 export const name = 'metainfer-research-lab';
@@ -175,6 +176,7 @@ export async function apply(ctx, config = {}) {
   const orchestrator = createOrchestrator({ ctx, store, git, runtime, cluster, kernel });
   gcRunner = createGcRunner({ ctx, store, orchestrator, kernel });
   const auto = createAutoController({ store, kernel, orchestrator, cluster, dispatchOnce: autoDispatch });
+  const operatorAuthority = createOperatorAuthority();
   service = createLabService({
     ctx,
     store,
@@ -187,6 +189,7 @@ export async function apply(ctx, config = {}) {
     clusterAdmin,
     kernel,
     dispatchOnce,
+    operatorAuthority,
     version: '0.11.0',
   });
 
@@ -205,6 +208,16 @@ export async function apply(ctx, config = {}) {
 
   const webServer = ctx.get('webServer');
   if (webServer) {
+    ctx.effect(() => ctx.on('webserver/index-inject', (table, peer) => {
+      // Only the owner page gets the browser credential. It is read fresh on
+      // every index render and is never returned by an API response.
+      if (peer?.principal?.kind !== 'owner') return;
+      table.push({
+        kind: 'global',
+        name: '__METAINFER_OPERATOR_TOKEN__',
+        value: operatorAuthority.token,
+      });
+    }), 'metainfer-research-lab: operator token injection');
     const trajectoryBackend = await ensureTrajectoryBackend(ctx.logger);
     ctx.effect(
       () => () => {

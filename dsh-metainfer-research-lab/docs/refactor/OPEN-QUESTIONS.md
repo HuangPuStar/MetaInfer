@@ -150,7 +150,7 @@
 | B14 | 明确不做 | 10 分钟否决窗口以 chief 审批闸门为前提；v2 用 dispute/arbiter 处理例外，不建该窗口。 |
 | B16 | 明确不做 | D6 已明确拒绝驻留会话 + `submit` 工具，v2 继续一次性激活。 |
 | B18 | 应该 | `tag:{hypothesis,variant}` 能降低重复实验，但当前先靠 Q10 的候选对与人工判重，不阻塞发布。 |
-| B22 | 必须 | authority 必须在 tool/HTTP/direct 三条路径都执行；当前独立探针仍 FAIL，作者修复待重放。 |
+| B22 | 必须 | authority 必须在 tool/HTTP/direct 三条路径都执行；作者已补 Host 签名 operator token + 无 token 隐藏按钮，独立探针仍待重放。 |
 | Q4 | 应该 | 专家身份/状态/预算/绩效是专家库质量项；现有 lifecycle 已可用，完整化可排后。 |
 | Q5 | 必须 | deferred 不能占 `maxNodes`、不能让 auto 误判“有进展”，这是已发生过停机的正确性缺陷。 |
 | Q8 | 明确不做 | 固定三级评审被 D7 取消；上下文切片价值转入 Q9/Q14 的地图与预算。 |
@@ -188,7 +188,7 @@
 | O6 | 应该 | idle/error streak 与 lastPause 已部分可见；完整持久化是运维增强，不阻塞调度正确性。 |
 | O12 | 应该 | GPU/成本/叙事结构化是 dashboard 质量项，先把 O1–O5 的硬指标做完。 |
 | S5 | 必须 | replay 必须分页/窗口化，10k 事件全量响应会直接突破 1 MB/2 s 预算。 |
-| U2 | 必须 | 150 queued 必须显示 showing 100/150，且每一行都要有 `facts.why`；作者修复待独立重放。 |
+| U2 | 必须 | 150 queued 必须显示 showing 100/150，且每一行都要有 `facts.why`；作者已改为单一 queueRows 顺序，独立探针待重放。 |
 
 > 计数：**必须 15 / 应该 20 / 明确不做 10 = 45**。Q3 已 PASS，不再出现在本表；
 > B22、U2 是仍未独立关闭的必须行；5.2/5.3/5.3.3 不再用“由 B22/B23 覆盖”代替
@@ -198,8 +198,8 @@
 
 | 行 | 状态 | 处理 |
 |---|---|---|
-| B22 | **FAIL（待独立重放）** | 本轮已把 tool/direct/HTTP 都改为 default-deny；独立 §40 尚未重放，不能写成 PASS。 |
-| U2 | **FAIL（待独立重放）** | 已加 `queueRows`、`showing 100/150` 与逐行 why；独立 §40 尚未重放。 |
+| B22 | **FAIL（待独立重放）** | tool/direct/HTTP 都 default-deny；本轮补 Host 注入的签名 operator token，合法按钮可真实仲裁，伪造 body 仍拒绝。独立 §40 尚未重放。 |
+| U2 | **FAIL（待独立重放）** | 已改为单一 `queueRows` 顺序，position/why/truncation 一致；独立 §40 尚未重放。 |
 | U12 | §40 PASS | 五个面板的 loading/error/Retry 已由独立 jsdom 复核。 |
 | 5.3.13 | §40 PASS | 60 s cap、starving/pauseReason 已由独立 probe 复核。 |
 | 5.2 | PASS（本账本独立 verdict） | 争议表 + 8 类映射 + 超时默认本身已落地；authority 执行问题归 B22，不再把 5.2 合并进 B22。 |

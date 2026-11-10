@@ -8,8 +8,8 @@
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **116** |
-| FAIL | **48** |
+| PASS | **119** |
+| FAIL | **45** |
 | 未测量 | **10**（其中浏览器 2 行 = 不适用） |
 | 合计 | **174** |
 
@@ -30,10 +30,10 @@ B27 撤销**，不再作为 B27 的排除项。
 arbiter matrix）独立通过，**B22 仍是 FAIL**：8 类 authority 元数据正确，但
 `resolveDispute` 不执行 authority 检查，专家可对全部 8 类 `apply_change`；
 5.3.13 的 long-poll/mid-sleep 通过，但只有 30s、只识别 stalled，缺
-starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮独立复核后以 §40 的 **116 / 48 / 10** 为准。
+starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮以 §41.7 的 **119 / 45 / 10** 为准。
 
 > 作者第十四轮报告见 **§35**，不替代独立复核。
-> **第十七轮独立复核见 §40；当前独立总判定以 §40 为准：116 PASS / 48 FAIL / 10 未测量。**
+> **第十七轮独立复核见 §40；第十八轮独立复核见 §41.7；当前独立总判定以 §41.7 为准：119 PASS / 45 FAIL / 10 未测量。**
 > **B27 narrow release possible（含真实进程 restart）**，完整发布仍 **NO-SHIP**。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
@@ -41,7 +41,7 @@ starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 �
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
 > 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**；第十一轮作者 scope/CAS 整改见 **§30**，第十二轮独立复核（`e85b213`）见 **§30.6**；第十二轮作者 handler/canonical/CAS 整改见 **§31**，第十三轮独立复核（`4a209bc`）见 **§32**；第十三轮作者 `actorKey` 整改见 **§33**，第十四轮独立复核（`1f3e20e`）见 **§34**；作者第十五轮 B27/能力见 **§35**，第十五轮独立复核（`ef16f34`）见 **§36**。
-> 独立总判定以 **§40** 为准；§20/§22/§24/§26/§28/§29/§30/§31/§33/§35/§37 是作者报告，不能代替独立复核。§22 曾声称关闭
+> 独立总判定以 **§41.7** 为准；§40 是第十七轮历史结论；§20/§22/§24/§26/§28/§29/§30/§31/§33/§35/§37 是作者报告，不能代替独立复核。§22 曾声称关闭
 > B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了其中 B27/U14/S12/A20 四项；
 > §24 作者报告为 112 PASS / 52 FAIL，§25 复核为 103 PASS / 61 FAIL，§27 复核为
 > **107 PASS / 57 FAIL / 10 未测量**，§28.4 复核仍为 **107 / 57 / 10**，
@@ -5496,8 +5496,10 @@ S12 的 100k 首读由 bench 的归档边界覆盖；eventlog-selftest 覆盖 re
 - `arbitrate` 和 `resolveDispute` 都先调用同一 `disputeActorVerdict`：
   只有 human、system、`lab-arbiter` 能进入；curator、普通 expert 在
   direct 与 tool 两条路径都得到 `forbidden_action`。随后才执行按 record
-  的 authority 映射。HTTP `/disputes/resolve` 和 `/arbitrate` 都通过
-  `arbitrate(..., null)` 进入，因此无 actor 时返回 `actor_required`。
+  的 authority 映射。§41 当时 HTTP `/disputes/resolve` 和 `/arbitrate` 都通过
+  `arbitrate(..., null)` 进入，因此无 actor 时返回 `actor_required`；§42 增加
+  Host 注入的签名 operator token 后，合法页面才映射为 human，伪造 body 仍走
+  null 并返回 `actor_required`。
 
 作者探针（`stage5-selftest`）：
 
@@ -5510,9 +5512,10 @@ S12 的 100k 首读由 bench 的归档边界覆盖；eventlog-selftest 覆盖 re
 - HTTP `/disputes/resolve` 和 `/arbitrate` 在 body 伪造
   `agentPreset/actorKey/skipArbitration` 时仍返回 `actor_required`。
 
-**行为边界**：HTTP 现在没有“本地 operator 即 human”的回退。需要身份的动作
-必须由带真实 session 的 tool 调用执行；HTTP operator UI 不能再用无 actor
-请求代替人类批准。这是有意的 default-deny，不是漏接线。
+**行为边界**：HTTP 没有“本地 operator 即 human”的 body 回退。带真实 session
+的 tool 可以执行；浏览器 operator 页面由 §42 的 Host 注入 token 认证，而不是
+由 JSON body 里的 `agentPreset`/`actorKey` 自证。没有有效 token 的请求仍按
+absent actor 拒绝，这是有意的 default-deny。
 
 ### 41.2 U2：截断可见 + 每个渲染行有 why
 
@@ -5588,3 +5591,204 @@ deferred archive；该理由不成立。本轮**没有**伪造实现，而是：
 **边界**：浏览器/真实 GUI、真实 provider、自然人独立意志仍未测量；独立
 §40 的 116/48/10 未被本节改写。完整发布仍 **NO-SHIP**，因为 15 个必须行
 （含 B22、U2、5.3.2）尚未全部独立关闭。
+
+### 41.7 第十八轮独立复核（clean HEAD `919f79c`，2026-11-10T22:32:00+08:00）
+
+> **边界**：HEAD `919f79c`；独立探针在 clean worktree
+> `/tmp/r18-head/repo/dsh-metainfer-research-lab`，作者侧 `stage5` /
+> `client-smoke` 只作回归，不替代独立重放。只改验证文档与账本，未改生产代码。
+> 浏览器绘制/真实 GUI、真实 provider、自然人独立意志仍未测量。
+
+#### 41.7.1 计数
+
+**119 PASS / 45 FAIL / 10 N/A = 174。** `ACCEPTANCE-LEDGER.md` 的 174 个 ID
+逐项恰好出现一次，无重复/缺行；45 = **必须 15 + 应该 20 + 明确不做 10**。
+**但这 45 不是“全部已裁决 scope”**：B22 和 U2 都是实际缺陷，不是 won't-do 或
+产品范围选择（见 41.7.2/41.7.3）。完整发布仍 **NO-SHIP**。
+
+#### 41.7.2 B22：authority 矩阵通过，但 operator UI 变成死按钮
+
+独立使用真实 `createLabService` + `registerAgentTool` + `POST /disputes/resolve`
+和 `/arbitrate` 重放：
+
+```json
+{"expert":{"direct":"8/8 forbidden_action","tool":"8/8 forbidden_action"},
+ "curator":{"direct":"8/8 forbidden_action","tool":"8/8 forbidden_action"},
+ "arbiter":{"direct":{"resource_quality":"ok","value_priority":"ok","scope_overlap":"ok",
+                       "other5":"forbidden_authority/human_confirmation"},
+            "tool":{"resource_quality":"ok","value_priority":"ok","scope_overlap":"ok",
+                    "other5":"forbidden_authority/human_confirmation"}},
+ "bogus":{"human":"unknown_dispute_authority"},
+ "http":{"resolve":"actor_required","arbitrate":"actor_required","operatorUi":"actor_required"}}
+```
+
+- 普通 expert 在 **direct 和 tool 两条路径都 8/8 被拒**；curator 也是
+  **direct/tool 8/8 forbidden_action**，不再存在 direct 侧门；
+- `lab-arbiter` 在 **direct 和 tool** 都只通过 `resource_quality` /
+  `value_priority` / `scope_overlap` 三类；`priority_inversion` 返回
+  `human_confirmation_required`，其余 `forbidden_authority`；
+- `bogus_authority` 的合法结构记录，即使 human 也返回
+  `unknown_dispute_authority`；HTTP 带 `agentPreset/actorKey/skipArbitration`
+  伪造字段仍 `actor_required`。
+
+**安全问题已经闭合；但有一个端到端回归。** `DisputeTablePanel` 仍渲染
+`Keep current` / `Apply change` 按钮（`client.js:16470` 调用
+`api.arbitrateDispute`，`host/http.js` 把它交给 `arbitrate(..., null)`）。独立
+jsdom 点击 `Keep current` 得到：
+
+```json
+{"buttonPresent":true,
+ "calls":["GET /disputes","GET /disputes/classes","POST /arbitrate"],
+ "after":"Dispute table … Retry … arbitrate requires an authenticated actor",
+ "actorRequired":true}
+```
+
+也就是说，可信 operator UI **没有可用的裁决路径**，但控件仍然可点、只报错。
+这不是可接受的“默认拒绝”收尾，而是把安全修复变成了 **死控件/可用性回归**：
+要么给 HTTP 路由一个**只在服务端验证的 operator human actor**，要么提供明确的
+human tool session / CLI 路径；如果坚持 HTTP 全部拒绝，就必须隐藏或禁用这些
+按钮并在 release note 里写清“dispute 只能从 tool session 处理”。
+因此 **B22 的 authority 子项 PASS，B22 端到端仍 FAIL（必须）**。
+
+#### 41.7.3 U2：均匀夹具通过，混合优先级仍缺 why 和第 100 位
+
+作者 `client-smoke` 的 1 running + 150 planned 均匀夹具有 `showing 100 of 150`、
+`#100`、每行 why，确实通过。但独立夹具把 150 个 planned 设成混合
+`p0/p1/p2`，用真实 `buildStatusFacts` 生成 `queueRows`（按可运行队列排序），
+UI 仍按 `/state` 的原始顺序 `queued.slice(0,100)` 渲染：
+
+```json
+{"queueRows":100,"queueOrder":100,"renderedRows":100,
+ "rowsWithWhy":67,"rowsWithoutWhy":33,
+ "maxPosition":84,"has100":false,"has101":false,
+ "truncation":"showing 100 of 150 (cap 100; remaining rows are not shown)"}
+```
+
+前 100 个 state 节点里有 33 个不在 `queueRows` 的队列前 100 中，因此位置是
+`—`、没有 `facts.why`；第 100 个位置也没有出现。#100 的缺失和 why 的缺失不是
+夹具排序问题，而是客户端混用了 **state 顺序**与 **runnable 队列顺序**。
+5k facts 本身仍为 **13,509 B < 16 KB**（独立构造 11,217 B），但字节预算不是
+U2 的全部要求。**U2 FAIL（必须）。**
+
+#### 41.7.4 174 行账本与四个 correction
+
+- **Q3**：§36 已独立 PASS；账本不再把它列为剩余必须行，**不改变计数**。合法。
+- **5.3.3**：§38 已有 31s 独立 PASS；本轮 `reserved-slots-selftest` 11/11
+  复跑也通过。**verdict 合法**，但它是**旧 PASS**，不是本轮新关闭的能力；
+  §41.4 把它算 `+1` 只是修正 §40 的计数口径。如果 §40 的 116 已经包含它，
+  这个 `+1` 就是重复计数，账本必须明确基线——这是**账本口径问题，不是新证据**。
+- **5.2**：独立探针打开 8 类 dispute，authority 映射分别为
+  code/cfs/arbiter/human/curator；每条有 `deadlineAt` 和
+  `defaultAction:"keep_current"`；把 deadline 拨到过去后 8/8 被
+  `sweepDisputes` 以 `defaultApplied:true` 解决为 keep_current。**独立 PASS 合法**，
+  不再并入 B22。
+- **5.3**：§38 的 B23 已独立通过；本轮独立 `prediction.js` 探针得到
+  `calibrated/within_threshold` 与 `direction_off/magnitude_off` 两类，偏差会
+  打开 retro ticket。**独立 PASS 合法**，不再被 B23 的 verdict 吞掉。
+
+**结论**：174 行不是 43+3+4 的旧分母；逐行表唯一、总计正确。四个 correction
+中 Q3 合法且不计数，5.2/5.3 合法且各 +1，5.3.3 的 PASS 合法但其 +1 是
+计数口径修正、不是新能力；**不要把它讲成“本轮又关闭了三行”**。
+
+#### 41.7.5 45 个 residual 的性质
+
+`必须 15` 中 **B22 和 U2 是实际缺陷**：B22 是 operator UI 死按钮，U2 是混合
+优先级下 33/100 行缺 why、无 #100；其余 13 个必须行（Q5/Q12/Q14/5.3.2/C5/
+O1–O5/A11/A21/S5）是功能缺口，也不能写成“已裁决不做”。
+`应该 20` 是明确可排期的 gap；`明确不做 10` 才是被 scope 排除的项。
+所以 **45 行不是“全部 adjudicated scope”，而是 2 个实际缺陷 + 13 个必须
+缺口 + 20 个应该 gap + 10 个 won't-do**（其中 B22/U2 仍必须修）。
+
+#### 41.7.6 Scope reclassification
+
+C1 已从明确不做改为 **应该/未建**，理由真实：`host/` 无 `maxDeferred`，也无
+deferred archive；不再引用不存在的替代机制。其余 9 个 won't-do
+（B11/B12/B14/B16/Q8/5.3.10/5.4/C2/C8）都引 D7/D6 或 chief 前提冲突，没有
+声称不存在的代码；C14 是 **接受一次性停机割接**，`RELEASE-NOTES.md` 已如实
+写明它不是自动迁移能力。**未发现第二个“C1 式”假替代机制。**
+
+#### 41.7.7 回归
+
+| 检查 | 独立结果 |
+|---|---|
+| `npm test` | EXIT 0；**782 ok / 0 FAIL** |
+| `npm run bench:scale` | **11/11**；5k facts **13,509 B <16 KB**；100k first page <50ms |
+| `strict-writes-selftest` | **17 ok**；成功 bypass **0** |
+| `client-smoke` | **45/45**（均匀 U2 夹具；混合探针另见 41.7.3） |
+| `plugin-smoke` | **5/5** |
+| `b27-restart-selftest` | **11/11** |
+| U14 独立 partial | `status=partial`、3 errors、`degraded=true`、`staleReason=refresh_partial` |
+| S12 | `eventlog-selftest` 7/7（归档事件跨 restart）+ bench 100k 首读 <50ms |
+
+#### 41.7.8 边界
+
+- B22 的安全 gate 已 PASS，不能因为 UI 回归把它判成“authority 未做”；但
+  端到端 FAIL 是实际产品缺陷，不能用“default-deny”一句话关闭。
+- U2 的字节预算 PASS，不能抵消混合优先级下的 why/#100 缺失。
+- 5.3.3 的 +1 是账本计数口径，不是本轮新实现；5.2/5.3 的 PASS 有独立探针。
+- 真实浏览器、provider、自然人独立意志、双人审批仍未测量。
+- 未改生产代码；未重启 Host；未写 `~/.dsh/storages/*`。
+
+---
+
+## §42 作者第十九轮：operator token 与单一队列顺序（round 18）
+
+### 42.1 B22：让 operator 按钮有真实路径，而不是隐藏错误
+
+§41 的 default-deny 正确，但 `DisputeTablePanel` 仍显示 `Keep current` /
+`Apply change`，点击 POST `/arbitrate` 永远得到 `actor_required`，这是一个
+dead button。本轮补上服务端可验证的 operator 身份：
+
+- `host/operator-token.js` 在 Host 启动时生成 32-byte 随机 secret，并铸造
+  HMAC-SHA256 签名的 `mir-operator.<payload>.<signature>` token；payload
+  含版本、签发时间和随机 nonce。Host 重启即换 secret，旧页面 token 失效。
+- `index.js` 通过 `webserver/index-inject` 的 `kind:'global'` 行，把
+  `__METAINFER_OPERATOR_TOKEN__` 注入 **owner** 页面；任何 API 响应都不返回
+  这个 token。
+- `host/http.js` 只从 `x-metainfer-operator` 请求头读取 token，验证成功后
+  映射为 `actorForSession({sessionId:'operator', kind:'human'})`；body 里的
+  `agentPreset`/`actorKey`/token 字段一律不参与认证。验证失败或无 header
+  仍走 `arbitrate(..., null)`，保持 `actor_required`。
+- `client.js` 的 POST helper 在页面有 token 时携带该 header；
+  `DisputeTablePanel` 在没有 token 时**隐藏按钮**并显示“需要 Host-issued
+  operator token”的说明，不再留下只会报错的控件。
+
+端到端 jsdom 证明（`scripts/operator-ui-selftest.mjs`，已加入 `npm test`）：
+
+1. 无 token：不渲染 `Keep current`，显示 token 说明；
+2. 有 token：按钮存在，点击后发出真实 POST，header 是 Host token；
+3. 该 POST 进入**真实 HTTP route + 真实 LabService**，record 变为
+   `resolved`，`resolvedBy.id === 'operator'`，页面显示 `by operator`；
+4. 同一个 `/disputes/resolve` 在 body 伪造 `agentPreset/actorKey` 但没有
+   header 时返回 `actor_required`，record 保持 `pending`。
+
+### 42.2 U2：position、why、truncation 来自同一个顺序
+
+旧实现从 `/state` 的 `queued.slice(0,100)` 渲染，却在 `queueRows` 顺序里找
+position/why；混合 p0/p1/p2 时 100 行里 33 行没有 why，`#100` 不出现，最大
+position 只有 84。
+
+`client.js` 现在：
+
+- 先把 `queueRows` 或 `queueOrder` 作为**唯一渲染顺序**；
+- 用同一顺序的 index 作为 `#position`，同一行的 `why` 直接用于该行；
+- 只渲染存在于 `/state` 的节点，但不再从 `/state` 另切一个 100 行；
+- 截断提示由实际渲染行数计算，因此 `100`、`#100`、`showing 100 of 150`
+  三者一致；`#101` 不出现。
+
+`client-smoke` 使用 verifier 的混合优先级风格夹具：1 running + 150 planned，
+p0/p1/p2 交错；`queueRows`/`queueOrder` 按调度顺序取前 100。断言：
+
+- 渲染 100 个队列行；
+- 100 行都含 `maxRunningNodes=4` 的 `why`；
+- `#100` 存在，`#101` 不存在；
+- 有 `showing 100 of 150`。
+
+### 42.3 账本与门
+
+账本不因作者修复改状态：仍是 **119 PASS / 45 FAIL / 10 N/A**；B22、U2 仍
+标 FAIL，直到独立验证者重放。§40 的 **116/48** 也仍是独立起点。
+
+作者门（见本轮最终回复）：`npm test`、`client-smoke`、新增
+`operator-ui-selftest`、`stage5-selftest`、`bench:scale`、`strict`、`plugin`、
+`b27` 全部通过。

@@ -59,6 +59,8 @@ await test('status facts: running, next to start with a reason, recent failure w
   assert.equal(facts.running[0].lastActivityMs, 2_500);
   assert.equal(facts.nextToStart[0].nodeId, 'n2', 'p0 before p1/p2');
   assert.equal(facts.nextToStart[0].why.code, 'ready');
+  assert.deepEqual(facts.queueRows.map((row) => row.nodeId), facts.queueOrder, 'queueRows and queueOrder share one ordering');
+  assert.equal(facts.queueRows[0].why.code, 'ready', 'every queue row carries a why');
   assert.equal(facts.recentFailures[0].nodeId, 'n3');
   assert.equal(facts.recentFailures[0].errorCode, 'timeout');
   assert.equal(facts.recentFailures[0].causeId, 'cause-fail');

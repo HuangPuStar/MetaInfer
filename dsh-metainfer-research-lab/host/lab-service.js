@@ -485,15 +485,33 @@ function actorFromDisputeExecution(exec) {
   // HTTP never does: it always passes null, so this cannot revive the omitted
   // operator fallback on the network path.
   if (typeof exec.kind === 'string' && typeof exec.id === 'string' && exec.id.length > 0) {
-    return exec;
+    return actorForSession({
+      sessionId: exec.id,
+      kind: exec.kind,
+      ...(typeof exec.preset === 'string' && exec.preset ? { agentPreset: exec.preset } : {}),
+    });
   }
   return null;
 }
 
+
 /**
  * @param {{store: object, git: object, version?: string}} deps
  */
-export function createLabService({ ctx, store, git, runtime, transcript, orchestrator, auto, cluster, clusterAdmin, kernel = null, dispatchOnce = null, version = '0.11.0' }) {
+export function createLabService({ ctx, store, git, runtime, transcript, orchestrator, auto, cluster, clusterAdmin, kernel = null, dispatchOnce = null, operatorAuthority = null, version = '0.11.0' }) {
+  /**
+   * Verify the Host-issued browser credential. HTTP is deliberately not the
+   * source of an actor: a verified operator token is mapped to the human actor
+   * here, while a missing or forged token stays an absent caller.
+   * @param {unknown} token
+   */
+  function verifyOperatorToken(token) {
+    if (!operatorAuthority || typeof operatorAuthority.verify !== 'function') {
+      return { ok: false, code: 'operator_required', message: 'this Host has no operator authority' };
+    }
+    return operatorAuthority.verify(token);
+  }
+
   const metricsCollector = createMetricsCollector();
   const explainer = createExplainer({ store });
   const ledgerReader = createLedgerReader({ store });
@@ -4992,6 +5010,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     version,
     domainName: store.domainName,
     health,
+    verifyOperatorToken,
     listProjects,
     validateRepo,
     createProject,

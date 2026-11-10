@@ -208,6 +208,7 @@ async function renderWith(component, fetchImpl) {
       summary: { runnable: 6 },
       nextToStart: Array.from({ length: 5 }, (_, index) => ({ nodeId: 'q' + (index + 1), why: { code: 'max_running', message: 'maxRunningNodes=4 slots are busy' } })),
       queueOrder: ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'],
+      queueRows: ['q1', 'q2', 'q3', 'q4', 'q5', 'q6'].map((nodeId) => ({ nodeId, why: { code: 'max_running', message: 'maxRunningNodes=4 slots are busy' } })),
     };
     if (text.includes('/metrics')) return {};
     if (text.includes('/budgets')) return { classes: [] };
@@ -228,17 +229,25 @@ async function renderWith(component, fetchImpl) {
 {
   const total = 150;
   const ids = Array.from({ length: total }, (_, index) => 'q' + (index + 1));
+  const priorityFor = (index) => ['p0', 'p1', 'p2'][index % 3];
+  const rank = { p0: 0, p1: 1, p2: 2 };
+  const orderedIds = ids.slice().sort((a, b) => {
+    const left = Number(a.slice(1)) - 1;
+    const right = Number(b.slice(1)) - 1;
+    return rank[priorityFor(left)] - rank[priorityFor(right)] || left - right;
+  });
+  const why = { code: 'max_running', message: 'maxRunningNodes=4 slots are busy' };
   const payload = (url) => {
     const text = String(url);
     if (text.includes('/state')) return { project: { id: 'p1', name: 'P', config: {}, repo: {} }, nodes: [
       { id: 'run1', title: 'running node', status: 'running', priority: { class: 'p0' }, timestamps: { startedAt: Date.now() - 60_000 } },
-      ...ids.map((id, index) => ({ id, title: 'queued ' + (index + 1), status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: 1 } })),
+      ...ids.map((id, index) => ({ id, title: 'queued ' + (index + 1), status: 'planned', priority: { class: priorityFor(index) }, timestamps: { createdAt: 1 } })),
     ], edges: [], revision: 1 };
     if (text.includes('/status') || text.includes('/facts')) return {
       summary: { runnable: total },
-      nextToStart: ids.slice(0, 5).map((nodeId) => ({ nodeId, why: { code: 'max_running', message: 'maxRunningNodes=4 slots are busy' } })),
-      queueOrder: ids.slice(0, 100),
-      queueRows: ids.slice(0, 100).map((nodeId) => ({ nodeId, why: { code: 'max_running', message: 'maxRunningNodes=4 slots are busy' } })),
+      nextToStart: orderedIds.slice(0, 5).map((nodeId) => ({ nodeId, why })),
+      queueOrder: orderedIds.slice(0, 100),
+      queueRows: orderedIds.slice(0, 100).map((nodeId) => ({ nodeId, why })),
       _truncated: { queueOrder: { shown: 100, total } },
     };
     if (text.includes('/metrics')) return {};
@@ -249,14 +258,14 @@ async function renderWith(component, fetchImpl) {
   extraChecks += 1;
   const text = view.host.textContent ?? '';
   if (!text.includes('showing 100 of 150') || !text.includes('#100') || text.includes('#101')) {
-    extraFailures.push(`U2 150-row truncation notice/position is wrong: ${text.slice(0, 800)}`);
-  } else process.stdout.write('ok   U2 surfaces showing 100 of 150 and stops at #100\n');
+    extraFailures.push(`U2 mixed-priority truncation notice/position is wrong: ${text.slice(0, 800)}`);
+  } else process.stdout.write('ok   U2 mixed-priority fixture surfaces showing 100 of 150 and stops at #100\n');
   extraChecks += 1;
-  const rows = [...view.host.querySelectorAll('.rl-log-row')];
-  const hundredth = rows.find((row) => (row.textContent ?? '').includes('#100'));
-  if (!hundredth || !(hundredth.textContent ?? '').includes('maxRunningNodes=4')) {
-    extraFailures.push(`U2 row #100 has no facts.why reason: ${hundredth?.textContent ?? 'missing'}`);
-  } else process.stdout.write('ok   U2 puts facts.why on the rendered row beyond the first five\n');
+  const rows = [...view.host.querySelectorAll('.rl-log-row')].filter((row) => /^#\d+/.test((row.textContent ?? '').trim()));
+  const withoutWhy = rows.filter((row) => !(row.textContent ?? '').includes('maxRunningNodes=4'));
+  if (rows.length !== 100 || withoutWhy.length > 0 || !rows.some((row) => (row.textContent ?? '').includes('#100'))) {
+    extraFailures.push(`U2 mixed-priority queue rendered ${rows.length} rows with ${withoutWhy.length} missing why: ${rows.slice(0, 3).map((row) => row.textContent).join(' | ')}`);
+  } else process.stdout.write('ok   U2 mixed-priority queue renders 100 rows, all with why, through #100\n');
   await React.act(async () => view.root.unmount()); view.restore(); view.host.remove();
 }
 {

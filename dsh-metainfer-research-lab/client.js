@@ -3648,6 +3648,12 @@ window.__ModuleLoader__.load({
      * @param options `{method, body, signal}`.
      * @param t locale-bound translator.
      */
+    /** The Host injects this global ahead of the client entry. */
+    function operatorToken() {
+      const token = typeof globalThis === 'undefined' ? '' : globalThis.__METAINFER_OPERATOR_TOKEN__;
+      return typeof token === 'string' ? token : '';
+    }
+
     async function requestJson(path, options, t) {
       const settings = options === null || options === undefined ? {} : options;
       const init = {
@@ -3659,6 +3665,11 @@ window.__ModuleLoader__.load({
         init.headers['content-type'] = 'application/json';
         init.body = JSON.stringify(settings.body);
       }
+      // HTTP carries no actor in its body. The Host-issued token is the only
+      // browser credential that can turn a POST into a human decision.
+      const operator = operatorToken();
+      const operatorRoute = String(path).endsWith('/arbitrate') || String(path).endsWith('/disputes/resolve');
+      if (operator !== '' && init.method === 'POST' && operatorRoute) init.headers['x-metainfer-operator'] = operator;
       const response = await fetch(path, init);
       let payload = null;
       try {
@@ -16117,8 +16128,28 @@ window.__ModuleLoader__.load({
       }).filter((row) => row.nodeId !== '');
       const orderedQueue = queueRows.length > 0 ? queueRows : queueOrder;
       const queueTruncation = asObject(asObject(facts._truncated).queueOrder);
-      const renderedQueue = queued.slice(0, 100);
-      const queueShown = Math.max(renderedQueue.length, numberOr(queueTruncation.shown, renderedQueue.length));
+      const nextToStart = asArray(facts.nextToStart);
+      // Every queue row must come from the same ordering that produced
+      // queueRows. Slicing /state here and looking positions up in queueRows
+      // split one queue into two orders; mixed priorities then lost #100 and
+      // any row without a queueRows match had no why.
+      const queuedById = new Map(queued.map((node) => [node?.id, node]));
+      const seenQueueIds = new Set();
+      const renderableQueue = (orderedQueue.length > 0
+        ? orderedQueue
+        : queued.slice(0, 100).map((node) => ({ nodeId: node?.id, why: {} })))
+        .filter((row) => {
+          const id = firstString(row.nodeId);
+          if (id === '' || seenQueueIds.has(id) || !queuedById.has(id)) return false;
+          seenQueueIds.add(id);
+          return true;
+        });
+      const renderedQueue = renderableQueue.map((row, index) => ({
+        node: queuedById.get(row.nodeId),
+        why: asObject(row.why),
+        position: index + 1,
+      }));
+      const queueShown = renderedQueue.length;
       const queueTotal = Math.max(queued.length, numberOr(queueTruncation.total, 0));
       const queueTruncationText = queueTotal > queueShown ? `showing ${queueShown} of ${queueTotal} queued` : '';
       const head = h('div', { className: 'rl-card-head' },
@@ -16162,21 +16193,17 @@ window.__ModuleLoader__.load({
           ? h('p', { className: 'rl-hint' }, 'Queue positions are unavailable until /state succeeds.')
           : queued.length === 0
           ? h('p', { className: 'rl-hint' }, 'The executable queue is empty.')
-          : renderedQueue.map((node) => {
-              const nextToStart = asArray(facts.nextToStart);
+          : renderedQueue.map(({ node, why, position }) => {
               const nextRow = nextToStart.find((row) => (row?.nodeId ?? row?.id) === node?.id);
-              const orderedRow = orderedQueue.find((row) => row.nodeId === node?.id);
-              const position = (orderedRow ? orderedQueue.indexOf(orderedRow) : nextRow ? nextToStart.indexOf(nextRow) : -1) + 1;
               const nextWhy = asObject(nextRow?.why);
-              const orderedWhy = asObject(orderedRow?.why);
-              const why = firstString(nextWhy.message) || firstString(nextWhy.code) ? nextWhy : orderedWhy;
-              const whyText = firstString(why.message) || firstString(why.code);
+              const rowWhy = firstString(why.message) || firstString(why.code) ? why : nextWhy;
+              const whyText = firstString(rowWhy.message) || firstString(rowWhy.code);
               const reason = whyText
                 || firstString(asObject(node?.resourceWait).reason)
                 || firstString(asObject(node?.claim).status)
                 || (node?.deferUntil ? 'deferred until ' + formatDateTime(node.deferUntil, t) : '');
               return h('div', { key: node?.id, className: 'rl-log-row' },
-                h('span', { className: 'rl-mono' }, position > 0 ? '#' + String(position) : '—'),
+                h('span', { className: 'rl-mono' }, '#' + String(position)),
                 h('span', { className: 'rl-mono' }, observerNodeClass(node)),
                 h('span', { className: 'rl-mono' }, firstString(node?.id)),
                 h('span', null, firstString(node?.title) + (reason ? ' · ' + reason : '') + (node?.resourceWait ? ' · resource wait' : '')));
@@ -16481,6 +16508,7 @@ window.__ModuleLoader__.load({
       const resolved = snapshot.rows.filter((row) => row?.status === 'resolved');
       const pending = snapshot.rows.filter((row) => row?.status === 'pending');
       const failed = asObject(snapshot.failed);
+      const operatorReady = operatorToken() !== '';
       const head = h('div', { className: 'rl-card-head' },
         h('h3', { className: 'rl-card-title' }, 'Dispute table'),
         h('span', { className: 'rl-card-meta' }, snapshot.error !== ''
@@ -16493,6 +16521,9 @@ window.__ModuleLoader__.load({
         { className: 'rl-card', 'data-testid': 'obs-dispute-table' },
         head,
         snapshot.error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, snapshot.error) : null,
+        !operatorReady
+          ? h('p', { className: 'rl-hint', 'data-testid': 'dispute-operator-unavailable' }, 'Dispute decisions need the Host-issued operator token; reload this page from the Host.')
+          : null,
         failed.classes
           ? h('p', { className: 'rl-hint' }, 'Class map unavailable until /disputes/classes succeeds.')
           : h('p', { className: 'rl-hint' }, 'Eight classes: ' + Object.keys(snapshot.classes).join(', ') + ' · default action keep_current'),
@@ -16511,7 +16542,7 @@ window.__ModuleLoader__.load({
                 + (row?.resolvedBy ? ' by ' + firstString(asObject(row.resolvedBy).id) : '')
                 + (row?.resolutionReason ? ' · ' + firstString(row.resolutionReason) : '')
                 + (row?.deadlineAt ? ' · due ' + formatDateTime(row.deadlineAt, t) : '')),
-              row?.status === 'pending' && row?.source === 'dispute'
+              row?.status === 'pending' && row?.source === 'dispute' && operatorReady
                 ? h('span', { style: { display: 'inline-flex', gap: 6 } },
                     h(LabButton, { label: 'Keep current', variant: 'ghost', disabled: snapshot.busy === row.id, onClick: () => void resolve(row, 'keep_current') }),
                     h(LabButton, { label: 'Apply change', variant: 'ghost', disabled: snapshot.busy === row.id, onClick: () => void resolve(row, 'apply_change') }))

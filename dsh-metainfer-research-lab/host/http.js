@@ -14,6 +14,7 @@ import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { publicView } from './kernel/actors.js';
+import { actorForSession } from './kernel/policy.js';
 
 const PREFIX = '/api/metainfer-research-lab';
 const JSON_HEADERS = {
@@ -46,6 +47,18 @@ function fail(error) {
 
 function query(request) {
   return new URL(request.url, 'http://localhost').searchParams;
+}
+
+/**
+ * The browser operator token is a Host-issued credential carried in a header,
+ * never in the JSON body. An absent or forged token stays an absent actor, so
+ * the service still applies its default-deny path.
+ */
+function operatorActor(request, service) {
+  if (typeof service?.verifyOperatorToken !== 'function') return null;
+  const verdict = service.verifyOperatorToken(request.headers.get('x-metainfer-operator'));
+  if (verdict?.ok !== true) return null;
+  return actorForSession({ sessionId: 'operator', kind: 'human' });
 }
 
 const MIME_BY_EXT = {
@@ -196,7 +209,7 @@ export function registerHttpRoutes(ctx, service) {
 
   route(`${PREFIX}/arbitrate`, ['POST'], async (request) => {
     const body = await readJsonBody(request);
-    return okResult(await service.arbitrate(body.projectId, body, null));
+    return okResult(await service.arbitrate(body.projectId, body, operatorActor(request, service)));
   });
 
   route(`${PREFIX}/disputes/classes`, ['GET'], async () => ok(service.disputeClasses()));
@@ -215,10 +228,10 @@ export function registerHttpRoutes(ctx, service) {
 
   route(`${PREFIX}/disputes/resolve`, ['POST'], async (request) => {
     const body = await readJsonBody(request);
-    // Same limited-write gate as the `arbitrate` tool. This route is called by
-    // the trusted operator UI (no preset); routing through `arbitrate` keeps a
-    // future actor-bearing caller from bypassing the eight-class authority map.
-    return okResult(await service.arbitrate(body.projectId, body, null));
+    // Same limited-write gate as the `arbitrate` tool. The operator token is
+    // the only HTTP credential that maps to a human actor; a forged body still
+    // resolves to null and is rejected, never to the operator identity.
+    return okResult(await service.arbitrate(body.projectId, body, operatorActor(request, service)));
   });
 
   route(`${PREFIX}/disputes/reopen`, ['POST'], async (request) => {
