@@ -16133,19 +16133,19 @@ window.__ModuleLoader__.load({
       // queueRows. Slicing /state here and looking positions up in queueRows
       // split one queue into two orders; mixed priorities then lost #100 and
       // any row without a queueRows match had no why.
-      const queuedById = new Map(queued.map((node) => [node?.id, node]));
+      const queueNodeById = new Map(nodes.map((node) => [node?.id, node]));
       const seenQueueIds = new Set();
       const renderableQueue = (orderedQueue.length > 0
         ? orderedQueue
         : queued.slice(0, 100).map((node) => ({ nodeId: node?.id, why: {} })))
         .filter((row) => {
           const id = firstString(row.nodeId);
-          if (id === '' || seenQueueIds.has(id) || !queuedById.has(id)) return false;
+          if (id === '' || seenQueueIds.has(id) || !queueNodeById.has(id)) return false;
           seenQueueIds.add(id);
           return true;
         });
       const renderedQueue = renderableQueue.map((row, index) => ({
-        node: queuedById.get(row.nodeId),
+        node: queueNodeById.get(row.nodeId),
         why: asObject(row.why),
         position: index + 1,
       }));
