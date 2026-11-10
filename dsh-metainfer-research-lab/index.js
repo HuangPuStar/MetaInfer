@@ -26,6 +26,7 @@ import { createAutoController } from './host/auto.js';
 import { createClusterAdmin } from './host/cluster.js';
 import { createKernel } from './host/kernel/instance.js';
 import { createDispatchOnce } from './host/dispatch/dispatch-once.js';
+import { usageBySourceOf } from './host/kernel/priority.js';
 import { createOperatorAuthority } from './host/operator-token.js';
 import { createLocalPoolBroker, createClusterBroker } from './host/dispatch/brokers.js';
 
@@ -144,6 +145,9 @@ export async function apply(ctx, config = {}) {
         preempt: (pid, nodeId, opts) => runtime.preempt(pid, nodeId, opts),
       },
       maxStarts: options.maxStarts ?? 8,
+      // 5.3.4: fair share is driven by the durable GPU-seconds ledger, not by
+      // an empty map that made every source start at zero on every round.
+      usageBySource: () => usageBySourceOf(store.listNodes(projectId)),
     });
     return dispatcher.run({
       maxStarts: options.maxStarts,

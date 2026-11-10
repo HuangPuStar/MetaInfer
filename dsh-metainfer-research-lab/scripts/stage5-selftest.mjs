@@ -190,6 +190,10 @@ await kernel.executor.commit(projectId, {
   mutations: [{ op: 'node.create', node: { id: 'old-branch', title: 'old branch', parentId: 'root', status: 'completed', createdBy: 'lab-advisor', timestamps: { createdAt: Date.now() - 20 * 86_400_000, completedAt: Date.now() - 19 * 86_400_000 } } }],
 });
 const rotationStatus = service.rotationStatus(projectId);
+check('5.3.12 rotation threshold is a pinned 14-day policy value',
+  rotationStatus.policy?.defaultDays === 14 && rotationStatus.policy?.maxDays === 14
+  && rotationStatus.policy?.minDays === 1 && rotationStatus.policy?.maxDaysLimit === 365,
+  JSON.stringify(rotationStatus.policy));
 const rotationRun = await service.rotateDueExperts(projectId);
 check('rotation has a production dispatch call site and writes an auditable record',
   rotationStatus.due.some((row) => row.branchId === 'root')

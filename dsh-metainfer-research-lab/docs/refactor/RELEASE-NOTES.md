@@ -19,6 +19,6 @@
 
 ## 范围
 
-- 本说明只记录 C14 的运维边界；44 个 residual 行的分类、状态和 174 行账本见 [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) 与 [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)。U2 已独立 PASS；B22 的 open/reopen/sweep dispute 子面已独立 PASS；作者 round 20 已把全部 14 个 operator 写路由统一 token-gate、剥离 body actor 并去掉 destructive human fallback（§46），但独立重放尚未确认，完整 B22 仍 FAIL。
-- 完整发布仍为 **NO-SHIP**，因为 14 个“必须”行（含 B22、5.3.2）尚未全部独立关闭；U2 已 PASS。
-- 不能把“dispute 路由清单完整”写成“所有 operator 写路由完整”；作者 round 20 的完整清单与探针见 §46，独立重放见 §45/后续。
+- 本说明只记录 C14 的运维边界；43 个 residual 行的分类、状态和 174 行账本见 [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) 与 [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)。U2 已独立 PASS；B22 已在 round 21 独立 PASS（§46.7）：48 个 method+path 全量 policy、14 个 token 路由 absent/forged 拒绝、body actor 递归剥离、`/commands` 破坏性 gate 保持。归因观察（非阻断）：部分非破坏性写使用 inline operator actorKey，不改变 token gate 结论，详见 §46.7.5。
+- 完整发布仍为 **NO-SHIP**，因为 **13 个“必须”行**（B22 已关闭；5.3.2、Q5、Q12、Q14、A11、A21、C5、O1–O5、S5 等仍未全部关闭）尚未收口；U2/B22 已 PASS。
+- B22 的 operator 路由 **凭据/破坏性 gate** 已完整；但 §46.7.5 记录的 inline actorKey 归因差异仍应作为后续代码质量项，不能写成“所有写路径都保留 token actorKey”。

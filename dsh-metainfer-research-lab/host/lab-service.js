@@ -31,7 +31,7 @@ import { DISPUTE_CLASS_MAP, DISPUTE_DEFAULT_ACTION, createDisputeRecord, dispute
 import { DEFAULT_ROTATION_DAYS, rotationPlan } from './experts/rotation.js';
 import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
 import { actorKeyOf, hasActorIdentity, isIssuedActorKey, publicView, sameActor } from './kernel/actors.js';
-import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
+import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, detectIntentConflicts, intentBasis, intentId, intentMutation } from './kernel/intent.js';
 import { ACTION_VERIFICATION, IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
 import { recallExperts } from './experts/similarity.js';
@@ -463,6 +463,25 @@ function normalizeConfig(raw, base = undefined) {
     config.git = git;
   }
 
+  // 5.3.12: rotation threshold policy. N=14 days is the v2 default: long
+  // enough for a branch to make progress, short enough to bound single-expert
+  // ownership. Projects may pin N (1..365) for an explicit experiment.
+  const scheduling = { ...(previous.scheduling ?? {}) };
+  if (input.scheduling !== undefined) {
+    if (typeof input.scheduling !== 'object' || Array.isArray(input.scheduling)) {
+      throw new LabError('bad_request', 'config.scheduling must be an object');
+    }
+    Object.assign(scheduling, input.scheduling);
+  }
+  scheduling.rotationDays = integer(
+    input.scheduling?.rotationDays,
+    'config.scheduling.rotationDays',
+    previous.scheduling?.rotationDays ?? DEFAULT_ROTATION_DAYS,
+    1,
+    365,
+  );
+  config.scheduling = scheduling;
+
   // Ensure every project has the full default shape even when created before M4.
   config.advisor = config.advisor ?? { maxProposalsPerPass: 3, maxProposalsPerReviewer: 2, ancestorDepth: 2, acceptMode: 'auto', maxPendingProposals: 20, timeoutSeconds: 180, reviewers: [] };
   config.auto = config.auto ?? { maxCycles: 50, maxWallClockMs: 6 * 60 * 60 * 1000, idleCycleLimit: 3, debounceMs: 1500, cooldownMs: 5000, maxTokens: 0, maxCostUsd: 0 };
@@ -815,6 +834,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       revision: project.revision,
       lastEventSeq: project.counters?.eventSeq ?? 0,
       pendingProposals: allRaw.filter((node) => node.status === 'proposed').length,
+      // Q12: the UI and MCP can read the intent boundary and claim map without
+      // scanning every event. `writer` makes the single-writer invariant explicit.
+      intents: (() => {
+        const boundary = detectIntentConflicts(project.intents ?? []);
+        return { ...boundary, claims: allRaw.filter((node) => node.claim).map((node) => ({ nodeId: node.id, status: node.claim.status ?? 'claimed', by: node.claim.strategyId ?? null, at: node.claim.at ?? null })) };
+      })(),
       auto: auto ? auto.statusOf(projectId) : { status: 'off', pauseReason: null },
       cluster: cluster ? cluster.getStatus() : { enabled: false, mode: 'local' },
       _indexed: options.full !== true,
@@ -3551,6 +3576,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       ok: true,
       projectId,
       maxDays: rotationMaxDays(project),
+      policy: { maxDays: rotationMaxDays(project), defaultDays: DEFAULT_ROTATION_DAYS, minDays: 1, maxDaysLimit: 365, unit: 'days' },
       rotations: project.expertRotations ?? {},
       assignments: plan.assignments,
       due: plan.due,
@@ -4344,6 +4370,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       revision: project.revision,
       intents,
       total: all.length,
+      // Q12: pending/claims are first-class, not inferred from the node list.
+      boundary: detectIntentConflicts(project.intents ?? [], now),
       _truncated: all.length > intents.length ? { shown: intents.length, total: all.length } : null,
     });
   }

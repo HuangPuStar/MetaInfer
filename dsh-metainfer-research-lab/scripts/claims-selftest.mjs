@@ -8,6 +8,7 @@ import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
 import { actorKeyFor, hasActorIdentity, isIssuedActorKey, migrateProjectActorKeys, sameActor } from '../host/kernel/actors.js';
 import { actorForSession } from '../host/kernel/policy.js';
+import { createIntent, detectIntentConflicts, semanticFallback } from '../host/kernel/intent.js';
 import { registerAgentTool } from '../host/agent-tool.js';
 import { ACTION_VERIFICATION, CLAIM_PREDICATES, MIN_CITATION_EVIDENCE, VERIFICATION_LEVELS, citationErrorRate, citationTier, gateClaimAction, verifyClaims, wilsonLowerBound } from '../host/kernel/claims.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
@@ -17,6 +18,34 @@ function check(name, condition, detail = '') {
   if (condition) console.log(`ok   ${name}`);
   else { failed += 1; console.log(`FAIL ${name}${detail ? ` — ${detail}` : ''}`); }
 }
+
+const semanticUnknown = semanticFallback('semantic_disagreement');
+check('C5: an action with no code/expert executor has an explicit human-review fallback',
+  semanticUnknown.executor === 'human' && semanticUnknown.code === 'human_review'
+  && semanticUnknown.route === 'human:operator_decision' && typeof semanticUnknown.reason === 'string',
+  JSON.stringify(semanticUnknown));
+const semanticKnown = semanticFallback('cancel_running');
+check('C5: irreversible semantic actions route through the human claim gate',
+  semanticKnown.executor === 'human' && semanticKnown.route === 'human:claim_gate', JSON.stringify(semanticKnown));
+const boundary = detectIntentConflicts([
+  { id: 'i1', status: 'pending', kind: 'note', actor: { id: 'a' }, target: { nodeId: 'n1' }, expiresAt: Date.now() + 60_000 },
+  { id: 'i2', status: 'pending', kind: 'note', actor: { id: 'b' }, target: { nodeId: 'n1' }, expiresAt: Date.now() + 60_000 },
+]);
+check('Q12: same-target pending intents surface as an explicit conflict',
+  boundary.writer === 'host' && boundary.pending === 2 && boundary.conflicts.length === 1
+  && boundary.conflicts[0].firstIntentId === 'i1' && boundary.conflicts[0].secondIntentId === 'i2',
+  JSON.stringify(boundary));
+const semanticIntent = createIntent({
+  id: 'intent-semantic-probe',
+  kind: 'note',
+  actor: actorForSession({ sessionId: 'claims-semantic', kind: 'expert' }),
+  claim: { action: 'semantic_disagreement', reason: 'no executor yet' },
+  basis: { projectRevision: 0, snapshotAgeMs: 0, nodesSeen: 1 },
+  target: { nodeId: 'root' },
+});
+check('C5: the intent record itself carries the executor/fallback route',
+  semanticIntent.fallback?.code === 'human_review' && semanticIntent.fallback?.executor === 'human',
+  JSON.stringify(semanticIntent.fallback));
 
 const domain = memoryDomain();
 const store = await openStore(storeContext(domain));

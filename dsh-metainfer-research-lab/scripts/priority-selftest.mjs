@@ -8,7 +8,7 @@ import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
 import { registerAgentTool } from '../host/agent-tool.js';
 import { createOrchestrator } from '../host/orchestrator.js';
-import { DEFAULT_SOURCE_WEIGHTS, fairOrder } from '../host/kernel/priority.js';
+import { DEFAULT_SOURCE_WEIGHTS, fairOrder, usageBySourceOf } from '../host/kernel/priority.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -28,6 +28,18 @@ const weighted = fairOrder([
 ], new Map([['human', { gpuSeconds: 5 }], ['advisor', { gpuSeconds: 1 }]]), { limit: 1 });
 check('CFS weight changes the virtual-runtime ordering, not just the label',
   weighted[0]?.id === 'human-slot', JSON.stringify(weighted));
+
+const usage = usageBySourceOf([
+  { id: 'a1', status: 'completed', priority: { class: 'p2', by: 'advisor' }, needs: { gpu: 2 }, resourcesHeld: { gpu: 2 }, timestamps: { startedAt: 1_000, finishedAt: 5_000 } },
+  { id: 'a2', status: 'running', priority: { class: 'p2', by: 'advisor' }, needs: { gpu: 1 }, resourcesHeld: { gpu: 1 }, timestamps: { startedAt: 4_000 } },
+  { id: 'h1', status: 'completed', priority: { class: 'p0', by: 'human' }, needs: { gpu: 1 }, resourcesHeld: { gpu: 1 }, timestamps: { startedAt: 1, finishedAt: 10_001 } },
+], 10_000);
+check('5.3.4 GPU-seconds ledger is derived from real node timestamps/resources',
+  usage.get('advisor')?.gpuSeconds === 14 && usage.get('human')?.gpuSeconds === 10,
+  JSON.stringify([...usage]));
+check('5.3.4 ledger carries the source weights used by fairOrder',
+  usage.get('advisor')?.weight === 10 && usage.get('human')?.weight === 100,
+  JSON.stringify([...usage]));
 
 const fakeCtx = { effect: () => {}, get: () => null, logger: { info() {}, warn() {} } };
 const store = await openStore(storeContext(memoryDomain()));

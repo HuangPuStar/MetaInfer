@@ -10,6 +10,88 @@ import { ActorKeyError, actorKeyOf, ensureActorKey, isIssuedActorKey, withActorK
 import { normalizeExpected } from './prediction.js';
 export const INTENT_KINDS = Object.freeze(['dispatch', 'priority', 'proposal', 'review', 'curate', 'note', 'appeal']);
 
+/**
+ * C5: every semantic action needs an explicit executor or an explicit
+ * escalation. Enumerating actions here prevents the old dead end where an
+ * expert could submit an action that neither code nor any expert was allowed
+ * to execute, and no route existed to a human decision.
+ *
+ * `host` actions are deterministic Host writes, `expert` actions are reviewed
+ * by an expert, and `human` actions require the operator claim/appeal gate.
+ * Unknown actions are deliberately *not* dropped: they carry a `human_review`
+ * fallback so a semantic disagreement still reaches a decision-maker.
+ */
+export const INTENT_ACTIONS = Object.freeze([
+  'observe', 'dispatch', 'set_priority', 'propose_node', 'review', 'curate', 'note', 'appeal',
+  'create_planned', 'defer_planned', 'apply_nomination', 'cancel_running', 'prune_branch', 'delete_project',
+]);
+
+export const SEMANTIC_ACTION_FALLBACKS = Object.freeze({
+  observe: Object.freeze({ executor: 'host', route: 'host:read', code: 'host_read' }),
+  dispatch: Object.freeze({ executor: 'host', route: 'host:dispatchOnce', code: 'host_dispatch' }),
+  set_priority: Object.freeze({ executor: 'host', route: 'host:setNodePriority', code: 'host_priority' }),
+  propose_node: Object.freeze({ executor: 'expert', route: 'advisor:proposal', code: 'expert_proposal' }),
+  review: Object.freeze({ executor: 'expert', route: 'curator:reviewClaims', code: 'expert_review' }),
+  curate: Object.freeze({ executor: 'expert', route: 'curator:outcome', code: 'expert_curate' }),
+  note: Object.freeze({ executor: 'host', route: 'host:intentLog', code: 'host_note' }),
+  appeal: Object.freeze({ executor: 'human', route: 'human:dispute', code: 'human_appeal' }),
+  create_planned: Object.freeze({ executor: 'host', route: 'host:node.create', code: 'host_create' }),
+  defer_planned: Object.freeze({ executor: 'host', route: 'host:setNodePriority', code: 'host_defer' }),
+  apply_nomination: Object.freeze({ executor: 'expert', route: 'curator:applyNomination', code: 'expert_nominate' }),
+  cancel_running: Object.freeze({ executor: 'human', route: 'human:claim_gate', code: 'human_cancel' }),
+  prune_branch: Object.freeze({ executor: 'human', route: 'human:claim_gate', code: 'human_prune' }),
+  delete_project: Object.freeze({ executor: 'human', route: 'human:claim_gate', code: 'human_delete' }),
+});
+
+/** @returns {{executor: string, route: string, code: string, action: string, reason?: string}} */
+export function semanticFallback(action) {
+  const name = typeof action === 'string' ? action : '';
+  const known = SEMANTIC_ACTION_FALLBACKS[name];
+  if (known) return { action: name, ...known };
+  return {
+    action: name || 'unknown',
+    executor: 'human',
+    route: 'human:operator_decision',
+    code: 'human_review',
+    reason: 'no host or expert executor is registered for this semantic action; escalate to the operator instead of silently dropping it',
+  };
+}
+
+/**
+ * Q12: the only matrix allowed to judge a pending intent. Two pending intents
+ * that claim the same target from the same basis are a conflict; different
+ * targets or an expired intent are not. The Host remains the single writer.
+ */
+export function detectIntentConflicts(intents, now = Date.now()) {
+  const pending = (Array.isArray(intents) ? intents : []).filter((intent) => intent?.status === 'pending'
+    && (!Number.isFinite(intent.expiresAt) || intent.expiresAt > now));
+  const byTarget = new Map();
+  const conflicts = [];
+  for (const intent of pending) {
+    const key = intent.target?.nodeId ?? intent.target?.parentId ?? intent.target?.projectId ?? null;
+    if (!key) continue;
+    const row = byTarget.get(key);
+    if (!row) {
+      byTarget.set(key, intent);
+      continue;
+    }
+    conflicts.push({
+      target: key,
+      firstIntentId: row.id,
+      secondIntentId: intent.id,
+      reason: 'same_target_pending',
+      firstActor: row.actor?.id ?? null,
+      secondActor: intent.actor?.id ?? null,
+    });
+  }
+  return {
+    pending: pending.length,
+    byKind: pending.reduce((out, intent) => ({ ...out, [intent.kind]: (out[intent.kind] ?? 0) + 1 }), {}),
+    conflicts,
+    writer: 'host',
+  };
+}
+
 const MAX_TARGET = 160;
 const MAX_RATIONALE = 2_000;
 const MAX_CLAIM_BYTES = 4_096;
@@ -88,6 +170,7 @@ export function createIntent(input) {
   const expected = normalizeExpected(input?.expected ?? claim.expected);
   const action = str(claim.action, 'intent.claim.action', 80);
   if (!action) throw new TypeError('intent.claim.action is required');
+  const fallback = semanticFallback(action);
   if (input.kind === 'appeal' && action !== 'appeal') {
     throw new TypeError('intent_action_mismatch: an intent with kind "appeal" must carry claim.action "appeal"');
   }
@@ -107,6 +190,9 @@ export function createIntent(input) {
     expiresAt: Number.isFinite(input?.expiresAt) ? input.expiresAt : (Number.isFinite(input?.at) ? input.at : Date.now()) + INTENT_TTL_MS,
     actor: withActorKey({ kind: typeof actor.kind === 'string' ? actor.kind : 'expert', id: actor.id, actorKey }),
     claim: structuredClone(claim),
+    // C5: the executor/route is part of the record, so a reader never has to
+    // guess whether an action is code-backed, expert-backed or human-only.
+    fallback,
     basis,
     target,
     ...(expected ? { expected } : {}),

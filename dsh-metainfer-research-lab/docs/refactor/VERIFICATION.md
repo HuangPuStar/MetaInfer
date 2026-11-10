@@ -8,8 +8,8 @@
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **120** |
-| FAIL | **44** |
+| PASS | **121** |
+| FAIL | **43** |
 | 未测量 | **10**（其中浏览器 2 行 = 不适用） |
 | 合计 | **174** |
 
@@ -30,11 +30,11 @@ B27 撤销**，不再作为 B27 的排除项。
 arbiter matrix）独立通过，**B22 仍是 FAIL**：8 类 authority 元数据正确，但
 `resolveDispute` 不执行 authority 检查，专家可对全部 8 类 `apply_change`；
 5.3.13 的 long-poll/mid-sleep 通过，但只有 30s、只识别 stalled，缺
-starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准。
+starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准；第二十一轮以 §46.7 的 **121 / 43 / 10** 为准。
 
 > 作者第十四轮报告见 **§35**，第二十轮报告见 **§46**，不替代独立复核。
-> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；当前独立总判定以 §45 为准：120 PASS / 44 FAIL / 10 未测量。**
-> **B27 restart continuity 仍 PASS；B22 的 dispute 子面已闭合；作者 §46 已把全部 operator 写路由统一 token-gate，独立重放待，完整发布仍 NO-SHIP。**
+> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；第二十一轮见 §46.7；当前独立总判定以 §46.7 为准：121 PASS / 43 FAIL / 10 未测量。**
+> **B27 restart continuity 仍 PASS；U2 PASS；B22 在 round 21 独立重放通过（48 个 method+path 全部有 policy；14 个 token 路由 absent/forged 拒绝；递归剥离 body actor；/commands 破坏性操作仍走 human gate；authorizeIrreversibleTool(null) 不再铸造 human）。完整发布仍 NO-SHIP：13 个必须行尚未关闭。**
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
@@ -6184,8 +6184,7 @@ human actor，`/preemption/appeal` 还能接受 body actor。只修 dispute 清�
 
 ## §46 作者第二十轮响应：method+path 全量 policy 与 operator 面收口（round 20）
 
-> 这节是**作者报告**，不是独立复核；不改变 §45 的独立计数。B22 仍是 FAIL，
-> 直到独立验证者在新的 clean HEAD 上重放。
+> 这节是**作者报告**，不是独立复核；**已被 §46.7 的独立重放覆盖**。作者当时仍标 B22 FAIL，独立重放后已转 PASS。
 
 ### 46.1 一条规则覆盖 48 个 method+path 对
 
@@ -6276,12 +6275,34 @@ open/reopen/sweep 探针继续通过。
 
 ### 46.6 账本与边界
 
-账本仍为 **120 PASS / 44 FAIL / 10 N/A**；44 = **14 必须 + 20 应该 + 10
-明确不做**。U2 仍是 PASS；**B22 仍是 FAIL（待独立重放）**，不能因为我方测试
-通过就改成 PASS，也没有 121/43。
+**（作者当时的报告，已被 §46.7 覆盖。）** 作者当时账本为 120 PASS / 44 FAIL / 10 N/A；44 = 14 必须 + 20 应该 + 10 明确不做。独立重放后为 **121 / 43 / 10**，B22 PASS。
 
 本轮只证明 **HTTP operator 面**的凭据、body actor 和破坏性 gate；没有进行真实
 浏览器绘制、真实 provider、自然人独立意志、双人审批或真实 Host process
 restart 测量。独立验证者需要在新的 clean HEAD 上重放 48 对清单、token 矩阵、
 `/commands` 的 claim gate 和 `/preemption/appeal` 的 actor 记录后，才能决定
 B22 是否从 FAIL 变为 PASS。
+
+### 46.7 独立复核（HEAD `290f370`，2026-11-10T23:18:24+08:00 `Asia/Shanghai`）
+
+本节是独立验证者在 clean worktree 上的重放，不是作者 §46.4/§46.5 的复述。
+
+**46.7.1 清单**：实际捕获到 **43 个 registration、48 个 method+path 对**；`ROUTE_POLICY` 也是 48 对，双向差集为空，没有重复、alias、尾斜杠变体或额外 method。分类恰为 **33 read-only / 14 operator-token / 1 refused**。`POST /disputes/sweep` 是唯一 refused；`GET /dashboard` 与 `POST /dashboard` 都在 token 面。
+
+**46.7.2 token 矩阵**：14 个 token 对逐个 absent/forged/valid：
+- absent、forged 都返回 `actor_required`，handler 调用数为 0；
+- valid 都进入 handler 恰好 1 次（部分实际 service 需要业务参数，故返回业务错误而不是 `actor_required`）；
+- 33 个 read-only 无 token 均不被 token gate 拦截；`POST /disputes/sweep` 在 absent/valid 下都固定 `forbidden_action`，handler 不运行。
+覆盖了 `/projects`、`/rotations`、`/retrospective`、`/dashboard` POST 与 writing GET、`/dashboard/refresh|chat|layout`、`/preemption/appeal`、`/commands`，以及 dispute/arbitrate 对。
+
+**46.7.2a writing GET**：把 `lastChat.status` 置为 `running` 后，无 token/forged 的 `GET /dashboard` 都在进入 service 前被拒；valid token 才修复为 `error`，事件 actor 的 `actorKey` 与 token actor 一致。
+
+**46.7.3 body actor**：递归 JSON 剥离 `actor`、`actorKey`、`actorId`，包括嵌套对象和数组。探针把 `actor` 放在顶层、嵌套对象和数组中，再带 valid token 调 `/preemption/appeal`；service 收到的 body 中这些 key 全部消失，runtime 只收到 `{reason, actor}`，actor 是 token actor（`id='operator'`，key 与 token 一致），不是 `body-attacker`。`/commands` 的嵌套 body 同样被剥离。
+
+**46.7.4 `/commands` 破坏性操作**：valid token + `project.delete`/`node.cancel`、无 appeal 时返回 `human_confirmation_required`；项目仍存在、节点仍 `planned`、runtime cancel 调用为 0。带 body `actor`/`actorKey`/`actorId` 仍是同一 gate；带自造的 `chiefConfirmed:true`/`claim` 也不能越过（`claim_invalid` 或 `human_confirmation_required`）。直接调用 `deleteProject`/`cancelNode`（`exec=null`/无 options）都得到 `actor_required`；`appealPreemption(...,null)` 也 `actor_required`。`authorizeIrreversibleTool` 的 `?? actorForSession({sessionId:'operator'})` 已移除，不再合成 human。
+
+**46.7.5 一个不阻塞 B22 的归因观察**：`GET /dashboard` 的恢复写、`POST /retrospective`、`/preemption/appeal` 的事件 actorKey 与 token actor 相同；但 `POST /dashboard`、`/dashboard/layout`、`/projects`、非破坏性 `/commands` 的写入默认使用 Host inline `operator` actor（`inline:human:operator`），其 actorKey **不是** token session key。token 仍是前置凭据，display id/kind 仍是 human operator，未发现无凭据写入或权限提升；因此按本轮 B22 的 token gate/破坏性 gate 口径判 **PASS**，但若把 B22 定义为“每条写路径都必须保留 token actorKey 溯源”，这仍是后续改进项，不能写成“所有写路径都使用 token key”。
+
+**46.7.6 回归**：`npm test` **894 ok / 0 FAIL**；`bench:scale` **11/11**，5k facts **13,509 B**，100k 首读 0.52 ms；strict-writes **17 ok，成功 bypass 0**；client-smoke **45/45**；operator-ui **10/10**；plugin-smoke **5/5**；b27-restart **11/11**；U14 `partial`（3 errors、degraded、staleReason=refresh_partial）；S12 eventlog **7/7**；`git diff --check` 0。
+
+**46.7.7 判定**：**B22 PASS**。账本变为 **121 PASS / 43 FAIL / 10 N/A**，residual **13 必须 / 20 应该 / 10 明确不做 = 43**；U2 PASS。完整发布仍 **NO-SHIP**，因为 13 个必须行（不含 B22）未全部关闭；窄发布仍不可宣布，必须明确排除 5.3.2、Q5、Q12/Q14、C5、O1–O5/A11/A21、S5 等条件式范围。

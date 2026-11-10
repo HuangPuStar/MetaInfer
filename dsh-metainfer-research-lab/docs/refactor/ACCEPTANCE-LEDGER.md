@@ -1,28 +1,28 @@
-# 174 行验收账本（作者侧，round 20）
+# 174 行验收账本（round 21）
 
-> 本文件是**账本**，不是新的独立复核。独立验证者以 `VERIFICATION.md` §45 为准；这里只做逐行对齐，确保每个 ID 恰好一个状态，且 residual 可加总。
+> 本文件是**账本**，不是新的独立复核。独立验证者以 `VERIFICATION.md` §46.7 为准；这里只做逐行对齐，确保每个 ID 恰好一个状态，且 residual 可加总。
 
 ## 汇总
 
 | 状态 | 数量 |
 |---|---:|
-| PASS | **120** |
-| FAIL | **44** |
+| PASS | **121** |
+| FAIL | **43** |
 | N/A（未测量/不适用） | **10** |
 | 合计 | **174** |
 
-推导：§41.7 的 **119 / 45 / 10** 起点；round 19 独立重放确认 U2 通过（`120 / 44 / 10`），B22 因当时的 operator 路由缺口保留 FAIL；round 20 独立重放（§45）确认 B22 的 open/reopen/sweep 已收口，但当时 `/commands`、`/rotations`、`/retrospective`、`/dashboard*`、`/preemption/appeal` 仍可在无 token 时铸造 human；作者 round 20 已统一 token-gate 并剥离 body actor，B22 仍待独立重放，计数不变。`5.2`/`5.3`/`5.3.3` 的独立 PASS 与 Q3 不改变本轮计数。**注意**：5.3.3 的 +1 只是 §40 计数口径修正，不是新关闭能力；若 §40 的 116 已包含它，这个 +1 会成为重复计数。
+推导：§41.7 的 **119 / 45 / 10** 起点；round 19 确认 U2 通过（`120 / 44 / 10`）；round 20（§45）确认 B22 dispute 子面通过但全 operator 面仍 FAIL；round 21 在 clean HEAD `290f370` 独立重放（§46.7）确认 48 个 method+path 全部有 policy、14 个 token 路由 absent/forged 拒绝、body actor 递归剥离、`/commands` 破坏性操作仍走 human gate、`authorizeIrreversibleTool(null)` 不再合成 human，B22 转为 PASS（`121 / 43 / 10`）。`5.2`/`5.3`/`5.3.3` 的独立 PASS 与 Q3 不改变本轮计数。**注意**：5.3.3 的 +1 只是 §40 计数口径修正，不是新关闭能力；若 §40 的 116 已包含它，这个 +1 会成为重复计数。
 
-## 44 个 residual 的范围
+## 43 个 residual 的范围
 
 | 范围 | 行数 |
 |---|---:|
-| 必须 | **14** |
+| 必须 | **13** |
 | 应该 | **20** |
 | 明确不做 | **10** |
-| 合计 | **44** |
+| 合计 | **43** |
 
-`必须` = 原有 12（Q3 PASS 后移除）+ B22（作者已收口，待独立重放）+ 5.3.2（项目内抢占）；U2 已在 round 19 独立 PASS，不再计入。`应该` = 原 19 + C1。`明确不做` = 原 11 − C1。C1 不再引用不存在的 `maxDeferred`。
+`必须` = 原有 12（Q3 PASS 后移除）+ 5.3.2（项目内抢占）；B22 已在 round 21 独立 PASS，不再计入。U2 在 round 19 独立 PASS，不再计入。`应该` = 原 19 + C1。`明确不做` = 原 11 − C1。C1 不再引用不存在的 `maxDeferred`。
 
 ## 逐行账本
 
@@ -49,7 +49,7 @@
 | B19 | PASS | — | §17 |
 | B20 | PASS | — | §18 |
 | B21 | PASS | — | §18 |
-| B22 | FAIL | 必须 | dispute 子面已独立通过；作者 round 20 已把 14 个 operator 路由统一 token-gate、剥离 body actor、去掉 destructive human fallback（§46）；独立重放待，当前仍 FAIL。 |
+| B22 | PASS | — | §46.7：48 个 method+path 全有 policy；14 个 token 路由 absent/forged 均 `actor_required`，valid 进入 handler；body `actor`/`actorKey`/`actorId` 递归剥离；`/commands` `project.delete`/`node.cancel` 无 appeal 仍 `human_confirmation_required`；`authorizeIrreversibleTool(...,null)` 与直接 `appealPreemption(...,null)` 均 `actor_required`。归因观察（非阻断）：部分非破坏性写使用 inline operator key，见 §46.7.5。 |
 | B23 | PASS | — | §38 |
 | B24 | PASS | — | §24/§25 |
 | B25 | PASS | — | §1 baseline PASS |
@@ -206,6 +206,6 @@
 ## 一致性检查
 
 - 174 个 ID 全部出现一次；无重复、无合并行。
-- PASS 120 + FAIL 44 + N/A 10 = 174。
-- FAIL 44 = 必须 14 + 应该 20 + 明确不做 10。
-- `B22` 仍是独立 FAIL（作者 round 20 已收口所有 operator 写路由，但独立重放尚未确认）；`U2` 已独立 PASS；`5.2`、`5.3`、`5.3.3`、`Q3` 是独立 PASS，不是“由 B22/B23 覆盖”。
+- PASS 121 + FAIL 43 + N/A 10 = 174。
+- FAIL 43 = 必须 13 + 应该 20 + 明确不做 10。
+- `B22` 已在 round 21 独立 PASS（§46.7；48 对、token 矩阵、body actor、破坏性 gate）；`U2` 已独立 PASS；`5.2`、`5.3`、`5.3.3`、`Q3` 是独立 PASS，不是“由 B22/B23 覆盖”。

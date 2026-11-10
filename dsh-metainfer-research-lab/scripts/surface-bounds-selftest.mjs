@@ -98,6 +98,16 @@ async function get(path, query = '') {
 }
 
 const first = await get('state', `projectId=${projectId}`);
+check('Q12 state exposes the Host intent boundary and claim map',
+  first.intents?.writer === 'host' && first.intents?.pending === 0
+  && Array.isArray(first.intents?.claims) && Array.isArray(first.intents?.conflicts),
+  JSON.stringify(first.intents));
+const intentsView = await get('intents', `projectId=${projectId}`);
+check('Q12 /intents exposes the conflict matrix metadata, not just a row list',
+  intentsView.boundary?.writer === 'host' && Number.isInteger(intentsView.boundary?.pending)
+  && intentsView.boundary?.byKind && Array.isArray(intentsView.boundary?.conflicts),
+  JSON.stringify(intentsView.boundary));
+
 const forcedFull = await get('state', `projectId=${projectId}&limit=1000&full=1`);
 const forcedFullBytes = Buffer.byteLength(JSON.stringify(forcedFull), 'utf8');
 check('state ignores full=1 and stays slim/bounded', forcedFull.nodes.length === 1000 && forcedFullBytes < 2 * 1024 * 1024 && forcedFull._indexed === true, `${forcedFullBytes} B indexed=${forcedFull._indexed}`);

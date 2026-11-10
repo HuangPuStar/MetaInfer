@@ -158,3 +158,41 @@ export function fairOrder(nodes, usageBySource = new Map(), options = {}) {
   }
   return out;
 }
+
+/**
+ * 5.3.4: derive the fair-share ledger from durable node facts.
+ *
+ * A source's bill is GPU-seconds it has actually consumed: for each node that
+ * started, `gpu * elapsed`. Running nodes accrue up to `now`; completed/failed/
+ * cancelled/preempted nodes use their finished timestamp. Recomputing from node
+ * facts keeps the ledger restart-safe and avoids a second mutable counter that
+ * could drift from the DAG. Weights come from DEFAULT_SOURCE_WEIGHTS
+ * (human=100, advisor=10); unknown sources fall back to 1.
+ *
+ * @param {Iterable<object>} nodes
+ * @param {number} [now]
+ * @returns {Map<string, {gpuSeconds: number, weight: number}>}
+ */
+export function usageBySourceOf(nodes, now = Date.now()) {
+  const out = new Map();
+  for (const node of nodes ?? []) {
+    const source = normalizePriority(node?.priority).by;
+    if (!source) continue;
+    const explicit = Number(node?.usage?.gpuSeconds);
+    const gpu = Math.max(0, Number(node?.resourcesHeld?.gpu ?? node?.needs?.gpu ?? 0));
+    const startedAt = Number(node?.timestamps?.startedAt ?? node?.startedAt);
+    const finishedAt = Number(node?.timestamps?.finishedAt ?? node?.finishedAt);
+    let gpuSeconds = 0;
+    if (Number.isFinite(explicit) && explicit >= 0) {
+      gpuSeconds = explicit;
+    } else if (Number.isFinite(startedAt) && startedAt > 0 && gpu > 0) {
+      const end = Number.isFinite(finishedAt) && finishedAt >= startedAt ? finishedAt : now;
+      gpuSeconds = Math.max(0, end - startedAt) / 1000 * gpu;
+    }
+    if (!(gpuSeconds > 0)) continue;
+    const entry = out.get(source) ?? { gpuSeconds: 0, weight: DEFAULT_SOURCE_WEIGHTS[source] ?? 1 };
+    entry.gpuSeconds += gpuSeconds;
+    out.set(source, entry);
+  }
+  return out;
+}

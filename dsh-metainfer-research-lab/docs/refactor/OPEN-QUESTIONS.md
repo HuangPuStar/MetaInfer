@@ -124,13 +124,13 @@
   仍可显式取全量（scale 测试），但 HTTP 出口必须有界并带 `_truncated`。
 - **可逆性**：高。
 
-## 能力行范围裁决（2026-11-10，round 20 修订）
+## 能力行范围裁决（2026-11-10，round 21 修订）
 
 > 目的：把仍未关闭的能力行分成**承诺**、**可延后**、**明确不做**三档，
 > 并让 174 行账本每行恰好一个状态。逐行账本见
-> [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)；本节只保留 44 个 residual
-> 的范围裁决。独立验证者以 `VERIFICATION.md` §45 为准；当前独立计数为
-> **120 / 44 / 10**。
+> [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)；本节只保留 43 个 residual
+> 的范围裁决。独立验证者以 `VERIFICATION.md` §46.7 为准；当前独立计数为
+> **121 / 43 / 10**。
 
 ### 裁决口径
 
@@ -140,7 +140,7 @@
 - **明确不做**：与已裁决的 D6/D7 或 v2 架构方向冲突，或已被更简单的机制替代；保留在
   清单中作为“已知不做”，不再作为 FAIL 追着补。**明确不做不得引用不存在的替代机制。**
 
-### 剩余具体行（44 行，逐行分类）
+### 剩余具体行（43 行，逐行分类）
 
 | 行 | 分类 | 一句话理由 |
 |---|---|---|
@@ -150,7 +150,6 @@
 | B14 | 明确不做 | 10 分钟否决窗口以 chief 审批闸门为前提；v2 用 dispute/arbiter 处理例外，不建该窗口。 |
 | B16 | 明确不做 | D6 已明确拒绝驻留会话 + `submit` 工具，v2 继续一次性激活。 |
 | B18 | 应该 | `tag:{hypothesis,variant}` 能降低重复实验，但当前先靠 Q10 的候选对与人工判重，不阻塞发布。 |
-| B22 | 必须 | dispute 子面已独立通过；作者 round 20 已把 14 个 operator 路由统一 token-gate、剥离 body actor、去掉 destructive human fallback（§46）；独立重放待，仍为 FAIL。 |
 | Q4 | 应该 | 专家身份/状态/预算/绩效是专家库质量项；现有 lifecycle 已可用，完整化可排后。 |
 | Q5 | 必须 | deferred 不能占 `maxNodes`、不能让 auto 误判“有进展”，这是已发生过停机的正确性缺陷。 |
 | Q8 | 明确不做 | 固定三级评审被 D7 取消；上下文切片价值转入 Q9/Q14 的地图与预算。 |
@@ -189,29 +188,29 @@
 | O12 | 应该 | GPU/成本/叙事结构化是 dashboard 质量项，先把 O1–O5 的硬指标做完。 |
 | S5 | 必须 | replay 必须分页/窗口化，10k 事件全量响应会直接突破 1 MB/2 s 预算。 |
 
-> 计数：**必须 14 / 应该 20 / 明确不做 10 = 44**。Q3 已 PASS，U2 已独立 PASS，不再出现在本表；
-> B22 是仍未独立关闭的必须行；5.2/5.3/5.3.3 不再用“由 B22/B23 覆盖”代替
+> 计数：**必须 13 / 应该 20 / 明确不做 10 = 43**。Q3 已 PASS，U2/B22 已独立 PASS，不再出现在本表；
+> 5.2/5.3/5.3.3 不再用“由 B22/B23 覆盖”代替
 > 自己的 verdict，见 [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)。
 
-### 独立结论索引（含已关闭、已 PASS 与仍未关闭的 B22）
+### 独立结论索引（含已关闭的 B22）
 
 | 行 | 状态 | 处理 |
 |---|---|---|
-| B22 | **FAIL（待独立重放）** | open/reopen/sweep 的 dispute 子面通过；作者 round 20 已收口 `/commands`、`/rotations`、`/retrospective`、`/dashboard*`、`/preemption/appeal` 的 token/body actor 路径，见 §46；独立重放尚未确认。 |
+| B22 | **PASS（§46.7 独立重放）** | 48 个 method+path 全有 policy；14 个 token 路由 absent/forged 均 `actor_required`，valid 进入 handler；body `actor`/`actorKey`/`actorId` 递归剥离；`/commands` 破坏性操作仍 `human_confirmation_required`；`authorizeIrreversibleTool(...,null)` 不再合成 human。归因观察（非阻断）见 §46.7.5。 |
 | U2 | **PASS（§43 独立重放）** | 混合 p0/p1/p2：100/100 行有 why、#100 在、#101 不在、showing 100 of 150；queueRows 与 queueOrder 的 100 个 id 完全一致。 |
 | U12 | §40 PASS | 五个面板的 loading/error/Retry 已由独立 jsdom 复核。 |
 | 5.3.13 | §40 PASS | 60 s cap、starving/pauseReason 已由独立 probe 复核。 |
-| 5.2 | PASS（本账本独立 verdict） | 争议表 + 8 类映射 + 超时默认本身已落地；authority 执行问题归 B22，不再把 5.2 合并进 B22。 |
+| 5.2 | PASS（本账本独立 verdict） | 争议表 + 8 类映射 + 超时默认本身已落地；B22 的 authority 执行已在 §46.7 独立 PASS，不再把 5.2 合并进 B22。 |
 | 5.3 | PASS（本账本独立 verdict） | B23 的 expected/retro/rotation 已独立 PASS；5.3 不再被 B23 的 verdict 吞掉。 |
-| 5.3.3 | §38 PASS | `priority/delayed` 已在 31 s 探针通过，不再列入剩余，也不在 44 行中重复计数。 |
+| 5.3.3 | §38 PASS | `priority/delayed` 已在 31 s 探针通过，不再列入剩余，也不在 43 行中重复计数。 |
 | Q3 | §36 PASS | 项目内抢占已 PASS；只从“剩余必须”表移除，不重复计数。 |
 | 1.3 / 5.3.2 / U1 / U3 / B23 / 5.3.14 | §38 已结论 | 其中 5.3.2 仍 FAIL（见上表），其余独立 PASS；不因范围表被翻回。 |
 | A20 / S12 | 前轮 PASS | dashboard partial 告警与 restart 首读预算已关闭。 |
 
 ### 影响
 
-- 独立复核仍为 **120 PASS / 44 FAIL / 10 N/A**；B22 仍 FAIL（作者 round 20 修复待重放），U2 已 PASS；独立依据见 §45，作者报告见 §46。
-- **必须 14 行**全部关闭前，完整发布仍是 NO-SHIP；**应该 20 行**可以带已知缺口发布，
+- 独立复核为 **121 PASS / 43 FAIL / 10 N/A**；B22 已 PASS（§46.7），U2 已 PASS；13 个必须行仍未全部关闭，完整发布仍 NO-SHIP。独立依据见 §46.7，作者报告见 §46。
+- **必须 13 行**全部关闭前，完整发布仍是 NO-SHIP；**应该 20 行**可以带已知缺口发布，
   但必须在 release note 中列出；**明确不做 10 行**不阻塞发布。
 - C1 不再是 won't-do：它没有 `maxDeferred` 或 archive 实现，保留为 should/未建。
 - C14 的停机割接边界见 [`RELEASE-NOTES.md`](RELEASE-NOTES.md)。
