@@ -57,5 +57,10 @@ const used = [...client.matchAll(/\bt\('([a-zA-Z0-9_.-]+)'\)/g)].map((match) => 
 const missing = [...new Set(used)].filter((key) => !(key in en.keys));
 check('every literal t() key is in the dictionaries', missing.length === 0, JSON.stringify(missing.slice(0, 10)));
 
+// Direction guard: the generator may write the client bundle, never the JSON
+// source. Without this, a future "sync" could launder a mutated bundle back.
+const syncSource = await readFile(path.join(root, 'scripts/locale-sync.mjs'), 'utf8');
+check('locale:sync regenerates only client.js, never locale JSON', syncSource.includes("path.join(root, 'client.js')") && !/writeFile\([^\n]*locale/i.test(syncSource), 'sync must be one-way JSON -> bundle');
+
 console.log(failed === 0 ? '\nlocale-selftest: all checks passed' : `\nlocale-selftest: ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
