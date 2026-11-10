@@ -1404,8 +1404,8 @@ hot 尾部追加进去；首读不再解压/排序全部 cold 段。`scale-selft
 
 ### 22.6 回归
 
-- `npm test`：**EXIT=0**，33 个文件，**536 个 `ok`**（新增 claims 17、dashboard 3、
-  ui 1、jsdom 15、auto WIP 4 等）。
+- `npm test`：**EXIT=0**，34 个文件，**539 个 `ok`**（新增 claims 17、dashboard 3、
+  ui 1、jsdom 15、auto WIP 4、process smoke 3 等）。
 - `npm run bench:scale`：**EXIT=0**，11/11；新增 100k 首读断言。
 - `locale-selftest`：en/zh 均 1,375 keys，client 字典同步。
 - `ui-selftest`：12/12；新增可关闭失败告警与降级断言（仍不测真实 DOM/帧率）。
@@ -1435,8 +1435,15 @@ Settings、FinishMerge、Push、DeleteProject、Confirm、Attempts、Trajectory�
 `Cannot read properties of undefined (reading 'length')`；已把 `runsState` 归一化为
 `runs: []` / `cycles: []`。现在 **15/15 panel smoke checks passed**。
 
-进程级“启动插件 → activate → 跑一个完整节点”的 smoke **尚未**加入；本轮只完成
-DOM/面板层。§22.7 的结论不把 D 类算作全部关闭。
+进程级 smoke 也已加入：`scripts/plugin-smoke.mjs` 在**独立 Node 进程**里 import
+`index.js`，用 Host-like ctx 调用 `apply`（memory storage domain、真实 git
+subprocess、stub agents/subagents），创建临时 git 仓库上的项目，`startNode`，等
+`node/completed`，再用 `explainNode` 断言非空 `causeChain` 和 `node/completed`
+事件。子进程出现 `uncaughtException` 或 `unhandledRejection` 即失败。
+
+实际结果：**3/3 process smoke checks passed**（completed、summary 非空、cause
+chain 长度 1、completed 事件在解释中）。这把 D 类补到进程级；仍未覆盖真实模型
+provider、真实 DSH Host 与浏览器帧。
 
 ### 22.7 结论
 
