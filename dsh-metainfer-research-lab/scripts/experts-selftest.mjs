@@ -149,6 +149,9 @@ const withdrawnByChild = (store.getProject(projectId).intents ?? []).find((inten
 check('child creation auto-withdraws the parent nomination', withdrawnByChild?.status === 'withdrawn' && /child/.test(withdrawnByChild.withdrawReason ?? ''), JSON.stringify(withdrawnByChild));
 const withdrawalEvent = store.listEvents(projectId, 0).find((event) => event.type === 'nomination/withdrawn' && event.data?.intentId === parentIntent.intent.id);
 check('child creation writes nomination/withdrawn{reason:child_created}', withdrawalEvent?.data?.reason === 'child_created' && withdrawalEvent?.data?.childId === 'child-of-d1', JSON.stringify(withdrawalEvent?.data));
+const manualNomination = await call({ action: 'intent_submit', projectId, kind: 'curate', nodeId: 'd1', claim: { action: 'nominate_close', nominations: [{ nodeId: 'd1', duplicateOf: 'd2' }] } }, curatorExec);
+const manualWithdrawn = await call({ action: 'intent_withdraw', projectId, intentId: manualNomination.intent.id }, curatorExec);
+check('manual curator withdrawal is a nomination/withdrawn event', manualWithdrawn.ok === true && store.listEvents(projectId, 0).some((event) => event.type === 'nomination/withdrawn' && event.data?.intentId === manualNomination.intent.id), JSON.stringify(manualWithdrawn));
 const withdrawTarget = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'd1', claim: { action: 'observe' } }, curatorExec);
 const withdrawn = await call({ action: 'intent_withdraw', projectId, intentId: withdrawTarget.intent.id }, curatorExec);
 check('intent_withdraw marks the record withdrawn', withdrawn.ok === true && withdrawn.intent?.status === 'withdrawn', JSON.stringify(withdrawn));
