@@ -3,6 +3,7 @@
  * Host recomputes validation from the same views; agents only propose.
  */
 import { createHash } from 'node:crypto';
+import { runnableQueue } from './kernel/runnable.js';
 
 const MAX_PROMPT = 800;
 const MAX_REPORT = 700;
@@ -267,7 +268,7 @@ export function buildAdvisorSnapshot(store, project, cluster) {
 export function buildSchedulerSnapshot(store, project, cluster) {
   const nodes = store.listNodes(project.id);
   const running = nodes.filter((node) => node.status === 'running');
-  const planned = nodes.filter((node) => node.status === 'planned');
+  const planned = runnableQueue(nodes);
   const held = {};
   for (const node of running) {
     for (const [key, amount] of Object.entries(node.resourcesHeld ?? {})) {
@@ -299,6 +300,7 @@ export function buildSchedulerSnapshot(store, project, cluster) {
       title: node.title,
       promptExcerpt: truncate(node.prompt, 400),
       needs: node.needs ?? {},
+      class: node.priority?.class ?? 'p2',
       parentTitle: node.parentId ? store.getNode(project.id, node.parentId)?.title ?? null : null,
       timeboxMinutes: Math.round((node.timeboxMs ?? 600_000) / 60_000),
       createdAt: node.timestamps?.createdAt ?? null,

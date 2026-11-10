@@ -4,6 +4,7 @@
  * human-confirmation mode (waiting proposals never block running nodes).
  */
 import { LabError } from './git-engine.js';
+import { runnableQueue, runnableSummary } from './kernel/runnable.js';
 
 function newNodeCount(nodes) {
   return nodes.length;
@@ -235,17 +236,20 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
     if (state.errorStreak >= 3) return pause(projectId, 'errors');
 
     const running = nodes.filter((node) => node.status === 'running');
-    const planned = nodes.filter((node) => node.status === 'planned');
+    // One definition of the executable queue (B8): deferred nodes are planned
+    // but never runnable, so they must not keep `canRunPlanned` true. Counting
+    // them was the mechanism behind the nine-hour `noProgress` pause (QA Q5).
+    const runnable = runnableQueue(nodes);
     const proposed = nodes.filter((node) => node.status === 'proposed');
     const actionables = actionableLeaves(project, nodes);
 
     // Cluster mode: a queued GPU node means waiting for the coordinator, not an
     // idle project. Do not burn cycles while the lease queue is pending/blocked.
     if (cluster?.enabled === true) {
-      if (nodes.some((node) => node.status === 'planned' && node.resourceWait)) {
+      if (runnable.some((node) => node.resourceWait)) {
         return waiting(projectId, 'awaitingGpu');
       }
-      const gpuPlanned = planned.filter((node) => Number(node.needs?.gpu ?? 0) > 0);
+      const gpuPlanned = runnable.filter((node) => Number(node.needs?.gpu ?? 0) > 0);
       if (gpuPlanned.length > 0) {
         const clusterStatus = cluster.getStatus();
         const freeGpu = clusterStatus?.pools?.gpu?.free;
@@ -254,7 +258,7 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
     }
 
     const capacity = capacityFor(project, nodes, cluster);
-    const canRunPlanned = planned.length > 0 && plannedFits(project, planned, capacity);
+    const canRunPlanned = runnable.length > 0 && plannedFits(project, runnable, capacity);
 
     if (actionables.length === 0 && !canRunPlanned) {
       if (proposed.length > 0) return waiting(projectId, 'awaitingConfirmation');

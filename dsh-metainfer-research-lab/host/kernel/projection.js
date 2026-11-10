@@ -9,8 +9,9 @@
  * Records handed out are frozen in `strict` mode so callers cannot mutate the
  * cache by accident; mutate state only through executor.commit().
  */
-import { comparePriority, isDispatchableClass } from './priority.js';
+import { comparePriority } from './priority.js';
 import { parentIdsOf, redoEffect } from './mutations.js';
+import { isRunnableNode } from './runnable.js';
 
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -142,15 +143,13 @@ export function createProjection({ store, strict = false, clock = Date.now }) {
   }
 
   /**
-   * The single definition of "runnable" (design decision B8): planned, not
-   * claimed by a dispatch decision, not deferred, not held back by `dispatchHold`.
-   * Ordered by the priority tuple.
+   * Runnable nodes (design decision B8) in dispatch order. The predicate itself
+   * lives in kernel/runnable.js so the projection, the dispatcher, the auto
+   * driver and the scheduler snapshot cannot drift apart.
    */
   function runnable(projectId, now = clock()) {
     return listByStatus(projectId, 'planned')
-      .filter((node) => !node.claim)
-      .filter((node) => isDispatchableClass(node.priority))
-      .filter((node) => !(node.dispatchHold?.untilMs > now))
+      .filter((node) => isRunnableNode(node, now))
       .sort(comparePriority);
   }
 
