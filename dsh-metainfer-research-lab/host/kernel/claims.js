@@ -254,12 +254,23 @@ export function gateClaimAction(action, stats = {}, context = {}) {
     level: requirement.level,
     requiredEvidence: requirement.evidence ?? 0,
     submitted,
+    serverAppealUntil: Number.isFinite(context.serverAppealUntil) ? context.serverAppealUntil : null,
   };
   const actor = context.actor ?? null;
+  // A caller-supplied timestamp can never satisfy a cooling-off requirement.
+  // The window is evidence about the Host's appeal record, not an input.
+  if (context.appealUntil !== undefined) return { ...base, code: 'appeal_window_caller_supplied' };
   // A live appeal covers every action on its target, including L0/L1 and
   // `cancel_running` (L2). This check must precede every level-specific rule:
   // otherwise a level without `appeal: true` silently bypasses an open appeal.
   if (context.appealPending === true) return { ...base, code: 'appeal_pending' };
+  // A withdrawn appeal is not a resolution. For irreversible actions it keeps
+  // the gate closed until the Host-side window expires (or a separate, valid
+  // resolution is recorded); `cancel_running` has no `appeal: true` level, so
+  // this must be a separate early check.
+  if (context.appealUnresolved === true && IRREVERSIBLE_ACTIONS.includes(action)) {
+    return { ...base, code: 'appeal_not_resolved' };
+  }
   if (requirement.humanOnly && actor?.kind !== 'human') {
     return { ...base, code: 'human_only' };
   }
@@ -280,9 +291,9 @@ export function gateClaimAction(action, stats = {}, context = {}) {
     return { ...base, ok: true, lowerBound: null, requiredEvidence: requirement.evidence ?? 0 };
   }
   if (requirement.appeal) {
-    const now = Number.isFinite(context.now) ? context.now : Date.now();
-    const appealUntil = Number.isFinite(context.appealUntil) ? context.appealUntil : 0;
-    if (appealUntil <= now) return { ...base, code: 'appeal_window_required' };
+    // L3/L4 need a Host-registered appeal window. The boolean is derived from
+    // the project's intent log; no client value is accepted here.
+    if (context.serverAppealWindow !== true) return { ...base, code: 'appeal_window_required' };
   }
   if (total < MIN_CITATION_EVIDENCE) {
     return { ...base, code: 'citation_evidence_floor', minimumEvidence: MIN_CITATION_EVIDENCE };

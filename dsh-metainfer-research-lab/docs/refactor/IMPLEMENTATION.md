@@ -5,7 +5,7 @@
 > 每条要么给出**文件 · 函数 · 测试**，要么写 `未完成` + 原因。状态只有「完成 / 未完成」，
 > 没有「部分完成」——部分完成的条目拆成两条。
 >
-> 分支：`refactor/v2`。测试入口：`npm test`（37 个自测文件 / 622 checks，见文末）。
+> 分支：`refactor/v2`。测试入口：`npm test`（37 个自测文件 / 631 checks，见文末）。
 
 ## 1. 内核与写路径（B3/B5/B21/G1/G2，P1）
 
@@ -156,7 +156,7 @@
 | B20 建子节点自动撤回 defer 提名 | 完成 | `kernel/mutations.js` `node.create`：同提交把针对 parent 的 pending curate nomination 置 `withdrawn` 并发 `nomination/withdrawn{reason:child_created}`；curator 反向免疫有幼子的 parent | `experts-selftest.mjs`（真实 executor 建 child 后 parent nomination withdrawn） |
 | B24 evidence 指针与权限分级 | 完成 | 意图 claim 必带 action；描述符 `mayExecute: []`；curator 不能执行 | `intent-selftest.mjs`、`experts-selftest.mjs` |
 | 4.5 专家 hire/fire/drain | 完成 | `lab-service.hireExpert/drainExpert/fireExpert`：roster 存 `project.config.experts`；hire 拒绝 expert actor/self；drain 只置 `draining` 并保留 running；fire 要求先 drain、仍 running 返回 `expert_busy`、把未完成节点 `createdBy` 交还 human；`recallExpertFor` 只招 active；`expert_list` 返回 lifecycle；设置弹窗按状态显示 Hire/Drain/Retire | `expert-lifecycle-selftest.mjs`（15 checks：策略拒绝、hire、recall、drain 保活、busy fire、retire 移交、self-hire）；`ui-selftest.mjs` |
-| B27 7 谓词 claim 校验 + 5 级验证强度 | 完成 | `host/kernel/claims.js` `VERIFICATION_LEVELS` / `ACTION_VERIFICATION`：L0 planned=0、L1 defer=1、L2 cancel_running=2+chief、L3 prune_branch=3+chief+appeal、L4 delete_project=human+explicit confirmation+appeal；`gateClaimAction` 同时检查本次 evidence 数与行动级门槛；`lab-service.submitIntent` 只接受 human/chief 的 `chiefConfirmed`，并持久化 `claim.gate` | `claims-selftest.mjs`（5 级映射；每个不可逆动作一条证据被拒；2/3 条、chief、appeal、human confirmation 的 required set 通过）；`submitIntent` 将 `{action:'appeal'}` 写成 `kind:'appeal'`，同目标 pending appeal 以 `appeal_pending` 阻断不可逆动作；`resolveAppeal` 记录 `resolvedBy`/`resolution`/`resolutionReason` 并写 `appeal/resolved`；L0/L1 不套 C7 floor |
+| B27 7 谓词 claim 校验 + 5 级验证强度 | 完成 | `host/kernel/claims.js` `VERIFICATION_LEVELS` / `ACTION_VERIFICATION`：L0 planned=0、L1 defer=1、L2 cancel_running=2+chief、L3 prune_branch=3+chief+appeal、L4 delete_project=human+explicit confirmation+appeal；`gateClaimAction` 同时检查本次 evidence 数与行动级门槛；`lab-service.submitIntent` 只接受 human/chief 的 `chiefConfirmed`，并持久化 `claim.gate` | `claims-selftest.mjs`（5 级映射；每个不可逆动作一条证据被拒；2/3 条、chief、appeal、human confirmation 的 required set 通过）；`submitIntent` 将 `{action:'appeal'}` 写成 `kind:'appeal'`，同目标 pending appeal 以 `appeal_pending` 阻断不可逆动作；withdrawn 在 Host 窗口内以 `appeal_not_resolved` 继续阻断 cancel/prune/delete；`appealUntil` 不接受调用方输入，窗口由 appeal 的 opened 时间 + `INTENT_TTL_MS` 计算，客户端字段返回 `appeal_window_caller_supplied`；`resolveAppeal` 记录 `resolvedBy`/`resolution`/`resolutionReason` 并写 `appeal/resolved`；L0/L1 不套 C7 floor |
 | C7 Wilson 下界 + 最少证据 | 完成 | `host/kernel/claims.js` `wilsonLowerBound`（95% one-sided, z=1.96）；`MIN_CITATION_EVIDENCE=20`、`MIN_CITATION_LOWER_BOUND=0.80`；`gateClaimAction` 在 B27 行动门槛之后强制历史 clean-rate 下界与原始 rate<5%，两条门控共用一次调用 | `claims-selftest.mjs`（20 clean 通过；19 条 floor；20 条 4 失败 confidence 拒绝；B27+C7 同时不可绕过） |
 | `experts_list` / `expert_upsert` / `curator_scan` 旧名 | 完成（移除） | 旧名保持从 `ACTION_ENUM`/`ACTION_CATALOG` 删除；`expert_list`/`expert_recall`/`intent_*`/`curator_nominate`/`curator_outcome`/`curator_reset` 是三表一致的实现 | `policy-selftest.mjs`、`tool-surface-selftest.mjs`（三表一致，不残留旧名） |
 | G3 只存 id/摘要 | 完成 | `lab-service` state 瘦身、`reportText` 删除、`_truncated` |

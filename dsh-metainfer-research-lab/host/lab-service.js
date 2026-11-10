@@ -26,7 +26,7 @@ import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
 import { actorFromToolExecution } from './kernel/policy.js';
-import { INTENT_KINDS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
+import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
 import { ACTION_VERIFICATION, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
 import { recallExperts } from './experts/similarity.js';
@@ -3393,6 +3393,51 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { ok: true, ...curator.recordOutcome({ falseClose: input?.falseClose === true }) };
   }
 
+  /**
+   * The Host-side appeal window starts when the appeal record was opened. It
+   * is intentionally not read from the request: a caller can neither shorten
+   * nor extend a cooling-off period, and a withdrawal does not erase the fact
+   * that the target was appealed during this window.
+   */
+  function appealState(project, target, action, now = Date.now()) {
+    const applies = (candidate) => {
+      if (candidate?.kind !== 'appeal') return false;
+      // Deleting the project is project-wide: any appeal in the project is
+      // evidence that the project was under objection.
+      if (action === 'delete_project') return true;
+      const appealTarget = candidate.target ?? {};
+      if (!appealTarget.nodeId && !appealTarget.intentId && !appealTarget.parentId) return true;
+      if (target?.nodeId && appealTarget.nodeId === target.nodeId) return true;
+      if (target?.intentId && appealTarget.intentId === target.intentId) return true;
+      if (target?.parentId && appealTarget.parentId === target.parentId) return true;
+      return false;
+    };
+    const rows = (Array.isArray(project.intents) ? project.intents : [])
+      .filter(applies)
+      .map((intent) => {
+        // `expiresAt` is written by createIntent on the Host; `at` is the
+        // opened timestamp and is the fallback for legacy records. Neither is
+        // accepted from the request.
+        const openedAt = Number.isFinite(intent.at) ? intent.at : null;
+        const expiresAt = Number.isFinite(intent.expiresAt) ? intent.expiresAt : null;
+        return {
+          intent,
+          until: expiresAt !== null ? expiresAt : (openedAt !== null ? openedAt + INTENT_TTL_MS : null),
+        };
+      });
+    const live = rows.filter((row) => row.until !== null && row.until > now);
+    const pending = live.some((row) => row.intent.status === 'pending');
+    const unresolved = live.some((row) => row.intent.status === 'withdrawn');
+    return {
+      pending,
+      unresolved,
+      // A corrupt/legacy appeal without an opened timestamp cannot grant a
+      // window; only a Host-timestamped record counts.
+      hasWindow: rows.some((row) => row.until !== null),
+      until: rows.some((row) => row.until !== null) ? Math.max(...rows.map((row) => row.until ?? 0)) : null,
+    };
+  }
+
   function claimStats(project, actorId) {
     const row = project?.claimStats?.[actorId];
     return {
@@ -3408,6 +3453,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     let kind = typeof input?.kind === 'string' ? input.kind : 'note';
     if (!INTENT_KINDS.includes(kind)) return rejection('bad_request', `intent.kind must be one of ${INTENT_KINDS.join(', ')}`);
     const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    // Reject the field even when no appeal exists, before any target lookup:
+    // an action must not satisfy its own cooling-off requirement by supplying
+    // a future timestamp.
+    if (input?.appealUntil !== undefined || input?.claim?.appealUntil !== undefined) {
+      return rejection('appeal_window_caller_supplied', 'appealUntil is computed by the Host from the appeal record; remove it from the request');
+    }
     const target = input?.target && typeof input.target === 'object'
       ? {
           nodeId: input.target.nodeId ?? input?.nodeId ?? null,
@@ -3459,18 +3510,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         });
       }
     }
-    const openAppeal = (Array.isArray(project.intents) ? project.intents : []).find((candidate) => {
-      if (candidate?.kind !== 'appeal' || candidate.status !== 'pending') return false;
-      if (Number.isFinite(candidate.expiresAt) && candidate.expiresAt <= Date.now()) return false;
-      const appealTarget = candidate.target ?? {};
-      // An unscoped appeal is a stop-the-line notice: it blocks irreversible
-      // actions until it expires or is withdrawn.
-      if (!appealTarget.nodeId && !appealTarget.intentId && !appealTarget.parentId) return true;
-      if (target?.nodeId && appealTarget.nodeId === target.nodeId) return true;
-      if (target?.intentId && appealTarget.intentId === target.intentId) return true;
-      if (target?.parentId && appealTarget.parentId === target.parentId) return true;
-      return false;
-    });
+    const appeal = appealState(project, target, claim?.action);
     if (claim && ACTION_VERIFICATION[claim.action]) {
       const stats = verifiedStats ?? claimStats(project, actor.id);
       // Chief confirmation is an authority, not a model-authored boolean. A
@@ -3479,15 +3519,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       const chiefConfirmed = (input?.chiefConfirmed === true || claim?.chiefConfirmed === true)
         && (actor.kind === 'human' || actor.kind === 'system' || actor.preset === 'lab-chief');
       const humanConfirmed = input?.humanConfirmed === true || claim?.humanConfirmed === true;
-      const appealUntil = Number.isFinite(input?.appealUntil)
-        ? Number(input.appealUntil)
-        : (Number.isFinite(claim?.appealUntil) ? Number(claim.appealUntil) : null);
       const gate = gateClaimAction(claim.action, stats, {
         submitted: verification?.total ?? 0,
         chiefConfirmed,
         humanConfirmed,
-        appealUntil,
-        appealPending: Boolean(openAppeal),
+        appealPending: appeal.pending,
+        appealUnresolved: appeal.unresolved,
+        serverAppealWindow: appeal.hasWindow,
+        serverAppealUntil: appeal.until,
         now: Date.now(),
         actor,
       });
@@ -3509,6 +3548,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           requiredEvidence: gate.requiredEvidence,
           minimumEvidence: gate.minimumEvidence ?? null,
           lowerBound: gate.lowerBound ?? null,
+          serverAppealUntil: gate.serverAppealUntil ?? null,
         });
       }
       claim = {
@@ -3519,8 +3559,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           submitted: gate.submitted,
           chiefConfirmed,
           humanConfirmed,
-          appealUntil,
-          appealPending: Boolean(openAppeal),
+          serverAppealUntil: appeal.until,
+          appealPending: appeal.pending,
+          appealUnresolved: appeal.unresolved,
           lowerBound: gate.lowerBound,
         },
       };

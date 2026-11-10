@@ -199,8 +199,10 @@
 | `7c7d48c` | P18.2(Q3/5.3.1) `maxPlannedInFlight` 默认 max(2×free,4)，超限跳过 advisor pass；未做 reservedSlots/抢占 | `auto-wip-selftest` 4/4；`npm test` 33 文件 / 536 checks |
 | `7e19499` | P18.4(B27,U14,A20,S12) 可登记/可裁决的 appeal；L0/L1 不套 C7；partial 刷新按失败计 stale/降级/告警；冷段 head 缓存 + 首读不建 hot 索引 | `claims-selftest`（appeal 阻断/裁决）、`dashboard-selftest`（partial）、`scale-selftest`（restart 1.93 ms ≤50 ms）；`npm test` 36 文件 / 606 checks |
 | `P19.2` | Q3/5.3.2 `reservedSlots.p0`（默认 0）在候选排序前预留槽位；无 p0 等待时行为不变；项目内抢占仍未做 | `reserved-slots-selftest` 6/6；`npm test` 37 文件 / 612 checks |
+| `P19.5` | B27：撤回不再放行；`appealUntil` 不再由调用方提供；窗口由 Host 写入的 appeal expiresAt（opened 时间派生）计算；withdrawn 在窗口内挡 cancel/prune/delete | `claims-selftest` 66 checks（§28 四个探针）；`npm test` 37 文件 / 631 checks |
 
 状态：独立复核 §23 的 84 PASS / 80 FAIL 中，B27/U14/A20/S12 已由 `7e19499` 关闭；
 §24 的 20 个文档/口径行已逐项关闭，§25 独立复核为 103 PASS / 61 FAIL；§26 修复 B27 三项、5.3.16 与 1.3 的虚假 done 后，
+§27 独立复核为 107 PASS / 57 FAIL；§28 修复 B27 的 withdraw + caller-window 绕过，
 作者计数为 **108 PASS / 56 FAIL / 10 未测量**。剩余 56 行仍含 1.3 turn 内活动、
 5.3.2/Q3 项目内抢占和 Stage 3–5 能力；浏览器绘制 2 行仍 N/A。
