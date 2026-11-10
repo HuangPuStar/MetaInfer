@@ -1,17 +1,17 @@
-# 174 行验收账本（round 25 修复后，待独立重放）
+# 174 行验收账本（round 27 作者关闭 10 行；独立依据仍为 §53）
 
-> 本文件是**账本**，不是独立的关闭记录。最后一个独立依据是 `VERIFICATION.md` §51（HEAD `252c902`，151/13/10）；§52 是作者对 §51 三个反证的修复，作者账面为 154/10/10，尚待独立重放。这里确保每个 ID 恰好一个状态，且 residual 可加总。
+> 本文件是**账本**，不是独立的关闭记录。独立依据仍是 `VERIFICATION.md` §53（HEAD `63632fa`，**154/10/10**）；round 27 owner 要求把 10 个“明确不做”行按清单实现，作者证据见 `VERIFICATION.md` §54。这里把作者账面更新为 **166/0/8**，但**不把 §54 冒充独立 PASS**；独立重放尚未发生。
 
 ## 汇总
 
 | 状态 | 数量 |
 |---|---:|
-| PASS | **154** |
-| FAIL | **10** |
-| N/A（未测量/不适用） | **10** |
+| PASS | **166** |
+| FAIL | **0** |
+| N/A（未测量/不适用） | **8** |
 | 合计 | **174** |
 
-推导：round 21 独立重放为 `121 / 43 / 10`；round 22 抽样把 11 行改判 FAIL，得到 `143 / 21 / 10`。§50 独立重放为 `150 / 14 / 10`；§51 独立重放后 C1 关闭，O3/B13/5.3.9 仍 FAIL，为 `151 / 13 / 10`。§52 修掉 promotion 的 runnable 起点、tool schema 的 escalate/reasonCode、以及 freeSlots=0 的 overload 守卫后，作者账面为 `154 / 10 / 10`；N/A 仍 10。
+推导：§53 独立账面为 `154 / 10 / 10`（保留，不擦除）。round 27 把 `B11/B12/B14/B16/Q8/5.4/C2/C8/C14/5.3.10` 按 owner override 实现，作者自测 §54 关闭这 10 行；同时 5.1.1/5.1.3 的 owner 阻塞已解除，作者改为 PASS。PASS `154 + 10 + 2 = 166`；FAIL `10 - 10 = 0`；N/A `10 - 2 = 8`；`166 + 0 + 8 = 174`。
 
 ## residual 范围
 
@@ -19,10 +19,10 @@
 |---|---:|
 | 必须 | **0** |
 | 应该 | **0** |
-| 明确不做 | **10** |
-| 合计 | **10** |
+| 明确不做 | **0** |
+| 合计 | **0** |
 
-10 = **0 必须 + 0 应该 + 10 明确不做**。10 个明确不做：`B11`、`B12`、`B14`、`B16`、`Q8`、`5.4`、`C2`、`C8`、`C14`、`5.3.10`。B22/U2 已独立 PASS，不计入。`A11`、`S5`、`5.3.7`、`5.4.2`、`5.4.6` 保持 PASS（见 §48.1）；§50 的 O1/O2/O4/O5/A21/Q4/5.3.12 保持 PASS；§51 关闭 C1；§52 关闭 O3/B13/5.3.9，待独立重放。
+round 27 后 residual 为 **0 必须 + 0 应该 + 0 明确不做**；10 个旧“明确不做”行已按 owner override 进入作者 PASS（§54），但**独立复核仍未发生**。B22/U2 已独立 PASS，不计入。`A11`、`S5`、`5.3.7`、`5.4.2`、`5.4.6` 保持 PASS（见 §48.1）；§50 的 O1/O2/O4/O5/A21/Q4/5.3.12 保持 PASS；§51 关闭 C1；§53 独立关闭 O3/B13/5.3.9。
 
 ## 逐行账本
 
@@ -38,12 +38,12 @@
 | B8 | PASS | — | §1 baseline PASS |
 | B9 | PASS | — | §24/§25 |
 | B10 | PASS | — | §1 baseline PASS |
-| B11 | FAIL | 明确不做 | D7 已选作用域分区，不建 branch/lead/chief 三级。 |
-| B12 | FAIL | 明确不做 | D7 无固定层级，不设单点 chief。 |
-| B13 | PASS | 应该 | §52：agent tool 的 `AGENT_TOOL_PARAMETERS.kind.enum` 加入 `escalate`，`claim` 增加 `reasonCode` 属性/描述并复用六码枚举；`claims-selftest` 用 JSON-schema-shaped validator 验证 model-shaped escalate call 通过、非法 reasonCode 被拒。kernel/service 的写边界校验保持。 |
-| B14 | FAIL | 明确不做 | chief 审批闸门不成立；dispute/arbiter 取代否决窗口。 |
+| B11 | PASS | — | §54：`hierarchy-selftest` 驱动 production `orchestrator.step` 生成 L0 `BranchReport`；branch descriptor `mayCreate=false`；L1 `createdBy=lab-lead`。 |
+| B12 | PASS | — | §54：`chiefPolicy` 恰好 1 个 chief；production `expert_list` 对 peer 隐藏、对 operator 可见；`chiefActivationMetrics` 例外比例。 |
+| B13 | PASS | 应该 | §53：`AGENT_TOOL_PARAMETERS.kind.enum` 含 `escalate`，`claim.reasonCode` 六码 enum；AJV 对 model-shaped call 通过、对 `stalled_node` 返回 `/claim/reasonCode` enum 错误；真实 `tool.execute()` 写入 1 行，缺失/非法 reasonCode 被服务拒绝且行数不变。 |
+| B14 | PASS | — | §54：production cycle 物化 p2 lead child，escalation 打开 10 分钟窗口；`resolveHighReview` keep/defer/withdraw，`sweepHighReviews` timeout→unreviewed。 |
 | B15 | PASS | — | §17 |
-| B16 | FAIL | 明确不做 | D6 明确不做驻留会话与 submit 工具。 |
+| B16 | PASS | — | §54：`host/experts/resident.js` 一 session 多调用、submit 工具、`maxQueries=4`/20k/240s、compaction；Host service open/call/close 实测。 |
 | B17 | PASS | — | §18 |
 | B18 | PASS | 应该 | §47：`hypothesis`/`variant`/`tags` 签名，variant 扫描不判重复；`experts-selftest` 通过。 |
 | B19 | PASS | — | §17 |
@@ -62,7 +62,7 @@
 | Q5 | PASS | 必须 | §47：deferred 不占 maxNodes，独立 maxDeferred breaker；`auto-wip-selftest` 8/8。 |
 | Q6 | PASS | — | §1 baseline PASS |
 | Q7 | PASS | — | §1 baseline PASS |
-| Q8 | FAIL | 明确不做 | D7 取消固定三级评审。 |
+| Q8 | PASS | — | §54：L0 15 节点/20KB、证据 `{nodeId,field,quote}` 白名单、L1/L2 3 倍压缩、L2 `verifiedEvidence` 非空、动态分组。 |
 | Q9 | PASS | 应该 | §47：`dag_map`/`dag_walk`/`dag_diff` 生产 call site 与字节预算；`tool-surface-selftest` 通过。 |
 | Q10 | PASS | 应该 | §47：确定性候选对/召回 + curator false-close breaker；`experts-selftest` 通过。 |
 | Q11 | PASS | 应该 | §47：专职 curator 只提名、不执行；`experts-selftest`/`stage5-selftest` 通过。 |
@@ -89,24 +89,24 @@
 | 5.1 | PASS | — | §24/§25 |
 | 5.2 | PASS | — | §40 ledger correction：独立 verdict，不再并入 B22/B23 |
 | 5.3 | PASS | — | §40 ledger correction：独立 verdict，不再并入 B22/B23 |
-| 5.4 | FAIL | 明确不做 | D7 已取消分层评审，明确不做。 |
+| 5.4 | PASS | — | §54：`review.coverage`、`review.compression`、`review.chief` 指标来自 production `metricsFor`。 |
 | C1 | PASS | 应该 | §51：`archiveDeferred` 后 `store.listNodes`/`projection.listNodes`/`getState`/metrics 均无 archived；`projection.getNode` 返回 `undefined`，`checkConsistency=[]`，`state.archivedCount=1`、metrics `archived=1/deferred=0`。Projection hot index 已移除。 |
-| C2 | FAIL | 明确不做 | 以单一 chief 为前提，v2 不设 chief。 |
+| C2 | PASS | — | §54：`escalationQuota` 每 lead/epoch、`escalationRate` alert/tighten 码；chief peer 不可见；审查指标。 |
 | C3 | N/A | — | 真实浏览器绘制/时区 N/A；未测量。 |
 | C4 | N/A | — | 真实 provider/LLM 端到端 N/A。 |
 | C5 | PASS | 必须 | §47：`semanticFallback` 枚举 14 个动作；无 code/expert 出口的动作落 `human_review`，intent 记录携带 fallback；`claims-selftest` 3 探针通过。 |
 | C6 | PASS | 应该 | §47：7/7 claim predicates 有可执行探针（100% ≥ 90%）；`claims-selftest` 通过。 |
 | C7 | PASS | — | §23 |
-| C8 | FAIL | 明确不做 | 建子节点即投票的计权治理不属于 v2。 |
+| C8 | PASS | — | §54：production `createChild` 写 `childVotes`；重复、同专家同节点、配额均零权重并拒绝。 |
 | C9 | N/A | — | 自然人和双人审批 N/A。 |
 | C10 | N/A | — | 真实 Host restart/provider 组合 N/A。 |
 | C11 | N/A | — | 真实浏览器交互/截图 N/A。 |
 | C12 | PASS | — | §24/§25 |
 | C13 | PASS | — | §24/§25 |
-| C14 | FAIL | 明确不做 | 接受一次性停机割接；迁移不是自动的。 |
-| 5.1.1 | N/A | — | B16/D6 方向待 owner 裁决。 |
+| C14 | PASS | — | §54：`migrationStatus`/`advanceMigration` 三开关、逐阶段、无 parity 拒绝；未重启 Host。 |
+| 5.1.1 | PASS | — | §54：owner override 恢复 B16 驻留会话；Host resident session 与 submit 工具已实测。 |
 | 5.1.2 | PASS | — | §24/§25 |
-| 5.1.3 | N/A | — | B11/D7 方向待 owner 裁决。 |
+| 5.1.3 | PASS | — | §54：owner override 恢复 B11 三级；hierarchy production cycle 已实测。 |
 | 5.1.4 | PASS | — | §1 baseline PASS |
 | 5.1.5 | N/A | — | defer 提名不存在，0/1 证据无落点。 |
 | 5.1.6 | PASS | — | §1 baseline PASS |
@@ -123,8 +123,8 @@
 | 5.3.6 | PASS | — | §24/§25 |
 | 5.3.7 | PASS | 应该 | §47：父节点全完成自动创建 merge（去重、限一批）；`stage5-selftest` 通过。 |
 | 5.3.8 | PASS | 应该 | §47：默认 advisor 预算 240s（高于实测 180s p90），范围 30..1800；`stage5-selftest` 通过。 |
-| 5.3.9 | PASS | 应该 | §52：`queueOverloadState` 去掉 `freeSlots > 0` 守卫，严格用 `planned > 2×freeSlots`；freeSlots=0、planned=3 的纯阈值探针与生产 observer fixture 都在 +5min 发 `queue_overload`，detail `planned=3,queue=2,freeSlots=0`。observer/evaluator 仍共用同一 helper。 |
-| 5.3.10 | FAIL | 明确不做 | 与 D7 三级评审冲突，明确不做。 |
+| 5.3.9 | PASS | 应该 | §53：`queueOverloadState(3 planned,0 free)` 返回 `overloaded:true`；纯 evaluator 与生产 observer 都在 +300,001ms 发 `queue_overload`，detail `planned=3,queue=2,freeSlots=0,ratio=null`；t0 与窗口前 1ms 都不发。 |
+| 5.3.10 | PASS | — | §54：复用 B11/Q8/5.4 的 hierarchy 实现与 production cycle 探针，不再重复缺口。 |
 | 5.3.11 | PASS | 应该 | §47：curator intent TTL 与 `intent/expired`；`experts-selftest` 通过。 |
 | 5.3.12 | PASS | 应该 | §50：真 `rotateDueExperts` 把 root+child 的 `createdBy` 从 `lab-advisor` 移到 `lab-chief`，写两个 `node/expert_assigned` 事件，`assignedNodeIds` 两个节点；重建 assignment 后 `due=[]`。 |
 | 5.3.13 | PASS | — | §40 |
@@ -157,7 +157,7 @@
 | U14 | PASS | — | §24/§25 |
 | O1 | PASS | 必须 | §50：真实 HTTP `/metrics` 顶层有 `cycle`/`byRole`；`cycle.p50/p90=20000`，`byRole.advisor.failRate=0.25`。 |
 | O2 | PASS | 必须 | §50：真实 HTTP `/metrics.advisor.inputBytes.p50=3000`、`p90=5000`；`advisor.tokens.p50=1100`、`p90=1300`。 |
-| O3 | PASS | 必须 | §52：`node.setPriority` 在 deferred→可调度 class 提升时写 `plannedAt`/`runnableAt=ctx.now`，效果也带 `timestamps`；O3 探针增加 `setNodePriority('p2')` 后真 dispatch 的 promoted 节点，`queueWait.count=2`，两次 wait 都 `<5s`。`runnableSince` 同时覆盖 create/transition/hold/defer/promotion。 |
+| O3 | PASS | 必须 | §53：真实 dispatch 的 held 15ms、promoted 3ms，`queueWait.count=2`、p50=3；promotion 的 `plannedAt=runnableAt=priority.at` 在 store/projection/reload/redo 后一致；priority event effect 显式带 `set.timestamps`。 |
 | O4 | PASS | 必须 | §50：真实 `queue.remainingMs=60000`、`queue.runnable=1`、`queue.deferred=2`、`counts.archived=1`；archived deferred 不再进 queue/counts.deferred。 |
 | O5 | PASS | 必须 | §50：同一 fixture：`counts.planned=1`、`counts.runnable=1`、`queue.runnable=1`、`queue.deferred=2`；`deferUntil` 不再同时算 planned/runnable，archived 只进 `archived`。 |
 | O6 | PASS | 应该 | §47：`autoState` 持久化 idle/error streak、lastPause、pauseCounts；`auto-wip-selftest` 8/8。 |
@@ -206,7 +206,8 @@
 ## 一致性检查
 
 - 174 个 ID 全部出现一次；无重复、无合并行。
-- PASS 154 + FAIL 10 + N/A 10 = 174。
-- FAIL 10 = **0 必须 + 0 应该 + 10 明确不做**。
+- PASS 166 + FAIL 0 + N/A 8 = 174。
+- FAIL 0 = **0 必须 + 0 应该 + 0 明确不做**。
 - `B22` 已在 round 21 独立 PASS（§46.7；48 对、token 矩阵、body actor、破坏性 gate）；`U2` 已独立 PASS；`5.2`、`5.3`、`5.3.3`、`Q3` 是独立 PASS，不是“由 B22/B23 覆盖”。
-- 最后一个独立重放（§51）为 151/13/10；§52 的 154/10/10 是作者修复后的账面，尚待独立重放，不能声称已是独立结论。
+- §53 独立重放：**O3/B13/5.3.9 全部 PASS**；这是第一次独立的 **154/10/10**，保留为历史事实，不因 round 27 作者更新而擦除。
+- round 27 作者账面：**166/0/8**；`B11/B12/B14/B16/Q8/5.4/C2/C8/C14/5.3.10` 的作者证据见 §54，**独立复核待跑**。

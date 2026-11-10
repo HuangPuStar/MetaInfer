@@ -30,11 +30,11 @@ B27 撤销**，不再作为 B27 的排除项。
 arbiter matrix）独立通过，**B22 仍是 FAIL**：8 类 authority 元数据正确，但
 `resolveDispute` 不执行 authority 检查，专家可对全部 8 类 `apply_change`；
 5.3.13 的 long-poll/mid-sleep 通过，但只有 30s、只识别 stalled，缺
-starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准；第二十一轮以 §46.7 的 **121 / 43 / 10** 为准；第二十二轮以 §48 的 **143 / 21 / 10** 为准；第二十三轮以 §50 的 **150 / 14 / 10** 为准；第二十四轮以 §51 的 **151 / 13 / 10** 为准。
+starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准；第二十一轮以 §46.7 的 **121 / 43 / 10** 为准；第二十二轮以 §48 的 **143 / 21 / 10** 为准；第二十三轮以 §50 的 **150 / 14 / 10** 为准；第二十四轮以 §51 的 **151 / 13 / 10** 为准；第二十五轮以 §53 的 **154 / 10 / 10** 为准。
 
 > 作者第十四轮报告见 **§35**，第二十轮报告见 **§46**，不替代独立复核。
-> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；第二十一轮见 §46.7；第二十二轮见 §48；第二十三轮见 §50；第二十四轮见 §51；当前独立总判定以 §51 为准：151 PASS / 13 FAIL / 10 未测量。**
-> **B27 restart continuity 仍 PASS；U2 PASS；B22 在 round 21 独立重放通过（48 个 method+path 全部有 policy；14 个 token 路由 absent/forged 拒绝；递归剥离 body actor；/commands 破坏性操作仍走 human gate；authorizeIrreversibleTool(null) 不再铸造 human）。完整发布仍 NO-SHIP：round 24 §51 已关闭 C1，但仍有 1 个必须行（O3）和 2 个应该行（B13/5.3.9）未关闭。**
+> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；第二十一轮见 §46.7；第二十二轮见 §48；第二十三轮见 §50；第二十四轮见 §51；第二十五轮见 §53；当前独立总判定以 §53 为准：154 PASS / 10 FAIL / 10 未测量。**
+> **B27 restart continuity 仍 PASS；U2 PASS；B22 在 round 21 独立重放通过（48 个 method+path 全部有 policy；14 个 token 路由 absent/forged 拒绝；递归剥离 body actor；/commands 破坏性操作仍走 human gate；authorizeIrreversibleTool(null) 不再铸造 human）。round 25 §53 已关闭 O3/B13/5.3.9；154 行的必须/应该 residual 为 0，10 个明确不做仍在范围外。完整发布只能按这 154 行范围声明，不能写成 174 行全部实现。**
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
@@ -6752,7 +6752,7 @@ helper 写的是 `freeSlots > 0 && planned > 2 * freeSlots`，而清单公式是
 - **真实 provider**：未调用外部模型，专家路径只测了 fixture 和 deterministic fallback。
 - **session-id rehydration**：未重启 Host 重放 session 身份；b27-restart 只覆盖现有 restart 断言。
 
-## §52 作者修复 §51 的三个反证（HEAD `63632fa`，待独立重放）
+## §52 作者修复 §51 的三个反证（HEAD `63632fa`；§53 已独立重放）
 
 > 本节是**作者探针**，不是独立复核。§51 的 `151 / 13 / 10` 仍是最后一个独立 verdict；§52 只说明 O3/B13/5.3.9 的语义修复与反证。作者账面回到 `154 / 10 / 10`，独立验证者仍须重放。
 
@@ -6810,4 +6810,249 @@ helper 写的是 `freeSlots > 0 && planned > 2 * freeSlots`，而清单公式是
 | `strict-writes-selftest` | **17 ok / 0 unexpected bypass** |
 | `git diff --check` | 0 |
 
-作者账面为 **154 PASS / 10 FAIL / 10 N/A**，10 FAIL 全部为明确不做；算术 `154 + 10 + 10 = 174`。最后一个独立账面仍是 §51 的 **151 / 13 / 10**；§52 尚待独立重放，不能写成独立结论。
+作者账面为 **154 PASS / 10 FAIL / 10 N/A**，10 FAIL 全部为明确不做；算术 `154 + 10 + 10 = 174`。§53 独立重放后确认该账面；本节只保留作者探针，独立证据见 §53。
+
+## §53 round 25 独立复核（HEAD `63632fa`，2026-11-11T00:18:29+08:00 `Asia/Shanghai`）
+
+> 本节是**独立重放**，不是 §52 作者探针的复述。在 clean worktree `63632fa` 上重放 O3/B13/5.3.9，
+> 并对 6 个依赖 timestamp/projection 的旧 PASS 抽样。结论：**这是第一次独立的
+> 154 PASS / 10 FAIL / 10 N/A**；residual 只剩 10 个明确不做，0 必须 / 0 应该。
+
+### 53.1 三个反证均已关闭
+
+| 行 | 结果 | 证据 |
+|---|---|---|
+| O3 | **PASS** | held 15ms、promoted 3ms；`queueWait.count=2`、p50=3、max=15；promotion 的 `plannedAt/runnableAt` 在 store、projection、reload、redo 后都与 `priority.at` 相同。 |
+| B13 | **PASS** | `AGENT_TOOL_PARAMETERS.kind.enum` 含 `escalate`，`claim.reasonCode` 六码枚举；AJV 对 model-shaped call 通过，对 `stalled_node` 返回 `/claim/reasonCode` enum 错误；真实 `tool.execute()` 写入 1 行，缺失/非法 reasonCode 被服务拒绝且不落行。 |
+| 5.3.9 | **PASS** | `freeSlots=0, planned=3` 的 helper 返回 `overloaded:true`；纯 evaluator 与生产 observer 都在 +300,001ms 发 `queue_overload`，detail `planned=3, queue=2, freeSlots=0, ratio=null`；t0 与窗口前 1ms 都不发。 |
+
+### 53.2 O3：两条生产路径和 promotion 持久化
+
+真实 `dispatchOnce` fixture：
+
+- `held`：created 2h ago，`dispatchHold.untilMs=now-1`；第一轮 started，`waitMs=15`。
+- `promoted`：created 1h ago，`priority.class='deferred'`；经 `service.setNodePriority('p2')` 后第二轮 started，`waitMs=3`。
+
+```json
+{
+  "queueWait": {"count":2,"p50":3,"max":15},
+  "decisions": [
+    {"nodeId":"held","status":"started","waitMs":15},
+    {"nodeId":"promoted","status":"started","waitMs":3}
+  ]
+}
+```
+
+`promoted` 的 promotion 时间戳 `plannedAt=runnableAt=1794327584200` 与 `priority.at` 一致，
+并且在四处都保留：
+
+| 读取点 | `plannedAt` | `runnableAt` |
+|---|---:|---:|
+| `store.getNode` | 1794327584200 | 1794327584200 |
+| `projection.getNode`（commit 后） | 1794327584200 | 1794327584200 |
+| `projection.load`（重启式重建） | 1794327584200 | 1794327584200 |
+| `redoEffect`（priority event effect） | 1794327584200 | 1794327584200 |
+
+`node/priority_changed` 的 `node.merge` effect 显式带 `set.timestamps`，所以 projection/replay 不依赖
+store 的偶然同步。`runnableSince` 的排序也独立验证：`created=1000, plannedAt=2000, runnableAt=3000,
+deferUntil=4000, hold=5000` 返回 **5000**；create/transition 都写 `plannedAt/runnableAt`，defer/hold 仍取最大值。
+
+**反证**：把 promotion 的 `plannedAt/runnableAt` 写入条件改成 `false`，`observability-selftest` EXIT 1，
+O3 以 3.6M ms 失败（9/10）。
+
+### 53.3 B13：模型可见 schema 与真实 tool call
+
+`AGENT_TOOL_PARAMETERS`：
+
+```json
+{
+  "kind.enum": ["dispatch","priority","proposal","review","curate","note","escalate"],
+  "claim.properties.reasonCode.enum": ["conflict","budget_shift","new_direction","branch_death","low_confidence","ledger_conflict"],
+  "claim.description": "…reasonCode is required for action escalate…"
+}
+```
+
+用 DSH checkout 里的 AJV（真实 JSON Schema 校验，不是手写 shape checker）验证：
+
+| 调用 | schema | 结果 |
+|---|---|---|
+| `kind='escalate', claim.reasonCode='conflict'` + `basis` | 通过 | `execute()` 返回 `ok:true`，落 1 行 `kind='escalate'` |
+| `claim.reasonCode='stalled_node'` | **失败** | `/claim/reasonCode must be equal to one of the allowed values` |
+| `claim` 缺 `reasonCode` | 通过（跨字段必填由服务执行） | `escalation_reason_required`，不落行 |
+| 非法 reasonCode 绕过 schema 直达 handler | 不适用 | `escalation_reason_invalid`，行数仍 1 |
+
+行数：合法调用前 0，合法后 1，缺失/非法后仍 1（`rowDelta=1`）。工具 descriptor 的 `parameters`
+就是 `AGENT_TOOL_PARAMETERS` 同一对象。**反证**：从 `kind.enum` 移除 `escalate`，`claims-selftest`
+EXIT 1，报 `$.kind=escalate is not in enum`。
+
+### 53.4 5.3.9：零空闲槽位
+
+```json
+{
+  "state": {"overloaded":true,"planned":3,"freeSlots":0},
+  "direct": [{"code":"queue_overload","detail":{"planned":3,"queue":2,"freeSlots":0,"ratio":null,"overMs":300001}}],
+  "observer": {
+    "t0": [],
+    "t0+299999ms": [],
+    "t0+300001ms": [{"code":"queue_overload","detail":{"planned":3,"queue":2,"freeSlots":0,"ratio":null}}]
+  }
+}
+```
+
+observer 的 `freeSlots` 来自 `maxRunningNodes=1` 且 1 个 running，不是测试直接塞进去的常量。
+**反证**：恢复 `freeSlots > 0 &&` 守卫，`experts-selftest` EXIT 1；零槽位纯探针返回 `[]`，
+生产 observer 也不再发 `queue_overload`（两条 5.3.9 断言同时红）。
+
+### 53.5 依赖 timestamp/projection 的旧 PASS 抽样
+
+| 旧行 / 面 | 检查 | 结果 |
+|---|---|---|
+| U14 | `dashboard-selftest`：agent view 的 age/stale、`revision_changed`、`refresh_failed`、`refresh_partial` | **13/13** |
+| S12 | `eventlog-selftest`：7 条事件跨 hot/cold、`pageEvents(after=1,limit=2)` 顺序、restart 后 seq 连续 | **7/7** |
+| B7 | `priority-selftest`：planned 可改、running/done 拒绝、kernel 拒绝、非法 class 拒绝 | **31/31** |
+| B8 | `dispatch-selftest` + `dispatch-once-selftest`：runnable 选择、defer/hold、dispatchOnce 预算 | **8/8 + 6/6** |
+| 5.3.4 | `priority-selftest`：human 100 / advisor 10、GPU-seconds 来自真实 node timestamps | **31/31** |
+| B27 | `b27-restart-selftest`：重启后 continuity、pending appeal 不穿透 | **11/11** |
+
+**额外探针**：`node.transition('proposed'→'planned')` 后 store 与 projection 都保留
+`plannedAt/runnableAt`，`checkConsistency=[]`；priority/dispatch 的旧顺序没有因新增
+`runnableAt` 改变。
+
+### 53.6 回归（HEAD `63632fa`）
+
+| 检查 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**944 ok / 0 FAIL** |
+| `bench:scale` | **11/11** |
+| `strict-writes` | **17 ok / 0 unexpected bypass** |
+| `client-smoke` | **45/45** |
+| `operator-ui` | **10/10** |
+| `operator-route` | **48 route pairs** |
+| `plugin-smoke` | **5/5** |
+| `b27-restart` | **11/11** |
+| `git diff --check` | 0 |
+
+### 53.7 账本与发布
+
+§52 作者账面为 **154 / 10 / 10**；本轮独立重放把 O3/B13/5.3.9 三行从 §51 的 FAIL 改为 PASS：
+
+- **154 = 151 + 3**；
+- **10 = 13 - 3**；
+- **174 = 154 + 10 + 10**；
+- residual = **0 必须 + 0 应该 + 10 明确不做 = 10**。
+
+**这是第一次独立的 154 PASS / 10 FAIL / 10 N/A。** 10 个明确不做仍是
+`B11`、`B12`、`B14`、`B16`、`Q8`、`5.4`、`C2`、`C8`、`C14`、`5.3.10`。
+
+**发布判断**：按 **154 行已验收范围**，必须/应该 residual 已清零，可以进入发布；但这不是
+“174 行全部实现”，也不是对 10 个明确不做项的承诺。发布说明必须同时写明下面的排除项；
+若发布范围要求浏览器、真实 provider 或 session-id rehydration，则仍需单独验证。
+
+### 53.8 边界与排除
+
+- 本轮逐项重放 3 行，并抽样 6 个旧 PASS；其余 145 行未逐行重放，沿用前轮独立结论。
+- **浏览器**：本环境无 Playwright/浏览器，未测量绘制、交互和真实页面行为。
+- **真实 provider**：未调用外部模型，专家路径只测 fixture 和 deterministic fallback。
+- **session-id rehydration**：未重启 Host 重放 session 身份；b27-restart 只覆盖现有 restart 断言。
+
+## §54 作者关闭 round 27 的 10 行（代码 `077719e`，文档提交紧随代码 `077719e`；2026-11-11）
+
+> 本节是**作者自测**，不是独立复核。§53 的 `154/10/10` 仍是最后一次独立结论；
+> 本轮把 `B11/B12/B14/B16/Q8/5.4/C2/C8/C14/5.3.10` 按 owner override 实现，
+> 作者账面更新为 **166/0/8**（另把 5.1.1/5.1.3 的 owner 阻塞解除）。
+> 独立 verifier 必须重新跑本节，不能把作者结果写成独立 PASS。
+
+### 54.1 新增生产面与探针
+
+| 行 | 生产 call site | 作者探针 |
+|---|---|---|
+| B11 | `host/experts/hierarchy.js` 三档 descriptor；`orchestrator.runCycle` 在 `expertsMode=hierarchy` 时生成 `cycle.hierarchy` | `hierarchy-selftest`：`branch.mayCreate=false`、`lead.mayCreate=true`、`l0Trigger=branch_event`；production `orchestrator.step` 生成 L0 report 和 `createdBy=lab-lead` 的 L1 节点 |
+| B12 | `chiefPolicy`、`filterVisibleExperts`、`chiefActivationMetrics`；`listExperts(actor)` / `expert_recall` 过滤 peer | peer `expert_list` 无 `lab-chief`，operator 有；`chief.count=1`；2/100 判为例外，100/100 判为异常 |
+| B14 | `createChild` 物化 p2；`resolveHighReview` / `sweepHighReviews`；`resolve_high_review` 工具 | production cycle 写入 `pendingHighReview{deadlineAt-openedAt=600000}`；keep 清窗并 `ratifiedBy=s-chief`；defer→`deferred`；withdraw→`cancelled`；超时→`unreviewed` |
+| B16 | `host/experts/resident.js`；service `openResidentSession` / `callResidentTool` / `closeResidentSession` | 同一 session 两次读取后 submit；`submit` 在工具面而 `structured_output` 不在；`maxQueries=1` 第二次读取拒绝；compaction `afterTokens<beforeTokens` |
+| Q8 | `buildBranchReport`、`validateEvidencePointers`、`validateChiefDecision`、`buildHierarchyReview` | 15 节点/20KB 上限；`{nodeId,field,quote}` 缺节点/非白名单字段拒绝；L1/L2 3x；L2 空 `verifiedEvidence` 拒绝；`ceil(active/2)` |
+| 5.4 | `metricsFor(...).review` | `levels=branch,lead,chief`、`coverage.completed>=1`、3 层 compression、`chief.count=1`、escalation rate 数值 |
+| C2 | `escalationQuota`、`escalationRate`、`review.escalations` | 每 lead/epoch 配额 1 时第二次拒绝；2/4 为 `tighten`、1/4 为 `alert`；production metrics 带 review |
+| C8 | `createChild` 的 `childVotes` + `review/vote_counted` | 生产 step 写 1 条 `childVotes`；重复、同专家同节点、配额均为 0；唯一子节点为 1 |
+| C14 | `migrationStatus`、`advanceMigration` | phase1 residual `p1NoSwitch=true`；无 parity 的 phase2 返回 `parity_required`；phase2/3 逐级切换 `experts=hierarchy`、`contest=shadow`；跳级拒绝 |
+| 5.3.10 | 复用 B11/Q8/5.4 的同一 hierarchy 实现 | 不再有独立“缺口”；production cycle 和 metrics 探针覆盖 |
+
+### 54.2 探针输出
+
+```text
+$ node scripts/hierarchy-selftest.mjs
+ok   B11: registry exposes branch/lead/chief levels
+ok   B11: L0 branch descriptor may never create; L1 lead may
+ok   B11: L0 is triggered by branch completion/failure, not only the global cycle
+ok   B12: exactly one chief and it is invisible to peers
+ok   B12: chief activation ratio is an exception budget, not a review pass
+ok   B12/C2: the production expert library hides the chief from peers but not from the operator
+ok   Q8/5.3.10: hierarchy has exactly three levels and one chief
+ok   5.4: dynamic grouping is ceil(active branches / 2)
+ok   5.4: lead and chief layers each compress >= 3x
+ok   5.4: completed coverage is counted, not asserted
+ok   Q8: every BranchReport is <= 15 nodes and <= 20 KB
+ok   Q8: evidence pointers reject missing nodes and non-whitelisted fields
+ok   Q8: a chief decision needs verified raw evidence
+ok   B14: chief keep clears the window and records ratification
+ok   B14: veto defer demotes the optimistic p2 node
+ok   B14: veto withdraw cancels the node instead of leaving it runnable
+ok   B14: a timed-out window keeps the node and marks it unreviewed
+ok   B14: the chief tool surface resolves a pending window
+ok   C8: an identical child is a zero-weight duplicate
+ok   C8: one expert gets one vote per node
+ok   C8: one expert cannot exceed its per-hour vote quota
+ok   B16: one resident session makes more than one tool call
+ok   B16: submit is a tool in the surface, not structured_output
+ok   B16: maxQueries=4 default and a smaller override are enforced
+ok   B16: compaction drops the raw transcript and records a ratio
+ok   C14: phase 2 refuses to advance without the S14 parity gate
+ok   C14: phases advance one at a time with all three switches visible
+ok   B11/B14/C8: production cycle builds L0 reports and materializes one L1 p2 child
+ok   B14: the escalated L1 child gets a 10-minute window; an unescalated child would not
+ok   C8: the same production child creation records exactly one weighted vote
+ok   B14: the chief can ratify the production child inside the window
+ok   5.4/C2: production metrics expose coverage, compression, chief ratio and escalation rate
+ok   B16: Host service executes multiple calls then submit on a resident session
+hierarchy-selftest: all checks passed
+```
+
+计数：**42 ok / 0 FAIL**。
+
+### 54.3 反证（把实现改坏，探针必须红）
+
+| 反证 | 结果 |
+|---|---|
+| `validateEvidencePointers` 直接 `return []` | `Q8: evidence pointers ...` **FAIL**，`hierarchy-selftest: 1 failed` |
+| `HIGH_REVIEW_WINDOW_MS` 改成 5 分钟 | `B14: ... 10-minute window` **FAIL**，1 failed |
+| 去掉 `queries >= budget.maxQueries` 守卫 | `B16: maxQueries=4 ...` **FAIL**，1 failed |
+| `sameTarget` 去重改成 `false &&` | `C8: one expert gets one vote per node` **FAIL**，1 failed |
+| `parity?.ok` gate 改成 `false &&` | `C14: phase 2 refuses ...` **FAIL**，1 failed |
+| `lab-branch.mayCreate` 改成 `true` | `B11: L0 branch descriptor ...` **FAIL**，1 failed |
+| `canSeeExpert` 恒 `return true` | B12 两条 **FAIL**，2 failed |
+
+每次反证后恢复文件，`hierarchy-selftest` 回到 42/0。
+
+### 54.4 全量回归
+
+| 门 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**986 ok / 0 FAIL**（含 `hierarchy-selftest`） |
+| `npm run bench:scale` | **11/11** |
+| `client-smoke` | **45/45** |
+| `operator-ui-selftest` | all checks passed |
+| `operator-route-selftest` | **48 route pairs** |
+| `dispute-route-selftest` | all checks passed |
+| `plugin-smoke` | **5/5** |
+| `b27-restart-selftest` | all checks passed |
+| `strict-writes-selftest` | all checks passed |
+| `git diff --check` | 0 |
+
+### 54.5 边界
+
+- **未重启 Host**；没有浏览器/真实 provider 测量；C3/C4/C10/C11 仍 N/A。
+- **B16** 的 Host resident session 实测多次工具调用；DSH 子激活自身仍只返回一次
+  structured result。本节没有声称 DSH 层多轮 continuation 已完成；若验收要求同一
+  DSH 子激活内多轮，必须在 Host 重启后单独验证。
+- **C14** 只验证配置/开关/S14 gate；实际零停机切换没有在真实 Host 上演练。
+- `§53` 的独立 154/10/10 未被擦除；本节是作者证据，独立重放仍待执行。

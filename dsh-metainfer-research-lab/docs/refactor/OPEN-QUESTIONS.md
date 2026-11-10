@@ -124,13 +124,13 @@
   仍可显式取全量（scale 测试），但 HTTP 出口必须有界并带 `_truncated`。
 - **可逆性**：高。
 
-## 能力行范围裁决（2026-11-11，round 25 修复后）
+## 能力行范围裁决（2026-11-11，round 25 独立复核后）
 
 > 目的：把仍未关闭的能力行分成**承诺**、**可延后**、**明确不做**三档，
 > 并让 174 行账本每行恰好一个状态。逐行账本见
 > [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)；本节保留 **10 个明确不做** 的范围裁决。
-> 最后一个独立依据是 `VERIFICATION.md` §51（HEAD `252c902`，151/13/10）；§52 修复了
-> O3/B13/5.3.9 三个反证，作者账面为 **154 PASS / 10 FAIL / 10 N/A**，尚待独立重放。
+> 独立依据是 `VERIFICATION.md` §53（HEAD `63632fa`）；O3/B13/5.3.9 已独立 PASS，
+> 账面为 **154 PASS / 10 FAIL / 10 N/A**，residual 0 必须 / 0 应该 / 10 明确不做。
 
 ### 裁决口径
 
@@ -155,7 +155,7 @@
 | C14 | 明确不做 | 接受一次性停机割接；迁移不是自动能力，release note 必须写清。 |
 | 5.3.10 | 明确不做 | 与 Q8/5.4 同一套三级评审，D7 已取消；不重复实现。 |
 
-> 计数：**必须 0 / 应该 0 / 明确不做 10 = 10**。§51 关闭 C1；O3/B13/5.3.9 由 §52 修复，待独立重放。
+> 计数：**必须 0 / 应该 0 / 明确不做 10 = 10**。§51 关闭 C1；§53 独立关闭 O3/B13/5.3.9。
 > `A11`、`S5`、`5.3.7`、`5.4.2`、`5.4.6` 保持 PASS，见 §48.1；`5.2`/`5.3`/`5.3.3` 的独立 verdict 仍以账本为准。
 
 ### 独立结论索引（含已关闭的 B22）
@@ -176,9 +176,9 @@
 
 ### 影响
 
-- §52 作者账面为 **154 PASS / 10 FAIL / 10 N/A**，剩余 10 行全部为明确不做；**这不是独立 verdict**，最后一个独立账面仍是 §51 的 151/13/10。
-- **必须 0 / 应该 0 / 明确不做 10 = 10**；仍待独立重放确认后才能改发布判断。
-- 作者 §52 的 `154/10/10` 是待重放账面；§51 独立探针仍把 O3/B13/5.3.9 判 FAIL，直到重放。
+- §53 独立账面为 **154 PASS / 10 FAIL / 10 N/A**；剩余 10 行全部为明确不做。**这是第一次独立的 154/10/10。**
+- **必须 0 / 应该 0 / 明确不做 10 = 10**；按这 154 行范围，发布门已清空；10 个明确不做仍是范围外。
+- 发布说明必须写明 **浏览器、真实 provider、session-id rehydration** 未验证；不能写成 174 行全部实现。
 - C14 的停机割接边界见 [`RELEASE-NOTES.md`](RELEASE-NOTES.md)。
 
 ## 未决（下一轮开工前需要确认）
@@ -204,3 +204,63 @@
   也**没有**写 `~/.dsh/storages/*`（只读）。
 - 浏览器绘制未测量：本仓库测试环境无 Playwright/浏览器；`ui-selftest.mjs` 只测 view-model，
   IMPLEMENTATION.md 明确标注 `未测量`，不伪造帧率。
+
+## Owner override（round 27，2026-11-11）：清单优先于 D6/D7/chief 前提
+
+> 本节是 owner 对 **B11、B12、B14、B16、Q8、5.4、C2、C8、C14、5.3.10**
+> 十个“明确不做”行的新裁决。它**明确推翻**下列旧裁决；旧裁决仍保留在上文作为历史，
+> 不再是本轮的验收口径。
+
+### 裁决
+
+1. **D6（无状态激活）被推翻**：B16 要求驻留会话 + `submit` 工具。实现采用 Host 侧
+   resident session（`host/experts/resident.js`，`openResidentSession` /
+   `callResidentTool` / `closeResidentSession`）：同一 session 可执行多次工具调用，
+   `submit` 是工具面的一员，预算为 `maxQueries=4`、`20k tokens`、`240s`，并带
+   compaction 记录。**不**再把“一次性结构化输出”当作 B16 的唯一出口。
+2. **D7（作用域分区 + 升级路由，不做固定层级）被推翻**：B11/Q8/5.4/5.3.10 要求
+   branch → lead → chief 三层。实现采用 `host/experts/hierarchy.js`：
+   L0 每分支 `BranchReport`（≤15 节点/20 KB，不可建节点），L1 1–2 个 lead
+   （可物化、`createdBy=lab-lead`），L2 恰好一个 chief（例外仲裁 + 否决）。
+3. **“不设 chief”的前提被推翻**：B12/C2/B14 要求单点 chief、例外路由和 10 分钟
+   否决窗口。实现采用 `chiefPolicy`、`resolveHighReview`、`sweepHighReviews`；
+   chief 对同级专家不可见，但对 operator/自身可见。
+4. **C14 的“接受一次性停机割接”被推翻**：改为分阶段开关 + S14 parity gate。
+   `dispatch.strategy`、`expertsMode`、`contest.mode` 逐阶段推进；阶段 2/3 没有
+   `parity.ok=true` 时 `advanceMigration` 返回 `parity_required`，不写配置。
+
+### 不把“实现差异”伪装成“重新解释”
+
+- `config.experts` 在本项目里是**专家 roster 数组**，不能同时承载 `experts.mode`。
+  因此新开关落在 `config.expertsMode`（并在 `migrationStatus` 中显式呈现为
+  `switches.experts`）。这是字段落点，不是缩窄 B11/Q8 的层级要求。
+- `C14` 的 `dispatch.strategy` 取值包含 `legacy-llm` / `shadow-deterministic` /
+  `deterministic`；本轮只在配置/S14 gate 层验证，未重启 Host，也没有把旧 LLM
+  dispatcher 接回运行时。
+- `B16` 的 Host 侧 resident session 已实测多次调用；DSH 子激活本身仍只返回一次
+  structured result。**本轮没有声称**已经完成 DSH 层的多轮 continuation；如果
+  验收要求“同一 DSH 子激活内多轮”，必须在 Host 重启后单独验证，不能用本节的
+  Host session 证据冒充。
+- `B14` 的 10 分钟窗口以 Host 时钟为准；超时扫描在 `sweepHighReviews`，节点保留为
+  `unreviewed`，不自动删除或自动批准。
+
+### 对旧理由的回答
+
+| 行 | 旧理由 | 为什么不再适用 / 清单为何不改 |
+|---|---|---|
+| B11 | D7 已选作用域分区 | owner 明确要求按清单实现三级；作用域分区保留为 L0 的分支切片，不取消层级。 |
+| B12 | D7 无固定层级，不设 chief | 单点 chief 是清单的例外仲裁器，不是审批闸门；`chiefActivationMetrics` 把比例压到例外预算。 |
+| B14 | chief 审批闸门不成立 | 改成正向乐观提交：L1 先物化 p2，chief 只在 10 分钟窗口内否决；没有“先审批后创建”。 |
+| B16 | D6 拒绝驻留会话 | owner 要求承认 Q9-3 的机制改动；Host resident session 已落地，DSH 多轮边界见上。 |
+| Q8 | D7 取消固定三级评审 | 清单的 L0/L1/L2、六个上报码、证据指针、3 倍压缩全部实现并测试。 |
+| 5.4 | D7 已取消分层评审 | 现在有 coverage/compression/chief 比例的真实指标，不是同一快照的冗余投票。 |
+| C2 | 以单一 chief 为前提，前提不成立 | 前提由 owner 恢复；额外提供每 lead/epoch 配额和 escalation-rate alert/tighten 码。 |
+| C8 | 建子节点即投票不属于 v2 | 生产 `createChild` 现在写 `childVotes`，重复/配额/同专家同节点均拒绝计权。 |
+| C14 | 接受一次性停机割接 | 改为逐阶段开关 + parity gate；仍不重启 Host，zero-downtime 的可运行证据见 §54。 |
+| 5.3.10 | 与 Q8/5.4 同一套三级评审 | 不再是“同一套缺口的重复行”，而是复用已经落地的 hierarchy 实现。 |
+
+### 仍未验证的边界
+
+- 没有重启 Host，没有浏览器/真实 provider 测量；C3/C4/C10/C11 仍 N/A。
+- 独立 verifier 的 §53（154/10/10）仍是上一轮事实；本节的 10 行是**作者自测**
+  （`VERIFICATION.md` §54），独立重放尚未发生，不得写成独立 PASS。
