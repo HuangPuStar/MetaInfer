@@ -10,6 +10,7 @@
  */
 import { actorFromToolExecution, authorizeAction } from './kernel/policy.js';
 import { rejection, toActionable } from './kernel/errors.js';
+import { publicView } from './kernel/actors.js';
 const ACTION_ENUM = [
   'dag_map',
   'dag_query',
@@ -217,16 +218,21 @@ export function registerAgentTool(ctx, service) {
     timeoutMs: 300_000,
     async execute(args, exec) {
       const action = args?.action;
-      const actor = actorFromToolExecution(exec);
+      let actor;
+      try {
+        actor = actorFromToolExecution(exec);
+      } catch (error) {
+        return { result: JSON.stringify(rejection(error?.code ?? 'caller_supplied_actor_key', error?.message ?? String(error))) };
+      }
       const verdict = authorizeAction(actor, action);
       if (!verdict.ok) {
         return { result: JSON.stringify(rejection(verdict.code, verdict.message, { allowed: verdict.allowed, preset: actor.preset })) };
       }
       try {
         const data = await service.agentTool(args ?? {}, exec);
-        return { result: JSON.stringify(data) };
+        return { result: JSON.stringify(publicView(data)) };
       } catch (error) {
-        return { result: JSON.stringify(toActionable(error, { action })) };
+        return { result: JSON.stringify(publicView(toActionable(error, { action }))) };
       }
     },
   });

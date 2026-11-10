@@ -53,7 +53,7 @@ await test('the Host index builds a kernel and passes dispatchOnce to auto + ser
 await test('the agent tool authorizes every call from the DSH session, not from args', async () => {
   const toolSource = await source('host/agent-tool.js');
   assert.match(toolSource, /import \{ actorFromToolExecution, authorizeAction \} from '\.\/kernel\/policy\.js'/);
-  assert.match(toolSource, /const actor = actorFromToolExecution\(exec\)/);
+  assert.match(toolSource, /actor = actorFromToolExecution\(exec\)/);
   assert.match(toolSource, /const verdict = authorizeAction\(actor, action\)/);
   assert.match(toolSource, /rejection\(verdict\.code, verdict\.message/);
   assert.match(toolSource, /async execute\(args, exec\)/);

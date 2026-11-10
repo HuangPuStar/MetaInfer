@@ -6,7 +6,7 @@
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
-import { actorKeyFor, hasActorIdentity, migrateProjectActorKeys, sameActor } from '../host/kernel/actors.js';
+import { actorKeyFor, hasActorIdentity, isIssuedActorKey, migrateProjectActorKeys, sameActor } from '../host/kernel/actors.js';
 import { actorForSession } from '../host/kernel/policy.js';
 import { registerAgentTool } from '../host/agent-tool.js';
 import { ACTION_VERIFICATION, CLAIM_PREDICATES, MIN_CITATION_EVIDENCE, VERIFICATION_LEVELS, citationErrorRate, citationTier, gateClaimAction, verifyClaims, wilsonLowerBound } from '../host/kernel/claims.js';
@@ -66,10 +66,10 @@ const legacyLoadRow = {
   resolverKey: legacyLoaded?.intents?.[0]?.resolvedBy?.actorKey ?? null,
   withdrawnKey: legacyLoaded?.intents?.[0]?.withdrawnBy?.actorKey ?? null,
 };
-check('pre-key intents are migrated when the project is loaded',
-  legacyLoadRow.actorKey === actorKeyFor('legacy@home.com')
-  && legacyLoadRow.resolverKey === actorKeyFor('legacy@work.com')
-  && legacyLoadRow.withdrawnKey === legacyLoadRow.actorKey, JSON.stringify(legacyLoadRow));
+check('pre-key intents load as unkeyed legacy identities',
+  legacyLoadRow.actorKey === null && legacyLoadRow.resolverKey === null && legacyLoadRow.withdrawnKey === null
+  && legacyLoaded?.intents?.[0]?.actor?.id === 'legacy@home.com'
+  && legacyLoaded?.intents?.[0]?.resolvedBy?.id === 'legacy@work.com', JSON.stringify(legacyLoadRow));
 
 const valid = [
   { predicate: 'nodeExists', nodeId: 'child' },
@@ -224,20 +224,45 @@ check('scoped resolved appeals supply the Host-side window for L2/L3/L4',
 // Opaque actor identity. The shared key is the registration boundary: changing
 // the display spelling on that registration must not mint a second identity,
 // and no spelling rule (trim/case/NFKC/suffix stripping) is consulted.
-const actorExec = (id, actorKey) => ({ agent: { session: { id, actorKey } } });
+const actorSessions = new Map();
+// Test helper: the second argument labels one registration, not a credential.
+// A cached session object is renamed in place to model a display rename, so the
+// Host-minted key must stay pinned while the id changes.
+const actorExec = (id, label = id) => {
+  let session = actorSessions.get(label);
+  if (!session) {
+    session = { id };
+    actorSessions.set(label, session);
+  } else {
+    session.id = id;
+  }
+  return { agent: { session } };
+};
 const registeredSession = { id: 'h1' };
 const registeredActor = actorForSession({ sessionId: 'h1', session: registeredSession });
-const renamedActor = actorForSession({ sessionId: 'ｈ１', session: registeredSession, actorKey: 'ak_conflicting_metadata' });
-const separateRegistration = actorForSession({ sessionId: 'h1', actorKey: 'ak_separate_h1' });
-check('the registration key is pinned across a display rename and conflicting metadata',
+const renamedActor = actorForSession({ sessionId: 'ｈ１', session: registeredSession });
+let conflictingMetadata = null;
+try {
+  actorForSession({ sessionId: 'ｈ１', session: registeredSession, actorKey: 'ak_conflicting_metadata' });
+} catch (error) {
+  conflictingMetadata = error;
+}
+const separateRegistration = actorForSession({ sessionId: 'h1' });
+check('the Host-issued registration key is pinned across a display rename and rejects supplied metadata',
   registeredActor.actorKey === renamedActor.actorKey
   && registeredActor.id === 'h1' && renamedActor.id === 'ｈ１'
+  && registeredActor.actorKey.startsWith('ak_host_')
   && separateRegistration.actorKey !== registeredActor.actorKey
+  && conflictingMetadata?.code === 'actor_key_rebind'
   && sameActor({ id: 'h1', actorKey: 'ak_a' }, { id: 'h1', actorKey: 'ak_b' }) === false,
-  JSON.stringify({ registered: registeredActor, renamed: renamedActor, separate: separateRegistration }));
-const unicodeKey = 'ak_unicode_shared_identity_0001';
-const unicodeRequester = actorExec('unicode-human', unicodeKey);
-const unicodeResolver = (id) => actorExec(id, unicodeKey);
+  JSON.stringify({ registered: registeredActor, renamed: renamedActor, separate: separateRegistration, conflict: conflictingMetadata?.code ?? null }));
+const unicodeRegistrationLabel = 'unicode-registration';
+const unicodeRequester = actorExec('unicode-human', unicodeRegistrationLabel);
+const unicodeResolver = (id) => actorExec(id, unicodeRegistrationLabel);
+const unicodeRegistrationKey = actorForSession({
+  sessionId: unicodeRequester.agent.session.id,
+  session: unicodeRequester.agent.session,
+}).actorKey;
 await kernel.executor.commit(projectId, {
   actor: { kind: 'human', id: 'unicode-seed' },
   mutations: [{
@@ -276,10 +301,10 @@ for (const resolverId of unicodeVariants) {
   });
 }
 check('every display spelling of one registered actor still cannot confirm itself',
-  unicodeRows.every((row) => row.stored === row.raw && row.key === unicodeKey && row.code === 'human_confirmation_required'),
+  unicodeRows.every((row) => row.stored === row.raw && row.key === unicodeRegistrationKey && row.code === 'human_confirmation_required'),
   JSON.stringify(unicodeRows));
 check('keyed actors are compared only by actorKey, never by display spelling',
-  unicodeRows.every((row) => sameActor({ actorKey: unicodeKey }, { actorKey: unicodeKey }))
+  unicodeRows.every((row) => sameActor({ actorKey: unicodeRegistrationKey }, { actorKey: unicodeRegistrationKey }))
   && unicodeRows.every((row) => !sameActor({ id: row.raw }, { id: 'h1' })),
   JSON.stringify(unicodeRows));
 console.log(`UNICODE_TABLE ${JSON.stringify(unicodeRows)}`);
@@ -302,10 +327,10 @@ check('legacy identity fallback is exact bytes and fails closed when mixed with 
   JSON.stringify({ legacySame, legacyDifferent }));
 
 // Namespace strings are distinct actor registrations, not aliases.
-const homeKey = 'ak_alice_home_0001';
-const workKey = 'ak_alice_work_0001';
-const aliceHome = actorExec('alice@home.com', homeKey);
-const aliceWork = actorExec('alice@work.com', workKey);
+const aliceHome = actorExec('alice@home.com', 'alice-home-registration');
+const aliceWork = actorExec('alice@work.com', 'alice-work-registration');
+const aliceHomeKey = actorForSession({ sessionId: 'alice@home.com', session: aliceHome.agent.session }).actorKey;
+const aliceWorkKey = actorForSession({ sessionId: 'alice@work.com', session: aliceWork.agent.session }).actorKey;
 await kernel.executor.commit(projectId, {
   actor: { kind: 'human', id: 'namespace-seed' },
   mutations: [{
@@ -336,14 +361,15 @@ const namespaceRow = {
 };
 check('alice@home.com and alice@work.com are distinct actors and can confirm each other',
   namespaceRow.resolved && namespaceRow.resolvedBy === 'alice@work.com'
-  && namespaceRow.resolvedKey === workKey && namespaceRow.code === 'ok'
+  && namespaceRow.resolvedKey === aliceWorkKey && namespaceRow.code === 'ok'
   && namespaceRow.confirmedBy === 'alice@work.com'
-  && namespaceAction.intent?.actor?.actorKey === homeKey, JSON.stringify(namespaceRow));
+  && namespaceAction.intent?.actor?.actorKey === aliceHomeKey, JSON.stringify(namespaceRow));
 console.log(`NAMESPACE_CONFIRM ${JSON.stringify(namespaceRow)}`);
-check('namespace and formatting variants hash to distinct legacy keys',
+check('legacy hashes stay distinct but are not Host-issued credentials',
   new Set(['h1', 'ｈ１', 'h1\u200b', 'h1.resolver', 'h1/resolver', 'h1 resolver',
     'alice@home.com', 'alice@work.com'].map((value) => actorKeyFor(value))).size === 8
-  && new Set(unicodeVariants.map((value) => actorKeyFor(value))).size === unicodeVariants.length);
+  && new Set(unicodeVariants.map((value) => actorKeyFor(value))).size === unicodeVariants.length
+  && !isIssuedActorKey(actorKeyFor('h1')));
 
 // Pre-key intent migration is deterministic from the exact legacy actor id.
 const legacyRaw = {
@@ -354,16 +380,15 @@ const legacyRaw = {
 const migratedOne = migrateProjectActorKeys(structuredClone(legacyRaw));
 const migratedAgain = migrateProjectActorKeys(structuredClone(legacyRaw));
 const migrationRow = {
-  actorKey: migratedOne.intents[0].actor.actorKey,
-  again: migratedAgain.intents[0].actor.actorKey,
-  resolverKey: migratedOne.intents[0].resolvedBy.actorKey,
-  withdrawnKey: migratedOne.intents[0].withdrawnBy.actorKey,
+  actorKey: migratedOne.intents[0].actor.actorKey ?? null,
+  again: migratedAgain.intents[0].actor.actorKey ?? null,
+  resolverKey: migratedOne.intents[0].resolvedBy.actorKey ?? null,
+  withdrawnKey: migratedOne.intents[0].withdrawnBy.actorKey ?? null,
 };
-check('pre-key intents receive deterministic actorKey values at load',
-  migrationRow.actorKey === migrationRow.again
-  && migrationRow.actorKey === actorKeyFor('legacy@home.com')
-  && migrationRow.resolverKey === actorKeyFor('legacy@work.com')
-  && migrationRow.withdrawnKey === migrationRow.actorKey, JSON.stringify(migrationRow));
+check('pre-key migration strips unregistered keys instead of minting credentials',
+  migrationRow.actorKey === null && migrationRow.again === null
+  && migrationRow.resolverKey === null && migrationRow.withdrawnKey === null
+  && migratedOne.intents[0].actor.id === 'legacy@home.com', JSON.stringify(migrationRow));
 
 // Exact action scoping for all states: a pending/withdrawn objection to
 // cancel_running must not block prune_branch on the same node.
@@ -843,7 +868,7 @@ check('real delete_project rejects a full-width alias of the requester',
   unicodeHandlers.delete.code === 'human_confirmation_required'
   && unicodeHandlers.delete.projectExists && unicodeHandlers.delete.resolvedBy === 'ｈ１'
   && unicodeHandlers.delete.resolvedKey === unicodeToolRegistration.actorKey
-  && unicodeToolRegistration.actorKey === actorKeyFor('h1'),
+  && unicodeToolRegistration.actorKey.startsWith('ak_host_'),
   JSON.stringify(unicodeHandlers.delete));
 check('real cancel_node rejects a full-width alias of the requester before runtime',
   unicodeHandlers.cancel.code === 'human_confirmation_required'
@@ -869,10 +894,10 @@ const namespaceDeleteAppeal = await toolService.submitIntent(namespaceToolProjec
 }, expertExec);
 const namespaceDeleteResolved = await toolService.resolveAppeal(namespaceToolProjectId, namespaceDeleteAppeal.intent?.id, {
   resolution: 'upheld', reason: 'different namespace actor confirms',
-}, actorExec('alice@work.com', workKey));
+}, actorExec('alice@work.com', 'alice-work-registration'));
 const namespaceDelete = JSON.parse((await toolCtx.tool.execute({
   action: 'delete_project', projectId: namespaceToolProjectId, removeWorktrees: false,
-}, actorExec('alice@home.com', homeKey))).result);
+}, actorExec('alice@home.com', 'alice-home-registration'))).result);
 const namespaceHandlers = {
   resolved: namespaceDeleteResolved.ok === true,
   resolvedBy: namespaceDeleteResolved.intent?.resolvedBy?.id ?? null,
@@ -883,6 +908,119 @@ check('namespace-distinct actors authorize the real delete handler',
   namespaceHandlers.resolved && namespaceHandlers.resolvedBy === 'alice@work.com'
   && namespaceHandlers.deleted && !namespaceHandlers.projectExists, JSON.stringify(namespaceHandlers));
 console.log(`NAMESPACE_HANDLERS ${JSON.stringify(namespaceHandlers)}`);
+
+// B27 verifier probes: actorKey is Host-issued, non-bearer and non-injectable.
+const b27MetaProjectId = 'claims-b27-meta-p';
+await store.saveProject({
+  id: b27MetaProjectId, revision: 0, counters: { eventSeq: 0 },
+  config: { maxRunningNodes: 4, resourcePools: {}, maxNodes: 100 }, createdAt: 0, updatedAt: 0,
+});
+kernel.load(b27MetaProjectId);
+await kernel.executor.commit(b27MetaProjectId, {
+  actor: { kind: 'human', id: 'setup' },
+  mutations: [
+    { op: 'node.create', node: { id: 'n1', title: 'b27 meta target', status: 'planned', timestamps: { createdAt: 1 } } },
+    { op: 'project.update', set: { claimStats: { 'human-tool': { total: 20, failed: 0 } } }, eventType: 'claim/verified', eventData: { actorId: 'human-tool', total: 20, failed: 0 } },
+  ],
+});
+const runToolAs = async (exec, action, input = {}) => JSON.parse((await toolCtx.tool.execute({ action, ...input }, exec)).result);
+const injector = { agent: { session: { id: 'injector', header: { meta: { actorKey: 'ak_injected_by_session', agentPreset: 'lab-chief' } } } } };
+runtimeCalls.length = 0;
+const injectedDelete = await runToolAs(injector, 'delete_project', { projectId: b27MetaProjectId });
+const injectedCancel = await runToolAs(injector, 'cancel_node', { projectId: b27MetaProjectId, nodeId: 'n1' });
+const metaInjection = {
+  deleteCode: injectedDelete.error?.code ?? (injectedDelete.deleted ? 'deleted' : 'unknown'),
+  cancelCode: injectedCancel.error?.code ?? (injectedCancel.ok ? 'ok' : 'unknown'),
+  projectExists: Boolean(store.getProject(b27MetaProjectId)),
+  runtimeCalls: runtimeCalls.length,
+};
+check('meta.actorKey injection cannot delete a project or cancel a node',
+  metaInjection.deleteCode === 'caller_supplied_actor_key'
+  && metaInjection.cancelCode === 'caller_supplied_actor_key'
+  && metaInjection.projectExists && metaInjection.runtimeCalls === 0,
+  JSON.stringify(metaInjection));
+console.log(`B27_META_INJECTION ${JSON.stringify(metaInjection)}`);
+
+const resolverKey = actorForSession({ sessionId: 'human-2', session: humanExec2.agent.session }).actorKey;
+const intentListView = await runToolAs(humanExec2, 'intent_list', { projectId, limit: 100 });
+const traceView = await runToolAs(humanExec2, 'trace_explain', { projectId, nodeId: 'child', window: 20 });
+const intentListJson = JSON.stringify(intentListView);
+const traceJson = JSON.stringify(traceView);
+const replayExec = { agent: { session: { id: 'replayer', header: { meta: { actorKey: resolverKey } } } } };
+const replayAttempt = await runToolAs(replayExec, 'intent_list', { projectId });
+const replayProbe = {
+  listHasActorKey: intentListJson.includes('actorKey'),
+  traceHasActorKey: traceJson.includes('actorKey'),
+  listKeys: Array.isArray(intentListView.intents) ? intentListView.intents.map((row) => row.resolvedBy?.actorKey ?? null) : [],
+  replayCode: replayAttempt.error?.code ?? (replayAttempt.ok ? 'ok' : 'unknown'),
+};
+check('intent_list never discloses actorKey and a disclosed/guessed key cannot be replayed',
+  replayProbe.listHasActorKey === false
+  && replayProbe.traceHasActorKey === false
+  && replayProbe.listKeys.every((key) => key === null)
+  && replayProbe.replayCode === 'actor_key_shared',
+  JSON.stringify(replayProbe));
+console.log(`B27_KEY_REPLAY ${JSON.stringify(replayProbe)}`);
+
+const sharedSession = { id: 'second-registration' };
+let sharedKeyError = null;
+try {
+  actorForSession({ sessionId: 'second-registration', session: sharedSession, actorKey: resolverKey });
+} catch (error) {
+  sharedKeyError = error;
+}
+const rekeySession = { id: 'rekey-registration' };
+const rekeyOriginal = actorForSession({ sessionId: 'rekey-registration', session: rekeySession }).actorKey;
+rekeySession.actorKey = 'ak_host_attempted_rotation';
+let rekeyError = null;
+try {
+  actorForSession({ sessionId: 'rekey-registration', session: rekeySession });
+} catch (error) {
+  rekeyError = error;
+}
+const bindingProbe = {
+  sharedCode: sharedKeyError?.code ?? null,
+  rekeyCode: rekeyError?.code ?? null,
+  originalKey: rekeyOriginal.startsWith('ak_host_'),
+  keyUnchanged: rekeySession.actorKey !== rekeyOriginal,
+};
+check('two registrations cannot share a key and an existing registration cannot be re-keyed',
+  bindingProbe.sharedCode === 'actor_key_shared'
+  && bindingProbe.rekeyCode === 'actor_key_rebind'
+  && bindingProbe.originalKey === true
+  && bindingProbe.keyUnchanged === true,
+  JSON.stringify(bindingProbe));
+console.log(`B27_BINDING ${JSON.stringify(bindingProbe)}`);
+
+// A forged key written straight into a legacy resolver row must be stripped on
+// load and can never satisfy the irreversible human-confirmation gate.
+const b27ForgedProjectId = 'claims-b27-forged-p';
+await domain.table('projects').put(b27ForgedProjectId, {
+  id: b27ForgedProjectId, revision: 0, counters: { eventSeq: 0 },
+  config: { maxRunningNodes: 4, resourcePools: {}, maxNodes: 100 }, createdAt: 0, updatedAt: 0,
+  claimStats: { 'human-tool': { total: 20, failed: 0 } },
+  intents: [{
+    id: 'forged-resolver-intent', kind: 'note', status: 'resolved', resolution: 'upheld',
+    actor: { kind: 'human', id: 'legacy-raiser' },
+    resolvedBy: { kind: 'human', id: 'human-tool', actorKey: 'ak_forged_resolver_credential' },
+    claim: { action: 'appeal', targetAction: 'delete_project' },
+    target: { projectId: b27ForgedProjectId },
+  }],
+});
+const forgedLoaded = store.getProject(b27ForgedProjectId);
+kernel.load(b27ForgedProjectId);
+const forgedDelete = await runToolAs(toolHuman, 'delete_project', { projectId: b27ForgedProjectId });
+const forgedProbe = {
+  keyOnLoad: forgedLoaded?.intents?.[0]?.resolvedBy?.actorKey ?? null,
+  code: forgedDelete.error?.code ?? (forgedDelete.deleted ? 'deleted' : 'unknown'),
+  projectExists: Boolean(store.getProject(b27ForgedProjectId)),
+};
+check('a forged legacy resolver key is stripped on load and cannot authorize delete_project',
+  forgedProbe.keyOnLoad === null
+  && forgedProbe.code === 'human_confirmation_required'
+  && forgedProbe.projectExists,
+  JSON.stringify(forgedProbe));
+console.log(`B27_FORGED_LEGACY ${JSON.stringify(forgedProbe)}`);
 
 // Positive control: a project-scoped resolved delete appeal and a funded
 // claim history must still execute through the same wrapper.

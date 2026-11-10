@@ -27,7 +27,7 @@ import {
   redoEffect,
 } from './mutations.js';
 import { currentCause } from './trace.js';
-import { actorKeyFor, actorKeyOf } from './actors.js';
+import { actorKeyOf, ensureActorKey, isIssuedActorKey } from './actors.js';
 
 const ACTOR_KINDS = new Set(['human', 'expert', 'dispatcher', 'mcp', 'system', 'legacy']);
 const IDEMPOTENCY_LIMIT = 10_000;
@@ -37,9 +37,14 @@ function normalizeActor(actor) {
   if (!ACTOR_KINDS.has(actor.kind)) throw new MutationError('invalid_commit', `unknown actor kind ${actor.kind}`);
   if (typeof actor.id !== 'string' || !actor.id) throw new MutationError('invalid_commit', 'actor.id is required');
   // The display id is not normalized. The opaque key is the identity and is
-  // preserved from the registration boundary; inline system actors get the
-  // deterministic key for their exact registration id.
-  const actorKey = actorKeyOf(actor) ?? actorKeyFor(actor.id);
+  // preserved from the Host registration boundary; trusted inline system actors
+  // get a Host-minted key. An unregistered key is a forged credential, not an
+  // identity, and is rejected instead of being adopted.
+  const supplied = actorKeyOf(actor);
+  if (supplied && !isIssuedActorKey(supplied)) {
+    throw new MutationError('caller_supplied_actor_key', 'actorKey is not in the Host registry; commits cannot adopt caller-supplied identities');
+  }
+  const actorKey = supplied ?? ensureActorKey(actor);
   return { kind: actor.kind, id: actor.id, actorKey };
 }
 

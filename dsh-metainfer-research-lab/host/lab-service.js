@@ -26,7 +26,7 @@ import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
 import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
-import { actorKeyOf, hasActorIdentity, sameActor } from './kernel/actors.js';
+import { actorKeyOf, hasActorIdentity, isIssuedActorKey, publicView, sameActor } from './kernel/actors.js';
 import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
 import { ACTION_VERIFICATION, IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
@@ -761,7 +761,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       free[key] = Math.max(0, total - (held[key] ?? 0));
     }
 
-    return {
+    return publicView({
       project,
       nodes,
       edges,
@@ -775,7 +775,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       _indexed: options.full !== true,
       nextCursor,
       _truncated: nextCursor !== null ? { nodes: { shown: nodes.length, total: allRaw.length } } : null,
-    };
+    });
   }
 
   /** Bounded node list for MCP/host surfaces that must not dump the DAG. */
@@ -805,7 +805,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const node = store.getNode(projectId, nodeId);
     if (!node) throw new LabError('node_not_found', `unknown node: ${nodeId}`, 404);
     const hasChildren = store.hasChildren(projectId, node.id);
-    return { ok: true, node, sealed: hasChildren, isLeaf: !hasChildren };
+    return publicView({ ok: true, node, sealed: hasChildren, isLeaf: !hasChildren });
   }
 
   /** Delta read (S10): node ids changed since a revision, or `full` when unknowable. */
@@ -1357,10 +1357,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const parsedAfter = Number.isFinite(Number(after)) ? Math.max(0, Math.trunc(Number(after))) : 0;
     if (options.limit !== undefined) {
       const page = store.pageEvents(projectId, { after: parsedAfter, limit: options.limit });
-      return { events: page.events, next: store.maxEventSeq(projectId), page: { total: page.total, hasMore: page.hasMore, nextSeq: page.nextSeq }, _truncated: page.hasMore ? { shown: page.events.length, total: page.total } : null };
+      return publicView({ events: page.events, next: store.maxEventSeq(projectId), page: { total: page.total, hasMore: page.hasMore, nextSeq: page.nextSeq }, _truncated: page.hasMore ? { shown: page.events.length, total: page.total } : null });
     }
     const events = store.listEvents(projectId, parsedAfter);
-    return { events, next: store.maxEventSeq(projectId) };
+    return publicView({ events, next: store.maxEventSeq(projectId) });
   }
 
   async function getReplay(projectId, options = {}) {
@@ -1395,7 +1395,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const endCandidates = [...nodeTimes, ...nodeEventTimes];
     let endAt = endCandidates.length > 0 ? Math.max(...endCandidates) : startAt + 1000;
     if (!(endAt > startAt)) endAt = startAt + 1000;
-    return {
+    return publicView({
       projectId,
       project: {
         id: state.project.id,
@@ -1416,7 +1416,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           ? { shown: events.length, total: allEvents.length, max: eventLimit }
           : null,
       },
-    };
+    });
   }
 
   async function updateProject(projectId, input) {
@@ -3008,12 +3008,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   function explainNode(projectId, nodeId, options = {}) {
     requireProject(projectId);
-    return explainer.explainNode(projectId, nodeId, options);
+    return publicView(explainer.explainNode(projectId, nodeId, options));
   }
 
   function traceExplain(projectId, nodeId, options = {}) {
     requireProject(projectId);
-    return explainer.traceExplain(projectId, nodeId, options);
+    return publicView(explainer.traceExplain(projectId, nodeId, options));
   }
 
   function projectRevision(projectId) {
@@ -3121,7 +3121,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   function ledgerRead(projectId, limits) {
     requireProject(projectId);
-    return { ok: true, projectId, ledger: ledgerReader.view(projectId, limits) };
+    return publicView({ ok: true, projectId, ledger: ledgerReader.view(projectId, limits) });
   }
 
   async function ledgerUpdate(projectId, input, exec) {
@@ -3197,7 +3197,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const project = requireProject(projectId);
     const nodes = store.listNodes(projectId);
     const runs = store.listRuns(projectId);
-    return {
+    return publicView({
       ok: true,
       projectId,
       revision: project.revision,
@@ -3207,7 +3207,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         metrics: computeExpertMetrics({ expertId: descriptor.id, nodes, runs }),
       })),
       curator: curator.status(),
-    };
+    });
   }
 
   /** Deterministic expert recall for a task (Stage 4.2 production call site). */
@@ -3502,7 +3502,15 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       // A keyed identity and an unkeyed legacy identity cannot be compared
       // soundly. If any of the three has a key, require all three to have one;
       // mixing them must not turn "not provably equal" into "distinct".
-      const identities = [actorKeyOf(by), actorKeyOf(row.intent.actor), actorKeyOf(actor)];
+      const resolverKey = actorKeyOf(by);
+      const raiserKey = actorKeyOf(row.intent.actor);
+      const requesterKey = actorKeyOf(actor);
+      // Irreversible confirmation requires three Host-issued identities. A
+      // legacy/forged key that was stripped on load is unkeyed and falls back
+      // to exact-id equality for read-only comparison only; it can never open
+      // the human confirmation gate.
+      if (![resolverKey, raiserKey, requesterKey].every(isIssuedActorKey)) return false;
+      const identities = [resolverKey, raiserKey, requesterKey];
       if (identities.some(Boolean) && !identities.every(Boolean)) return false;
       if (sameActor(by, actor)) return false;
       if (sameActor(by, row.intent.actor)) return false;
@@ -3888,14 +3896,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       const expired = intent.status !== 'withdrawn' && Number.isFinite(intent.expiresAt) && intent.expiresAt <= now;
       return { ...intent, status: expired ? 'expired' : intent.status, expired };
     });
-    return {
+    return publicView({
       ok: true,
       projectId,
       revision: project.revision,
       intents,
       total: all.length,
       _truncated: all.length > intents.length ? { shown: intents.length, total: all.length } : null,
-    };
+    });
   }
 
   /**
@@ -4088,7 +4096,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   async function agentTool(input, exec = null) {
     const action = input?.action;
-    const actor = actorFromToolExecution(exec);
+    let actor;
+    try {
+      actor = actorFromToolExecution(exec);
+    } catch (error) {
+      return rejection(error?.code ?? 'caller_supplied_actor_key', error?.message ?? String(error));
+    }
     if (action === 'projects') return { projects: await listProjects() };
     if (action === 'status') {
       if (!input?.projectId) return { projects: await listProjects() };

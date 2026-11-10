@@ -6,7 +6,7 @@
  *
  * Pure: no I/O, no ids from the store — callers supply a stable id.
  */
-import { actorKeyOf, actorKeyFor, withActorKey } from './actors.js';
+import { ActorKeyError, actorKeyOf, ensureActorKey, isIssuedActorKey, withActorKey } from './actors.js';
 export const INTENT_KINDS = Object.freeze(['dispatch', 'priority', 'proposal', 'review', 'curate', 'note', 'appeal']);
 
 const MAX_TARGET = 160;
@@ -77,7 +77,11 @@ export function createIntent(input) {
   if (!INTENT_KINDS.includes(input?.kind)) throw new TypeError(`intent.kind must be one of ${INTENT_KINDS.join(', ')}`);
   const actor = input?.actor;
   if (!actor || typeof actor.id !== 'string' || !actor.id) throw new TypeError('intent.actor is required');
-  const actorKey = actorKeyOf(actor) ?? actorKeyFor(actor.id);
+  const suppliedKey = actorKeyOf(actor);
+  if (suppliedKey && !isIssuedActorKey(suppliedKey)) {
+    throw new ActorKeyError('caller_supplied_actor_key', 'intent actorKey is not in the Host registry');
+  }
+  const actorKey = suppliedKey ?? ensureActorKey(actor);
   const basis = intentBasis(input?.basis);
   const claim = plain(input?.claim, 'intent.claim');
   const action = str(claim.action, 'intent.claim.action', 80);

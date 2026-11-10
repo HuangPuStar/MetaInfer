@@ -13,6 +13,7 @@
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
+import { publicView } from './kernel/actors.js';
 
 const PREFIX = '/api/metainfer-research-lab';
 const JSON_HEADERS = {
@@ -25,13 +26,13 @@ function json(payload) {
 }
 
 function ok(data) {
-  return json({ ok: true, data });
+  return json({ ok: true, data: publicView(data) });
 }
 
 function fail(error) {
   const code = typeof error?.code === 'string' ? error.code : 'internal_error';
   const message = typeof error?.message === 'string' ? error.message : String(error);
-  return json({ ok: false, error: { code, message } });
+  return json({ ok: false, error: publicView({ code, message }) });
 }
 
 function query(request) {
