@@ -225,7 +225,7 @@ async function terminatePids(pids) {
 /**
  * @param {{ctx: object, store: object, git: object}} deps
  */
-export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
+export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }) {
   const active = new Map(); // key -> entry
   const deadlines = new Map(); // key -> epoch ms
   const pendingFollowUps = new Map(); // sessionId -> pending record
@@ -479,15 +479,29 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       if (activation) node.causeId = causeId;
       else node.lastCauseId = causeId;
     }
-    bump(project);
-    await store.saveNode(project.id, node);
-    await store.appendEvent(project, eventType, {
-      nodeId: node.id,
-      ...(causeId ? { causeId } : {}),
-      ...payload,
-    });
-    await store.saveProject(project);
-    return project.revision;
+    // WP P1.7: runtime is a kernel caller, not a second writer. `node.put`
+    // updates the full record through the executor so the event is durable
+    // before the node/project rows move and `strictWrites=throw` stays honest.
+    if (!kernel?.executor) throw new Error('runtime requires kernel.executor (single-writer invariant)');
+    const spec = {
+      actor: { kind: 'system', id: 'runtime' },
+      causeId,
+      mutations: [{ op: 'node.put', node, eventType, eventData: payload.data ?? {} }],
+    };
+    // Several runtime transitions already hold `withProjectLock`; the executor's
+    // `commit` would deadlock on that same lock. Use `commitLocked` (plus the
+    // write permit) only when the current async chain demonstrably holds it.
+    const result = store.isProjectLocked?.(project.id) === true
+      ? await store.withWritePermit(() => kernel.executor.commitLocked(project.id, spec))
+      : await kernel.executor.commit(project.id, spec);
+    if (result.ok !== true) {
+      const error = new Error(result.message ?? `${eventType} commit failed`);
+      error.code = result.code ?? 'commit_failed';
+      throw error;
+    }
+    project.revision = result.revision;
+    node.rev = result.revision;
+    return result.revision;
   }
 
   function runningNodes(projectId) {

@@ -145,6 +145,7 @@ export async function apply(ctx) {
       dispatchOnce(projectId, { maxStarts: 4 }).catch(() => {});
     },
     cluster,
+    kernel,
   });
   const transcript = createTranscriptReader({ ctx, store });
   const orchestrator = createOrchestrator({ ctx, store, git, runtime, cluster });

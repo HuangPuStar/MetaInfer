@@ -110,6 +110,7 @@ export function unmigratedLegacyDomain() {
  * The permit travels in AsyncLocalStorage because a commit writes across awaits.
  */
 const writePermit = new AsyncLocalStorage();
+const projectLockScope = new AsyncLocalStorage();
 
 export function withWritePermit(fn) {
   return writePermit.run({ kernel: true }, fn);
@@ -268,12 +269,20 @@ export async function openStore(ctx) {
   const locks = new Map();
   function withProjectLock(projectId, task) {
     const previous = locks.get(projectId) ?? Promise.resolve();
-    const run = previous.then(() => task());
+    const inherited = projectLockScope.getStore();
+    const held = inherited ? new Set(inherited) : new Set();
+    held.add(projectId);
+    const run = previous.then(() => projectLockScope.run(held, task));
     const tail = run.then(() => undefined, () => undefined);
     locks.set(projectId, tail);
     return run.finally(() => {
       if (locks.get(projectId) === tail) locks.delete(projectId);
     });
+  }
+
+  /** True when the current async call chain already holds this project's lock. */
+  function isProjectLocked(projectId) {
+    return projectLockScope.getStore()?.has(projectId) === true;
   }
 
   function getProject(projectId) {
@@ -546,6 +555,7 @@ export async function openStore(ctx) {
     writeStats,
     worktreeRootFor,
     withProjectLock,
+    isProjectLocked,
     getProject,
     listProjects,
     saveProject,

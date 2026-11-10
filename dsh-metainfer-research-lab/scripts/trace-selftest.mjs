@@ -82,7 +82,7 @@ await executor.commit('p', {
   actor: human,
   mutations: [{ op: 'node.create', node: { id: 'n2', title: 'cancel me', status: 'planned', timestamps: { createdAt: 2 } } }],
 });
-const runtime = createRuntime({ ctx: {}, store, git: null, onTerminated: () => {}, cluster: null });
+const runtime = createRuntime({ ctx: {}, store, git: null, onTerminated: () => {}, cluster: null, kernel });
 await runtime.cancel('p', 'n2');
 const cancelled = store.listEvents('p', 0).filter((event) => event.nodeId === 'n2' && event.type === 'node/cancelled');
 check('planned cancel emits an event', cancelled.length === 1, JSON.stringify(cancelled));

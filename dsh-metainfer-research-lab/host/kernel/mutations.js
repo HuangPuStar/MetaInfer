@@ -139,6 +139,28 @@ const reducers = {
     return [nodeEvent(m.eventType ?? 'node/created', node, m.eventData ?? { status }, { op: 'node.put', nodeId: id, node })];
   },
 
+  /**
+   * Generic full-node replacement for migrated legacy writers (WP P1.7).
+   * Prefer a targeted mutation (`node.transition`, `node.update`) for new code;
+   * this op exists so runtime/GC/reconcile can move onto the single writer
+   * without rewriting their state machines in the same commit.
+   */
+  'node.put'(ws, m, ctx) {
+    const input = requirePlainObject(m.node, 'node');
+    const id = requireString(input.id, 'node.id');
+    const existing = ws.getNode(id);
+    if (!existing) throw new MutationError('not_found', `node ${id} does not exist`);
+    if (input.status !== undefined && !NODE_STATUSES.includes(input.status)) {
+      throw new MutationError('invalid_mutation', `unknown status ${input.status}`);
+    }
+    const node = structuredClone(input);
+    node.id = id;
+    node.rev = existing.rev ?? 0;
+    node.timestamps = { ...(node.timestamps ?? {}), updatedAt: ctx.now };
+    ws.putNode(node);
+    return [nodeEvent(m.eventType ?? 'node/edited', node, m.eventData ?? {}, { op: 'node.put', nodeId: id, node })];
+  },
+
   'node.update'(ws, m, ctx) {
     const nodeId = requireString(m.nodeId, 'nodeId');
     const node = ws.getNode(nodeId);
