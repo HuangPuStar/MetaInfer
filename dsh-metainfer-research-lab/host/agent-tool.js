@@ -168,7 +168,6 @@ export function registerAgentTool(ctx, service) {
         kind: { type: 'string', enum: ['dispatch', 'priority', 'proposal', 'review', 'curate', 'note'], description: 'for intent_submit/intent_list' },
         claim: { type: 'object', additionalProperties: true, description: 'for intent_submit: {action, strategy?, reason?, evidence?}; required and stored verbatim' },
         chiefConfirmed: { type: 'boolean', description: 'for intent_submit: chief confirmation of a level-2/3 irreversible action; only a human or the chief preset may set it' },
-        humanConfirmed: { type: 'boolean', description: 'for intent_submit delete_project: explicit human confirmation' },
         target: { type: 'object', additionalProperties: true, description: 'for intent_submit: {nodeId?, parentId?}' },
         rationale: { type: 'string', description: 'for intent_submit: ≤2,000 characters' },
         intentId: { type: 'string', description: 'for intent_withdraw: the pending intent to withdraw' },

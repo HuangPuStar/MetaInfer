@@ -71,12 +71,13 @@ check('the five verification levels are distinct and ordered', VERIFICATION_LEVE
   && ACTION_VERIFICATION.cancel_running.level === 2
   && ACTION_VERIFICATION.prune_branch.level === 3
   && ACTION_VERIFICATION.delete_project.level === 4);
+check('every irreversible level requires a human confirmation', VERIFICATION_LEVELS.filter((row) => row.level >= 2).every((row) => row.humanConfirmation === true));
 check('Wilson lower bound needs a real clean history', wilsonLowerBound(20, 20) >= 0.80 && wilsonLowerBound(1, 1) < 0.80 && wilsonLowerBound(0, 20) === 0);
 check('C7 has a minimum evidence floor', MIN_CITATION_EVIDENCE >= 20 && gateClaimAction('cancel_running', { total: 19, failed: 0 }, {
-  submitted: 2, chiefConfirmed: true,
+  submitted: 2, chiefConfirmed: true, humanConfirmed: true,
 }).code === 'citation_evidence_floor');
 
-const oneEvidence = { submitted: 1, chiefConfirmed: true };
+const oneEvidence = { submitted: 1, chiefConfirmed: true, humanConfirmed: true };
 check('cancel_running rejects one atom even with chief confirmation', gateClaimAction('cancel_running', { total: 20, failed: 0 }, oneEvidence).code === 'claim_evidence_required');
 check('prune_branch rejects one atom even with chief confirmation and an appeal window', gateClaimAction('prune_branch', { total: 20, failed: 0 }, oneEvidence).code === 'claim_evidence_required');
 check('delete_project rejects one atom without human confirmation', gateClaimAction('delete_project', { total: 20, failed: 0 }, {
@@ -85,8 +86,14 @@ check('delete_project rejects one atom without human confirmation', gateClaimAct
 check('delete_project rejects non-humans', gateClaimAction('delete_project', { total: 20, failed: 0 }, {
   submitted: 3, actor: { kind: 'expert' }, humanConfirmed: true,
 }).code === 'human_only');
+check('cancel_running requires an independent human confirmation even with chief and evidence', gateClaimAction('cancel_running', { total: 20, failed: 0 }, {
+  submitted: 2, chiefConfirmed: true,
+}).code === 'human_confirmation_required');
+check('prune_branch requires independent human confirmation even with an otherwise valid window', gateClaimAction('prune_branch', { total: 20, failed: 0 }, {
+  submitted: 3, chiefConfirmed: true, serverAppealWindow: true,
+}).code === 'human_confirmation_required');
 
-const required = { chiefConfirmed: true, serverAppealWindow: true };
+const required = { chiefConfirmed: true, humanConfirmed: true, serverAppealWindow: true };
 check('cancel_running passes with two atoms and chief confirmation', gateClaimAction('cancel_running', { total: 20, failed: 0 }, {
   ...required, submitted: 2,
 }).ok === true);
@@ -97,7 +104,7 @@ check('delete_project passes only for a confirming human', gateClaimAction('dele
   submitted: 0, actor: { kind: 'human' }, humanConfirmed: true, serverAppealWindow: true,
 }).ok === true);
 check('C7 blocks the required B27 set when the history is too small', gateClaimAction('cancel_running', { total: 1, failed: 0 }, {
-  submitted: 2, chiefConfirmed: true,
+  submitted: 2, chiefConfirmed: true, humanConfirmed: true,
 }).code === 'citation_evidence_floor');
 check('L0 planned_create is not blocked by the C7 history floor', gateClaimAction('create_planned', { total: 0, failed: 0 }, {
   submitted: 0,
@@ -124,16 +131,17 @@ check('a withdrawn appeal blocks cancel_running (L2 has no appeal flag)', gateCl
   submitted: 2, chiefConfirmed: true, appealUnresolved: true,
 }).code === 'appeal_not_resolved');
 check('prune_branch needs a Host-registered appeal window', gateClaimAction('prune_branch', { total: 20, failed: 0 }, {
-  submitted: 3, chiefConfirmed: true,
+  submitted: 3, chiefConfirmed: true, humanConfirmed: true,
 }).code === 'appeal_window_required');
 check('C7 blocks a clean-but-thin history below the Wilson floor', gateClaimAction('cancel_running', { total: 20, failed: 4 }, {
-  submitted: 2, chiefConfirmed: true,
+  submitted: 2, chiefConfirmed: true, humanConfirmed: true,
 }).code === 'citation_confidence_too_low');
 
 const submitOn = (nodeId, claim, extra = {}) => service.submitIntent(projectId, { kind: 'note', nodeId, claim, ...extra }, null);
 const submit = (claim, extra = {}) => submitOn('child', claim, extra);
 const chiefExec = { agent: { session: { id: 'chief-1', header: { meta: { agentPreset: 'lab-chief' } } } } };
 const expertExec = { agent: { session: { id: 'advisor-1', header: { meta: { agentPreset: 'lab-advisor' } } } } };
+const humanExec = { agent: { session: { id: 'human-reviewer' } } };
 const accepted = await submit({ action: 'observe', evidence: valid });
 check('a valid claim set is accepted', accepted.ok === true && accepted.intent?.claim?.verification?.failed === 0, JSON.stringify(accepted));
 // C7 needs a record: build 21 clean atoms before asking for an irreversible action.
@@ -145,13 +153,20 @@ const setupAppeal = await service.submitIntent(projectId, {
 }, chiefExec);
 const setupResolved = await service.resolveAppeal(projectId, setupAppeal.intent.id, {
   resolution: 'upheld', reason: 'human opens the window for the clean path',
-});
+}, humanExec);
 check('a resolved appeal supplies the Host-side window for L3/L4', setupResolved.ok === true, JSON.stringify(setupResolved));
+const selfConfirmed = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'child', claim: { action: 'cancel_running', evidence: valid },
+  chiefConfirmed: true, humanConfirmed: true,
+}, humanExec);
+check('the requester cannot reuse its own resolution as human confirmation', selfConfirmed.ok === false
+  && selfConfirmed.error?.code === 'human_confirmation_required', JSON.stringify(selfConfirmed));
 const irreversible = await submit({ action: 'cancel_running', evidence: valid }, { chiefConfirmed: true });
 check('a clean history and the required evidence permit cancel_running', irreversible.ok === true, JSON.stringify(irreversible));
+check('the gate records the independent human confirmer', irreversible.intent?.claim?.gate?.humanConfirmedBy?.id === 'human-reviewer', JSON.stringify(irreversible.intent?.claim?.gate));
 const pruned = await submit({ action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
 check('a clean history and the required evidence permit prune_branch', pruned.ok === true, JSON.stringify(pruned));
-const deleted = await submit({ action: 'delete_project' }, { humanConfirmed: true });
+const deleted = await submit({ action: 'delete_project' }, {});
 check('a confirming human can submit delete_project', deleted.ok === true, JSON.stringify(deleted));
 const appeal = await service.submitIntent(projectId, {
   kind: 'note', nodeId: 'child', claim: { action: 'appeal', reason: 'I object to pruning this branch' },
@@ -168,7 +183,7 @@ const expertResolve = await service.resolveAppeal(projectId, appeal.intent.id, {
 check('only a human or chief can resolve an appeal', expertResolve.ok === false && expertResolve.error?.code === 'forbidden_action', JSON.stringify(expertResolve));
 const resolved = await service.resolveAppeal(projectId, appeal.intent.id, {
   resolution: 'upheld', reason: 'human heard the objection',
-});
+}, humanExec);
 check('resolving an appeal records who resolved it and why', resolved.ok === true
   && resolved.intent?.status === 'resolved'
   && resolved.intent?.resolvedBy?.kind === 'human'
@@ -179,7 +194,6 @@ check('resolving an appeal records who resolved it and why', resolved.ok === tru
 for (const [action, extra] of [
   ['cancel_running', { chiefConfirmed: true }],
   ['prune_branch', { chiefConfirmed: true }],
-  ['delete_project', {}],
 ]) {
   const rejected = await submit({ action, evidence: [valid[0]] }, extra);
   check(`one atom cannot ${action}`, rejected.ok === false && ['claim_evidence_required', 'human_confirmation_required'].includes(rejected.error?.code), JSON.stringify(rejected));
@@ -234,8 +248,52 @@ const neverSupplied = await submitOn('clean-target', { action: 'prune_branch', e
 check('a caller window on a never-appealed target is rejected', neverSupplied.ok === false
   && neverSupplied.error?.code === 'appeal_window_caller_supplied', JSON.stringify(neverSupplied));
 const neverNoWindow = await submitOn('clean-target', { action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
-check('a never-appealed target has no Host window', neverNoWindow.ok === false
-  && neverNoWindow.error?.code === 'appeal_window_required', JSON.stringify(neverNoWindow));
+check('a never-appealed target has no independent human confirmation', neverNoWindow.ok === false
+  && neverNoWindow.error?.code === 'human_confirmation_required', JSON.stringify(neverNoWindow));
+const booleanOnly = await submitOn('clean-target', { action: 'cancel_running', evidence: valid }, {
+  chiefConfirmed: true, humanConfirmed: true,
+});
+check('a humanConfirmed request flag alone cannot unlock an irreversible action', booleanOnly.ok === false
+  && booleanOnly.error?.code === 'human_confirmation_required', JSON.stringify(booleanOnly));// Exact Round 10 probe: a manufactured appeal record (`kind:'appeal'` with a
+// non-appeal claim action) must not create a Host window. The write boundary
+// rejects it, and appealState also ignores any legacy malformed row.
+const manufactured = await service.submitIntent(projectId, {
+  kind: 'appeal', nodeId: 'clean-target', claim: { action: 'observe', reason: 'manufactured window' },
+}, expertExec);
+check('a manufactured appeal window is rejected', manufactured.ok === false
+  && manufactured.error?.code === 'intent_action_mismatch', JSON.stringify(manufactured));
+const wrongAppealAction = await service.submitIntent(projectId, {
+  kind: 'appeal', nodeId: 'clean-target', claim: { action: 'prune_branch', reason: 'manufactured prune appeal' },
+}, expertExec);
+check('an appeal kind carrying a different gate action is rejected', wrongAppealAction.ok === false
+  && wrongAppealAction.error?.code === 'intent_action_mismatch', JSON.stringify(wrongAppealAction));
+const ordinaryIntent = await submit({ action: 'observe', evidence: valid });
+const resolveOrdinary = await service.resolveAppeal(projectId, ordinaryIntent.intent.id, {
+  resolution: 'upheld', reason: 'not an appeal',
+}, humanExec);
+check('resolveAppeal rejects a kind/claim action mismatch', resolveOrdinary.ok === false
+  && resolveOrdinary.error?.code === 'intent_action_mismatch', JSON.stringify(resolveOrdinary));
+// Exact Round 10 probe: advancing the Host clock past INTENT_TTL_MS must not
+// turn a withdrawal into permission. Only an explicit resolution can.
+const realNow = Date.now;
+const afterTtl = await (async () => {
+  Date.now = () => realNow() + 31 * 60_000;
+  try {
+    return await submitOn('withdrawn-target', { action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
+  } finally {
+    Date.now = realNow;
+  }
+})();
+check('a withdrawn appeal stays appeal_not_resolved after the TTL', afterTtl.ok === false
+  && afterTtl.error?.code === 'appeal_not_resolved', JSON.stringify(afterTtl));
+const withdrawnResolved = await service.resolveAppeal(projectId, withdrawnAppeal.intent.id, {
+  resolution: 'upheld', reason: 'explicit hearing after withdrawal',
+}, humanExec);
+check('a different human can explicitly resolve a withdrawn appeal', withdrawnResolved.ok === true
+  && withdrawnResolved.intent?.status === 'resolved'
+  && withdrawnResolved.intent?.resolvedBy?.id === 'human-reviewer', JSON.stringify(withdrawnResolved));
+const afterWithdrawnResolve = await submitOn('withdrawn-target', { action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
+check('explicit resolution of a withdrawn appeal opens the action', afterWithdrawnResolve.ok === true, JSON.stringify(afterWithdrawnResolve));
 
 for (const predicate of CLAIM_PREDICATES) {
   const one = structuredClone(valid);
@@ -253,6 +311,15 @@ const stored = store.getProject(projectId);
 const actorId = accepted.intent.actor.id;
 check('claim statistics are persisted per actor', stored.claimStats?.[actorId]?.total >= 56 && stored.claimStats?.[actorId]?.failed === 7, JSON.stringify(stored.claimStats));
 check('rejected claims write a claim/rejected event', store.listEvents(projectId, 0).filter((event) => event.type === 'claim/rejected').length >= 7);
+const negativeAppeal = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'clean-target', claim: { action: 'appeal', reason: 'negative resolution probe' },
+}, expertExec);
+const negativeResolve = await service.resolveAppeal(projectId, negativeAppeal.intent.id, {
+  resolution: 'rejected', reason: 'human rejects the objection',
+}, humanExec);
+const negativeConfirm = await submitOn('clean-target', { action: 'cancel_running', evidence: valid }, { chiefConfirmed: true });
+check('a rejected appeal resolution is not human confirmation', negativeResolve.ok === true
+  && negativeConfirm.ok === false && negativeConfirm.error?.code === 'human_confirmation_required', JSON.stringify(negativeConfirm));
 
 console.log(failed === 0 ? '\nclaims-selftest: all checks passed' : `\nclaims-selftest: ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

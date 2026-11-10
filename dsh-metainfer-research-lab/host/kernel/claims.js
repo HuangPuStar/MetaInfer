@@ -32,8 +32,8 @@ export const IRREVERSIBLE_ACTIONS = Object.freeze(['delete_project', 'cancel_run
 export const VERIFICATION_LEVELS = Object.freeze([
   { level: 0, name: 'planned_create', evidence: 0, description: 'parent exists and is not deferred' },
   { level: 1, name: 'defer_nominate', evidence: 1, description: 'one verified atom' },
-  { level: 2, name: 'cancel_running', evidence: 2, chief: true, description: 'two verified atoms + chief confirmation' },
-  { level: 3, name: 'prune_branch', evidence: 3, chief: true, appeal: true, description: 'three verified atoms + chief confirmation + appeal window' },
+  { level: 2, name: 'cancel_running', evidence: 2, chief: true, humanConfirmation: true, description: 'two verified atoms + chief + independent human confirmation' },
+  { level: 3, name: 'prune_branch', evidence: 3, chief: true, appeal: true, humanConfirmation: true, description: 'three verified atoms + chief + independent human confirmation + appeal window' },
   { level: 4, name: 'delete_project', humanOnly: true, humanConfirmation: true, appeal: true, description: 'human operator only, with explicit confirmation and an appeal window' },
 ]);
 
@@ -255,6 +255,7 @@ export function gateClaimAction(action, stats = {}, context = {}) {
     requiredEvidence: requirement.evidence ?? 0,
     submitted,
     serverAppealUntil: Number.isFinite(context.serverAppealUntil) ? context.serverAppealUntil : null,
+    humanConfirmedBy: context.humanConfirmedBy ?? null,
   };
   const actor = context.actor ?? null;
   // A caller-supplied timestamp can never satisfy a cooling-off requirement.
@@ -265,14 +266,20 @@ export function gateClaimAction(action, stats = {}, context = {}) {
   // otherwise a level without `appeal: true` silently bypasses an open appeal.
   if (context.appealPending === true) return { ...base, code: 'appeal_pending' };
   // A withdrawn appeal is not a resolution. For irreversible actions it keeps
-  // the gate closed until the Host-side window expires (or a separate, valid
-  // resolution is recorded); `cancel_running` has no `appeal: true` level, so
-  // this must be a separate early check.
+  // the gate closed until a separate valid resolution is recorded; the TTL
+  // never clears it. `cancel_running` has no `appeal: true` level, so this
+  // must be a separate early check.
   if (context.appealUnresolved === true && IRREVERSIBLE_ACTIONS.includes(action)) {
     return { ...base, code: 'appeal_not_resolved' };
   }
   if (requirement.humanOnly && actor?.kind !== 'human') {
     return { ...base, code: 'human_only' };
+  }
+  // Every irreversible action has an independent human/system confirmation
+  // requirement, regardless of its evidence level. The boolean is produced by
+  // the service from a resolved-appeal record, never from request input.
+  if (IRREVERSIBLE_ACTIONS.includes(action) && context.humanConfirmed !== true) {
+    return { ...base, code: 'human_confirmation_required' };
   }
   if (requirement.humanConfirmation && context.humanConfirmed !== true) {
     return { ...base, code: 'human_confirmation_required' };

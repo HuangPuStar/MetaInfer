@@ -391,8 +391,11 @@ const reducers = {
     const index = current.findIndex((intent) => intent.id === intentId);
     if (index < 0) throw new MutationError('intent_not_found', `unknown intent ${intentId}`);
     if (current[index].status === 'expired') throw new MutationError('intent_expired', `intent ${intentId} has expired`);
-    if (current[index].status === 'withdrawn') return [];
     const resolving = m.resolve === true;
+    // Withdrawal is terminal for a plain withdrawal, but a withdrawn appeal
+    // still needs an explicit hearing: a different actor may resolve it. Any
+    // other write stays idempotent.
+    if (current[index].status === 'withdrawn' && !resolving) return [];
     current[index] = {
       ...current[index],
       status: resolving ? 'resolved' : 'withdrawn',
@@ -414,7 +417,7 @@ const reducers = {
     return [{
       type: resolving ? 'appeal/resolved' : nomination ? 'nomination/withdrawn' : 'intent/withdrawn',
       ...(current[index].target?.nodeId ? { nodeId: current[index].target.nodeId } : {}),
-      data: { intentId, ...(nomination ? { nominationId: intentId } : {}), reason: current[index].withdrawReason },
+      data: { intentId, ...(nomination ? { nominationId: intentId } : {}), reason: resolving ? current[index].resolutionReason : current[index].withdrawReason },
       effects: [{ op: 'project.merge', set: { intents: structuredClone(ws.project.intents) } }],
     }];
   },

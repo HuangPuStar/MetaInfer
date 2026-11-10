@@ -3399,9 +3399,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
    * nor extend a cooling-off period, and a withdrawal does not erase the fact
    * that the target was appealed during this window.
    */
-  function appealState(project, target, action, now = Date.now()) {
+  function appealState(project, target, action, actor, now = Date.now()) {
     const applies = (candidate) => {
-      if (candidate?.kind !== 'appeal') return false;
+      // A manufactured `kind:'appeal'` record with another claim action is not
+      // an appeal. Requiring both fields here means it cannot open a window or
+      // borrow the appeal register.
+      if (candidate?.kind !== 'appeal' || candidate?.claim?.action !== 'appeal') return false;
       // Deleting the project is project-wide: any appeal in the project is
       // evidence that the project was under objection.
       if (action === 'delete_project') return true;
@@ -3427,14 +3430,43 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       });
     const live = rows.filter((row) => row.until !== null && row.until > now);
     const pending = live.some((row) => row.intent.status === 'pending');
-    const unresolved = live.some((row) => row.intent.status === 'withdrawn');
+    // Withdrawal is not a hearing and does not become permission when the
+    // original TTL passes. It stays unresolved until a different actor writes
+    // an explicit resolution. This single predicate is used for the block and
+    // for the window decision below, so expiry cannot clear one but not the
+    // other.
+    const unresolved = rows.some((row) => row.intent.status === 'withdrawn');
+    const windowed = rows.filter((row) => row.until !== null && (row.intent.status === 'resolved' || row.intent.status === 'pending'));
+    const confirmation = rows.find((row) => {
+      if (row.intent.status !== 'resolved') return false;
+      // A resolution that rejects the objection is not a confirmation to
+      // execute. Only the affirmative resolution opens the human gate.
+      if (row.intent.resolution !== 'upheld') return false;
+      const by = row.intent.resolvedBy;
+      if (!by || (by.kind !== 'human' && by.kind !== 'system')) return false;
+      if (typeof by.id !== 'string' || !by.id) return false;
+      if (typeof actor?.id !== 'string' || !actor.id) return false;
+      if (typeof row.intent.actor?.id !== 'string' || !row.intent.actor.id) return false;
+      // The resolver must be a different actor from both the requester and
+      // the actor who raised the appeal.
+      if (by.id === actor.id) return false;
+      if (by.id === row.intent.actor.id) return false;
+      return true;
+    });
+    // The same unresolved predicate gates both outcomes: while any withdrawn
+    // appeal remains unresolved, neither a positive window nor a resolution
+    // from another appeal can let the action through.
+    const hasWindow = !unresolved && windowed.length > 0;
     return {
       pending,
       unresolved,
-      // A corrupt/legacy appeal without an opened timestamp cannot grant a
-      // window; only a Host-timestamped record counts.
-      hasWindow: rows.some((row) => row.until !== null),
-      until: rows.some((row) => row.until !== null) ? Math.max(...rows.map((row) => row.until ?? 0)) : null,
+      // A corrupt/legacy appeal without a Host timestamp cannot grant a
+      // window; and a withdrawn appeal has no window until it is resolved.
+      hasWindow,
+      until: hasWindow ? Math.max(...windowed.map((row) => row.until ?? 0)) : null,
+      humanConfirmation: confirmation
+        ? { appealId: confirmation.intent.id, by: confirmation.intent.resolvedBy }
+        : null,
     };
   }
 
@@ -3472,9 +3504,21 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       return rejection('node_not_found', `unknown node: ${target.nodeId}`);
     }
     let claim = input?.claim;
+    // Confirmation is a Host-derived record, never a claim field. Strip any
+    // caller-authored copy before it can reach the intent log.
+    if (claim && (Object.prototype.hasOwnProperty.call(claim, 'humanConfirmed') || Object.prototype.hasOwnProperty.call(claim, 'humanConfirmedBy'))) {
+      const { humanConfirmed: _humanConfirmed, humanConfirmedBy: _humanConfirmedBy, ...rest } = claim;
+      claim = rest;
+    }
     // An appeal is a first-class judgement, not a note with a flag. Forcing the
     // kind here means every transport gets the same registerable record.
     if (claim?.action === 'appeal') kind = 'appeal';
+    // The inverse is not optional: `kind:'appeal'` with a different claim
+    // action is a manufactured appeal record, not an objection. Reject it at
+    // the write boundary so it cannot create a Host window later.
+    if (kind === 'appeal' && claim?.action !== 'appeal') {
+      return rejection('intent_action_mismatch', 'an intent with kind "appeal" must carry claim.action "appeal"');
+    }
     let verifiedStats = null;
     let verification = null;
     if (claim && claim.evidence !== undefined) {
@@ -3510,7 +3554,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         });
       }
     }
-    const appeal = appealState(project, target, claim?.action);
+    const appeal = appealState(project, target, claim?.action, actor);
     if (claim && ACTION_VERIFICATION[claim.action]) {
       const stats = verifiedStats ?? claimStats(project, actor.id);
       // Chief confirmation is an authority, not a model-authored boolean. A
@@ -3518,11 +3562,16 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       // cannot promote itself by writing `chiefConfirmed: true`.
       const chiefConfirmed = (input?.chiefConfirmed === true || claim?.chiefConfirmed === true)
         && (actor.kind === 'human' || actor.kind === 'system' || actor.preset === 'lab-chief');
-      const humanConfirmed = input?.humanConfirmed === true || claim?.humanConfirmed === true;
+      // A request boolean is not a confirmation. The Host derives this only
+      // from an appeal resolution written by a human/system actor who is
+      // neither the requester nor the appeal raiser.
+      const humanConfirmed = appeal.humanConfirmation !== null;
+      const humanConfirmedBy = appeal.humanConfirmation?.by ?? null;
       const gate = gateClaimAction(claim.action, stats, {
         submitted: verification?.total ?? 0,
         chiefConfirmed,
         humanConfirmed,
+        humanConfirmedBy,
         appealPending: appeal.pending,
         appealUnresolved: appeal.unresolved,
         serverAppealWindow: appeal.hasWindow,
@@ -3549,6 +3598,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           minimumEvidence: gate.minimumEvidence ?? null,
           lowerBound: gate.lowerBound ?? null,
           serverAppealUntil: gate.serverAppealUntil ?? null,
+          humanConfirmedBy: gate.humanConfirmedBy ?? null,
         });
       }
       claim = {
@@ -3559,6 +3609,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           submitted: gate.submitted,
           chiefConfirmed,
           humanConfirmed,
+          humanConfirmedBy,
           serverAppealUntil: appeal.until,
           appealPending: appeal.pending,
           appealUnresolved: appeal.unresolved,
@@ -3657,15 +3708,21 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (!kernel?.executor) return rejection('internal_error', 'kernel executor is not wired');
     const intent = (Array.isArray(project.intents) ? project.intents : []).find((candidate) => candidate.id === intentId);
     if (!intent) return rejection('intent_not_found', `unknown intent: ${intentId}`);
-    if (intent.kind !== 'appeal') return rejection('not_an_appeal', `intent ${intentId} is not an appeal`);
+    // Both halves of the appeal register must agree. Checking only `kind`
+    // would let a malformed record borrow the appeal path.
+    if (intent.kind !== 'appeal' || intent.claim?.action !== 'appeal') {
+      return rejection('intent_action_mismatch', `intent ${intentId} is not a valid appeal record`);
+    }
     const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
     if (actor.kind !== 'human' && actor.kind !== 'system' && actor.preset !== 'lab-chief') {
       return rejection('forbidden_action', 'only a human or the chief may resolve an appeal');
     }
-    if (intent.status !== 'pending') {
+    if (intent.status !== 'pending' && intent.status !== 'withdrawn') {
       return rejection('intent_not_pending', `appeal ${intentId} is already ${intent.status}`);
     }
-    if (Number.isFinite(intent.expiresAt) && intent.expiresAt <= Date.now()) {
+    // A pending appeal still expires, but a withdrawn appeal does not: its TTL
+    // cannot turn silence into permission. It needs an explicit hearing.
+    if (intent.status === 'pending' && Number.isFinite(intent.expiresAt) && intent.expiresAt <= Date.now()) {
       return rejection('appeal_expired', `appeal ${intentId} expired before it was resolved`);
     }
     // Separation of powers: the actor who raised an appeal cannot also decide
@@ -3696,15 +3753,16 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (intent.status === 'resolved') return rejection('intent_not_pending', `intent ${intentId} is already resolved`);
     const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
     const appeal = intent.kind === 'appeal';
-    // Withdrawal is not a hearing, but it still removes a block: an expert may
-    // withdraw only the appeal it raised. A different expert cannot silence
-    // someone else's objection; a human or the chief can.
+    // Withdrawal is not a hearing and it does not remove the block: a
+    // withdrawn appeal remains `appeal_not_resolved` until an explicit
+    // resolution by another actor. An expert may withdraw only the appeal it
+    // raised; a different expert cannot silence someone else's objection.
     if (appeal && actor.kind === 'expert' && actor.preset !== 'lab-chief' && intent.actor?.id !== actor.id) {
       return rejection('forbidden_action', 'an expert may withdraw only its own appeal; a human or the chief may withdraw another actor\'s appeal');
     }
-    // Withdrawal removes the block but is not a hearing: it must not write
-    // `resolved`, `resolvedBy` or `resolution`, and it cannot be used by an
-    // expert to impersonate the resolver role.
+    // Withdrawal is not a hearing: it must not write `resolved`, `resolvedBy`
+    // or `resolution`, and it cannot be used by an expert to impersonate the
+    // resolver role. The TTL never turns the withdrawal into permission.
     const commit = await commitMutations(projectId, [{
       op: 'intent.withdraw',
       intentId,

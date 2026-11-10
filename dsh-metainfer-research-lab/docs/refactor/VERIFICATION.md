@@ -16,23 +16,25 @@
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：第九轮独立复核（HEAD `75963e5`，§27）确认 `cancel_running` 与
-`lab-chief` 自裁两个洞已闭，`5.3.16` 的 `resource_status` 和三个 `1.3` 口径行
-也可以关闭；但 **B27 仍未闭**：专家撤回自己的申诉后，再用一个未来
-`appealUntil` 提交 `prune_branch` 会得到 `ok:true`，撤回被当成了可继续执行的
-“无 pending 申诉”，而不是“尚无裁决”。因此独立计数为 **107 PASS / 57 FAIL /
-10 未测量**：1 个阻断（B27）、56 个能力未建、0 个只差文档。作者 §26 的
-108/56 多算了 B27 这一行。浏览器绘制仍 N/A。
+**一句话**：第十轮独立复核（HEAD `70b32b3`，§28.4）确认 §27 的四个正向探针
+已经变绿：撤回后 prune/cancel 被 `appeal_not_resolved` 挡住，调用方提供的
+`appealUntil` 被 `appeal_window_caller_supplied` 拒绝，never-appealed 目标没有窗口。
+但 **B27 仍未闭**：`intent_submit` 接受 `kind:'appeal'` 搭配非 appeal 的
+`claim.action:'observe'`，再由另一 human resolve，就能**制造**一个不存在的
+Host 窗口并 prune `ok:true`；此外等待 `INTENT_TTL_MS` 后，withdrawn 的
+`appeal_not_resolved` 会被清除且 `hasWindow` 仍为真，prune 成功。因此独立计数
+仍是 **107 PASS / 57 FAIL / 10 未测量**：1 个阻断（B27）、56 个能力未建、
+0 个只差文档。作者 §28 的 108/56 没有确认。浏览器绘制仍 N/A。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
-> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**。
-> 独立总判定以 **§27** 为准；§20/§22/§24/§26/§28 是作者报告，不能代替独立复核。§22 曾声称关闭
+> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核）。
+> 独立总判定以 **§28.4** 为准；§20/§22/§24/§26/§28/§29 是作者报告，不能代替独立复核。§22 曾声称关闭
 > B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了其中 B27/U14/S12/A20 四项；
 > §24 作者报告为 112 PASS / 52 FAIL，§25 复核为 103 PASS / 61 FAIL，§27 复核为
-> **107 PASS / 57 FAIL / 10 未测量**。
+> **107 PASS / 57 FAIL / 10 未测量**，§28.4 复核仍为 **107 / 57 / 10**。
 
 ### 0.1 判定口径
 
@@ -2271,6 +2273,7 @@ run1: {status:"running", resourcesHeld:{gpu:2}}
 
 > 作者整改记录，独立基线仍是 §27 的 **107 PASS / 57 FAIL**。本节回应 §27.7 的
 > 唯一阻断项 B27；作者复核为 **108 PASS / 56 FAIL / 10 未测量**，等待独立重放。
+> **独立结论见 §28.4：仍是 107 / 57 / 10，NO-SHIP；作者 108/56 未确认。**
 
 ### 28.1 结构变化
 
@@ -2314,7 +2317,7 @@ run1: {status:"running", resourcesHeld:{gpu:2}}
 - `a caller window on a never-appealed target is rejected`
 - `a never-appealed target has no Host window`
 
-### 28.3 回归与计数
+### 28.3 作者回归与计数（未经独立复核）
 
 | 判定 | §27 独立 | §28 作者 | 变化 |
 |---|---|---|---|
@@ -2331,3 +2334,298 @@ run1: {status:"running", resourcesHeld:{gpu:2}}
 - 边界：`cancel_running` 在从未被申诉的目标上仍按 L2 规则放行；这是“没有 appeal
   记录”的正常路径，不是 withdrawal 绕过。withdrawn 的窗口从申诉 opened 时间起算，
   窗口最长 `INTENT_TTL_MS`（30 分钟）。
+
+### 28.4 第十轮独立复核（HEAD `70b32b3`）
+
+> 独立复核，不是 §28.1–§28.3 作者表的复述。采样时间
+> `2026-11-10T19:44:39+08:00`（`Asia/Shanghai`；浏览器时区不可用）。工作树在复核开始时
+> 干净；本轮只改本文件，没有改生产代码。作者 §28 的计数是 **108 / 56**；独立结论是
+> **107 / 57**，因为 B27 仍有两条可执行路径没有被作者测试覆盖。
+
+#### 28.4.1 §27 的四个正向探针：已绿
+
+真实 store/kernel/service，独立重放（不调用 `claims-selftest`）：
+
+| 探针 | 实测 | 判定 |
+|---|---|---|
+| pending appeal + `cancel_running` | `ok:false, code:'appeal_pending'` | PASS |
+| 专家 withdraw 自己的 appeal | `status:'withdrawn'`；`resolvedBy`/`resolution` 均无；`withdrawnBy.kind==='expert'` | PASS |
+| withdraw 后 prune，不带窗口 | `ok:false, code:'appeal_not_resolved'` | PASS |
+| withdraw 后 prune，带调用方窗口 | `ok:false, code:'appeal_window_caller_supplied'` | PASS |
+| withdraw 后 cancel | `ok:false, code:'appeal_not_resolved'` | PASS |
+| never-appealed + 调用方窗口 | `ok:false, code:'appeal_window_caller_supplied'` | PASS |
+| never-appealed + 无窗口 | `ok:false, code:'appeal_window_required'` | PASS |
+| resolved appeal + 无调用方窗口 | prune `ok:true`（Host 记录提供的窗口） | PASS |
+| `lab-chief` 自裁 | `ok:false, code:'appeal_self_resolution'` | PASS |
+| `resolveAppeal` 调两次 | 第一次 `resolved`；第二次 `intent_not_pending` | PASS |
+| L0/L1 + pending appeal | 两者均 `appeal_pending` | PASS |
+
+所以 §27.7 点名的“withdraw 后 prune 静默成功”这个旧洞**已经修掉**。但下面的新攻击面
+仍然打开，B27 不能判 PASS。
+
+#### 28.4.2 攻击面一：制造一个不存在的 appeal window
+
+**这是本轮直接打破 B27 的探针。**
+
+`submitIntent` 允许调用方显式传 `kind:'appeal'`，而只根据
+`claim.action === 'appeal'` 推回 kind；两者没有一致性校验
+（[`host/lab-service.js:3453`](../../host/lab-service.js#L3453)、
+[`:3477`](../../host/lab-service.js#L3477)）。`appealState` 只看 `candidate.kind`，
+不看 `candidate.claim.action`
+（[`host/lab-service.js:3402`](../../host/lab-service.js#L3402)）；`resolveAppeal` 也只检查
+`intent.kind === 'appeal'`，不检查 claim 的 action。因此：
+
+```
+intent_submit { kind:'appeal', nodeId:'clean',
+                claim:{ action:'observe', evidence:<3 valid> } }
+  -> ok:true, intent.kind:'appeal', intent.claim.action:'observe', status:'pending'
+
+resolveAppeal 由另一 human 执行
+  -> ok:true, status:'resolved'
+
+intent_submit { action:'prune_branch', nodeId:'clean',
+                evidence:<3 valid>, chiefConfirmed:true }
+  -> ok:true
+```
+
+这不是“提出一个真实 appeal”，而是把一条 `observe` 记录贴上 appeal 标签，制造
+Host 窗口，然后把它 resolve 成一场从未发生的听证。普通 schema 的 `kind` enum 不含
+`appeal`（[`host/agent-tool.js:168`](../../host/agent-tool.js#L168)），但
+`service.agentTool`/`submitIntent` 的分发没有运行时校验；独立探针用
+`service.agentTool('intent_submit', {kind:'appeal', claim:{action:'observe'}})` 得到
+`ok:true`。如果某个外部 transport 在更外层做 JSON Schema 校验，这条路径可能被挡住；
+Host 的 service 层仍不能依赖 schema 作为安全边界。**这是 B27 的直接红项。**
+
+#### 28.4.3 攻击面二：TTL 到期与 `hasWindow` 的历史记录
+
+`appealState` 的 `unresolved` 只统计 `live`（`until > now`）的 withdrawn 记录，
+而 `hasWindow` 统计 **所有**有 `until` 的记录，包括已过期的记录
+（[`host/lab-service.js:3428`](../../host/lab-service.js#L3428)、
+[`:3436`](../../host/lab-service.js#L3436)）。`gateClaimAction` 只检查
+`serverAppealWindow === true`，从不比较 `serverAppealUntil` 与 `now`
+（[`host/kernel/claims.js:296`](../../host/kernel/claims.js#L296)）。因此：
+
+```
+withdraw at T
+before TTL: prune -> {ok:false, code:'appeal_not_resolved'}
+wait until T + INTENT_TTL_MS + 1 ms (INTENT_TTL_MS = 30 min)
+after TTL:  prune -> {ok:true}
+```
+
+独立探针用真实 service + 时钟推进得到上述结果；又用 Host 写入的已过期 appeal
+（`at` 在过去，`expiresAt = at + 30min`）分别测了 pending / withdrawn / resolved
+三种记录，三者 prune 都是 `ok:true`。这回答了用户的问题：
+
+- **expired window 不会保留 `appeal_not_resolved`；到期会静默清除它。**
+- `hasWindow` 不是“当前有窗口”，而是“历史上曾有过 appeal 记录”；所以等待
+  TTL 后仍然满足 `serverAppealWindow`，prune 放行。
+
+如果产品的语义是“withdrawn 不是 resolved，必须另有裁决才能继续”，这就是第二个
+B27 红项；如果产品的语义是“window 到期即释放”，则这个行为是设计选择，但必须
+把“window 已过期仍算 hasWindow”写成显式语义，并解释为什么不要求一个新的 live
+window。当前 §28 作者文字同时说“窗口最长 30 分钟”和“窗口过后才允许继续”，却没有
+测试“过期后 hasWindow 仍为 true”这一条；独立复核把它记为**未闭的语义缺口**。
+
+对“expired appeal 还能不能 resolve”另有一条口径不一致：
+
+- 记录仍是 pending、`expiresAt` 已过 → `resolveAppeal` 返回 `appeal_expired`；
+- 若此前已有一次 `intent.put` 把这个记录归一化成 `expired` → `resolveAppeal` 先命中
+  `status !== 'pending'`，返回 `intent_not_pending`，不是 `appeal_expired`。
+
+两者都拒绝裁决，不是越权；但错误码不稳定，应该统一成可执行的 `appeal_expired`
+（或让 `intent.put` 的过期归一化不要改变这个语义）。
+
+#### 28.4.4 攻击面三：`claim.appealUntil` 的嵌套/旁路
+
+这一项**没有**绕过窗口，独立探针结果如下：
+
+| 字段 | 结果 |
+|---|---|
+| 顶层 `input.appealUntil` | `appeal_window_caller_supplied`（service 在 target 查找前拒绝） |
+| `input.claim.appealUntil` | `appeal_window_caller_supplied` |
+| `claim.meta.appealUntil` / `claim.nested.claim.appealUntil` | 被忽略；无 appeal 记录时仍是 `appeal_window_required` |
+| `claim.evidence[i].appealUntil` | 被忽略；仍是 `appeal_window_required` |
+| `target.appealUntil` | 被忽略；仍是 `appeal_window_required` |
+| `rationale` 里的 JSON `appealUntil` | 被忽略；仍是 `appeal_window_required` |
+
+所以 `claim.appealUntil` 没有从这些旁路“偷偷变成窗口”；唯一成功的旁路是
+§28.4.2 的 `kind:'appeal'` 制造，而不是字段嵌套。
+
+#### 28.4.5 schema 移除没有破坏合法调用方
+
+- `host/agent-tool.js` 的 schema 已无顶层 `appealUntil`；`claim` 描述也不再列它。
+- 合法路径：agent tool 提交 `claim:{action:'appeal'}` → pending；另一个 human
+  `resolveAppeal` → resolved；human 提交 `prune_branch`（3 证据 + chief，不带任何
+  窗口字段）→ `ok:true`。
+- 旧字段路径：`claim.appealUntil` 或顶层 `appealUntil` → 明确
+  `appeal_window_caller_supplied`，不是 500/静默忽略。这是有意的 breaking change，
+  但不再有调用方需要伪造窗口；合法调用方不需要该字段。
+- `tool-surface-selftest` **41 checks**、`npm test` **37 files / 631 ok**、
+  `client-smoke` **16/16** 均通过。
+- 代码库生产路径中已没有 `appealUntil` 的调用方；剩余出现只在
+  `host/lab-service.js` 的拒绝逻辑、`host/kernel/claims.js` 的 gate 测试和
+  `docs/`。因此“移除 schema 字段”本身没有破坏合法 caller。
+- 注意：schema 不含 `kind:'appeal'` 并不等于 service 拒绝它；§28.4.2 的制造路径
+  正是“schema 隐藏、service 接受”的差异。合法路径不需要 `kind:'appeal'`，
+  但恶意路径可以绕过 advertised schema 直达 service。
+
+#### 28.4.6 回归
+
+| 命令/探针 | 结果 |
+|---|---|
+| `npm test` | EXIT=0；37 个 selftest 文件 / **631 个 `ok`** |
+| `npm run bench:scale` | **11/11**；100k 冷归档首页 **0.53 ms**；重启首页 **1.98 ms**；dispatch p95 **28.0 ms**（max 31.0，starts 161） |
+| `node scripts/strict-writes-selftest.mjs` | EXIT=0；**17 checks**；bypass **0** |
+| `node scripts/policy-selftest.mjs` | EXIT=0；**120 checks**；83=83；preset/auth 矩阵通过 |
+| `node scripts/tool-surface-selftest.mjs` | EXIT=0；**41 checks**；`resource_status` 仍可达 |
+| `node scripts/claims-selftest.mjs` | EXIT=0；**66 checks**；新增四个 withdraw/窗口探针全绿 |
+| `node scripts/replay-client-selftest.mjs` | EXIT=0；**8 checks**；分页游标通过 |
+| `node scripts/client-smoke.mjs` | EXIT=0；**16/16** panel smoke |
+| U14 partial 探针 | EXIT=0；stored `status:'partial'`，`stale:true`，`lastSuccessAt`/`failedAt`/`nextRunAt` 保留 |
+| S12 重启探针 | EXIT=0；5 segments；`firstSameStore:1.7 ms`，`firstAfterReopen:1.1 ms`；两页各 100，total 100000 |
+| `resource_status` 探针 | EXIT=0；pools/free/held、queue position、`blockedBy`、`reservedStartAt`、node `resourcesHeld` 均返回 |
+
+结论：**没有发现回归**；`631 ok` 比 §27 的 622 多 9 条，来自 §28 新增的 claims
+断言，不是行数变化。B27 的两条红项不是测试失败，而是独立探针覆盖了作者
+`claims-selftest` 未覆盖的攻击路径。
+
+#### 28.4.7 计数、船票与窄发布范围
+
+| 判定 | §27 独立 | §28 作者 | §28.4 独立 | 变化 |
+|---|---|---|---|---|
+| PASS | 107 | 108 | **107** | 0 |
+| FAIL | 57 | 56 | **57** | 0 |
+| 未测量 | 10 | 10 | **10** | 0 |
+| 合计 | 174 | 174 | **174** | — |
+
+- **阻断上线：1** —— B27。不是能力桶：它允许通过
+  `kind:'appeal'` + `claim.action:'observe'` 制造窗口（§28.4.2），以及 TTL 到期后
+  清除 withdrawn 的 `appeal_not_resolved` 并放行（§28.4.3）。
+- **能力未建：56** —— `1.3` turn 内活动、`5.3.2`/Q3 项目内抢占、Stage 3–5
+  组织/争议/预算/观测/UI，以及 §23.9 能力桶的其余行。
+- **只差文档/口径：0** —— `5.2.2/5.2.3/5.2.5` 与 `5.3.16` 已 PASS。
+- **未测量：10** —— 浏览器绘制 2 行不适用；真实 provider/真实 Host 重启仍 N/A。
+
+**船票：仍是 NO-SHIP。** B27 是最后一个安全门，但它没有闭；不能因为作者 §28
+把行数改成 108/56 就宣布窄发布。若 B27 的这两个路径都关掉，并独立重放通过，
+计数才会变成 **108 / 56**：届时剩余 56 全是能力桶（含诚实的 `1.3` 缺口），
+**“narrow release possible”** 才成立，且应明确 scope 为“不含 1.3、5.3.2/Q3
+项目内抢占、Stage 3–5 组织/争议/预算/观测/UI；浏览器绘制/真实 provider/真实
+Host 重启仍 N/A”。
+
+#### 28.4.8 最小修复建议
+
+1. **一致性校验**：`kind:'appeal'` 必须当且仅当 `claim.action === 'appeal'`；否则
+   返回 `bad_request`。更好的是完全由 Host 从 claim 派生 `kind`，忽略调用方
+   `kind` 的 `appeal` 值。`resolveAppeal` 也应校验
+   `intent.claim.action === 'appeal'`，不能只信 `intent.kind`。
+2. **窗口活着才算窗口**：`hasWindow` 应基于 `live`（`until > now`）或显式的
+   `resolved` 记录；如果设计允许 TTL 到期后继续，必须把“过期后仍 hasWindow”
+   写成明确语义并测试，而不是历史记录永久为真。
+3. **withdrawn 的到期语义**：明确“到期清除 `appeal_not_resolved` 后允许执行”
+   还是“withdrawn 必须另有 resolved 才能执行”。二选一，并加 fake-clock 测试：
+   - 到期前：`appeal_not_resolved`；
+   - 到期后：按产品决定返回 `appeal_not_resolved` 或 `appeal_window_required`，
+     不能静默 `ok:true`。
+4. **补测试**：`kind`/claim mismatch 制造、TTL 到期、expired withdrawn、
+   `claim.appealUntil` 嵌套/evidence/target/rationale 全部不可开窗。
+5. 这些修复会改变生产代码；本轮按任务约束**没有**实施，只更新本报告。
+
+#### 28.4.9 本轮改动范围
+
+- 只修改 `docs/refactor/VERIFICATION.md`（本节 + §0 计数/引用）。
+- 未修改任何 `host/`、`scripts/`、`client/` 代码。
+- 未执行 sandbox escalation；未写用户 storage 目录。
+
+---
+
+## 29. 第十轮回退修复（作者报告，2026-11-10）
+
+> 本节是作者对 §28.4 两个 B27 红项的整改记录，不替代独立复核。独立总判定仍是
+> §28.4 的 **107 PASS / 57 FAIL / 10 未测量（NO-SHIP）**，直到验证者重放本节探针。
+
+### 29.1 规则改变
+
+用户明确：B27 若再次未闭，回退为“**所有不可逆动作必须有人类确认**”。本轮按此规则
+实现，而不是继续修补 appeal bookkeeping：
+
+1. `IRREVERSIBLE_ACTIONS`（`cancel_running`、`prune_branch`、`delete_project`）在
+   `gateClaimAction` 中无条件要求 `humanConfirmed === true`，与 evidence level 无关。
+   L2/L3/L4 都带 `humanConfirmation: true`。
+2. 服务层不再接受请求里的 `humanConfirmed` 布尔值。`submitIntent` 从
+   `appealState` 派生确认：必须存在一条 **status=resolved** 的 appeal，其
+   `resolvedBy.kind` 是 `human` 或 `system`，且 `resolvedBy.id` 同时不同于
+   **本次请求者** 和 **该 appeal 的发起者**，且 `resolution === 'upheld'`。
+   请求者不能复用自己的 resolution；首席（kind=expert）的 resolution 不算
+   human/system confirmation；`rejected` 的 resolution 也不算。
+3. Evidence、chief、appeal window、C7 仍是额外条件。没有任何一条可以单独放行
+   L2/L3/L4。
+
+### 29.2 撤回不再 TTL 到期
+
+`appealState` 现在使用同一个 `unresolved` 判断：
+
+- `unresolved = 任意 status=withdrawn`，**不参与 `until/live` 计算**；
+- 只要 `unresolved` 为真，`hasWindow=false`，`until=null`，且 gate 在窗口检查之前
+  返回 `appeal_not_resolved`；
+- TTL 到期不会清除它；
+- 只有 `resolveAppeal` 由不同的 human/system（首席也可以裁决，但不能提供人类确认）
+  写入 `resolved` 后，`unresolved` 才变 false；
+- `intent.withdraw` 的 mutation 允许对 `withdrawn` 执行 `resolve:true`，普通
+  withdraw 仍幂等。
+
+### 29.3 Intent integrity
+
+- `submitIntent`：`kind:'appeal'` 必须携带 `claim.action:'appeal'`，否则
+  `intent_action_mismatch`；`claim.action:'appeal'` 仍强制 `kind='appeal'`。
+- `createIntent`：同样的 kind/claim 校验（kernel 层防御）。
+- `resolveAppeal`：同时检查 `intent.kind === 'appeal'` 与
+  `intent.claim.action === 'appeal'`，不再只看 kind；否则
+  `intent_action_mismatch`。
+- `appealState`：只接受 `kind==='appeal' && claim.action==='appeal'` 的记录。
+  因此即使 store 里有历史 malformed 记录，也不能制造窗口。
+- 错误码：`intent_action_mismatch`（错误建议已加入 `host/kernel/errors.js`）。
+
+### 29.4 精确探针（作者运行）
+
+```json
+{
+  "manufactured": "intent_action_mismatch",
+  "mismatchResolve": "intent_action_mismatch",
+  "withdraw": { "ok": true, "status": "withdrawn" },
+  "cancelWithoutHuman": "appeal_not_resolved",
+  "afterTtl": "appeal_not_resolved",
+  "resolveWithdrawn": {
+    "ok": true,
+    "status": "resolved",
+    "resolvedBy": "human-2"
+  },
+  "afterResolve": "claim_evidence_required"
+}
+```
+
+补充探针：
+
+| 探针 | 返回 |
+|---|---|
+| 请求者自己 resolve 后带 `humanConfirmed:true` 提交 `cancel_running` | `human_confirmation_required` |
+| 无 appeal resolution、仅 `humanConfirmed:true` 的 `cancel_running` | `human_confirmation_required` |
+| 人类以 `resolution:'rejected'` resolve 后再 `cancel_running` | `human_confirmation_required` |
+| `kind:'appeal'` + `claim.action:'observe'` | `intent_action_mismatch` |
+| `kind:'appeal'` + `claim.action:'prune_branch'` | `intent_action_mismatch` |
+| `resolveAppeal` 作用于 `kind:'note'` / `claim.action:'observe'` | `intent_action_mismatch` |
+| withdraw 后 fake clock +31 min 的 `prune_branch` | `appeal_not_resolved` |
+
+### 29.5 回归
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT=0；37 files / **643 ok** |
+| `node scripts/claims-selftest.mjs` | EXIT=0；**78 checks** |
+| `npm run bench:scale` | EXIT=0；11/11 |
+| `node scripts/client-smoke.mjs` | EXIT=0；16/16 |
+| `node scripts/strict-writes-selftest.mjs` | EXIT=0；all checks passed |
+
+作者计数仍为 **108 PASS / 56 FAIL / 10 未测量**（B27 作者侧关闭，待独立复核）；
+未关闭的 56 行仍是能力桶，不是安全绕过后门。若验证者确认本节三条规则并重放通过，
+才应把独立计数改为 **108 / 56**。

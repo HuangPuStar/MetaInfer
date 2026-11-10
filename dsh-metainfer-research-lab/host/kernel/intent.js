@@ -80,6 +80,9 @@ export function createIntent(input) {
   const claim = plain(input?.claim, 'intent.claim');
   const action = str(claim.action, 'intent.claim.action', 80);
   if (!action) throw new TypeError('intent.claim.action is required');
+  if (input.kind === 'appeal' && action !== 'appeal') {
+    throw new TypeError('intent_action_mismatch: an intent with kind "appeal" must carry claim.action "appeal"');
+  }
   if (Buffer.byteLength(JSON.stringify(claim), 'utf8') > MAX_CLAIM_BYTES) throw new TypeError('intent.claim is too large');
   const target = input?.target && typeof input.target === 'object'
     ? {
