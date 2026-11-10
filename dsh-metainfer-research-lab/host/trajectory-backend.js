@@ -68,6 +68,14 @@ export async function ensureTrajectoryBackend(logger) {
     stdio: ['ignore', logFd, logFd],
   });
   closeSync(logFd);
+  // spawn() reports ENOENT (missing python3, or a cwd that does not exist) as an
+  // 'error' event. Without a listener Node rethrows it as an uncaught exception
+  // and takes the whole Host down -- that is what killed the web process today.
+  child.on('error', (err) => {
+    try {
+      logger?.warn?.(`[trajectory-backend] spawn failed: ${err?.message ?? err}`);
+    } catch { /* diagnostics only */ }
+  });
   child.on('exit', (code, signal) => {
     try {
       logger?.info?.(`[trajectory-backend] exited code=${code} signal=${signal}`);
