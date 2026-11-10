@@ -125,8 +125,9 @@ kernel.load(refreshId);
 await checkAsync('a successful refresh records the revision it actually read', async () => {
   const view = await service.refreshDashboard(refreshId, { force: true });
   assert.equal(view.lastRun?.status, 'ok');
-  assert.equal(view.lastRun?.revision, store.getProject(refreshId).revision);
+  assert.equal(view.lastRun?.revision, 2);
   assert.equal(view.lastRun?.dataRevision, 2);
+  assert.equal(view.lastRun?.committedRevision, store.getProject(refreshId).revision);
   lastGoodRevision = view.lastRun?.revision;
   assert.equal(view.commentary?.lastSuccessAt, view.lastRun?.endedAt);
   assert.equal(view.stale, false);

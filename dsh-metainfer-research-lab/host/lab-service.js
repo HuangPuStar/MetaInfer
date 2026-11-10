@@ -882,7 +882,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (Number.isFinite(lastSuccessAt)) times.push(lastSuccessAt);
     const commentaryAt = times.length > 0 ? Math.max(...times) : null;
     const ageMs = commentaryAt === null ? null : Math.max(0, now - commentaryAt);
-    const revisionChanged = Number.isInteger(lastRun?.revision) && lastRun.revision !== (project.revision ?? 0);
+    // `revision` is the revision the refresh actually read. The dashboard's own
+    // metadata write also advances the project revision, so freshness compares
+    // the post-write `committedRevision` when it is present.
+    const revisionKey = Number.isInteger(lastRun?.committedRevision)
+      ? lastRun.committedRevision
+      : lastRun?.revision;
+    const revisionChanged = Number.isInteger(revisionKey) && revisionKey !== (project.revision ?? 0);
     // A failed refresh is never evidence of freshness. Even when the project
     // revision happens to match the last successful read, the attempt failed and
     // the old commentary must stay visibly stale.
@@ -1152,12 +1158,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
             startedAt,
             endedAt: now,
             durationMs: now - startedAt,
-            // `readRevision` is the data snapshot; the dashboard write itself
-            // advances the project revision by one. Record the post-write
-            // revision so the view is not permanently stale against its own
-            // metadata update, and keep the actual read separately.
-            revision: failed ? (previous.revision ?? null) : ((locked.revision ?? 0) + 1),
+            // Record the revision the data actually came from; the dashboard
+            // write itself advances the project revision, so keep the
+            // post-write revision separately for the freshness comparison.
+            revision: failed ? (previous.revision ?? null) : readRevision,
             dataRevision: failed ? (previous.dataRevision ?? null) : readRevision,
+            committedRevision: failed ? (previous.committedRevision ?? null) : ((locked.revision ?? 0) + 1),
             lastSuccessAt,
             consecutiveFailures,
             failedAt: failed ? now : (previous.failedAt ?? null),

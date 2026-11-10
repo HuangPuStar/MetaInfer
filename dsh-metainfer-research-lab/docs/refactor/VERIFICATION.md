@@ -1371,9 +1371,10 @@ B27 在同一个 `gateClaimAction` 调用里，不能只满足其中一条：
 
 `dashboardView` 现在用 `lastSuccessAt`（不是本次失败尝试的 `endedAt`）计算年龄；
 `lastRun.status === 'error'` 无条件 stale，`staleReason='refresh_failed'`。
-成功刷新把 `lastRun.revision` 记为写入后的 project revision，并保留
-`lastRun.dataRevision` 为实际读取 revision；失败刷新保留上一次成功的
-`revision` / `lastSuccessAt`，不写入本次失败的时间或 revision。
+成功刷新把 `lastRun.revision` / `dataRevision` 记为实际读取的 revision，另记
+`lastRun.committedRevision` 为 dashboard 自身元数据写入后的 revision 供 freshness
+比较；失败刷新保留上一次成功的 `revision` / `committedRevision` / `lastSuccessAt`，
+不写入本次失败的时间或 revision。
 
 连续失败 3 次后：
 
@@ -1384,7 +1385,7 @@ B27 在同一个 `gateClaimAction` 调用里，不能只满足其中一条：
 - 后台失败写 `dashboard/failed` 事件，不再只有 `dashboard/partial`。
 
 `dashboard-selftest.mjs` 用真实 `refreshDashboard` 与脚本 widget 验证：
-成功时 `lastRun.revision === project.revision` 且 `dataRevision` 是读取值、非 stale；
+成功时 `lastRun.revision === 2`、`committedRevision === project.revision` 且非 stale；
 删掉 revision 对齐后写失败标记再刷新，仍为 stale/`refresh_failed`；连续三次失败
 `degraded` 且退避 > 正常间隔。
 
