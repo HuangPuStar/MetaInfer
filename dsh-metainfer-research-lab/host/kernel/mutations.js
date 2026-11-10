@@ -448,6 +448,82 @@ const reducers = {
     }];
   },
 
+  /** Append a first-class Stage-5 dispute record (B22). */
+  'dispute.open'(ws, m, ctx) {
+    if (Number.isInteger(m.expectedRevision) && (ws.project.revision ?? 0) !== m.expectedRevision) {
+      throw new MutationError('stale_basis', `project revision changed since dispute read (expected ${m.expectedRevision}, actual ${ws.project.revision ?? 0})`);
+    }
+    const input = requirePlainObject(m.dispute, 'dispute');
+    const id = requireString(input.id, 'dispute.id');
+    const current = Array.isArray(ws.project.disputes) ? ws.project.disputes : [];
+    if (current.some((row) => row.id === id)) throw new MutationError('dispute_exists', `dispute ${id} already exists`);
+    if (current.length >= 500) throw new MutationError('dispute_capacity', 'the project already holds 500 disputes; resolve or export before opening more');
+    const record = { ...structuredClone(input), id };
+    const next = [...current, record];
+    ws.project.disputes = next;
+    ws.projectTouched = true;
+    return [{
+      type: 'dispute/opened',
+      data: {
+        disputeId: id,
+        type: record.type,
+        authority: record.authority,
+        deadlineAt: record.deadlineAt,
+        defaultAction: record.defaultAction,
+      },
+      effects: [{ op: 'project.merge', set: { disputes: structuredClone(next) } }],
+    }];
+  },
+
+  /** Resolve (or timeout) a dispute atomically; resolved is terminal. */
+  'dispute.resolve'(ws, m, ctx) {
+    if (Number.isInteger(m.expectedRevision) && (ws.project.revision ?? 0) !== m.expectedRevision) {
+      throw new MutationError('stale_basis', `project revision changed since dispute read (expected ${m.expectedRevision}, actual ${ws.project.revision ?? 0})`);
+    }
+    const input = requirePlainObject(m.dispute, 'dispute');
+    const id = requireString(input.id, 'dispute.id');
+    const current = Array.isArray(ws.project.disputes) ? ws.project.disputes : [];
+    const index = current.findIndex((row) => row.id === id);
+    if (index < 0) throw new MutationError('dispute_not_found', `unknown dispute ${id}`);
+    if (current[index].status === 'resolved') throw new MutationError('dispute_not_pending', `dispute ${id} is already resolved`);
+    if (current[index].status === 'withdrawn') throw new MutationError('dispute_not_pending', `dispute ${id} is withdrawn`);
+    const next = current.map((row, rowIndex) => (rowIndex === index ? { ...structuredClone(input), id } : row));
+    ws.project.disputes = next;
+    ws.projectTouched = true;
+    return [{
+      type: input.defaultApplied === true ? 'dispute/timed_out' : 'dispute/resolved',
+      data: {
+        disputeId: id,
+        resolution: input.resolution,
+        resolutionReason: input.resolutionReason,
+        resolvedBy: input.resolvedBy,
+        defaultApplied: input.defaultApplied === true,
+      },
+      effects: [{ op: 'project.merge', set: { disputes: structuredClone(next) } }],
+    }];
+  },
+
+  /** Re-open only with fresh evidence; the old resolution stays auditable. */
+  'dispute.reopen'(ws, m, ctx) {
+    if (Number.isInteger(m.expectedRevision) && (ws.project.revision ?? 0) !== m.expectedRevision) {
+      throw new MutationError('stale_basis', `project revision changed since dispute read (expected ${m.expectedRevision}, actual ${ws.project.revision ?? 0})`);
+    }
+    const input = requirePlainObject(m.dispute, 'dispute');
+    const id = requireString(input.id, 'dispute.id');
+    const current = Array.isArray(ws.project.disputes) ? ws.project.disputes : [];
+    const index = current.findIndex((row) => row.id === id);
+    if (index < 0) throw new MutationError('dispute_not_found', `unknown dispute ${id}`);
+    if (current[index].status !== 'resolved') throw new MutationError('dispute_not_resolved', `dispute ${id} is ${current[index].status}`);
+    const next = current.map((row, rowIndex) => (rowIndex === index ? { ...structuredClone(input), id } : row));
+    ws.project.disputes = next;
+    ws.projectTouched = true;
+    return [{
+      type: 'dispute/reopened',
+      data: { disputeId: id, reason: input.reopenReason ?? null },
+      effects: [{ op: 'project.merge', set: { disputes: structuredClone(next) } }],
+    }];
+  },
+
   /** Full cycle-record write for migrated legacy orchestrator paths. */
   'cycle.put'(ws, m) {
     const cycle = requirePlainObject(m.cycle, 'cycle');

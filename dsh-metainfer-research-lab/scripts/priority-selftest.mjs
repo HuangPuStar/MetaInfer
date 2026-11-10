@@ -8,6 +8,7 @@ import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
 import { registerAgentTool } from '../host/agent-tool.js';
 import { createOrchestrator } from '../host/orchestrator.js';
+import { DEFAULT_SOURCE_WEIGHTS, fairOrder } from '../host/kernel/priority.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -18,6 +19,15 @@ function check(name, condition, detail = '') {
     console.log(`FAIL ${name}${detail ? ` — ${detail}` : ''}`);
   }
 }
+
+check('5.3.4 gives human work weight 100 and advisor work weight 10',
+  DEFAULT_SOURCE_WEIGHTS.human === 100 && DEFAULT_SOURCE_WEIGHTS.advisor === 10);
+const weighted = fairOrder([
+  { id: 'human-slot', priority: { class: 'p2', by: 'human' }, timestamps: { createdAt: 2 } },
+  { id: 'advisor-slot', priority: { class: 'p2', by: 'advisor' }, timestamps: { createdAt: 1 } },
+], new Map([['human', { gpuSeconds: 5 }], ['advisor', { gpuSeconds: 1 }]]), { limit: 1 });
+check('CFS weight changes the virtual-runtime ordering, not just the label',
+  weighted[0]?.id === 'human-slot', JSON.stringify(weighted));
 
 const fakeCtx = { effect: () => {}, get: () => null, logger: { info() {}, warn() {} } };
 const store = await openStore(storeContext(memoryDomain()));

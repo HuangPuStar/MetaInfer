@@ -115,7 +115,7 @@ export function classBudgetOf(config, priorityClass) {
  * @param {{running?: Array<object>, config?: object}} input
  * @returns {Array<object>}
  */
-export function applyClassBudgets(candidates, { running = [], config = {} } = {}) {
+export function applyClassBudgetsDetailed(candidates, { running = [], config = {} } = {}) {
   const list = Array.isArray(candidates) ? candidates : [];
   const counts = new Map();
   for (const node of Array.isArray(running) ? running : []) {
@@ -123,13 +123,21 @@ export function applyClassBudgets(candidates, { running = [], config = {} } = {}
     counts.set(cls, (counts.get(cls) ?? 0) + 1);
   }
   const admitted = [];
+  const delayed = [];
   for (const node of list) {
     const cls = node?.priority?.class ?? 'p2';
     const budget = classBudgetOf(config, cls);
     const used = counts.get(cls) ?? 0;
-    if (budget !== null && used >= budget) continue;
+    if (budget !== null && used >= budget) {
+      delayed.push({ nodeId: node?.id ?? null, class: cls, reason: 'class_budget_exhausted', budget, used });
+      continue;
+    }
     admitted.push(node);
     counts.set(cls, used + 1);
   }
-  return admitted;
+  return { admitted, delayed };
+}
+
+export function applyClassBudgets(candidates, options = {}) {
+  return applyClassBudgetsDetailed(candidates, options).admitted;
 }

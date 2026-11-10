@@ -200,6 +200,49 @@ await test('integration: a per-class budget caps starts even when global capacit
   assert.equal(round.started, 1);
   assert.deepEqual(round.startedNodeIds, ['p2a']);
   assert.equal(store.getNode(projectId, 'p2b').status, 'planned');
+  assert.equal(round.delayed?.[0]?.nodeId, 'p2b');
+  assert.equal(round.delayed?.[0]?.reason, 'class_budget_exhausted');
+  assert.ok(store.listEvents(projectId).some((event) => event.type === 'priority/delayed'
+    && event.data?.nodes?.some((row) => row.nodeId === 'p2b')), 'priority/delayed event is written');
+  kernel.dispose();
+});
+
+await test('integration: p0 waiting >30s gets blockedBy and expectedRemaining in a priority/delayed event', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const projectId = 'p-p0-wait';
+  const now = Date.now();
+  await store.saveProject({
+    id: projectId, name: projectId, mode: 'manual', repo: {}, revision: 0,
+    counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 1, maxNodes: 100, resourcePools: {} },
+  });
+  await store.saveNode(projectId, {
+    ...node('busy', 'p2'), status: 'running', deadlineAt: now + 120_000,
+    timestamps: { createdAt: now - 120_000, startedAt: now - 60_000 },
+  });
+  await store.saveNode(projectId, {
+    ...node('p0-wait', 'p0'), priority: { class: 'p0', at: now - 31_000, by: 'human', depth: 0, failureRecovery: 0 },
+  });
+  const kernel = createKernel({ store });
+  kernel.load(projectId);
+  const broker = createLocalPoolBroker({ limits: () => ({ maxRunningNodes: 1, resourcePools: {} }) });
+  broker.adopt({ leaseId: 'lease-busy', requestId: 'busy:1', projectId, nodeId: 'busy', resources: {} });
+  const dispatcher = createDispatchOnce({
+    projectId,
+    executor: kernel.executor,
+    projection: kernel.projection,
+    brokers: new Map([['local-pool', broker]]),
+    launcher: { start: async () => ({ ok: true }) },
+  });
+  const round = await dispatcher.run({ maxStarts: 1, maxRunningNodes: 1, config: store.getProject(projectId).config });
+  assert.equal(round.started, 0, JSON.stringify(round));
+  const wait = round.delayed?.find((row) => row.nodeId === 'p0-wait');
+  assert.equal(wait?.reason, 'p0_waiting');
+  assert.equal(wait?.blockedBy, 'max_running_nodes');
+  assert.ok(wait?.waitedMs >= 30_000);
+  assert.ok(wait?.expectedRemainingMs > 0 && wait.expectedRemainingMs <= 120_000);
+  const event = store.listEvents(projectId).find((row) => row.type === 'priority/delayed');
+  assert.ok(event?.data?.nodes?.some((row) => row.nodeId === 'p0-wait' && row.blockedBy === 'max_running_nodes'));
   kernel.dispose();
 });
 

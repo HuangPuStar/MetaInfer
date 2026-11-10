@@ -14,7 +14,7 @@ import {
 import { emptyLedger, applyLedgerEvent, ledgerView, createLedgerReader } from '../host/context/ledger.js';
 import { queryDag, dagGet, normalizeSelect } from '../host/context/dag.js';
 import { createExplorationBudget } from '../host/context/limits.js';
-import { buildAdvisorSnapshot } from '../host/snapshot.js';
+import { buildAdvisorSnapshot, buildSchedulerSnapshot } from '../host/snapshot.js';
 
 const results = [];
 function test(name, fn) {
@@ -255,6 +255,23 @@ test('the advisor snapshot stays bounded with 500 nodes and exposes resources', 
   assert.ok(snapshot.resources.free.gpu >= 0);
   assert.ok(snapshot.policy.maxProposalsPerReviewer >= 1);
   assert.ok(snapshot.guidance.navigation.includes('dag_query'));
+});
+
+test('1.3 scheduler snapshot exposes lastActivity for stall decisions', () => {
+  const now = Date.now();
+  const nodes = [{
+    id: 'n1', title: 'running', status: 'running', needs: {}, timestamps: {
+      startedAt: now - 240_000, lastActivityAt: now - 30_000,
+    },
+  }];
+  const store = { listNodes: () => nodes, getNode: () => null };
+  const project = { id: 'p1', name: 'P', config: { maxRunningNodes: 2, resourcePools: {} } };
+  const snapshot = buildSchedulerSnapshot(store, project, null);
+  const row = snapshot.running.find((candidate) => candidate.id === 'n1');
+  assert.ok(row, 'running row is present');
+  assert.ok(Number.isFinite(row.lastActivityMs) && row.lastActivityMs >= 29_000 && row.lastActivityMs < 60_000, String(row.lastActivityMs));
+  assert.ok(Number.isFinite(row.lastActivityAt) && row.lastActivityAt > 0);
+  assert.ok(Number.isFinite(row.elapsedMs) && row.elapsedMs >= 239_000);
 });
 
 test('dagDepth is linear and handles an orphan parent reference', () => {

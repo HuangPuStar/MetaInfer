@@ -182,7 +182,117 @@ if (typeof components.DashboardPanel === 'function') {
   globalThis.fetch = savedFetch;
   host.remove();
 }
-const totalChecks = names.length + (typeof components.DashboardPanel === 'function' ? 1 : 0);
+// U1/U2/U3/U12 behavioural assertions, not crash containment.
+let extraChecks = 0;
+const extraFailures = [];
+async function renderWith(component, fetchImpl) {
+  const saved = globalThis.fetch;
+  globalThis.fetch = fetchImpl;
+  const host = window.document.createElement('div');
+  window.document.body.appendChild(host);
+  const root = createRoot(host);
+  await React.act(async () => {
+    root.render(React.createElement(Boundary, null, React.createElement(component, base)));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  return { host, root, restore() { globalThis.fetch = saved; } };
+}
+{
+  const payload = (url) => {
+    const text = String(url);
+    if (text.includes('/state')) return { project: { id: 'p1', name: 'P', config: {}, repo: {} }, nodes: [
+      { id: 'run1', title: 'running node', status: 'running', priority: { class: 'p0' }, timestamps: { startedAt: Date.now() - 60_000 }, resourcesHeld: { gpu: 2 }, needs: { gpu: 2 }, git: { branch: 'exp/run1' } },
+      { id: 'q1', title: 'queued node', status: 'planned', priority: { class: 'p2' }, resourceWait: { reason: 'gpu_quota' }, timestamps: { createdAt: 1 } },
+    ], edges: [], revision: 1 };
+    if (text.includes('/status') || text.includes('/facts')) return { summary: { runnable: 1 }, nextToStart: [{ nodeId: 'q1' }] };
+    if (text.includes('/metrics')) return {};
+    if (text.includes('/budgets')) return { classes: [] };
+    return {};
+  };
+  const view = await renderWith(components.DispatchQueuePanel, async (url) => ({ ok: true, status: 200, json: async () => payload(url), text: async () => JSON.stringify(payload(url)) }));
+  extraChecks += 1;
+  const text = view.host.textContent ?? '';
+  if (!text.includes('elapsed 60s') || !text.includes('GPU 2') || !text.includes('exp/run1') || !text.includes('#1')) {
+    extraFailures.push(`U1/U2 dispatch row missing elapsed/GPU/branch/position: ${text.slice(0, 500)}`);
+  } else process.stdout.write('ok   U1/U2 running row shows elapsed/GPU/branch and queue position\n');
+  await React.act(async () => view.root.unmount()); view.restore(); view.host.remove();
+}
+{
+  const payload = (url) => {
+    const text = String(url);
+    if (text.includes('/events')) return { events: [{ seq: 1, type: 'node/failed', nodeId: 'n1', at: Date.now(), error: { stage: 'dispatch', role: 'worker', timeoutMs: 30000 } }] };
+    return {};
+  };
+  const view = await renderWith(components.EventTimelinePanel, async (url) => ({ ok: true, status: 200, json: async () => payload(url), text: async () => JSON.stringify(payload(url)) }));
+  extraChecks += 1;
+  const text = view.host.textContent ?? '';
+  if (!text.includes('stage dispatch') || !text.includes('role worker') || !text.includes('timeout 30000ms')) {
+    extraFailures.push(`U3 event row missing failure attribution: ${text.slice(0, 500)}`);
+  } else process.stdout.write('ok   U3 event row shows failure stage/role/timeout\n');
+  await React.act(async () => view.root.unmount()); view.restore(); view.host.remove();
+}
+{
+  const saved = globalThis.fetch;
+  let release = null;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/events')) {
+      return { ok: true, status: 200, json: () => new Promise((resolve) => { release = () => resolve({ events: [] }); }), text: async () => '{}' };
+    }
+    return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
+  };
+  const host = window.document.createElement('div');
+  window.document.body.appendChild(host);
+  const root = createRoot(host);
+  await React.act(async () => { root.render(React.createElement(Boundary, null, React.createElement(components.EventTimelinePanel, base))); await Promise.resolve(); });
+  extraChecks += 1;
+  const pendingText = host.textContent ?? '';
+  if (!pendingText.includes('common.loading') || !pendingText.includes('Retry')) {
+    extraFailures.push(`U12 EventTimeline lacks loading/retry: ${pendingText.slice(0, 500)}`);
+  } else process.stdout.write('ok   U12 EventTimeline shows loading and retry before the first payload\n');
+  if (release) await React.act(async () => { release(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+  await React.act(async () => root.unmount());
+  globalThis.fetch = saved;
+  host.remove();
+}
+
+{
+  const saved = globalThis.fetch;
+  let attempts = 0;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/events')) {
+      attempts += 1;
+      if (attempts === 1) throw new Error('events exploded');
+      return { ok: true, status: 200, json: async () => ({ events: [{ seq: 7, type: 'node/completed', nodeId: 'n7', at: Date.now() }] }), text: async () => '{}' };
+    }
+    return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' };
+  };
+  const host = window.document.createElement('div');
+  window.document.body.appendChild(host);
+  const root = createRoot(host);
+  await React.act(async () => {
+    root.render(React.createElement(Boundary, null, React.createElement(components.EventTimelinePanel, base)));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  extraChecks += 1;
+  const errorText = host.textContent ?? '';
+  if (!errorText.includes('events exploded') || errorText.includes('No events yet.')) {
+    extraFailures.push(`U12 EventTimeline error state is wrong: ${errorText.slice(0, 500)}`);
+  } else process.stdout.write('ok   U12 EventTimeline shows the error without an empty-state claim\n');
+  const retry = [...host.querySelectorAll('button')].find((button) => (button.textContent ?? '').includes('Retry'));
+  if (!retry) extraFailures.push('U12 EventTimeline error state has no Retry button');
+  else {
+    await React.act(async () => { retry.click(); await new Promise((resolve) => setTimeout(resolve, 50)); });
+    extraChecks += 1;
+    if (!(host.textContent ?? '').includes('#7')) extraFailures.push(`U12 Retry did not re-fetch: ${(host.textContent ?? '').slice(0, 500)}`);
+    else process.stdout.write('ok   U12 Retry re-fetches after an error\n');
+  }
+  await React.act(async () => root.unmount());
+  globalThis.fetch = saved;
+  host.remove();
+}
+
+const totalChecks = names.length + (typeof components.DashboardPanel === 'function' ? 1 : 0) + extraChecks;
+failures.push(...extraFailures);
 if (failures.length > 0) {
   for (const failure of failures) process.stdout.write(`FAIL ${failure}\n`);
   process.stdout.write(`${totalChecks - failures.length}/${totalChecks} panel smoke checks passed\n`);

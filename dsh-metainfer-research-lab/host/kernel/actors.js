@@ -9,9 +9,10 @@
  * suffix-stripped.
  *
  * The key is **Host-issued**: it is minted here with `crypto.randomUUID()` and
- * kept in this process's registry, keyed by the registration object (or, for
- * session-id-only calls, by that registration id). Callers cannot supply or
- * choose a key. Any `actorKey` appearing on a session, session header/meta or
+ * kept in a registry backed by the v2 store, keyed by the registration object
+ * (or, for session-id-only calls, by that registration id). The in-process
+ * registry is a cache: `openStore` restores every issued key after a restart.
+ * Callers cannot supply or choose a key. Any `actorKey` appearing on a session, session header/meta or
  * function input is treated as an injection attempt and throws a distinct
  * `ActorKeyError` code instead of being silently ignored:
  *
@@ -39,18 +40,61 @@ export class ActorKeyError extends Error {
 /** key -> registration token (object session or string registration id). */
 const registry = new Map();
 /** session object -> key. The registration boundary is the object identity. */
-const bySessionObject = new WeakMap();
+let bySessionObject = new WeakMap();
 /** string registration id -> key. */
 const byRegistrationId = new Map();
+/** stable DSH session id -> key (survives a process restart). */
+const bySessionId = new Map();
+/** key -> durable record (session id, issuedAt, first bound project). */
+const records = new Map();
+/** Persistence adapter, installed by the v2 store at open time. */
+let keyStore = null;
+/** In-flight adapter writes, so a clean shutdown/restart probe can flush them. */
+const pendingWrites = new Set();
+
+function rememberKey(key, record) {
+  registry.set(key, record?.registrationId ?? key);
+  if (record) records.set(key, { ...record });
+  // session-object keys are looked up by the Host session id, not by the
+  // synthetic `session:<id>` token; a bare `sessionId` registration must not
+  // silently inherit a session object's key (claims-selftest B27 pin probe).
+  if (typeof record?.registrationId === 'string' && record.registrationId && record.registrationKind !== 'session') {
+    byRegistrationId.set(record.registrationId, key);
+  }
+  if (record?.registrationKind === 'session' && typeof record?.sessionId === 'string' && record.sessionId) bySessionId.set(record.sessionId, key);
+}
+
+function persistRecord(record) {
+  if (!keyStore || typeof keyStore.save !== 'function') return;
+  try {
+    const write = keyStore.save(record);
+    if (write && typeof write.then === 'function') {
+      pendingWrites.add(write);
+      write.catch(() => {}).finally(() => pendingWrites.delete(write));
+    }
+  } catch {
+    // A failed registry write must not turn an authentication attempt into a
+    // crash. The in-process registry still authorizes; the next restart fails
+    // closed rather than accepting an unpersisted key.
+  }
+}
 
 function keyForRegistration(token) {
   return typeof token === 'string' ? (byRegistrationId.get(token) ?? null) : (bySessionObject.get(token) ?? null);
 }
 
-function bindKey(token, key) {
+function sessionIdOf(input) {
+  if (typeof input?.sessionId === 'string' && input.sessionId) return input.sessionId;
+  const id = input?.session?.id;
+  return typeof id === 'string' && id ? id : null;
+}
+
+function bindKey(token, key, record) {
   if (typeof token === 'string') byRegistrationId.set(token, key);
   else bySessionObject.set(token, key);
-  registry.set(key, token);
+  registry.set(key, record?.registrationId ?? (typeof token === 'string' ? token : key));
+  if (record) records.set(key, { ...record });
+  if (record?.registrationKind === 'session' && typeof record?.sessionId === 'string' && record.sessionId) bySessionId.set(record.sessionId, key);
 }
 
 function registrationToken(input) {
@@ -81,10 +125,11 @@ function suppliedKeys(input) {
 function rejectSuppliedKeys(input, token) {
   const supplied = suppliedKeys(input);
   if (supplied.length === 0) return;
-  const existing = keyForRegistration(token);
+  const existing = keyForRegistration(token) ?? (sessionIdOf(input) ? bySessionId.get(sessionIdOf(input)) : null);
+  const registrationId = typeof token === 'string' ? token : `session:${sessionIdOf(input) ?? 'anonymous'}`;
   for (const key of supplied) {
     const owner = registry.get(key);
-    if (owner !== undefined && owner !== token) {
+    if (owner !== undefined && owner !== registrationId) {
       throw new ActorKeyError('actor_key_shared', 'actorKey is already bound to another session registration; keys cannot be shared');
     }
     if (existing && existing !== key) {
@@ -112,7 +157,7 @@ export function actorKeyFor(id) {
   return `ak_legacy_${createHash('sha256').update(Buffer.from(exact, 'utf16le')).digest('base64url').slice(0, 32)}`;
 }
 
-/** True only for a key this Host process minted. */
+/** True for a key this Host minted and has not forgotten (including restored keys). */
 export function isIssuedActorKey(key) {
   return typeof key === 'string' && registry.has(key);
 }
@@ -137,7 +182,9 @@ export function ensureActorKey(actor) {
   const existing = byRegistrationId.get(token);
   if (existing) return existing;
   const key = `${KEY_PREFIX}${randomUUID()}`;
-  bindKey(token, key);
+  const record = { key, registrationId: token, registrationKind: 'inline', sessionId: null, projectId: null, issuedAt: Date.now() };
+  bindKey(token, key, record);
+  persistRecord(record);
   return key;
 }
 
@@ -193,12 +240,18 @@ export function sameActor(left, right) {
  * @returns {object}
  */
 export function migrateProjectActorKeys(project) {
-  if (!project || !Array.isArray(project.intents)) return project;
-  for (const intent of project.intents) {
+  if (!project || typeof project !== 'object') return project;
+  for (const intent of Array.isArray(project.intents) ? project.intents : []) {
     if (!intent || typeof intent !== 'object') continue;
     if (intent.actor) intent.actor = withActorKey(intent.actor);
     if (intent.resolvedBy) intent.resolvedBy = withActorKey(intent.resolvedBy);
     if (intent.withdrawnBy) intent.withdrawnBy = withActorKey(intent.withdrawnBy);
+  }
+  for (const dispute of Array.isArray(project.disputes) ? project.disputes : []) {
+    if (!dispute || typeof dispute !== 'object') continue;
+    if (dispute.raiser) dispute.raiser = withActorKey(dispute.raiser);
+    if (dispute.resolvedBy) dispute.resolvedBy = withActorKey(dispute.resolvedBy);
+    if (dispute.reopenedBy) dispute.reopenedBy = withActorKey(dispute.reopenedBy);
   }
   return project;
 }
@@ -229,10 +282,82 @@ export function publicView(value) {
 export function issueActorKeyForRegistration(input = {}) {
   const token = registrationToken(input);
   rejectSuppliedKeys(input, token);
+  const sessionId = sessionIdOf(input);
+  const hasSessionObject = Boolean(input?.session && typeof input.session === 'object');
   let key = keyForRegistration(token);
+  // Only a real session object may restore a durable key by session id. A
+  // bare `{sessionId}` is a separate registration, not the same boundary.
+  if (!key && hasSessionObject && sessionId) key = bySessionId.get(sessionId) ?? null;
   if (!key) {
     key = `${KEY_PREFIX}${randomUUID()}`;
-    bindKey(token, key);
+    const registrationId = typeof token === 'string' ? token : `session:${sessionId ?? 'anonymous'}`;
+    const record = {
+      key,
+      registrationId,
+      registrationKind: hasSessionObject ? 'session' : (typeof token === 'string' && token.startsWith('inline:') ? 'inline' : 'session_id_only'),
+      sessionId,
+      projectId: typeof input.projectId === 'string' && input.projectId ? input.projectId : null,
+      issuedAt: Date.now(),
+    };
+    bindKey(typeof token === 'string' ? token : token, key, record);
+    persistRecord(record);
+  } else {
+    // A durable key restored by session id must be pinned to the new session
+    // object too, or the next call after a display rename mints another key.
+    if (hasSessionObject && typeof token !== 'string') bySessionObject.set(token, key);
+    if (hasSessionObject && sessionId) bySessionId.set(sessionId, key);
   }
   return key;
+}
+
+/**
+ * Install the v2-store persistence adapter and restore every key minted by an
+ * earlier Host process. Called once by `openStore`; the adapter's `list()` must
+ * be synchronous (storage table entries are), while `save()` may be async.
+ * @param {{save?: (record: object) => unknown, list?: () => object[]}} adapter
+ */
+export function configureActorKeyStore(adapter) {
+  keyStore = adapter ?? null;
+  if (!adapter || typeof adapter.list !== 'function') return;
+  for (const record of adapter.list()) {
+    if (!record || typeof record.key !== 'string' || !record.key.startsWith(KEY_PREFIX)) continue;
+    rememberKey(record.key, record);
+  }
+}
+
+/** Await every persistence write started by this process (clean restart probe). */
+export async function flushActorKeyStore() {
+  if (pendingWrites.size === 0) return;
+  await Promise.allSettled([...pendingWrites]);
+}
+
+/** Test/restart helper: forget the in-process registry but keep the adapter. */
+export function resetActorKeyRegistryForTest() {
+  registry.clear();
+  bySessionObject = new WeakMap();
+  byRegistrationId.clear();
+  bySessionId.clear();
+  records.clear();
+  pendingWrites.clear();
+}
+
+/**
+ * Record the first project a Host-issued key acts on. This is audit metadata,
+ * not an ACL: cross-project identity remains the documented boundary, but a
+ * restart can tell which project a key belonged to.
+ * @param {string} key
+ * @param {string} projectId
+ */
+export function bindActorKeyProject(key, projectId) {
+  if (!isIssuedActorKey(key) || typeof projectId !== 'string' || !projectId) return;
+  const record = records.get(key);
+  if (!record || record.projectId) return;
+  const next = { ...record, projectId, boundAt: Date.now() };
+  records.set(key, next);
+  persistRecord(next);
+}
+
+/** Raw records for restart probes; never expose this on an HTTP/tool surface. */
+export function actorKeyRecords() {
+  return [...records.entries()].map(([key, record]) => ({ ...record, key }));
 }

@@ -29,6 +29,15 @@ function ok(data) {
   return json({ ok: true, data: publicView(data) });
 }
 
+function okResult(result) {
+  if (result && result.ok === false) {
+    const error = new Error(result.error?.message ?? 'request rejected');
+    error.code = result.error?.code ?? 'rejected';
+    throw error;
+  }
+  return ok(result);
+}
+
 function fail(error) {
   const code = typeof error?.code === 'string' ? error.code : 'internal_error';
   const message = typeof error?.message === 'string' ? error.message : String(error);
@@ -157,12 +166,66 @@ export function registerHttpRoutes(ctx, service) {
     return ok(service.listExperts(params.get('projectId')));
   });
 
-  route(`${PREFIX}/disputes`, ['GET'], async (request) => {
+  route(`${PREFIX}/observer`, ['GET'], async (request) => {
     const params = query(request);
-    return ok(service.listDisputes(params.get('projectId'), {
-      limit: params.get('limit') === null ? 200 : Number(params.get('limit')),
-      status: params.get('status') ?? null,
+    return ok(service.observerSnapshot(params.get('projectId')));
+  });
+
+  route(`${PREFIX}/events/wait`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(await service.waitForEvents(params.get('projectId'), {
+      after: params.get('after') === null ? null : Number(params.get('after')),
+      timeoutMs: params.get('timeoutMs') === null ? undefined : Number(params.get('timeoutMs')),
+      pollMs: params.get('pollMs') === null ? undefined : Number(params.get('pollMs')),
     }));
+  });
+
+  route(`${PREFIX}/observe`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(service.observe(params.get('projectId')));
+  });
+
+  route(`${PREFIX}/rotations`, ['GET', 'POST'], async (request) => {
+    if (request.method === 'GET') {
+      const params = query(request);
+      return ok(service.rotationStatus(params.get('projectId')));
+    }
+    const body = await readJsonBody(request);
+    return okResult(await service.rotateExpert(body.projectId, body, null));
+  });
+
+  route(`${PREFIX}/arbitrate`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    return okResult(await service.arbitrate(body.projectId, body, null));
+  });
+
+  route(`${PREFIX}/disputes/classes`, ['GET'], async () => ok(service.disputeClasses()));
+
+  route(`${PREFIX}/disputes`, ['GET', 'POST'], async (request) => {
+    const params = query(request);
+    if (request.method === 'GET') {
+      return ok(service.listDisputes(params.get('projectId'), {
+        limit: params.get('limit') === null ? 200 : Number(params.get('limit')),
+        status: params.get('status') ?? null,
+      }));
+    }
+    const body = await readJsonBody(request);
+    return okResult(await service.openDispute(body.projectId, body, null));
+  });
+
+  route(`${PREFIX}/disputes/resolve`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    return okResult(await service.resolveDispute(body.projectId, body.disputeId, body, null));
+  });
+
+  route(`${PREFIX}/disputes/reopen`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    return okResult(await service.reopenDispute(body.projectId, body.disputeId, body, null));
+  });
+
+  route(`${PREFIX}/disputes/sweep`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    return okResult(await service.sweepDisputes(body.projectId, { now: body.now }));
   });
 
   route(`${PREFIX}/budgets`, ['GET'], async (request) => {

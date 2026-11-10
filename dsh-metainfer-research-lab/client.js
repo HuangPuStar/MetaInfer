@@ -47,6 +47,12 @@ window.__ModuleLoader__.load({
       experts: 'api/metainfer-research-lab/experts',
       intents: 'api/metainfer-research-lab/intents',
       disputes: 'api/metainfer-research-lab/disputes',
+      disputeClasses: 'api/metainfer-research-lab/disputes/classes',
+      observer: 'api/metainfer-research-lab/observer',
+      observe: 'api/metainfer-research-lab/observe',
+      eventsWait: 'api/metainfer-research-lab/events/wait',
+      rotations: 'api/metainfer-research-lab/rotations',
+      arbitrate: 'api/metainfer-research-lab/arbitrate',
       budgets: 'api/metainfer-research-lab/budgets',
       reviews: 'api/metainfer-research-lab/reviews',
       retrospective: 'api/metainfer-research-lab/retrospective',
@@ -3822,6 +3828,26 @@ window.__ModuleLoader__.load({
         let path = ROUTES.disputes + '?projectId=' + encodeURIComponent(projectId);
         if (typeof status === 'string' && status) path += '&status=' + encodeURIComponent(status);
         return requestJson(path, { signal }, t);
+      },
+      fetchDisputeClasses(projectId, signal, t) {
+        return requestJson(ROUTES.disputeClasses, { signal }, t);
+      },
+      fetchObserver(projectId, signal, t) {
+        return requestJson(ROUTES.observer + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
+      },
+      waitForEvents(projectId, signal, t, after = null, timeoutMs = 25000) {
+        let path = ROUTES.eventsWait + '?projectId=' + encodeURIComponent(projectId) + '&timeoutMs=' + encodeURIComponent(String(timeoutMs));
+        if (after !== null && after !== undefined) path += '&after=' + encodeURIComponent(String(after));
+        return requestJson(path, { signal }, t);
+      },
+      fetchRotations(projectId, signal, t) {
+        return requestJson(ROUTES.rotations + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
+      },
+      rotateExpert(projectId, signal, t, body = {}) {
+        return requestJson(ROUTES.rotations, { method: 'POST', body: { projectId, ...body }, signal }, t);
+      },
+      arbitrateDispute(projectId, signal, t, body = {}) {
+        return requestJson(ROUTES.arbitrate, { method: 'POST', body: { projectId, ...body }, signal }, t);
       },
       fetchBudgets(projectId, signal, t) {
         return requestJson(ROUTES.budgets + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
@@ -16086,18 +16112,31 @@ window.__ModuleLoader__.load({
         h('h4', { className: 'rl-card-title' }, 'Running'),
         running.length === 0
           ? h('p', { className: 'rl-hint' }, 'No node is running.')
-          : running.map((node) => h('div', { key: node?.id, className: 'rl-log-row' },
-              h('span', { className: 'rl-mono' }, observerNodeClass(node)),
-              h('span', { className: 'rl-mono' }, firstString(node?.id)),
-              h('span', null, firstString(node?.title) + ' · started ' + formatDateTime(node?.timestamps?.startedAt, t)))),
+          : running.map((node) => {
+              const elapsedMs = Number.isFinite(Number(node?.timestamps?.startedAt)) ? Math.max(0, Date.now() - Number(node.timestamps.startedAt)) : null;
+              const gpu = numberOr(asObject(node?.resourcesHeld).gpu, numberOr(asObject(node?.needs).gpu, 0));
+              const branch = firstString(asObject(node?.git).branch);
+              return h('div', { key: node?.id, className: 'rl-log-row' },
+                h('span', { className: 'rl-mono' }, observerNodeClass(node)),
+                h('span', { className: 'rl-mono' }, firstString(node?.id)),
+                h('span', null,
+                  firstString(node?.title)
+                  + (elapsedMs === null ? ' · elapsed —' : ' · elapsed ' + Math.round(elapsedMs / 1000) + 's')
+                  + ' · GPU ' + String(gpu)
+                  + (branch ? ' · ' + branch : '')
+                  + (node?.timestamps?.startedAt ? ' · started ' + formatDateTime(node.timestamps.startedAt, t) : '')));
+            }),
         h('h4', { className: 'rl-card-title' }, 'Waiting / blocked'),
         queued.length === 0
           ? h('p', { className: 'rl-hint' }, 'The executable queue is empty.')
           : queued.slice(0, 100).map((node) => {
+              const queue = asArray(facts.nextToStart);
+              const position = queue.findIndex((row) => (row?.nodeId ?? row?.id) === node?.id) + 1;
               const reason = firstString(asObject(node?.resourceWait).reason)
                 || firstString(asObject(node?.claim).status)
                 || (node?.deferUntil ? 'deferred until ' + formatDateTime(node.deferUntil, t) : '');
               return h('div', { key: node?.id, className: 'rl-log-row' },
+                h('span', { className: 'rl-mono' }, position > 0 ? '#' + String(position) : '—'),
                 h('span', { className: 'rl-mono' }, observerNodeClass(node)),
                 h('span', { className: 'rl-mono' }, firstString(node?.id)),
                 h('span', null, firstString(node?.title) + (reason ? ' · ' + reason : '') + (node?.resourceWait ? ' · resource wait' : '')));
@@ -16117,16 +16156,27 @@ window.__ModuleLoader__.load({
     function EventTimelinePanel({ projectId, t }) {
       const [events, setEvents] = React.useState([]);
       const [error, setError] = React.useState('');
+      const [loading, setLoading] = React.useState(true);
       const [selected, setSelected] = React.useState(null);
       const [explanation, setExplanation] = React.useState(null);
       const [explainError, setExplainError] = React.useState('');
+      const loadEvents = React.useCallback(async (signal) => {
+        setLoading(true);
+        setError('');
+        try {
+          const data = await api.fetchEvents(projectId, 0, signal, t);
+          if (!signal?.aborted) { setEvents(asArray(asObject(data).events)); setError(''); }
+        } catch (reason) {
+          if (!signal?.aborted && !isAbortError(reason)) setError(describeError(reason, t));
+        } finally {
+          if (!signal?.aborted) setLoading(false);
+        }
+      }, [projectId, t]);
       React.useEffect(() => {
         const controller = new AbortController();
-        api.fetchEvents(projectId, 0, controller.signal, t)
-          .then((data) => { if (!controller.signal.aborted) { setEvents(asArray(asObject(data).events)); setError(''); } })
-          .catch((reason) => { if (!controller.signal.aborted && !isAbortError(reason)) setError(describeError(reason, t)); });
+        void loadEvents(controller.signal);
         return () => controller.abort();
-      }, [projectId, t]);
+      }, [loadEvents]);
       React.useEffect(() => {
         if (!selected) { setExplanation(null); setExplainError(''); return undefined; }
         const controller = new AbortController();
@@ -16143,9 +16193,14 @@ window.__ModuleLoader__.load({
         { className: 'rl-card', 'data-testid': 'obs-event-timeline' },
         h('div', { className: 'rl-card-head' },
           h('h3', { className: 'rl-card-title' }, 'Event timeline'),
-          h('span', { className: 'rl-card-meta' }, `${events.length} events`)),
+          h('span', { className: 'rl-card-meta' }, loading ? 'loading' : `${events.length} events`),
+          h(LabButton, { label: 'Retry', variant: 'ghost', disabled: loading, onClick: () => { const controller = new AbortController(); void loadEvents(controller.signal); } })),
         error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, error) : null,
-        sorted.length === 0
+        loading
+          ? h('p', { className: 'rl-hint' }, t('common.loading'))
+          : error !== ''
+          ? null
+          : sorted.length === 0
           ? h('p', { className: 'rl-hint' }, 'No events yet.')
           : sorted.map((event) => h('button', {
               key: String(event?.seq ?? event?.id ?? event?.type ?? 'event'),
@@ -16158,6 +16213,12 @@ window.__ModuleLoader__.load({
               h('span', null,
                 firstString(event?.nodeId) ? 'node ' + event.nodeId : 'project',
                 event?.causeId ? ' · cause ' + event.causeId : '',
+                firstString(asObject(event?.error).stage) ? ' · stage ' + firstString(event.error.stage) : '',
+                firstString(asObject(event?.data?.error).stage) ? ' · stage ' + firstString(event.data.error.stage) : '',
+                firstString(asObject(event?.error).role) ? ' · role ' + firstString(event.error.role) : '',
+                firstString(asObject(event?.data?.error).role) ? ' · role ' + firstString(event.data.error.role) : '',
+                Number.isFinite(Number(asObject(event?.error).timeoutMs)) ? ' · timeout ' + String(event.error.timeoutMs) + 'ms' : '',
+                Number.isFinite(Number(asObject(event?.data?.error).timeoutMs)) ? ' · timeout ' + String(event.data.error.timeoutMs) + 'ms' : '',
                 event?.at ? ' · ' + formatDateTime(event.at, t) : ''))),
         selected
           ? h('div', null,
@@ -16310,35 +16371,72 @@ window.__ModuleLoader__.load({
     }
 
     function DisputeTablePanel({ projectId, t }) {
-      const [snapshot, setSnapshot] = React.useState({ loading: true, rows: [], error: '' });
+      const [snapshot, setSnapshot] = React.useState({ loading: true, rows: [], classes: {}, error: '', busy: '' });
+      const load = React.useCallback(async (signal) => {
+        const [data, classesData] = await Promise.all([
+          api.fetchDisputes(projectId, signal, t),
+          api.fetchDisputeClasses(projectId, signal, t).catch(() => ({ classes: {} })),
+        ]);
+        if (signal?.aborted) return;
+        setSnapshot((previous) => ({
+          ...previous,
+          loading: false,
+          rows: asArray(asObject(data).disputes),
+          classes: asObject(asObject(classesData).classes),
+          error: '',
+        }));
+      }, [projectId, t]);
       React.useEffect(() => {
         const controller = new AbortController();
-        api.fetchDisputes(projectId, controller.signal, t)
-          .then((data) => { if (!controller.signal.aborted) setSnapshot({ loading: false, rows: asArray(asObject(data).disputes), error: '' }); })
-          .catch((reason) => { if (!controller.signal.aborted && !isAbortError(reason)) setSnapshot({ loading: false, rows: [], error: describeError(reason, t) }); });
+        void load(controller.signal).catch((reason) => {
+          if (!controller.signal.aborted && !isAbortError(reason)) setSnapshot({ loading: false, rows: [], classes: {}, error: describeError(reason, t), busy: '' });
+        });
         return () => controller.abort();
-      }, [projectId, t]);
+      }, [load, t]);
+      const resolve = async (row, resolution) => {
+        if (!row?.id || snapshot.busy) return;
+        setSnapshot((previous) => ({ ...previous, busy: row.id, error: '' }));
+        try {
+          await api.arbitrateDispute(projectId, undefined, t, {
+            disputeId: row.id,
+            resolution,
+            reason: resolution === 'keep_current' ? 'operator kept current state' : 'operator applied the change',
+          });
+          await load(undefined);
+          setSnapshot((previous) => ({ ...previous, busy: '' }));
+        } catch (reason) {
+          setSnapshot((previous) => ({ ...previous, busy: '', error: describeError(reason, t) }));
+        }
+      };
       if (snapshot.loading) return h('p', { className: 'rl-hint' }, t('common.loading'));
       const resolved = snapshot.rows.filter((row) => row?.status === 'resolved');
+      const pending = snapshot.rows.filter((row) => row?.status === 'pending');
       return h(
         'section',
         { className: 'rl-card', 'data-testid': 'obs-dispute-table' },
         h('div', { className: 'rl-card-head' },
           h('h3', { className: 'rl-card-title' }, 'Dispute table'),
-          h('span', { className: 'rl-card-meta' }, `${snapshot.rows.length} disputes · ${resolved.length} resolved`)),
+          h('span', { className: 'rl-card-meta' }, `${snapshot.rows.length} disputes · ${pending.length} pending · ${resolved.length} resolved`)),
         snapshot.error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, snapshot.error) : null,
+        h('p', { className: 'rl-hint' }, 'Eight classes: ' + Object.keys(snapshot.classes).join(', ') + ' · default action keep_current'),
         snapshot.rows.length === 0
           ? h('p', { className: 'rl-hint' }, 'No appeal or dispute has been opened.')
           : snapshot.rows.slice().reverse().map((row) => h('div', { key: row?.id, className: 'rl-log-row' },
               h('span', { className: 'rl-mono' }, firstString(row?.status) || 'pending'),
-              h('span', { className: 'rl-mono' }, firstString(row?.targetAction) || 'appeal'),
+              h('span', { className: 'rl-mono' }, firstString(row?.type) || firstString(row?.targetAction) || 'appeal'),
               h('span', null,
                 'target ' + (firstString(asObject(row?.target).nodeId) || 'project')
+                + (row?.authority ? ' · ' + firstString(row.authority) : '')
                 + (row?.resolution ? ' · ' + row.resolution : '')
+                + (row?.defaultApplied ? ' · default applied' : '')
                 + (row?.resolvedBy ? ' by ' + firstString(asObject(row.resolvedBy).id) : '')
                 + (row?.resolutionReason ? ' · ' + firstString(row.resolutionReason) : '')
-                + (row?.resolvedAt ? ' · ' + formatDateTime(row.resolvedAt, t) : '')
-                + (row?.withdrawnBy ? ' · withdrawn by ' + firstString(asObject(row.withdrawnBy).id) : '')))),
+                + (row?.deadlineAt ? ' · due ' + formatDateTime(row.deadlineAt, t) : '')),
+              row?.status === 'pending' && row?.source === 'dispute'
+                ? h('span', { style: { display: 'inline-flex', gap: 6 } },
+                    h(LabButton, { label: 'Keep current', variant: 'ghost', disabled: snapshot.busy === row.id, onClick: () => void resolve(row, 'keep_current') }),
+                    h(LabButton, { label: 'Apply change', variant: 'ghost', disabled: snapshot.busy === row.id, onClick: () => void resolve(row, 'apply_change') }))
+                : null)),
       );
     }
 
@@ -16450,10 +16548,88 @@ window.__ModuleLoader__.load({
       );
     }
 
+    function ObserverPanel({ projectId, t }) {
+      const [snapshot, setSnapshot] = React.useState({ loading: true, observer: {}, events: [], error: '', live: false });
+      const loadObserver = React.useCallback(async (signal) => {
+        const data = await api.fetchObserver(projectId, signal, t);
+        if (!signal?.aborted) setSnapshot((previous) => ({ ...previous, loading: false, observer: asObject(data), error: '' }));
+      }, [projectId, t]);
+      React.useEffect(() => {
+        const controller = new AbortController();
+        void loadObserver(controller.signal).catch((reason) => {
+          if (!controller.signal.aborted && !isAbortError(reason)) setSnapshot({ loading: false, observer: {}, events: [], error: describeError(reason, t), live: false });
+        });
+        return () => controller.abort();
+      }, [loadObserver, t]);
+      React.useEffect(() => {
+        if (snapshot.live !== true) return undefined;
+        const controller = new AbortController();
+        let cancelled = false;
+        const loop = async () => {
+          let cursor = Number(asObject(snapshot.observer).cursor) || 0;
+          while (!cancelled) {
+            try {
+              const page = asObject(await api.waitForEvents(projectId, controller.signal, t, cursor, 25_000));
+              if (cancelled) return;
+              cursor = Number(page.cursor ?? page.next ?? cursor) || cursor;
+              setSnapshot((previous) => ({
+                ...previous,
+                events: [...previous.events, ...asArray(page.events)].slice(-100),
+                observer: page.escalation
+                  ? { ...previous.observer, escalation: page.escalation }
+                  : { ...previous.observer, cursor },
+              }));
+              await loadObserver(controller.signal);
+            } catch (reason) {
+              if (!cancelled && !isAbortError(reason)) {
+                setSnapshot((previous) => ({ ...previous, live: false, error: describeError(reason, t) }));
+                return;
+              }
+            }
+          }
+        };
+        void loop();
+        return () => { cancelled = true; controller.abort(); };
+      }, [snapshot.live, projectId, t, loadObserver]);
+      const observer = asObject(snapshot.observer);
+      const running = asArray(observer.running);
+      const stalled = asArray(observer.stalled);
+      return h(
+        'section',
+        { className: 'rl-card', 'data-testid': 'obs-observer' },
+        h('div', { className: 'rl-card-head' },
+          h('h3', { className: 'rl-card-title' }, 'Observer'),
+          h(LabButton, {
+            label: snapshot.live ? 'Stop live watch' : 'Watch live',
+            variant: snapshot.live ? 'primary' : 'ghost',
+            onClick: () => setSnapshot((previous) => ({ ...previous, live: !previous.live, error: '' })),
+          })),
+        snapshot.error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, snapshot.error) : null,
+        h('p', { className: 'rl-hint' }, `cursor ${numberOr(observer.cursor, 0)} · ${running.length} running · ${stalled.length} stalled · ${asArray(observer.openDisputes).length} open disputes`),
+        observer.escalation
+          ? h('p', { className: 'rl-hint', role: 'alert' }, `Escalation ${firstString(asObject(observer.escalation).code) || 'stalled'}: ${asArray(asObject(observer.escalation).nodes).map((row) => firstString(row?.nodeId)).join(', ')}`)
+          : null,
+        stalled.length === 0
+          ? h('p', { className: 'rl-hint' }, 'No stalled running node.')
+          : stalled.map((row) => h('div', { key: row?.nodeId, className: 'rl-log-row' },
+              h('span', { className: 'rl-mono' }, 'stalled'),
+              h('span', { className: 'rl-mono' }, firstString(row?.nodeId) || 'node'),
+              h('span', null, `idle ${Math.round(numberOr(row?.idleMs, 0) / 1000)}s`))),
+        h('h4', { className: 'rl-card-title' }, 'Live events'),
+        snapshot.events.length === 0
+          ? h('p', { className: 'rl-hint' }, snapshot.live ? 'Waiting for the next event…' : 'Start a live watch to long-poll the event cursor.')
+          : snapshot.events.slice(-20).map((event, index) => h('div', { key: `${event?.seq}-${index}`, className: 'rl-log-row' },
+              h('span', { className: 'rl-mono' }, String(event?.seq ?? '')),
+              h('span', { className: 'rl-mono' }, firstString(event?.type) || 'event'),
+              h('span', null, firstString(event?.nodeId) || ''))),
+      );
+    }
+
     function ObservabilityDrawer({ projectId, onClose, t }) {
       const [tab, setTab] = React.useState('queue');
       const tabs = [
         { id: 'queue', label: 'Dispatch & queue', render: () => h(DispatchQueuePanel, { projectId, t }) },
+        { id: 'observer', label: 'Observer', render: () => h(ObserverPanel, { projectId, t }) },
         { id: 'timeline', label: 'Event timeline', render: () => h(EventTimelinePanel, { projectId, t }) },
         { id: 'claims', label: 'Claims & evidence', render: () => h(ClaimEvidencePanel, { projectId, t }) },
         { id: 'experts', label: 'Expert library', render: () => h(ExpertLibraryPanel, { projectId, t }) },
@@ -16784,6 +16960,7 @@ window.__ModuleLoader__.load({
         ClaimEvidencePanel,
         ExpertLibraryPanel,
         DisputeTablePanel,
+        ObserverPanel,
         RetrospectivePanel,
         ReviewCurationPanel,
         ObservabilityDrawer,

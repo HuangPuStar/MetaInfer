@@ -182,13 +182,19 @@ export function buildSchedulerSnapshot(store, project, cluster) {
       note: 'GPU admission in cluster mode is decided by the cluster coordinator; this project snapshot is advisory for the scheduler.',
     },
     cluster: clusterSummary(cluster, project, running),
-    running: running.map((node) => ({
-      id: node.id,
-      title: node.title,
-      needs: node.needs ?? {},
-      startedAt: node.timestamps?.startedAt ?? null,
-      elapsedMs: node.timestamps?.startedAt ? Date.now() - node.timestamps.startedAt : null,
-    })),
+    running: running.map((node) => {
+      const startedAt = node.timestamps?.startedAt ?? null;
+      const lastActivityAt = node.timestamps?.lastActivityAt ?? node.timestamps?.lastEventAt ?? startedAt;
+      return {
+        id: node.id,
+        title: node.title,
+        needs: node.needs ?? {},
+        startedAt,
+        elapsedMs: startedAt ? Date.now() - startedAt : null,
+        lastActivityAt,
+        lastActivityMs: lastActivityAt ? Date.now() - lastActivityAt : null,
+      };
+    }),
     planned: planned.map((node) => ({
       id: node.id,
       title: node.title,

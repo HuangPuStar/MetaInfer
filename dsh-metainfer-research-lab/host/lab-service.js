@@ -26,6 +26,8 @@ import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
 import { PRIORITY_CLASSES, classBudgetOf } from './dispatch/reservation.js';
+import { DISPUTE_CLASS_MAP, DISPUTE_DEFAULT_ACTION, createDisputeRecord, effectiveDispute, expireDisputeRecord, reopenDisputeRecord, resolveDisputeRecord } from './kernel/disputes.js';
+import { DEFAULT_ROTATION_DAYS, rotationPlan } from './experts/rotation.js';
 import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
 import { actorKeyOf, hasActorIdentity, isIssuedActorKey, publicView, sameActor } from './kernel/actors.js';
 import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
@@ -812,7 +814,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   /** Delta read (S10): node ids changed since a revision, or `full` when unknowable. */
   function changesSince(projectId, sinceRevision) {
     requireProject(projectId);
-    return store.changesSince(projectId, sinceRevision);
+    // Raw event data may contain an actor key on a dispute resolution row;
+    // every read surface strips keys before returning it.
+    return publicView(store.changesSince(projectId, sinceRevision));
   }
 
   const dashboardRuns = new Map();
@@ -1362,6 +1366,160 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }
     const events = store.listEvents(projectId, parsedAfter);
     return publicView({ events, next: store.maxEventSeq(projectId) });
+  }
+
+  const OBSERVER_STALL_MS = 30 * 60_000;
+
+  /**
+   * 5.3.13 observe surface: what is running, what is idle, what the event cursor
+   * is and which nodes have been silent long enough to trigger escalation.
+   * Read-only; escalation writes happen in escalateStalled().
+   */
+  function observerSnapshot(projectId, { now = Date.now(), stallMs = OBSERVER_STALL_MS } = {}) {
+    const project = requireProject(projectId);
+    const nodes = store.listNodes(projectId);
+    const events = store.listEvents(projectId, Math.max(0, store.maxEventSeq(projectId) - 40));
+    const lastEventByNode = new Map();
+    const progressEvents = new Set(['node/started', 'node/activity', 'node/resumed', 'turn/start', 'turn/end', 'assistant/message', 'tool/call', 'tool/use', 'tool/result', 'reasoning/message', 'step/start', 'step/end']);
+    for (const event of events) {
+      if (!event?.nodeId || !progressEvents.has(event.type)) continue;
+      lastEventByNode.set(event.nodeId, Math.max(lastEventByNode.get(event.nodeId) ?? 0, Number(event.at) || 0));
+    }
+    const running = nodes.filter((node) => node.status === 'running');
+    const stalled = running
+      .map((node) => {
+        const last = Math.max(
+          Number(node.timestamps?.lastActivityAt) || 0,
+          Number(node.timestamps?.startedAt) || 0,
+          lastEventByNode.get(node.id) ?? 0,
+        );
+        return { nodeId: node.id, title: node.title, idleMs: Math.max(0, now - last), lastActivityAt: last || null };
+      })
+      .filter((row) => row.idleMs >= stallMs);
+    const openDisputes = (Array.isArray(project.disputes) ? project.disputes : [])
+      .map((record) => effectiveDispute(record, now))
+      .filter((record) => record.status === 'pending');
+    return publicView({
+      ok: true,
+      projectId,
+      revision: project.revision ?? 0,
+      cursor: store.maxEventSeq(projectId),
+      now,
+      stallMs,
+      running: running.map((node) => ({ nodeId: node.id, title: node.title, startedAt: node.timestamps?.startedAt ?? null })),
+      stalled,
+      openDisputes: openDisputes.map((record) => ({ id: record.id, type: record.type, deadlineAt: record.deadlineAt, authority: record.authority })),
+      recentEvents: events.slice(-20).map((event) => ({ seq: event.seq, type: event.type, at: event.at, nodeId: event.nodeId ?? null })),
+    });
+  }
+
+  /**
+   * Long-poll: hold the request until the event cursor advances, a stall is
+   * observable, or the bounded timeout expires. No model and no write here.
+   */
+  async function waitForEvents(projectId, { after = null, timeoutMs = 25_000, pollMs = 250 } = {}) {
+    requireProject(projectId);
+    const started = Date.now();
+    const timeout = Number.isFinite(timeoutMs) ? Math.max(0, Math.min(30_000, Math.trunc(timeoutMs))) : 25_000;
+    const interval = Number.isFinite(pollMs) ? Math.max(25, Math.min(1_000, Math.trunc(pollMs))) : 250;
+    let cursor = Number.isFinite(after) ? Math.max(0, Math.trunc(after)) : store.maxEventSeq(projectId);
+    while (Date.now() - started <= timeout) {
+      const page = await getEvents(projectId, cursor);
+      if (page.events.length > 0) {
+        return publicView({
+          ok: true,
+          projectId,
+          events: page.events,
+          next: page.next,
+          cursor: page.next,
+          waitedMs: Date.now() - started,
+          timedOut: false,
+          escalation: null,
+        });
+      }
+      const snapshot = observerSnapshot(projectId);
+      if (snapshot.stalled.length > 0) {
+        return publicView({
+          ok: true,
+          projectId,
+          events: [],
+          next: page.next,
+          cursor: page.next,
+          waitedMs: Date.now() - started,
+          timedOut: false,
+          escalation: { code: 'observer_stalled', nodes: snapshot.stalled },
+        });
+      }
+      const remaining = timeout - (Date.now() - started);
+      if (remaining <= 0) break;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(interval, remaining)));
+      // Keep the original cursor: an event that arrives during the sleep must
+      // be returned by the next page read, not silently skipped.
+    }
+    return publicView({
+      ok: true,
+      projectId,
+      events: [],
+      next: store.maxEventSeq(projectId),
+      cursor: store.maxEventSeq(projectId),
+      waitedMs: Date.now() - started,
+      timedOut: true,
+      escalation: null,
+    });
+  }
+
+  /** Deterministic escalation write: one observer event per idle window. */
+  async function escalateStalled(projectId, { now = Date.now() } = {}) {
+    const snapshot = observerSnapshot(projectId, { now });
+    if (snapshot.stalled.length === 0) return { ok: true, projectId, escalated: [] };
+    const events = store.listEvents(projectId, 0);
+    const escalated = [];
+    for (const row of snapshot.stalled) {
+      const lastActivityAt = Number(row.lastActivityAt) || 0;
+      const already = events.some((event) => event?.type === 'observer/escalation'
+        && event.data?.nodeId === row.nodeId
+        && (Number(event.at) || 0) >= lastActivityAt);
+      if (already) continue;
+      await commitMutations(projectId, [{
+        op: 'event.record',
+        type: 'observer/escalation',
+        data: { nodeId: row.nodeId, code: 'stalled_node', idleMs: row.idleMs, lastActivityAt: row.lastActivityAt ?? null, at: now },
+      }], { actor: { kind: 'system', id: 'observer' }, causeId: `observer:escalation:${row.nodeId}:${now}` });
+      escalated.push(row.nodeId);
+    }
+    return publicView({ ok: true, projectId, escalated, stalled: snapshot.stalled });
+  }
+
+  /** 5.3.14 bounded observe surface; no handles, no secrets, no writes. */
+  function observe(projectId) {
+    const snapshot = observerSnapshot(projectId);
+    const project = requireProject(projectId);
+    const intents = (Array.isArray(project.intents) ? project.intents : [])
+      .filter((intent) => intent.status === 'pending')
+      .slice(-20)
+      .map((intent) => ({ id: intent.id, kind: intent.kind, actor: intent.actor ? { kind: intent.actor.kind, id: intent.actor.id } : null, claim: intent.claim ?? null, expiresAt: intent.expiresAt ?? null }));
+    return publicView({ ...snapshot, pendingIntents: intents });
+  }
+
+  /**
+   * Arbitration is a limited write: only a dispute resolution, never a runtime
+   * action. Human-authority disputes cannot be overridden by a model arbiter.
+   */
+  async function arbitrate(projectId, input = {}, exec = null) {
+    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    if (!(actor.kind === 'human' || actor.kind === 'system' || actor.preset === 'lab-arbiter')) {
+      return rejection('forbidden_action', 'only a human or the lab-arbiter preset may arbitrate');
+    }
+    const project = requireProject(projectId);
+    const record = (Array.isArray(project.disputes) ? project.disputes : []).find((row) => row.id === input.disputeId);
+    if (!record) return rejection('dispute_not_found', `unknown dispute: ${input.disputeId ?? ''}`);
+    if (record.authority === 'human' && actor.kind !== 'human') {
+      return rejection('human_confirmation_required', 'this dispute class requires a human decision');
+    }
+    return resolveDispute(projectId, input.disputeId, {
+      resolution: input.resolution,
+      reason: input.reason,
+    }, exec);
   }
 
   async function getReplay(projectId, options = {}) {
@@ -2940,6 +3098,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       return rejection('unavailable', 'deterministic dispatch is not wired in this Host build');
     }
     requireProject(projectId);
+    await rotateDueExperts(projectId);
+    await escalateStalled(projectId);
+    // Timeout defaults are applied by the same tick that takes the dispatch
+    // commit point; a pending dispute therefore cannot block forever.
+    await sweepDisputes(projectId);
     const round = await dispatchOnce(projectId, options);
     metricsCollector.recordDispatch(projectId, {
       durationMs: round.durationMs ?? 0,
@@ -3214,6 +3377,104 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }
   }
 
+  function rotationMaxDays(project) {
+    const value = Number(project?.config?.scheduling?.rotationDays ?? project?.config?.rotationDays ?? DEFAULT_ROTATION_DAYS);
+    return Number.isFinite(value) && value > 0 ? value : DEFAULT_ROTATION_DAYS;
+  }
+
+  function rotationExperts(project) {
+    return recruitabilityOf(project).map((descriptor) => descriptor.id).filter((id) => typeof id === 'string');
+  }
+
+  /** B23: same expert + same branch beyond N days is a deterministic rotation. */
+  function rotationStatus(projectId) {
+    const project = requireProject(projectId);
+    const plan = rotationPlan({
+      nodes: store.listNodes(projectId),
+      experts: rotationExperts(project),
+      rotations: project.expertRotations ?? {},
+      now: Date.now(),
+      maxDays: rotationMaxDays(project),
+    });
+    return publicView({
+      ok: true,
+      projectId,
+      maxDays: rotationMaxDays(project),
+      rotations: project.expertRotations ?? {},
+      assignments: plan.assignments,
+      due: plan.due,
+    });
+  }
+
+  async function commitRotation(projectId, decision, actor, now = Date.now()) {
+    const project = requireProject(projectId);
+    const record = {
+      branchId: decision.branchId,
+      expertId: decision.expertId,
+      nextExpertId: decision.nextExpertId,
+      rotatedAt: now,
+      rotatedBy: { kind: actor?.kind ?? 'system', id: actor?.id ?? 'rotator' },
+      reason: decision.reason,
+    };
+    const result = await commitMutations(projectId, [{
+      op: 'project.update',
+      set: { expertRotations: { ...(project.expertRotations ?? {}), [record.branchId]: record } },
+      eventType: 'expert/rotated',
+      eventData: { ...record, title: `expert rotation: ${record.expertId} -> ${record.nextExpertId}` },
+    }], { actor, causeId: `rotation:${record.branchId}:${now}` });
+    return publicView({ ok: true, projectId, rotation: record, revision: store.getProject(projectId)?.revision ?? null });
+  }
+
+  /** Explicit operator rotation (the production path also rotates automatically). */
+  async function rotateExpert(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    const branchId = typeof input.branchId === 'string' ? input.branchId : '';
+    if (!branchId) return rejection('bad_request', 'branchId is required');
+    const experts = rotationExperts(project);
+    const current = typeof input.expertId === 'string' && input.expertId
+      ? input.expertId
+      : project.expertRotations?.[branchId]?.expertId
+        ?? store.listNodes(projectId).find((node) => node.id === branchId)?.createdBy
+        ?? null;
+    const next = typeof input.nextExpertId === 'string' && input.nextExpertId
+      ? input.nextExpertId
+      : experts.filter((id) => id !== current).sort()[0] ?? null;
+    if (!current || !next) return rejection('rotation_unavailable', 'need a current expert and one different active expert');
+    if (next === current) return rejection('rotation_same_expert', 'rotation must assign a different expert');
+    if (experts.length > 0 && (!experts.includes(next) || !experts.includes(current))) {
+      return rejection('rotation_unknown_expert', 'both experts must be active in this project roster');
+    }
+    return commitRotation(projectId, {
+      branchId,
+      expertId: current,
+      nextExpertId: next,
+      reason: typeof input.reason === 'string' && input.reason.trim() ? input.reason.trim().slice(0, 500) : 'explicit operator rotation',
+    }, actor);
+  }
+
+  /** Called by the dispatch tick, so rotation does not depend on a human click. */
+  async function rotateDueExperts(projectId, { now = Date.now() } = {}) {
+    const status = rotationStatus(projectId);
+    if (status.due.length === 0) return { ok: true, projectId, rotated: [] };
+    const rotated = [];
+    for (const decision of status.due) {
+      const result = await commitRotation(projectId, decision, { kind: 'system', id: 'rotation' }, now);
+      if (result.ok === true) rotated.push(result.rotation);
+    }
+    return publicView({ ok: true, projectId, rotated });
+  }
+
+  /** C13 performance: disputes raised/won, not proposal acceptance rate. */
+  function disputePerformance(project, expertId) {
+    const rows = (Array.isArray(project.disputes) ? project.disputes : []).filter((record) => record?.raiser?.id === expertId);
+    return {
+      disputesRaised: rows.length,
+      disputesWon: rows.filter((record) => record.status === 'resolved' && ['apply_change', 'upheld'].includes(record.resolution)).length,
+      disputesLost: rows.filter((record) => record.status === 'resolved' && ['keep_current', 'rejected'].includes(record.resolution)).length,
+    };
+  }
+
   /** Expert descriptors plus Host-computed performance metrics (Stage 4.1). */
   function listExperts(projectId) {
     const project = requireProject(projectId);
@@ -3226,7 +3487,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       experts: listExpertDescriptors().map((descriptor) => ({
         ...descriptor,
         lifecycle: expertLifecycleOf(project, descriptor.id),
-        metrics: computeExpertMetrics({ expertId: descriptor.id, nodes, runs }),
+        metrics: {
+          ...computeExpertMetrics({ expertId: descriptor.id, nodes, runs }),
+          ...disputePerformance(project, descriptor.id),
+        },
       })),
       curator: curator.status(),
     });
@@ -3247,7 +3511,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         ...row,
         descriptor: getExpertDescriptor(row.id),
         lifecycle: expertLifecycleOf(project, row.id),
-        metrics: computeExpertMetrics({ expertId: row.id, nodes, runs }),
+        metrics: {
+          ...computeExpertMetrics({ expertId: row.id, nodes, runs }),
+          ...disputePerformance(project, row.id),
+        },
       })),
       total: recall.total,
       _truncated: recall.total > recall.experts.length ? { shown: recall.experts.length, total: recall.total } : null,
@@ -3880,6 +4147,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         claim,
         basis,
         target,
+        expected: input?.expected,
         rationale: input?.rationale,
       });
     } catch (error) {
@@ -3928,20 +4196,29 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     });
   }
 
-  /** Read-only dispute table: every appeal with its resolution record. */
+  /** Read-only dispute table: first-class disputes plus legacy appeal intents. */
   function listDisputes(projectId, { limit = 200, status = null } = {}) {
     const project = requireProject(projectId);
+    const now = Date.now();
     const size = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.trunc(limit))) : 200;
-    const rows = (Array.isArray(project.intents) ? project.intents : [])
+    const firstClass = (Array.isArray(project.disputes) ? project.disputes : [])
+      .map((record) => effectiveDispute(record, now));
+    const appeals = (Array.isArray(project.intents) ? project.intents : [])
       .filter((intent) => intent && (intent.kind === 'appeal' || intent.claim?.action === 'appeal'))
-      .filter((intent) => !status || intent.status === status)
-      .slice(-size)
       .map((intent) => ({
         id: intent.id,
+        source: 'appeal',
+        status: intent.status,
+        type: 'appeal',
+        authority: 'human',
+        defaultAction: DISPUTE_DEFAULT_ACTION,
+        deadlineAt: intent.expiresAt ?? null,
         targetAction: intent.claim?.targetAction ?? null,
         target: intent.target ?? null,
+        position: null,
         raiser: intent.actor ? { kind: intent.actor.kind, id: intent.actor.id } : null,
-        status: intent.status,
+        evidence: [],
+        reasonCode: null,
         resolution: intent.resolution ?? null,
         resolutionReason: intent.resolutionReason ?? null,
         resolvedBy: intent.resolvedBy ? { kind: intent.resolvedBy.kind, id: intent.resolvedBy.id } : null,
@@ -3951,7 +4228,140 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         openedAt: intent.at ?? null,
         expiresAt: intent.expiresAt ?? null,
       }));
-    return publicView({ ok: true, projectId, revision: project.revision ?? 0, disputes: rows, total: rows.length });
+    const matching = [
+      ...firstClass.map((record) => ({
+        ...record,
+        source: 'dispute',
+        targetAction: record.target?.action ?? null,
+        openedAt: record.at,
+        expiresAt: record.deadlineAt,
+        raiser: record.raiser,
+      })),
+      ...appeals,
+    ].filter((row) => !status || row.status === status);
+    const rows = matching.slice(-size);
+    return publicView({ ok: true, projectId, revision: project.revision ?? 0, disputes: rows, total: matching.length, classes: DISPUTE_CLASS_MAP });
+  }
+
+  /** Expose the eight-class mapping to the UI and policy tests. */
+  function disputeClasses() {
+    return publicView({ ok: true, classes: DISPUTE_CLASS_MAP, defaultAction: DISPUTE_DEFAULT_ACTION, resolutions: ['keep_current', 'apply_change', 'upheld', 'rejected'] });
+  }
+
+  const DISPUTE_EPOCH_MS = 7 * 24 * 60 * 60_000;
+
+  function disputeQuota(project) {
+    const value = Number(project?.config?.disputes?.escalationQuotaPerEpoch ?? project?.config?.disputeEscalationQuota ?? 5);
+    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : 5;
+  }
+
+  function disputeEscalationsThisEpoch(project, actor, now) {
+    const epoch = Math.floor(now / DISPUTE_EPOCH_MS);
+    return (Array.isArray(project.disputes) ? project.disputes : []).filter((record) => {
+      if (!record || record.type !== 'priority_inversion' || !sameActor(record.raiser, actor)) return false;
+      const at = Number(record.at);
+      return Number.isFinite(at) && Math.floor(at / DISPUTE_EPOCH_MS) === epoch;
+    }).length;
+  }
+
+  async function openDispute(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    const now = Date.now();
+    const budget = Number(project?.config?.disputes?.budgetPerEpoch);
+    if (Number.isFinite(budget) && budget >= 0) {
+      const epoch = Math.floor(now / DISPUTE_EPOCH_MS);
+      const consumed = (Array.isArray(project.disputes) ? project.disputes : [])
+        .filter((record) => Number.isFinite(Number(record?.at)) && Math.floor(Number(record.at) / DISPUTE_EPOCH_MS) === epoch).length;
+      if (consumed >= budget) {
+        return rejection('dispute_budget_exhausted', `project dispute budget ${budget} for this epoch is exhausted`);
+      }
+    }
+    if (input?.type === 'priority_inversion') {
+      if (typeof input?.reasonCode !== 'string' || !input.reasonCode.trim()) {
+        return rejection('escalation_reason_required', 'a human escalation requires reasonCode');
+      }
+      if (disputeEscalationsThisEpoch(project, actor, now) >= disputeQuota(project)) {
+        return rejection('escalation_quota_exceeded', `expert ${actor.id} exhausted its per-epoch human escalation quota`);
+      }
+    }
+    let record;
+    try {
+      record = createDisputeRecord({
+        ...input,
+        id: typeof input.id === 'string' && input.id ? input.id : `dispute-${project.revision + 1}-${now.toString(36)}`,
+        projectId,
+        raiser: actor,
+        at: now,
+      });
+    } catch (error) {
+      return rejection(error?.code ?? 'invalid_dispute', error?.message ?? String(error));
+    }
+    const result = await commitMutations(projectId, [{
+      op: 'dispute.open',
+      dispute: record,
+      expectedRevision: project.revision ?? 0,
+    }], { actor, causeId: `dispute:${record.id}` });
+    return publicView({ ok: true, projectId, dispute: record, revision: store.getProject(projectId)?.revision ?? null });
+  }
+
+  async function resolveDispute(projectId, disputeId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const current = (Array.isArray(project.disputes) ? project.disputes : []).find((row) => row.id === disputeId);
+    if (!current) return rejection('dispute_not_found', `unknown dispute: ${disputeId}`);
+    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    let resolved;
+    try {
+      resolved = resolveDisputeRecord(current, {
+        resolution: input.resolution,
+        reason: input.reason,
+        resolvedBy: actor,
+      }, Date.now());
+    } catch (error) {
+      return rejection(error?.code ?? 'invalid_dispute_resolution', error?.message ?? String(error));
+    }
+    const result = await commitMutations(projectId, [{
+      op: 'dispute.resolve',
+      dispute: resolved,
+      expectedRevision: project.revision ?? 0,
+    }], { actor, causeId: `dispute:${disputeId}:resolve` });
+    return publicView({ ok: true, projectId, dispute: resolved, revision: store.getProject(projectId)?.revision ?? null });
+  }
+
+  async function reopenDispute(projectId, disputeId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const current = (Array.isArray(project.disputes) ? project.disputes : []).find((row) => row.id === disputeId);
+    if (!current) return rejection('dispute_not_found', `unknown dispute: ${disputeId}`);
+    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    let reopened;
+    try {
+      reopened = reopenDisputeRecord(current, { evidence: input.evidence, by: actor }, Date.now());
+    } catch (error) {
+      return rejection(error?.code ?? 'invalid_dispute_reopen', error?.message ?? String(error));
+    }
+    const result = await commitMutations(projectId, [{
+      op: 'dispute.reopen',
+      dispute: reopened,
+      expectedRevision: project.revision ?? 0,
+    }], { actor, causeId: `dispute:${disputeId}:reopen` });
+    return publicView({ ok: true, projectId, dispute: reopened, revision: store.getProject(projectId)?.revision ?? null });
+  }
+
+  /** Production timeout sweep: every overdue pending dispute applies keep_current. */
+  async function sweepDisputes(projectId, { now = Date.now() } = {}) {
+    const project = requireProject(projectId);
+    const pending = (Array.isArray(project.disputes) ? project.disputes : [])
+      .filter((row) => row.status === 'pending' && Number.isFinite(row.deadlineAt) && row.deadlineAt <= now);
+    if (pending.length === 0) return { ok: true, projectId, timedOut: [] };
+    const mutations = pending.map((row) => ({
+      op: 'dispute.resolve',
+      dispute: expireDisputeRecord(row, now),
+    }));
+    await commitMutations(projectId, mutations, {
+      actor: { kind: 'system', id: 'dispute-timeout' },
+      causeId: `dispute:timeout:${projectId}:${now}`,
+    });
+    return publicView({ ok: true, projectId, timedOut: pending.map((row) => row.id) });
   }
 
   /** Per-class scheduling budgets plus observed outcomes; missing budgets mean no cap. */
@@ -3972,7 +4382,22 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         preempted: matching.filter((node) => Boolean(node.preemption)).length,
       };
     });
-    return publicView({ ok: true, projectId, revision: project.revision ?? 0, classes });
+    const disputes = Array.isArray(project.disputes) ? project.disputes : [];
+    const disputeBudget = Number(project?.config?.disputes?.budgetPerEpoch);
+    return publicView({
+      ok: true,
+      projectId,
+      revision: project.revision ?? 0,
+      classes,
+      disputes: {
+        budget: Number.isFinite(disputeBudget) && disputeBudget >= 0 ? disputeBudget : null,
+        opened: disputes.length,
+        resolved: disputes.filter((row) => row.status === 'resolved').length,
+        pending: disputes.filter((row) => row.status === 'pending').length,
+        consumed: disputes.length,
+      },
+      escalationQuotaPerEpoch: disputeQuota(project),
+    });
   }
 
   /** Deterministic Stage-5 retrospective built from durable events/nodes. */
@@ -4031,6 +4456,26 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         rejected: resolved.filter((row) => row.resolution === 'rejected').length,
         withdrawn: disputes.filter((row) => row.status === 'withdrawn').length,
         pending: disputes.filter((row) => row.status === 'pending').length,
+        timedOut: resolved.filter((row) => row.resolutionReason === 'timeout_default' || row.defaultApplied === true).length,
+      },
+      predictions: {
+        total: nodes.filter((node) => node.expectedOutcome).length,
+        calibrated: nodes.filter((node) => node.expectedOutcome?.calibration === 'calibrated').length,
+        directionOff: nodes.filter((node) => node.expectedOutcome?.calibration === 'direction_off').length,
+        magnitudeOff: nodes.filter((node) => node.expectedOutcome?.calibration === 'magnitude_off').length,
+        missingMetric: nodes.filter((node) => node.expectedOutcome?.calibration === 'missing_metric').length,
+        retroOpen: nodes.filter((node) => node.expectedOutcome?.retroOpen).length,
+        errors: nodes
+          .filter((node) => node.expectedOutcome?.retroOpen)
+          .slice(-10)
+          .map((node) => ({
+            nodeId: node.id,
+            title: node.title,
+            expected: node.expected ?? null,
+            actual: node.expectedOutcome?.actual ?? null,
+            delta: node.expectedOutcome?.delta ?? null,
+            reason: node.expectedOutcome?.reason ?? null,
+          })),
       },
       classBudgets: classReport,
     };
@@ -4397,6 +4842,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'claim_review') return reviewClaimAction(input?.projectId, input, exec);
     if (action === 'release_review') return reviewReleaseAction(input?.projectId, input, exec);
     if (action === 'review_claims') return reviewClaimsAction(input?.projectId);
+    if (action === 'observe') return observe(input?.projectId);
+    if (action === 'disputes') return listDisputes(input?.projectId, { limit: input?.limit, status: input?.status ?? null });
+    if (action === 'dispute_open') return openDispute(input?.projectId, input, exec);
+    if (action === 'arbitrate') return arbitrate(input?.projectId, input, exec);
     if (action === 'health') return health();
     if (action === 'ledger_read') return ledgerRead(input?.projectId, input?.limits);
     if (action === 'ledger_update') return ledgerUpdate(input?.projectId, input, exec);
@@ -4440,6 +4889,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     submitIntent,
     listIntents,
     listDisputes,
+    disputeClasses,
+    openDispute,
+    resolveDispute,
+    reopenDispute,
+    sweepDisputes,
     classBudgetReport,
     generateRetrospective,
     listRetrospectives,
@@ -4452,11 +4906,19 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     hireExpert,
     drainExpert,
     fireExpert,
+    rotationStatus,
+    rotateExpert,
+    rotateDueExperts,
     nominateDuplicates,
     recordCuratorOutcome,
     changesSince,
     getEvents,
     getReplay,
+    observerSnapshot,
+    waitForEvents,
+    escalateStalled,
+    observe,
+    arbitrate,
     updateProject,
     updateNode,
     startNode,

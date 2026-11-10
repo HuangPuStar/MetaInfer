@@ -27,7 +27,7 @@ import {
   redoEffect,
 } from './mutations.js';
 import { currentCause } from './trace.js';
-import { actorKeyOf, ensureActorKey, isIssuedActorKey } from './actors.js';
+import { actorKeyOf, bindActorKeyProject, ensureActorKey, isIssuedActorKey } from './actors.js';
 
 const ACTOR_KINDS = new Set(['human', 'expert', 'dispatcher', 'mcp', 'system', 'legacy']);
 const IDEMPOTENCY_LIMIT = 10_000;
@@ -90,6 +90,7 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
     let actor;
     try {
       actor = normalizeActor(spec?.actor);
+      bindActorKeyProject(actor.actorKey, projectId);
     } catch (error) {
       return reject(error.code, error.message);
     }
@@ -326,7 +327,9 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
           };
         }
         await store.deleteProject(projectId);
-        return { ok: true, projectId, actor: normalizeActor(spec.actor ?? { kind: 'system', id: 'service' }) };
+        const deletedActor = normalizeActor(spec.actor ?? { kind: 'system', id: 'service' });
+        bindActorKeyProject(deletedActor.actorKey, projectId);
+        return { ok: true, projectId, actor: deletedActor };
       })
       : (async () => {
         const current = store.getProject(projectId);

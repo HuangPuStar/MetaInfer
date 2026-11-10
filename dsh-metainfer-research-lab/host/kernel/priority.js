@@ -17,6 +17,9 @@ export const PRIORITY_CLASSES = Object.freeze(['p0', 'p1', 'p2', 'p3', 'deferred
 export const DEFAULT_PRIORITY_CLASS = 'p2';
 export const HUMAN_PRIORITY_CLASS = 'p0';
 
+/** 5.3.4 source weights: one human slot is worth 100 advisor slots. */
+export const DEFAULT_SOURCE_WEIGHTS = Object.freeze({ human: 100, advisor: 10, 'legacy-advisor': 10, system: 10 });
+
 const CLASS_RANK = new Map(PRIORITY_CLASSES.map((name, index) => [name, index]));
 
 /** @returns {boolean} whether `value` names a known priority class. */
@@ -93,7 +96,7 @@ export function fairOrder(nodes, usageBySource = new Map(), options = {}) {
   const slotSeconds = Number.isFinite(options.slotSeconds) && options.slotSeconds > 0 ? options.slotSeconds : 3600;
   const limit = Number.isFinite(options.limit) && options.limit >= 0 ? Math.floor(options.limit) : Infinity;
   const weightOf = (source) => {
-    const weight = usageBySource.get(source)?.weight;
+    const weight = usageBySource.get(source)?.weight ?? DEFAULT_SOURCE_WEIGHTS[source];
     return weight && weight > 0 ? weight : 1;
   };
   const vruntime = (node) => {

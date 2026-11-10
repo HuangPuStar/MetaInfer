@@ -74,19 +74,22 @@ await test('Stage 3-5 surfaces are wired from HTTP through the service and into 
   const serviceSource = await source('host/lab-service.js');
   const dispatcherSource = await source('host/dispatch/dispatch-once.js');
   const client = await source('client.js');
-  for (const route of ['disputes', 'budgets', 'reviews', 'retrospective', 'intents']) {
+  for (const route of ['disputes', 'budgets', 'reviews', 'retrospective', 'intents', 'observer', 'events/wait', 'rotations', 'arbitrate']) {
     assert.ok(http.includes(`/${route}\``), `HTTP route /${route} exists`);
   }
-  for (const method of ['listDisputes', 'classBudgetReport', 'generateRetrospective', 'listRetrospectives', 'reviewClaimsAction']) {
+  for (const method of ['listDisputes', 'classBudgetReport', 'generateRetrospective', 'listRetrospectives', 'reviewClaimsAction', 'openDispute', 'sweepDisputes', 'rotationStatus', 'rotateDueExperts', 'observerSnapshot', 'waitForEvents', 'observe', 'arbitrate']) {
     assert.ok(serviceSource.includes(`function ${method}(`), `${method} exists`);
     assert.ok(serviceSource.includes(`    ${method},`), `${method} is exported on the service`);
   }
-  assert.match(dispatcherSource, /applyClassBudgets\(/);
+  assert.match(dispatcherSource, /applyClassBudgetsDetailed\(/);
   assert.match(client, /ObservabilityDrawer/);
   assert.match(client, /fetchRetrospectives/);
   assert.match(client, /fetchDisputes/);
   assert.match(client, /fetchBudgets/);
   assert.match(client, /fetchReviews/);
+  assert.match(client, /fetchObserver/);
+  assert.match(client, /fetchDisputeClasses/);
+  assert.match(client, /ObserverPanel/);
 });
 
 await test('the prompt tells the model to call dag_query, so a tool call really returns rows', async () => {

@@ -17,6 +17,7 @@ import { clampNodeTitle, isBlank } from './titles.js';
 import { createReviewClaimBoard } from './dispatch/review-claims.js';
 import { createLedgerReader } from './context/ledger.js';
 import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
+import { baselineFor, normalizeExpected } from './kernel/prediction.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 
@@ -89,6 +90,17 @@ const ADVISOR_SCHEMA = {
           timeboxMinutes: { type: 'integer' },
           rationale: { type: 'string' },
           expectedInfoGain: { type: 'string' },
+          expected: {
+            type: 'object',
+            properties: {
+              metric: { type: 'string' },
+              direction: { type: 'string', enum: ['up', 'down'] },
+              magnitude: { type: 'number' },
+              unit: { type: 'string' },
+            },
+            required: ['metric', 'direction', 'magnitude'],
+            additionalProperties: false,
+          },
           recommendedModel: {
             type: 'object',
             additionalProperties: false,
@@ -637,6 +649,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       parentId: parent.id,
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
+      ...(meta.expected ? { expected: meta.expected, expectedBaseline: meta.expectedBaseline ?? null } : {}),
       ...(spec.model ? { model: spec.model } : {}),
       execution: spec.execution
         ? {
@@ -657,6 +670,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         runId: meta.runId ?? null,
         rationale: meta.rationale ?? null,
         expectedInfoGain: meta.expectedInfoGain ?? null,
+        ...(meta.expected ? { expected: meta.expected, expectedBaseline: meta.expectedBaseline ?? null } : {}),
         createdAt: now,
       },
       git: {
@@ -681,6 +695,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         parentId: parent.id,
         title: node.title,
         expectedInfoGain: meta.expectedInfoGain ?? null,
+        ...(meta.expected ? { expected: meta.expected } : {}),
       },
       basis: basisFor(project.revision, store.listNodes(project.id).length),
       target: { nodeId, parentId: parent.id },
@@ -718,6 +733,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       parentId: parent.id,
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
+      ...(meta.expected ? { expected: meta.expected, expectedBaseline: meta.expectedBaseline ?? null } : {}),
       ...(spec.model ? { model: spec.model } : {}),
       execution: spec.execution
         ? {
@@ -830,6 +846,18 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           });
           continue;
         }
+        let expected = null;
+        try {
+          expected = normalizeExpected(proposal?.expected);
+        } catch (expectedError) {
+          applied.rejected.push({
+            parentId: proposal?.parentId ?? null,
+            title: proposal?.title ?? null,
+            reason: `expected rejected: ${expectedError.message}`,
+            code: 'invalid_expected',
+          });
+          continue;
+        }
         const claim = reviewClaims.claim({
           projectId,
           nodeId: check.parent.id,
@@ -855,10 +883,15 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
                 runId: cycle.advisorRunId,
                 rationale: proposal.rationale,
                 expectedInfoGain: proposal.expectedInfoGain,
+                expected,
+                expectedBaseline: baselineFor(check.parent, expected),
               })
             : await createChild(project, check.parent, check.spec, {
                 createdBy: 'advisor',
                 runId: cycle.advisorRunId,
+                rationale: proposal.rationale,
+                expected,
+                expectedBaseline: baselineFor(check.parent, expected),
               });
           applied.createdNodeIds.push(node.id);
           if (check.executionNote) {

@@ -869,7 +869,7 @@ check('real delete_project rejects a full-width alias of the requester',
   && unicodeHandlers.delete.projectExists && unicodeHandlers.delete.resolvedBy === 'ｈ１'
   && unicodeHandlers.delete.resolvedKey === unicodeToolRegistration.actorKey
   && unicodeToolRegistration.actorKey.startsWith('ak_host_'),
-  JSON.stringify(unicodeHandlers.delete));
+  JSON.stringify({...unicodeHandlers.delete, expectedKey: unicodeToolRegistration.actorKey}));
 check('real cancel_node rejects a full-width alias of the requester before runtime',
   unicodeHandlers.cancel.code === 'human_confirmation_required'
   && unicodeHandlers.cancel.runtimeCalls === 0 && unicodeHandlers.cancel.resolvedBy === 'ｈ１',

@@ -20,6 +20,7 @@ import { ExecutionLog, executionLogPath } from './execution-log.js';
 import { newSessionId } from './store.js';
 import { prepareRemoteRun } from './remote-run.js';
 import { DEFAULT_MERGE_PROMPT, DEFAULT_WORKER_PREFIX, WORKER_RULES } from './prompts.js';
+import { applyPredictionToNode } from './kernel/prediction.js';
 
 /** JSON schema accepted by DSH's structured-output tool (supported subset only). */
 export const NODE_REPORT_SCHEMA = {
@@ -953,6 +954,8 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       node.git.headCommit = commit.head;
       node.report = normalizeNodeReport(result?.structured);
       node.reportText = blocksText(result?.output) || node.reportText || '';
+      const predictionResult = applyPredictionToNode(node);
+      const openRetroTicket = predictionResult?.openRetroTicket === true;
       if (entry.external) {
         node.executionThreadId = result?.threadId ?? node.executionThreadId;
         node.executionRun = {
@@ -975,8 +978,25 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       await releaseNode(project, node);
       node.timestamps = { ...(node.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
       await persistNode(project, node, 'node/completed', {
-        data: { headCommit: commit.head, committed: commit.committed, reportSuccess: node.report?.success ?? null, cleanup: node.cleanup ?? null },
+        data: { headCommit: commit.head, committed: commit.committed, reportSuccess: node.report?.success ?? null, cleanup: node.cleanup ?? null, prediction: node.expectedOutcome ?? null },
       });
+      if (openRetroTicket && kernel?.executor) {
+        await kernel.executor.commit(project.id, {
+          actor: { kind: 'system', id: 'postmortem' },
+          causeId: `retro:${node.id}:${node.expectedRetroAt}`,
+          mutations: [{
+            op: 'event.record',
+            type: 'retro/opened',
+            data: {
+              nodeId: node.id,
+              expected: node.expected,
+              outcome: node.expectedOutcome,
+              reason: node.expectedOutcome.reason,
+              openedAt: node.expectedRetroAt,
+            },
+          }],
+        });
+      }
     } catch (error) {
       await failNode(project, node, error, error?.stage === 'run' ? 'run' : 'commit');
     } finally {
@@ -987,6 +1007,20 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       }
       await disposeAnchor(node);
     }
+  }
+
+  /** Durable failure attribution read by the observation timeline (U3). */
+  function failureDiagnostic(node, stage, error) {
+    const timeoutMs = stage === 'timeout'
+      ? (Number(node?.timeboxMs) || (Number(node?.timeboxMinutes) * 60_000) || (Number(node?.deadlineAt) - Number(node?.timestamps?.startedAt)))
+      : null;
+    return {
+      message: error instanceof Error ? error.message : String(error),
+      at: Date.now(),
+      stage,
+      role: stage === 'start' ? 'dispatcher' : 'worker',
+      ...(Number.isFinite(timeoutMs) && timeoutMs > 0 ? { timeoutMs } : {}),
+    };
   }
 
   async function failNode(project, node, error, stage) {
@@ -1011,14 +1045,10 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       error: error instanceof Error ? error.message : String(error),
     });
     node.status = 'failed';
-    node.error = {
-      message: error instanceof Error ? error.message : String(error),
-      at: Date.now(),
-      stage,
-    };
+    node.error = failureDiagnostic(node, stage, error);
     node.timestamps = { ...(node.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
     await persistNode(project, node, 'node/failed', {
-      data: { stage, message: node.error.message, cleanup: node.cleanup ?? null },
+      data: { stage, message: node.error.message, error: node.error, cleanup: node.cleanup ?? null },
     });
     await maybeAutoUpgrade(project, node, stage === 'run' ? 'run' : stage);
   }
@@ -1026,12 +1056,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
   async function failStart(project, node, error) {
     await releaseNode(project, node);
     node.status = 'failed';
-    node.error = {
-      message: error instanceof Error ? error.message : String(error),
-      at: Date.now(),
-      stage: 'start',
-    };
-    await persistNode(project, node, 'node/failed', { data: { stage: 'start', message: node.error.message } });
+    node.error = failureDiagnostic(node, 'start', error);
+    node.timestamps = { ...(node.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
+    await persistNode(project, node, 'node/failed', { data: { stage: 'start', message: node.error.message, error: node.error } });
   }
 
   /** Normalize Codex SDK usage into the Lab token shape. */
@@ -1600,15 +1627,11 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       }
       const cancelled = kind === 'cancel' || kind === 'preempted';
       node.status = cancelled ? 'cancelled' : 'failed';
-      node.error = {
-        message: payload.message || (kind === 'cancel'
-          ? 'cancelled by user'
-          : kind === 'preempted'
-            ? `preempted for ${payload.forNodeId ?? 'higher-priority work'}`
-            : 'node timed out and was terminated'),
-        at: Date.now(),
-        stage: kind === 'cancel' || kind === 'preempted' ? 'run' : kind === 'timeout' ? 'timeout' : 'run',
-      };
+      node.error = failureDiagnostic(node, kind === 'timeout' ? 'timeout' : 'run', payload.message || (kind === 'cancel'
+        ? 'cancelled by user'
+        : kind === 'preempted'
+          ? `preempted for ${payload.forNodeId ?? 'higher-priority work'}`
+          : 'node timed out and was terminated'));
       node.timestamps = { ...(node.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
       const terminalEvent = kind === 'cancel'
         ? 'node/cancelled'
@@ -1627,6 +1650,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
           killedPids: reaped.killedPids.length,
           killedJobs: killedJobs.length,
           verifiedClean: node.termination.verifiedClean,
+          error: node.error,
           leftover,
           reaper: reaped.reaper,
           reaperSupported: reaped.reaperSupported,

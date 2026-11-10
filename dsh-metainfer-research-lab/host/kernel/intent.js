@@ -7,6 +7,7 @@
  * Pure: no I/O, no ids from the store — callers supply a stable id.
  */
 import { ActorKeyError, actorKeyOf, ensureActorKey, isIssuedActorKey, withActorKey } from './actors.js';
+import { normalizeExpected } from './prediction.js';
 export const INTENT_KINDS = Object.freeze(['dispatch', 'priority', 'proposal', 'review', 'curate', 'note', 'appeal']);
 
 const MAX_TARGET = 160;
@@ -84,6 +85,7 @@ export function createIntent(input) {
   const actorKey = suppliedKey ?? ensureActorKey(actor);
   const basis = intentBasis(input?.basis);
   const claim = plain(input?.claim, 'intent.claim');
+  const expected = normalizeExpected(input?.expected ?? claim.expected);
   const action = str(claim.action, 'intent.claim.action', 80);
   if (!action) throw new TypeError('intent.claim.action is required');
   if (input.kind === 'appeal' && action !== 'appeal') {
@@ -107,6 +109,7 @@ export function createIntent(input) {
     claim: structuredClone(claim),
     basis,
     target,
+    ...(expected ? { expected } : {}),
     rationale: str(input?.rationale, 'intent.rationale', MAX_RATIONALE),
     at: Number.isFinite(input?.at) ? input.at : Date.now(),
   };

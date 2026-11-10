@@ -53,6 +53,10 @@ export const ACTION_CATALOG = Object.freeze({
   events_page: 'read',
   runs_page: 'read',
   review_claims: 'read',
+  observe: 'read',
+  disputes: 'read',
+  dispute_open: 'write',
+  arbitrate: 'control',
   // project / node writes
   create_project: 'write',
   update_project: 'write',
@@ -115,7 +119,7 @@ export const ALL_ACTIONS = Object.freeze(Object.keys(ACTION_CATALOG).sort());
 
 const READ = ALL_ACTIONS.filter((action) => ACTION_CATALOG[action] === 'read');
 const DAG = Object.freeze(['dag_map', 'dag_query', 'dag_walk', 'dag_get', 'dag_diff', 'ledger_read', 'resource_status']);
-const EXPERT_PROPOSE = Object.freeze(['claim_review', 'release_review', 'review_claims', 'ledger_update', 'intent_submit', 'intent_withdraw']);
+const EXPERT_PROPOSE = Object.freeze(['claim_review', 'release_review', 'review_claims', 'ledger_update', 'intent_submit', 'intent_withdraw', 'observe', 'disputes', 'dispute_open']);
 
 /**
  * Smallest safe surface for a preset that is not listed below (default-deny).
@@ -176,6 +180,13 @@ export const PRESET_POLICIES = Object.freeze({
     kind: 'expert',
     allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update', 'approve_node', 'reject_node']),
     note: 'the chief arbitrates proposals; it cannot start or cancel runs',
+  }),
+  // Stage 5.3.14: an arbiter can observe and resolve one dispute. It has no
+  // runtime or DAG-write action, so arbitration cannot become execution.
+  'lab-arbiter': Object.freeze({
+    kind: 'expert',
+    allowed: Object.freeze([...READ, ...DAG, 'observe', 'disputes', 'arbitrate']),
+    note: 'the arbiter observes and resolves disputes; it cannot start, cancel or delete',
   }),
   'lab-scheduler': Object.freeze({
     kind: 'system',

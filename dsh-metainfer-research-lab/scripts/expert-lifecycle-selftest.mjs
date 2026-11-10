@@ -108,6 +108,21 @@ const httpRequest = async (routePath, options = {}) => {
 };
 const disputesHttp = await httpRequest('disputes?projectId=' + encodeURIComponent(projectId));
 check('HTTP /disputes returns the dispute table', disputesHttp.ok === true && Array.isArray(disputesHttp.data?.disputes), JSON.stringify(disputesHttp));
+const classesHttp = await httpRequest('disputes/classes');
+check('HTTP /disputes/classes exposes the eight-class arbiter map',
+  classesHttp.ok === true && Object.keys(classesHttp.data?.classes ?? {}).length === 8
+  && Object.values(classesHttp.data.classes).filter((row) => row.needsModel).length === 2,
+  JSON.stringify(classesHttp));
+const openDisputeHttp = await httpRequest('disputes', {
+  method: 'POST', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ projectId, type: 'resource_quantity', target: { nodeId: 'plan-1' }, rationale: 'http probe' }),
+});
+const disputeAfterHttp = await httpRequest('disputes?projectId=' + encodeURIComponent(projectId));
+check('HTTP POST /disputes persists a first-class row without actor keys',
+  openDisputeHttp.ok === true && openDisputeHttp.data?.dispute?.defaultAction === 'keep_current'
+  && disputeAfterHttp.data?.disputes?.some((row) => row.id === openDisputeHttp.data.dispute.id && row.source === 'dispute')
+  && !JSON.stringify(disputeAfterHttp).includes('actorKey'),
+  JSON.stringify({ open: openDisputeHttp, after: disputeAfterHttp.data?.disputes?.slice(-2) }));
 const budgetsHttp = await httpRequest('budgets?projectId=' + encodeURIComponent(projectId));
 check('HTTP /budgets returns five uncapped class rows without actor keys',
   budgetsHttp.ok === true && budgetsHttp.data?.classes?.length === 5

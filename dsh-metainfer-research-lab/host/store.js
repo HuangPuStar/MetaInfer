@@ -21,7 +21,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import { createEventArchive } from './kernel/eventlog.js';
-import { migrateProjectActorKeys } from './kernel/actors.js';
+import { configureActorKeyStore, flushActorKeyStore, migrateProjectActorKeys } from './kernel/actors.js';
 
 /**
  * v2 is a clean break, not an upgrade: the plugin never reads a v1 record and
@@ -53,6 +53,7 @@ const DOMAIN_SPEC = {
     runs: { valueSchema: PERMISSIVE },
     cycles: { valueSchema: PERMISSIVE },
     events: { valueSchema: PERMISSIVE },
+    actorKeys: { valueSchema: PERMISSIVE },
   },
 };
 
@@ -161,7 +162,23 @@ export async function openStore(ctx, config = {}) {
     runs: domain.table('runs'),
     cycles: domain.table('cycles'),
     events: domain.table('events'),
+    actorKeys: domain.table('actorKeys'),
   };
+  // B27 restart continuity: the Host actor-key registry lives in the v2 store,
+  // not in a process-local Map. Records are key, session id, issuedAt and the
+  // project the key was first issued for (null for operator-scoped sessions).
+  const actorKeyWrites = new Set();
+  configureActorKeyStore({
+    list: () => [...tables.actorKeys.entries()].map(([, value]) => value),
+    save: (record) => {
+      const write = tables.actorKeys.put(record.key, record);
+      if (write && typeof write.then === 'function') {
+        actorKeyWrites.add(write);
+        write.catch(() => {}).finally(() => actorKeyWrites.delete(write));
+      }
+      return write;
+    },
+  });
   const archive = createEventArchive({
     root: cfg?.kernel?.eventArchiveRoot ?? path.join(dshHome(), 'metainfer-research-lab', 'eventlog'),
     hotEvents: cfg?.kernel?.hotEvents ?? 50_000,
@@ -774,6 +791,15 @@ export async function openStore(ctx, config = {}) {
     listRuns,
     saveCycle,
     listCycles,
-    close: () => domain.close(),
+    flushActorKeys: async () => {
+      await flushActorKeyStore();
+      if (actorKeyWrites.size > 0) await Promise.allSettled([...actorKeyWrites]);
+    },
+    listActorKeys: () => [...tables.actorKeys.entries()].map(([, value]) => ({ ...value })),
+    close: async () => {
+      await flushActorKeyStore();
+      if (actorKeyWrites.size > 0) await Promise.allSettled([...actorKeyWrites]);
+      return domain.close();
+    },
   };
 }
