@@ -27,7 +27,9 @@ export const NODE_REPORT_SCHEMA = {
   properties: {
     // Source limit (B26/D16): the report is durable, so bound the summary at
     // write time. Detail belongs in changes/metrics/reproduce, not one blob.
-    summary: { type: 'string', minLength: 1, maxLength: 500 },
+    // Length is enforced by normalizeNodeReport, not by the schema: the DSH
+    // structured-output subset rejects minLength/maxLength keywords outright.
+    summary: { type: 'string' },
     changes: { type: 'array', items: { type: 'string' } },
     metrics: {
       type: 'array',
