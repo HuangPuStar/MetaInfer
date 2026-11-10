@@ -6473,7 +6473,7 @@ B22 是否从 FAIL 变为 PASS。
 | O4 | `queue.remainingMs` 来自 runnable timebox；deferred class + `deferUntil` 统一为唯一 deferred 计数；archived 排除 | `observability-selftest` 构造 class-deferred + `deferUntil` + archived-deferred，断言 `queue.runnable=1`、`deferred=2`、`remainingMs=60_000`、archived 只进 `counts.archived` |
 | O5 | `counts.planned`/`queue.runnable` 不再包含 deferred/`deferUntil`；`remainingMs` 只算 runnable | 同上；`runnable-selftest` 与 `auto-wip-selftest` 回归 |
 | A21 | 真实 `/metrics` 有 `cycle`、`byRole`、`queue.remainingMs` | `surface-bounds-selftest` 对 HTTP `/metrics` 三者显式断言 |
-| B13 | `evaluateEscalationTriggers` 实现 `conflict` / `budget_shift` / `new_direction` / `branch_death` / `low_confidence(<0.6)` / `ledger_conflict` | 纯事实 fixture 与真实 `observerSnapshot` 都断言六码完整；不再从 `TRIGGER_CODES` 自证 |
+| B13 | `evaluateEscalationTriggers` 实现 `conflict` / `budget_shift` / `new_direction` / `branch_death` / `low_confidence(<0.6)` / `ledger_conflict` | 测试把六个**字面量**写死为 checklist contract，再与纯事实 fixture、真实 `observerSnapshot` 比对；不从 `TRIGGER_CODES` 自证 |
 | 5.3.9 | `evaluateThresholdTriggers`：planned>2×freeSlots 持续 5min、15min stalled、同 `errorKind` 连续 3 次、同专家 5 次被拒、预算 >80%、同假设 3 节点失败 | 纯 fixture 六阈值 + 真实 observer 先 0ms 再 +5min，断言 `queue_overload` 只在第二帧出现且六码全命中 |
 | Q4 | `budgetUsage` 改为 `queryWindow`（per-run max）、`tokenWindow`（last hour）、`wallClockWindow`（single-run max） | `stage5-selftest` 造 5 条 run（一条 9 queries、共 50k tokens、单次 30s），断言 false/true/true |
 | C1 | `node.archive` 后 `store.listNodes`、Projection、`getState` 都不返回；`metrics.counts.deferred` 与 `queue.deferred` 为 0，`counts.archived=1`；`getNode` 保留审计 | `priority-selftest` 断言四路投影与 metrics |
@@ -6492,7 +6492,7 @@ B22 是否从 FAIL 变为 PASS。
 
 | 检查 | 结果 |
 |---|---|
-| `npm test` | EXIT 0；**933 ok / 0 FAIL** |
+| `npm test` | EXIT 0；**934 ok / 0 FAIL** |
 | `bench:scale` | 11/11 |
 | `client-smoke` | 45/45 |
 | `operator-ui-selftest` | 全通过 |

@@ -29,6 +29,12 @@ const curatorDescriptor = descriptors.find((descriptor) => descriptor.id === 'la
 check('curator is read-only and nominates', curatorDescriptor && curatorDescriptor.tools.every((tool) => ['dag_map', 'dag_walk', 'dag_get', 'dag_query'].includes(tool)), JSON.stringify(curatorDescriptor?.tools));
 check('descriptors are copies, not shared mutable state', listExpertDescriptors()[0] !== listExpertDescriptors()[0]);
 
+const CHECKLIST_ESCALATION_CODES = ['conflict', 'budget_shift', 'new_direction', 'branch_death', 'low_confidence', 'ledger_conflict'];
+const CHECKLIST_THRESHOLD_CODES = ['queue_overload', 'stalled', 'repeated_failure', 'expert_rejected', 'budget_alert', 'direction_converged'];
+check('B13/5.3.9: implementation exports the literal checklist code sets',
+  JSON.stringify([...ESCALATION_TRIGGER_CODES]) === JSON.stringify(CHECKLIST_ESCALATION_CODES)
+  && JSON.stringify([...THRESHOLD_TRIGGER_CODES]) === JSON.stringify(CHECKLIST_THRESHOLD_CODES),
+  JSON.stringify({ escalation: ESCALATION_TRIGGER_CODES, threshold: THRESHOLD_TRIGGER_CODES }));
 const triggerNow = Date.now();
 const escalationFixtures = [
   { id: 'c1', status: 'planned', hypothesis: 'same hypothesis', variant: 'lr=1e-3' },
@@ -46,11 +52,10 @@ const escalation = evaluateEscalationTriggers({
 });
 const escalationCodes = escalation.map((row) => row.code);
 check('B13: the six checklist escalation codes fire from deterministic facts',
-  ESCALATION_TRIGGER_CODES.length === 6
-  && ESCALATION_TRIGGER_CODES.every((code) => escalationCodes.includes(code))
-  && new Set(escalationCodes).size === 6
+  CHECKLIST_ESCALATION_CODES.every((code) => escalationCodes.includes(code))
+  && new Set(escalationCodes).size === CHECKLIST_ESCALATION_CODES.length
   && escalation.every((row) => row.detail && typeof row.detail === 'object'),
-  JSON.stringify({ expected: ESCALATION_TRIGGER_CODES, fired: escalation }));
+  JSON.stringify({ expected: CHECKLIST_ESCALATION_CODES, fired: escalation }));
 
 const threshold = evaluateThresholdTriggers({
   nodes: [
@@ -76,13 +81,12 @@ const threshold = evaluateThresholdTriggers({
 });
 const thresholdCodes = threshold.map((row) => row.code);
 check('5.3.9: the six checklist thresholds fire (queue 5m, stall 15m, errorKind 3x, reject 5x, budget >80%, 3 failed same hypothesis)',
-  THRESHOLD_TRIGGER_CODES.length === 6
-  && THRESHOLD_TRIGGER_CODES.every((code) => thresholdCodes.includes(code))
-  && new Set(thresholdCodes).size === 6
+  CHECKLIST_THRESHOLD_CODES.every((code) => thresholdCodes.includes(code))
+  && new Set(thresholdCodes).size === CHECKLIST_THRESHOLD_CODES.length
   && threshold.find((row) => row.code === 'repeated_failure')?.detail?.streak === 3
   && threshold.find((row) => row.code === 'expert_rejected')?.detail?.count === 5
   && threshold.find((row) => row.code === 'direction_converged')?.detail?.nodeIds?.length === 3,
-  JSON.stringify({ expected: THRESHOLD_TRIGGER_CODES, fired: threshold }));
+  JSON.stringify({ expected: CHECKLIST_THRESHOLD_CODES, fired: threshold }));
 
 const metrics = computeExpertMetrics({
   expertId: 'lab-advisor',
@@ -214,8 +218,8 @@ const firstObserve = service.observerSnapshot(thresholdProjectId, { now: t0 });
 const secondObserve = service.observerSnapshot(thresholdProjectId, { now: t0 + 5 * 60_000 + 1 });
 const observedCodes = (secondObserve.thresholdTriggers ?? []).map((row) => row.code);
 check('5.3.9: the production observer emits all six threshold triggers and keeps the 5-minute window',
-  THRESHOLD_TRIGGER_CODES.every((code) => observedCodes.includes(code))
-  && new Set(observedCodes).size === 6
+  CHECKLIST_THRESHOLD_CODES.every((code) => observedCodes.includes(code))
+  && new Set(observedCodes).size === CHECKLIST_THRESHOLD_CODES.length
   && (firstObserve.thresholdTriggers ?? []).every((row) => row.code !== 'queue_overload'),
   JSON.stringify({ first: firstObserve.thresholdTriggers, second: secondObserve.thresholdTriggers }));
 
@@ -241,9 +245,9 @@ for (const node of [
 const escalationObserve = service.observerSnapshot(escalationProjectId, { now: Date.now() });
 const observedEscalationCodes = (escalationObserve.triggers ?? []).map((row) => row.code);
 check('B13: the production observer emits the six checklist escalation codes',
-  ESCALATION_TRIGGER_CODES.every((code) => observedEscalationCodes.includes(code))
-  && new Set(observedEscalationCodes).size === 6,
-  JSON.stringify({ expected: ESCALATION_TRIGGER_CODES, fired: escalationObserve.triggers }));
+  CHECKLIST_ESCALATION_CODES.every((code) => observedEscalationCodes.includes(code))
+  && new Set(observedEscalationCodes).size === CHECKLIST_ESCALATION_CODES.length,
+  JSON.stringify({ expected: CHECKLIST_ESCALATION_CODES, fired: escalationObserve.triggers }));
 
 const listed = await call({ action: 'expert_list', projectId }, curatorExec);
 check('expert_list returns descriptors with metrics', listed.ok === true && listed.experts.every((expert) => expert.metrics && expert.metrics.expertId === expert.id), JSON.stringify(listed.experts?.map((expert) => expert.id)));
