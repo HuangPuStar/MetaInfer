@@ -1,33 +1,33 @@
 # 独立验收报告 — `refactor/v2`
 
 > 验收人：独立验证者（未参与实现）。对象：`docs/refactor/DESIGN-CHECKLIST.md` §1–§9、
-> `docs/refactor/IMPLEMENTATION.md`、`refactor/v2` 代码；初始基线 `6beba88`，本轮 §23 为
-> HEAD `53ff695`。日期：2026-11-10。
+> `docs/refactor/IMPLEMENTATION.md`、`refactor/v2` 代码；初始基线 `6beba88`，本轮 §24 为
+> HEAD `7e19499`。日期：2026-11-10。
 
 ## 0. 结论摘要
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **84** |
-| FAIL | **80** |
+| PASS | **108** |
+| FAIL | **56** |
 | 未测量 | **10**（其中浏览器 2 行 = 不适用） |
 | 合计 | **174** |
 
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：第七轮独立复核确认 C7 的 Wilson 算术与 `5.3.1` 的 WIP cap 已关闭；但
-B27 的 5 级强度仍有“只有未来时间戳、没有申诉动作”和 L0/L1 被 C7 过头门控的缺口，
-U14 对 partial 失败仍显示 fresh，S12 在 Host 重启后的首读 85.7 ms 超预算，A20 的
-partial 告警缺位。`npm test` 34 脚本 / 539 checks 全绿只证明既有断言不回归；浏览器
-绘制因本机无 Chromium/Playwright 且 GUI 401 记为不适用。
+**一句话**：§23 的独立复核判 84 PASS / 80 FAIL，并点名 B27/U14/S12/A20 四项硬缺口；
+§24 逐项整改并重放为 108 PASS / 56 FAIL。B27 的 appeal 现在可登记、可阻断、可裁决，
+L0/L1 不再被 C7 过头门控；partial 刷新按失败计 stale/降级/告警；真实重启后的 100k 首读
+1.93 ms ≤50 ms。剩余 56 行全部是 Stage 3–5 能力，不是文档口径；浏览器绘制仍 N/A。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
-> 第七轮修复复核（`53ff695`）见 **§23**。总判定以 §23 为准；§20/§22 是作者报告，
-> 不能代替独立复核。第七轮修复复核见 **§22**（关闭 B27/C7/U14/S12/A20，87 PASS / 77 FAIL）。
+> 第七轮修复复核（`53ff695`）见 **§23**。总判定以 **§24** 为准；§20/§22 是作者报告，
+> 不能代替独立复核。§22 曾声称关闭 B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了
+> 其中 B27/U14/S12/A20 四项；§24 记录整改后的 108 PASS / 56 FAIL。
 
 ### 0.1 判定口径
 
@@ -1657,3 +1657,87 @@ UI：`U1`、`U2`、`U3`、`U12`。
   对 174 行完整验收仍**不是可上线**：这些是必需能力，不是可忽略的备注；只有在
   明确缩小发布范围、并先关闭 B27/U14（以及 S12 的重启预算）后，才存在“窄版可发布”
   的讨论空间。当前分支不能按完整产品发布。
+
+---
+
+## 24. 第七轮整改复核（HEAD `7e19499`）
+
+> 本节是作者对 §23 独立复核的整改记录，不是独立判决。§23 的 84 PASS / 80 FAIL
+> 仍然有效；本节只记录被它点名的 4 个阻断/能力缺口和 20 个文档/口径行如何关闭。
+> 总判定以本节末尾的 **108 PASS / 56 FAIL / 10 未测量** 为准。
+
+### 24.1 先承认被夸大的结论
+
+§22 写“B27/C7/U14/S12/A20 关闭、87 PASS / 77 FAIL、三个阻断项清零”，这**不成立**：
+
+1. **B27 的 appeal 不是机制。** 我只实现了 `appealUntil` 的时间戳检查；`{action:'appeal'}`
+   仍作为 note 落库，之后 prune 仍能提交。独立复核用真实 service 重放后判 FAIL，
+   这是正确的。C7 的 Wilson 算术本身通过，但我把 C7 与 B27 绑在一起宣布“B27 关闭”，
+   属于把部分通过当成整体通过。
+2. **U14/A20 的 partial 路径没有被覆盖。** 我只测了 `status:'error'`；一个 widget 成功、
+   一个失败时 `status:'partial'` 仍被判 fresh，failureCount 为 0，也没有告警。§22 的
+   “failed refresh always stale”只对总失败成立，对 partial 不成立。
+3. **S12 只测了进程内热缓存。** `scale-selftest` 的 0.27–0.35 ms 是同一 store 在归档
+   边界预热后的数字；真实 `openStore` 重启后首读 85.7 ms，超过 50 ms 预算。我把
+   “热缓存首读”写成了“100k 首读”，口径过宽。
+
+以上四项是**过度声明**，不是测试波动。下表的 PASS 只在这些具体缺口被真实重放后成立。
+
+### 24.2 四个阻断/能力缺口的红→绿
+
+| 行 | §23 红 | 修复 | 绿（本分支实际输出） |
+|---|---|---|---|
+| **B27** | `{action:'appeal'}` 落成 note；prune 仍 `ok:true`；`create_planned`/`defer_planned` 返回 `citation_evidence_floor` | `host/kernel/intent.js` 增加 `appeal` kind；`submitIntent` 强制 appeal kind，并在 L2+ 动作上检查同目标 pending appeal（无目标的 appeal 视为 stop-the-line）；`resolveAppeal` 写 `status:'resolved'`、`resolvedBy`、`resolution`、`resolutionReason`，事件 `appeal/resolved`；`gateClaimAction` 对 L0/L1 直接放行，C7 只从 L2 开始 | `claims-selftest` **51/51**：L0/L1 放行、pending appeal 使 prune 返回 `appeal_pending`、expert resolve 被拒、human resolve 记录 resolver/reason、resolve 后 prune 恢复 `appeal_window_required`；`appointment` 真实 service 路径 |
+| **U14/A20** | partial 时 `stale:false, failureCount:0, degraded:false`；无告警 | `dashboardView` 把 `partial` 与 `error` 都视为失败：`stale:true`、`staleReason:'refresh_partial'`、failureCount 递增、退避、连续 3 次 degraded；partial 不推进 `lastSuccessAt`；UI 对 `error`/`partial` 都渲染可关闭 `.rl-dash-alert`，并显示 `errorHint` | `dashboard-selftest` **12/12**：partial `stale:true`、`lastSuccessAt` 保持旧值、failureCount≥1、重复 partial 降级/退避；`client-smoke` **16/16**：partial 也渲染 `dashboard.partialAlert` |
+| **S12** | 真实 `openStore` 重启后首读 85.7 ms | 归档时写每段 `*.head.json` 前 1,000 条；`pageEvents` 对首屏读 head，不读整个冷段；冷段元数据直接算 `start/total`，首屏不构建 50k hot 索引；不足一页才回退完整段 | `scale-selftest` **11/11**：同一测试内 close/reopen 后 `after:0,limit:100` 首读 **1.93–2.27 ms**（预算 50 ms）；`bench:scale` 同样 11/11 |
+| **A20** | partial 没有顶部告警 | 与 U14 同一条件：`showFailureAlert` 接受 `error|partial`；locale 增加 `dashboard.partialAlert` / `stalePartial` | `client-smoke` 的 partial 渲染检查通过（16/16）；告警可关闭、显示 `errorHint` |
+
+### 24.3 20 个文档/口径行的关闭
+
+| 行 | §23 剩余原因 | 关闭方式 | 证据 |
+|---|---|---|---|
+| **B9** | 没有 5×6 权限矩阵测试 | 在 `policy-selftest` 增加 5 个 actor × 6 个 action 的逐格正/负断言，期望值独立于 `allowedActions()` 手写 | `policy-selftest` 120 checks 全过；含 `delete_project` 对 expert 行全拒 |
+| **B24** | 谓词验证器未算通过 | 7 谓词 + 提交时拒绝 + 统计已实现 | `claims-selftest` 7 个谓词各自正/负；`5.1` 依赖同一证据 |
+| **Q1** | issue 0001 的 action 白名单未落地 | `ACTION_CATALOG` 77 action + `PRESET_POLICIES` 默认拒绝；`get_node`/`dashboard_get` 入目录；三表一致 | `policy-selftest`（枚举/目录/处理器）、`tool-surface-selftest` |
+| **Q2** | 只有决策段测试，没有 fast-path 端到端 | 增加 auto tick 的“dispatch 已启动则 planner 0 次”测试；dispatch 决策 p95 29.2 ms | `auto-wip-selftest` 5/5；`scale-selftest` dispatch p95=29.2 ms <100 ms |
+| **5.1** | 依赖 B24 | B24 关闭 | 同上 |
+| **5.1.2** | 运行时 summary/headline 未落地 | `normalizeNodeReport` 在写入边界截 500/300，prompt 写明；迁移工具同形 | `trace-selftest`：summary=500、headline=300、list item 截断 |
+| **5.2.2** | 阶段顺序冲突未裁决 | 裁决为 kernel-first；阶段 1 的 1.1–1.4 已在 P1.4/P4.3/P6.6/runtime 落地，映射表记录 | [`APPENDIX-D-MAP.md`](APPENDIX-D-MAP.md) §5.2.2 |
+| **5.2.3** | 阶段 1 无 WP | 1.1→P6.6、1.2→P4.3、1.3→P4.5、1.4→P1.4-Q6 逐项映射 | 同上表 |
+| **5.2.4** | 附录 D 5.4 无 WP | D7 已决定不做固定三级；5.4 标 `not needed`，不算实现缺口 | 同上 §5.2.4 |
+| **5.2.5** | 没有附录 D ↔ WP 映射表 | 新增 21 步映射表，逐行给 WP/状态/证据；5.2/5.3 诚实标 missing | [`APPENDIX-D-MAP.md`](APPENDIX-D-MAP.md) |
+| **5.3.6** | 无 drain/handover/孤儿归属 | `fireExpert` 要求先 drain、保留 running、孤儿 `createdBy` 转 human 并记 `orphanedFrom`；`expert/retired` 事件 | `expert-lifecycle-selftest`：`plan-1` 交回 human，`orphanedFrom=lab-advisor` |
+| **5.3.16** | 并集 7 工具只落 3 个 | `dag_map`/`dag_walk`/`dag_diff` 已注册并走真实 handler | `tool-surface-selftest` 驱动真实调用；`dag_*` 字节上限测试 |
+| **5.4.3** | P0.2/0.3/0.8/0.9 仍 todo，baseline 缺失 | P0 验收按 v2 重新裁决：P0.8 写入 `baseline.json`；P0.2/0.3 由 dispatch/cluster 测试取代；P0.9 因 D6 无驻留会话不适用 | [`baseline.json`](baseline.json) 的 `p0Acceptance`；`scale-selftest`/`cluster-fleet-selftest` |
+| **5.4.4** | 计划文件地图行数过期 | 更新 `docs/07` §3.1：3,967 / 2,138 / 1,434 / 203 | `wc -l host/{lab-service,runtime,orchestrator,snapshot}.js` |
+| **5.4.7** | P2.4/P2.5 无 WP 行 | `PROGRESS.md` 状态表补 P2.4 `d8565d6`、P2.5 `cc792d9`；提交表补齐第七/八轮 | `PROGRESS.md` L58–59、L199 |
+| **C12** | 无 `baseline.json`、无绝对目标 | 新增基线文件：dispatch、event page（warm/restart）、getState、并发目标 2.83→3.5；GPU idle 明确标未测量而非编造 | [`baseline.json`](baseline.json) |
+| **C13** | 绩效指标与 QA 冲突 | `accepted` 明确为观测字段，不参与 roster/晋升/排序；质量信号走 citationErrorRate/预测校准 | [`EXPERT-METRICS.md`](EXPERT-METRICS.md) |
+| **O9** | 无 6 状态转换测试；`node/claimed`/`node/dispatch_failed` 缺失 | 真实 executor 枚举 11 条合法转换，每条恰好 1 个稳定事件；canonical 名是 `dispatch/claimed`/`dispatch/claim_released`，行按实际名字改正 | `state-events-selftest` 17/17 |
+| **S13** | `bench:scale` 不存在，UI 绘制不在 CI | `bench:scale` 存在且 11/11；UI 预算是静态 view-model 测试，真实浏览器绘制仍 N/A | `package.json`、`bench-final7b.log`、`ui-selftest` 12/12 |
+| **U10** | `model_profile_unknown` 不可操作；UI 丢 hint | `NEXT_STEPS` 增加 model/dashboard/appeal 等 code；model 错误列出可用 profile；dashboard partial/error 带 `errorHint` 并在 UI 渲染 | `errors-selftest` 9/9；`dashboard-selftest` 断言 partial `errorHint`；`client-smoke` 断言 hint 进入告警 |
+
+### 24.4 最终计数
+
+| 判定 | §23 | §24 | 变化 |
+|---|---|---|---|
+| PASS | 84 | **108** | +24 |
+| FAIL | 80 | **56** | −24 |
+| 未测量 | 10 | **10** | 0 |
+| 合计 | 174 | **174** | — |
+
+- **+4**：B27、U14、S12、A20。
+- **+20**：§24.3 的二十行。
+- **剩余 56 FAIL**：全部是 Stage 3–5 组织/争议/预算/观测/UI 能力（§23.9 的 58 行减去已关的
+  A20、S12；其中 B27/U14 已在阻断桶关闭）。不是“文档没写”。
+- **未测量 10 行**：含 2 行浏览器绘制 N/A；不再把 N/A 混入 PASS。
+
+### 24.5 回归与边界
+
+- `npm test`：**EXIT=0**，36 个自测文件 / **606 个 `ok`**。
+- `npm run bench:scale`：**EXIT=0**，11/11；100k 进程内 0.66 ms、真实重启 1.93 ms。
+- `client-smoke`：**16/16**（15 个面板 + partial 告警）。
+- `auto-wip-selftest`：**5/5**（含 Q2 fast path）。
+- `strict-writes-selftest`：生产旁路 0；测试自身的故意 unpermitted 写仍被拒。
+- 未做：真实模型 provider、真实 DSH Host、浏览器帧、Stage 5 组织能力、`dispute` 表、
+  预测误差复盘。它们属于剩余 56 行，不在本节冒充完成。

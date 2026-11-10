@@ -55,6 +55,8 @@
 | P9.4 cause 全覆盖 | done | `f67348f` | planned cancel 用真实 runtime 探针；store 为 merge/GC/reconcile 等非激活写补稳定 `causeId`；`explain_node` 回退 `lastCauseId` |
 | P9.5 测试真实性 | done | `f67348f` | trace 用真实事件、tool-surface 断言精确 `unknown_action`、i18n 解析未加引号键、priority 断言真实 actor |
 | P2.3 低水位 | done | `0170092` | 5 min 剩余 / 60 s debounce / 30 s minGap |
+| P2.4 审查租约 | done | `d8565d6` | 同父提案并发互斥；`review-claims-selftest` |
+| P2.5 auto 接入 | done | `cc792d9` | `dispatchOnce` 进 auto tick 与终止回调；preset 能力表在 handler 层生效；`dag_*` 工具注册 |
 | P3.6 接入 Dispatcher | done | `cc792d9` | `index.js` 构造 kernel/broker 映射；auto tick 与 `onTerminated` 都调 |
 | P3 dag_map/walk/diff | done | `218fe32` | 已接 `agentTool`；`tool-surface-selftest.mjs` 驱动真实调用 |
 | P3 意图日志 | done | `9bdd581` | `basis:{projectRevision,snapshotAgeMs,nodesSeen}` 对象；TTL/撤回/同目标陈旧冲突；dispatch/priority/proposal 生产写入 |
@@ -192,9 +194,10 @@
 | `5ce5279` | P17.2(U14,A20) 成功刷新记录实际读取 revision（`revision`/`dataRevision`）与写入后 `committedRevision`；失败刷新保留上次成功并永不 stale:false；可关闭告警、3 次失败降级/退避、widget 隐藏数字 | `dashboard-selftest` 10 checks；真实 `refreshDashboard` 成功/失败/连续失败；`ui-selftest` 12/12 |
 | `6584441` | P17.2(U14) 把读 revision 与 dashboard 自身写入 revision 分开，freshness 用 `committedRevision` | 成功刷新 `lastRun.revision=2` 且非 stale；失败仍 stale |
 | `e533164` | P18.1(D) jsdom 挂载 15 个面板 + degraded 载荷；修 `RunsPanel` 缺少 `cycles` 的崩溃 | `client-smoke` 15/15；`npm test` 32 文件 / 532 checks |
-| uncommitted | P18.3(D) 独立进程 apply/activate + 临时仓库 + stub worker → completed + cause chain | `plugin-smoke` 3/3；`npm test` 34 文件 / 539 checks |
-| uncommitted | P18.2(Q3/5.3.1) `maxPlannedInFlight` 默认 max(2×free,4)，超限跳过 advisor pass；未做 reservedSlots/抢占 | `auto-wip-selftest` 4/4；`npm test` 33 文件 / 536 checks |
-| 已落 | S12 100k 首读：`timelineCache` 归档边界预热 + hot 尾追加 | `scale-selftest` 11/11，100k 首读 0.27–0.35 ms（≤50 ms） |
+| `fd5e90e` | P18.3(D) 独立进程 apply/activate + 临时仓库 + stub worker → completed + cause chain | `plugin-smoke` 3/3；`npm test` 34 文件 / 539 checks |
+| `7c7d48c` | P18.2(Q3/5.3.1) `maxPlannedInFlight` 默认 max(2×free,4)，超限跳过 advisor pass；未做 reservedSlots/抢占 | `auto-wip-selftest` 4/4；`npm test` 33 文件 / 536 checks |
+| `7e19499` | P18.4(B27,U14,A20,S12) 可登记/可裁决的 appeal；L0/L1 不套 C7；partial 刷新按失败计 stale/降级/告警；冷段 head 缓存 + 首读不建 hot 索引 | `claims-selftest`（appeal 阻断/裁决）、`dashboard-selftest`（partial）、`scale-selftest`（restart 1.93 ms ≤50 ms）；`npm test` 36 文件 / 606 checks |
 
-状态：3 个阻断项清零；S12/A20 关闭。§22 计数 **87 PASS / 77 FAIL / 10 N/A**。
-剩余 20 行只差文档/口径，57 行能力未建；本轮未开始 Stage 5。
+状态：独立复核 §23 的 84 PASS / 80 FAIL 中，B27/U14/A20/S12 已由 `7e19499` 关闭；
+§24 的 20 个文档/口径行已逐项关闭，最终 **108 PASS / 56 FAIL / 10 未测量**。
+剩余 56 行全部是 Stage 3–5 能力未建；浏览器绘制 2 行仍 N/A。

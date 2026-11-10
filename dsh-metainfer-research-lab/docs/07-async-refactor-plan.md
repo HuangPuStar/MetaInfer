@@ -156,16 +156,16 @@ conservative gang started at +66.6 min (bound +68.1); utilization 79.3%
 
 | 文件 | 行数 | 职责 | 重构后的去向 |
 |---|---|---|---|
-| `lab-service.js` | 2,656 | 服务门面：项目 CRUD、getState、agentTool、Copilot、dashboard | 变薄：Command → Policy → Executor |
-| `runtime.js` | 2,037 | 节点生命周期：start/finish/fail/cancel/retry/merge、租约续约、lease pump、watchdog | 保留执行职责；写入走 Executor；派发移出 |
+| `lab-service.js` | 3,967 | 服务门面：项目 CRUD、getState、agentTool、Copilot、dashboard | 变薄：Command → Policy → Executor |
+| `runtime.js` | 2,138 | 节点生命周期：start/finish/fail/cancel/retry/merge、租约续约、lease pump、watchdog | 保留执行职责；写入走 Executor；派发移出 |
 | `cluster.js` | 1,854 | coordinator 服务端 + 客户端门面 + 放置 | 规划逻辑移到 `host/coordinator/`，保留门面 |
-| `orchestrator.js` | 1,261 | cycle、advisor、scheduler、提案校验、建子节点 | advisor → 专家运行时兼容层；scheduler → `LegacyLlmStrategy` |
+| `orchestrator.js` | 1,434 | cycle、advisor、scheduler、提案校验、建子节点 | advisor → 专家运行时兼容层；scheduler → `LegacyLlmStrategy` |
 | `git-engine.js` | 387 | worktree、提交、tag | 不变 |
 | `models.js` | 353 | 模型路由 | 不变 |
 | `http.js` / `mcp.js` | 343 / 338 | HTTP 路由 / MCP | 改为构造 Command |
 | `remote-run.js` | 336 | 多机远程执行（SSH / 容器） | 增加预准备（P3.5.5） |
 | `auto.js` | 326 | 自动挡轮询与熔断 | 退化为触发规则 + 熔断 |
-| `snapshot.js` | 315 | advisor 快照 | 被导航 API 取代，保留给兼容层 |
+| `snapshot.js` | 203 | advisor 快照 | 被导航 API 取代，保留给兼容层 |
 | `placement.js` | 318 | 自然语言放置策略 | 不变 |
 | `store.js` | 246 | storageDomain 门面 | 新表、写保护 |
 | `gc.js` | 172 | 终止后 GC 角色 | 改为 postmortem 专家 |

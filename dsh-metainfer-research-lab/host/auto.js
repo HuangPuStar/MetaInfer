@@ -110,6 +110,8 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       errorStreak: state.errorStreak,
       lastCycleAt: state.lastCycleAt,
       lastPlanSkip: state.lastPlanSkip,
+      lastDispatch: state.lastDispatch ?? null,
+      dispatchStarted: state.dispatchStarted ?? 0,
       tokensUsed: tokensUsed(projectId),
       costUsed: costUsed(projectId),
       limits: {
@@ -288,6 +290,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
           busy.add(projectId);
           try {
             state.dispatchStarted = (state.dispatchStarted ?? 0) + round.started;
+            state.lastDispatch = { started: round.started, skipped: round.skipped?.length ?? 0, durationMs: round.durationMs ?? null, at: Date.now() };
             state.lastDispatchAt = Date.now();
             state.lastCycleAt = Date.now();
             state.idleStreak = 0;

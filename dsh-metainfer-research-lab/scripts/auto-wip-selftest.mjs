@@ -41,7 +41,7 @@ await test('default cap is max(2 * freeSlots, 4)', async () => {
   assert.equal(maxPlannedInFlightOf({ config: { maxRunningNodes: 4, maxPlannedInFlight: 3 } }, { runningCount: 0 }), 3);
 });
 
-async function drive(projectId, count, config = {}) {
+async function drive(projectId, count, config = {}, dispatchResult = { started: 0, skipped: [] }) {
   const store = await openStore(storeContext(memoryDomain()));
   await store.saveProject({
     id: projectId,
@@ -59,7 +59,7 @@ async function drive(projectId, count, config = {}) {
     store,
     kernel,
     cluster: null,
-    dispatchOnce: async () => ({ started: 0, skipped: [] }),
+    dispatchOnce: async () => dispatchResult,
     orchestrator: {
       step: async () => {
         steps += 1;
@@ -86,6 +86,13 @@ await test('a queue below the cap can plan', async () => {
   const { steps, status } = await drive('p-room', 2);
   assert.equal(steps, 1, 'advisor runs for a two-node queue');
   assert.equal(status.lastPlanSkip, null);
+});
+
+await test('a deterministic dispatch start skips the planner entirely', async () => {
+  const { steps, status } = await drive('p-fast', 2, {}, { started: 1, skipped: [], durationMs: 2 });
+  assert.equal(steps, 0, 'planner must not run when dispatch started a node');
+  assert.equal(status.lastDispatch?.started, 1);
+  assert.ok((status.lastDispatch?.durationMs ?? 0) < 100);
 });
 
 await test('an explicit project cap overrides the derived default', async () => {

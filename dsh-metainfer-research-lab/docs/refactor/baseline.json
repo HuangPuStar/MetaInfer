@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "commit": "7e19499",
+  "generatedAt": "2026-11-10",
+  "scope": "refactor/v2",
+  "source": "measured by npm test / npm run bench:scale on this branch; concurrency baseline from QA §Q2 offline fixture",
+  "metrics": {
+    "dispatchDecisionP95Ms5k": { "value": 29.2, "budget": 100, "unit": "ms", "source": "bench:scale" },
+    "eventPage100kFirstPageWarmMs": { "value": 0.66, "budget": 50, "unit": "ms", "source": "bench:scale" },
+    "eventPage100kFirstPageRestartMs": { "value": 1.93, "budget": 50, "unit": "ms", "source": "bench:scale after openStore restart" },
+    "getState5kMs": { "value": 43, "budget": 500, "unit": "ms", "source": "bench:scale" },
+    "getState5kBytes": { "value": 4325376, "budget": 5242880, "unit": "bytes", "source": "bench:scale (4.13 MB)" },
+    "timeWeightedConcurrency": {
+      "baseline": 2.83,
+      "target": 3.5,
+      "unit": "concurrent GPU nodes / 8",
+      "source": "QA §Q2 offline fixture; target is +24% without a capacity change and must be re-measured on production telemetry",
+      "status": "target-recorded"
+    },
+    "gpuIdleHoursPerDay": {
+      "baseline": null,
+      "target": "<= 0.75 x the first production baseline",
+      "unit": "hours/day",
+      "status": "not-measured",
+      "note": "No production GPU telemetry is available in this checkout; recorded as a target, never fabricated."
+    }
+  },
+  "p0Acceptance": {
+    "p0.2": "superseded by the deterministic dispatch/broker tests (dispatch-selftest, cluster-fleet-selftest); the old simulator-only gate is not a release gate for v2",
+    "p0.3": "superseded by placement/cluster tests; no production path depends on the spike simulator",
+    "p0.8": "recorded in this file: dispatch, event-page, getState and target concurrency",
+    "p0.9": "not applicable: D6 uses one short-lived activation per node, so there is no resident-session file to retain"
+  }
+}
