@@ -15,6 +15,15 @@
  *
  * Pure functions only; no I/O.
  */
+import { actorKeyFor } from './actors.js';
+
+/**
+ * Session -> actorKey. A session object is the registration boundary: changing
+ * the display id on the same object (for example a rename from `h1` to `ｈ１`)
+ * must not mint a second identity. Actors from separate registrations get
+ * separate keys, deterministically derived from their exact registration id.
+ */
+const sessionActorKeys = new WeakMap();
 
 /** Coarse capability of every action. Used by policy tables and by the UI. */
 export const ACTION_CATALOG = Object.freeze({
@@ -233,27 +242,12 @@ export const ACTOR_KIND = Object.freeze({
 });
 
 /**
- * Build the immutable actor identity of one DSH session.
- * @param {{agentPreset?: string, sessionId?: string, kind?: string}} input
+ * A session/human/system registration. `actorKey` is the opaque identity; the
+ * `id` is display data only. Callers that own an external registration can pass
+ * its key explicitly (`actorKey`), including through a session object. Without
+ * one, the key is deterministic from the exact registration id, never from a
+ * case-folded or suffix-stripped display name.
  */
-/**
- * Canonical actor id used for every identity comparison.
- *
- * Session ids are transport identifiers, not identities: the same human can
- * arrive as `H1`, `h1 ` or `h1:resolver`. Comparing the raw strings makes
- * those look like three different people. Trim, case-fold and drop a
- * transport/session suffix before any distinctness check. This does not replace
- * an external identity provider; it removes the trivial spelling bypass.
- */
-export function canonicalActorId(value) {
-  if (typeof value !== 'string') return '';
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[:#@].*$/, '')
-    .trim();
-}
-
 export function actorForSession(input = {}) {
   const preset = typeof input.agentPreset === 'string' && input.agentPreset ? input.agentPreset : null;
   const policy = preset ? PRESET_POLICIES[preset] : null;
@@ -262,9 +256,18 @@ export function actorForSession(input = {}) {
   const fallbackKind = preset ? ACTOR_KIND.LEGACY : ACTOR_KIND.HUMAN;
   const kind = input.kind ?? (policy?.kind === 'expert' ? ACTOR_KIND.EXPERT : (policy ? ACTOR_KIND.SYSTEM : fallbackKind));
   const rawId = typeof input.sessionId === 'string' && input.sessionId ? input.sessionId : (preset ?? 'human');
+  const session = input.session && typeof input.session === 'object' ? input.session : null;
+  const explicit = [input.actorKey, session?.actorKey, input.meta?.actorKey]
+    .find((value) => typeof value === 'string' && value.length > 0) ?? null;
+  // Pin the key to the session registration object. A later display rename (or
+  // even a conflicting metadata field) cannot rotate the identity.
+  let actorKey = session ? (sessionActorKeys.get(session) ?? null) : null;
+  if (!actorKey) actorKey = explicit ?? actorKeyFor(rawId);
+  if (session) sessionActorKeys.set(session, actorKey);
   return Object.freeze({
     kind,
-    id: canonicalActorId(rawId) || 'human',
+    id: rawId,
+    actorKey,
     preset,
   });
 }
@@ -280,6 +283,9 @@ export function actorFromToolExecution(exec) {
   return actorForSession({
     agentPreset: meta?.agentPreset,
     sessionId: typeof session?.id === 'string' ? session.id : undefined,
+    session,
+    actorKey: meta?.actorKey ?? session?.actorKey,
+    meta,
   });
 }
 

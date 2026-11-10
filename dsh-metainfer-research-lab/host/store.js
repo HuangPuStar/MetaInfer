@@ -21,6 +21,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import { createEventArchive } from './kernel/eventlog.js';
+import { migrateProjectActorKeys } from './kernel/actors.js';
 
 /**
  * v2 is a clean break, not an upgrade: the plugin never reads a v1 record and
@@ -335,13 +336,18 @@ export async function openStore(ctx, config = {}) {
   }
 
   function getProject(projectId) {
-    return tables.projects.get(projectId);
+    // Read-time migration of pre-key intent/resolution actors. The derived key
+    // is deterministic from the exact legacy actor id, so reopening a project
+    // yields the same identities and old resolutions remain resolvable.
+    const project = tables.projects.get(projectId);
+    return project ? migrateProjectActorKeys(project) : undefined;
   }
 
   function listProjects() {
     const out = [];
     for (const [key, value] of tables.projects.entries()) {
-      out.push({ ...value, id: value?.id ?? key });
+      const project = migrateProjectActorKeys(value);
+      out.push({ ...project, id: project?.id ?? key });
     }
     out.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
     return out;
@@ -349,7 +355,7 @@ export async function openStore(ctx, config = {}) {
 
   function saveProject(project) {
     guardWrite('saveProject');
-    return tables.projects.put(project.id, project);
+    return tables.projects.put(project.id, migrateProjectActorKeys(project));
   }
 
   function getNode(projectId, nodeId) {

@@ -6,6 +6,7 @@
  *
  * Pure: no I/O, no ids from the store — callers supply a stable id.
  */
+import { actorKeyOf, actorKeyFor, withActorKey } from './actors.js';
 export const INTENT_KINDS = Object.freeze(['dispatch', 'priority', 'proposal', 'review', 'curate', 'note', 'appeal']);
 
 const MAX_TARGET = 160;
@@ -76,6 +77,7 @@ export function createIntent(input) {
   if (!INTENT_KINDS.includes(input?.kind)) throw new TypeError(`intent.kind must be one of ${INTENT_KINDS.join(', ')}`);
   const actor = input?.actor;
   if (!actor || typeof actor.id !== 'string' || !actor.id) throw new TypeError('intent.actor is required');
+  const actorKey = actorKeyOf(actor) ?? actorKeyFor(actor.id);
   const basis = intentBasis(input?.basis);
   const claim = plain(input?.claim, 'intent.claim');
   const action = str(claim.action, 'intent.claim.action', 80);
@@ -97,7 +99,7 @@ export function createIntent(input) {
     kind: input.kind,
     status: 'pending',
     expiresAt: Number.isFinite(input?.expiresAt) ? input.expiresAt : (Number.isFinite(input?.at) ? input.at : Date.now()) + INTENT_TTL_MS,
-    actor: { kind: typeof actor.kind === 'string' ? actor.kind : 'expert', id: actor.id },
+    actor: withActorKey({ kind: typeof actor.kind === 'string' ? actor.kind : 'expert', id: actor.id, actorKey }),
     claim: structuredClone(claim),
     basis,
     target,

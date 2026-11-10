@@ -25,7 +25,8 @@ import { createExplorationBudget } from './context/limits.js';
 import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
-import { actorFromToolExecution, canonicalActorId } from './kernel/policy.js';
+import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
+import { actorKeyOf, hasActorIdentity, sameActor } from './kernel/actors.js';
 import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
 import { ACTION_VERIFICATION, IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
@@ -3374,7 +3375,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     ];
     const reviews = reviewClaims.map((claim) => ({ nodeId: claim.nodeId, status: claim.intent === 'review' ? 'claimed' : 'pending' }));
     const result = curator.nominate({ nodes, claims, reviews });
-    const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
     if (result.nominations.length > 0 && result.circuitOpen !== true) {
       const intent = createIntent({
         id: intentId('curate', project.revision + 1, actor.id),
@@ -3494,15 +3495,18 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       if (row.intent.resolution !== 'upheld') return false;
       const by = row.intent.resolvedBy;
       if (!by || (by.kind !== 'human' && by.kind !== 'system')) return false;
-      const resolverId = canonicalActorId(by.id);
-      const requesterId = canonicalActorId(actor?.id);
-      const raiserId = canonicalActorId(row.intent.actor?.id);
-      if (!resolverId || !requesterId || !raiserId) return false;
-      // Raiser, requester and resolver are three distinct canonical actors.
-      // Raw ids let `H1`, `h1 ` and `h1:resolver` masquerade as three people.
-      if (resolverId === requesterId) return false;
-      if (resolverId === raiserId) return false;
-      if (raiserId === requesterId) return false;
+      // Raiser, requester and resolver are three distinct actors. Identity is
+      // the opaque actorKey; display ids only participate for legacy records
+      // that predate keys (and then only by exact-byte equality).
+      if (!hasActorIdentity(actor) || !hasActorIdentity(row.intent.actor) || !hasActorIdentity(by)) return false;
+      // A keyed identity and an unkeyed legacy identity cannot be compared
+      // soundly. If any of the three has a key, require all three to have one;
+      // mixing them must not turn "not provably equal" into "distinct".
+      const identities = [actorKeyOf(by), actorKeyOf(row.intent.actor), actorKeyOf(actor)];
+      if (identities.some(Boolean) && !identities.every(Boolean)) return false;
+      if (sameActor(by, actor)) return false;
+      if (sameActor(by, row.intent.actor)) return false;
+      if (sameActor(row.intent.actor, actor)) return false;
       return true;
     });
     // The same unresolved predicate gates both outcomes: while any withdrawn
@@ -3546,7 +3550,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const project = requireProject(projectId);
     const action = toolActionScope(toolAction);
     if (!action) throw new LabError('unknown_action', `unknown irreversible handler: ${toolAction}`, 400);
-    const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
     let target;
     if (action === 'delete_project') {
       // Project-wide action: the authorization scope is the project id. A
@@ -3588,7 +3592,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       actor,
     });
     if (!gate.ok) throw new LabError(gate.code, `irreversible action ${action} rejected by the claim gate: ${gate.code}`, 403);
-    return { projectRevision: project.revision ?? 0, actor, target, action, gate };
+    return { projectRevision: project.revision ?? 0, actor, actorKey: actor.actorKey, target, action, gate };
   }
 
   /** Append one judgement to the project intent log (Stage 3). */
@@ -3597,7 +3601,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (!kernel?.executor) return rejection('internal_error', 'kernel executor is not wired');
     let kind = typeof input?.kind === 'string' ? input.kind : 'note';
     if (!INTENT_KINDS.includes(kind)) return rejection('bad_request', `intent.kind must be one of ${INTENT_KINDS.join(', ')}`);
-    const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
     // Reject the field even when no appeal exists, before any target lookup:
     // an action must not satisfy its own cooling-off requirement by supplying
     // a future timestamp.
@@ -3793,6 +3797,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       claim = {
         ...claim,
         gate: {
+          actorKey: actor.actorKey,
           level: gate.level,
           requiredEvidence: gate.requiredEvidence,
           submitted: gate.submitted,
@@ -3925,7 +3930,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         return rejection('node_not_found', `appeal ${intentId} targets unknown node ${intent.target.nodeId}`);
       }
     }
-    const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
     if (actor.kind !== 'human' && actor.kind !== 'system' && actor.preset !== 'lab-chief') {
       return rejection('forbidden_action', 'only a human or the chief may resolve an appeal');
     }
@@ -3938,8 +3943,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       return rejection('appeal_expired', `appeal ${intentId} expired before it was resolved`);
     }
     // Separation of powers: the actor who raised an appeal cannot also decide
-    // it. This is by actor id, not by role, so a chief cannot self-certify.
-    if (canonicalActorId(intent.actor?.id) === canonicalActorId(actor.id)) {
+    // it. This is by opaque actorKey, not by role, so a chief cannot self-certify.
+    // A keyed actor and an unkeyed legacy raiser are not comparable; fail closed
+    // instead of treating "not provably equal" as a different person.
+    if (Boolean(actorKeyOf(intent.actor)) !== Boolean(actorKeyOf(actor))) {
+      return rejection('forbidden_action', 'appeal raiser and resolver have incomparable actor identities');
+    }
+    if (sameActor(intent.actor, actor)) {
       return rejection('appeal_self_resolution', 'the actor who raised an appeal cannot resolve it; a different human or the chief must decide');
     }
     let commit;
@@ -3971,14 +3981,19 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (!intent) return rejection('intent_not_found', `unknown intent: ${intentId}`);
     if (intent.status === 'withdrawn') return { ok: true, projectId, intent, alreadyWithdrawn: true };
     if (intent.status === 'resolved') return rejection('intent_not_pending', `intent ${intentId} is already resolved`);
-    const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
     const appeal = intent.kind === 'appeal';
     // Withdrawal is not a hearing and it does not remove the block: a
     // withdrawn appeal remains `appeal_not_resolved` until an explicit
     // resolution by another actor. An expert may withdraw only the appeal it
     // raised; a different expert cannot silence someone else's objection.
-    if (appeal && actor.kind === 'expert' && actor.preset !== 'lab-chief' && canonicalActorId(intent.actor?.id) !== canonicalActorId(actor.id)) {
-      return rejection('forbidden_action', 'an expert may withdraw only its own appeal; a human or the chief may withdraw another actor\'s appeal');
+    if (appeal && actor.kind === 'expert' && actor.preset !== 'lab-chief') {
+      if (Boolean(actorKeyOf(intent.actor)) !== Boolean(actorKeyOf(actor))) {
+        return rejection('forbidden_action', 'appeal raiser and withdrawer have incomparable actor identities');
+      }
+      if (!sameActor(intent.actor, actor)) {
+        return rejection('forbidden_action', 'an expert may withdraw only its own appeal; a human or the chief may withdraw another actor\'s appeal');
+      }
     }
     // Withdrawal is not a hearing: it must not write `resolved`, `resolvedBy`
     // or `resolution`, and it cannot be used by an expert to impersonate the

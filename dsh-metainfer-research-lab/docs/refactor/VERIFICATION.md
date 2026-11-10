@@ -16,42 +16,38 @@
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：第十二轮独立复核（HEAD `e85b213`，§30.6）确认作者 §30 的
-scope/CAS/三 actor 精确探针大多变绿：`resolveAppeal` 的 rejected/upheld 并发现在
-一个成功、一个 `intent_not_pending`，且只有一条 `appeal/resolved`；scope 之外的
-resolution 返回 `appeal_target_mismatch`；aliases 不能授权实际执行的另一个
-action。但 **B27 仍未闭**，且这次有可直接执行的 tool-path 绕过：
-
-1. **实际 tool path 完全绕过 claim gate**：`metainfer_lab` 的 `delete_project`
-   对人类 session 直接删除项目，`cancel_node` 对人类 session 直接取消节点；
-   两者都不需要 appeal/resolution，也不写 `humanConfirmed`。`delete_project`
-   甚至不需要 `nodeId`。这是 §30.1/§30.2 的 intent 路径之外的执行路径。
-2. **三 actor 只比较字符串**：requester `h1`、raiser `advisor`、resolver
-   `H1` / `h1 ` / `h1:resolver` 都能通过；只差大小写、尾随空格或 session
-   suffix 的 id 被当作独立 actor。
-3. **action 写入没有 CAS**：在 gate 检查和 action commit 之间插入一条新的
-   withdrawn appeal，action 仍 `ok:true`；final 状态有 `unresolved`，但 action
-   已经通过。CAS 只覆盖 `intent.withdraw`，没有覆盖 `submitIntent` 的 action
-   commit。
+**一句话**：第十三轮独立复核（HEAD `4a209bc`，§32）确认作者 §31 的三项结构
+修改在英文/ASCII 范围内成立：真实 `delete_project`/`cancel_node` handler 的负向
+探针全部 fail closed，正向控制通过；action commit 的 injected withdraw/resolve
+都得到 `stale_basis`；foreign pending 不再阻断精确 action；project-scoped delete
+与 node-scoped cancel 分离。但 **B27 仍未闭**：canonical actor 只做 `trim` +
+`toLowerCase` + 去 `:`/`#`/`@` 后缀，未做 Unicode case-fold/NFKC，也不处理
+零宽字符、全角冒号、点/斜杠后缀，因此同一个 human 仍可用 `ｈ１`、`h1\u200b`、
+`h1：resolver`、`h1.resolver`、`İ`、`ß`、`ſ` 等作为“独立” resolver；实际
+`delete_project`/`cancel_node` 用 `ｈ１` resolve 后仍然成功。canonical 还会把
+`alice@home.com` 与 `alice@work.com`、`team:alice` 与 `team:bob` 折叠为同一
+actor，造成合法的不同 human 被误拒。
 
 因此独立计数仍是 **107 PASS / 57 FAIL / 10 未测量**：1 个阻断（B27）、56 个
-能力未建、0 个只差文档。作者 §30 的 654 checks / 89 claims 没有覆盖上述执行
-路径。浏览器绘制仍 N/A。
+能力未建、0 个只差文档。作者 §31 的 668 checks / 103 claims 覆盖了 ASCII
+canonical，但没有覆盖 Unicode/format-character 变体。浏览器绘制仍 N/A。
 
-> 作者针对 §29.6.2/§29.6.3 的第十一轮整改见 **§30**，不替代独立复核。
-> 独立总判定以 **§30.6** 为准：**107 PASS / 57 FAIL / 10 未测量（NO-SHIP）**。
+> 作者针对 §30.6 的第十二轮整改见 **§31**，不替代独立复核。
+> 独立总判定以 **§32** 为准：**107 PASS / 57 FAIL / 10 未测量（NO-SHIP）**。
+> 作者第十三轮 `actorKey` 整改见 **§33**（作者侧报告，不替代 §32 的独立复核）。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
-> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**；第十一轮作者 scope/CAS 整改见 **§30**，第十二轮独立复核（`e85b213`）见 **§30.6**。
-> 独立总判定以 **§30.6** 为准；§20/§22/§24/§26/§28/§29/§30 是作者报告，不能代替独立复核。§22 曾声称关闭
+> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**；第十一轮作者 scope/CAS 整改见 **§30**，第十二轮独立复核（`e85b213`）见 **§30.6**；第十二轮作者 handler/canonical/CAS 整改见 **§31**，第十三轮独立复核（`4a209bc`）见 **§32**。
+> 独立总判定以 **§32** 为准；§20/§22/§24/§26/§28/§29/§30/§31 是作者报告，不能代替独立复核。§22 曾声称关闭
 > B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了其中 B27/U14/S12/A20 四项；
 > §24 作者报告为 112 PASS / 52 FAIL，§25 复核为 103 PASS / 61 FAIL，§27 复核为
 > **107 PASS / 57 FAIL / 10 未测量**，§28.4 复核仍为 **107 / 57 / 10**，
 > §29.6 复核仍为 **107 / 57 / 10（NO-SHIP）**，
-> §30.6 复核仍为 **107 / 57 / 10（NO-SHIP）**。
+> §30.6 复核仍为 **107 / 57 / 10（NO-SHIP）**，
+> §32 复核仍为 **107 / 57 / 10（NO-SHIP）**。
 
 ### 0.1 判定口径
 
@@ -3310,6 +3306,9 @@ browser/provider/restart。当前不得使用该措辞。
 
 > 这是作者侧整改记录，不是独立复核。§30.6 的独立判定仍为
 > **107 PASS / 57 FAIL / 10 未测量，NO-SHIP**；只有验证者重放下述探针后才可改口径。
+> 第十三轮独立复核见 **§32**：handler/CAS/scope 通过，simple canonical 通过，
+> 但 Unicode/case-fold/format-character 变体仍可绕过，**107 / 57 / 10
+> （NO-SHIP）**。
 
 ### 31.1 本轮代码改动
 
@@ -3440,3 +3439,465 @@ gate，同时保留 executor 的“permitted delete”覆盖。
   外部身份/审批；本轮只移除 case/whitespace/session-suffix 的明显绕过。
 - `delete_project` 的实际 handler 正向路径已覆盖 project-scoped appeal；node 级
   delete appeal 被写边界和实际 handler 双重拒绝。
+
+---
+
+## §32 第十三轮独立复核（HEAD `4a209bc`，2026-11-10）
+
+> 复核人：独立验证者。真实 `registerAgentTool` wrapper + direct service + 独立
+> probe；生产代码未改。采样时间 `2026-11-10T20:48:33+08:00`（`Asia/Shanghai`）；
+> 浏览器时区不可用。
+>
+> **结论：作者 §31 的 handler gate、action CAS、exact scope 三项在 ASCII 范围通过；
+> B27 仍因 canonical identity 的 Unicode/case-fold 缺口失败。**
+> 独立计数 **107 PASS / 57 FAIL / 10 未测量**，**NO-SHIP**。
+
+### 32.1 真实 handler / direct service 探针
+
+使用真实 tool wrapper（`tool.execute(input, humanExec)`）和 `service.deleteProject` /
+`service.cancelNode`。负向探针均未到达删除/取消：
+
+| 探针 | 输出 | 项目/运行时 |
+|---|---|---|
+| tool `delete_project`，无 nodeId、无 appeal | `human_confirmation_required` | 项目仍存在 |
+| tool `delete_project`，有 nodeId、无 appeal | `appeal_target_mismatch`（“project-scoped and does not accept a nodeId”） | 项目仍存在 |
+| direct `deleteProject`，无 appeal | `human_confirmation_required` | 项目仍存在 |
+| tool `cancel_node`，无 appeal | `human_confirmation_required` | `runtimeCalls=[]` |
+| tool `cancel_node`，无 nodeId | `bad_request`（“nodeId is required”） | `runtimeCalls=[]` |
+| direct `cancelNode`，无 appeal | `human_confirmation_required` | `runtimeCalls=[]` |
+
+正向控制：
+
+| 探针 | 输出 |
+|---|---|
+| project-scoped resolved delete appeal + clean history → tool delete（无 nodeId） | `{"deleted":true,...}`；项目被删除 |
+| 同上但请求仍带 nodeId | `appeal_target_mismatch`；项目仍在（node-scope 不能搭 project resolution） |
+| direct `deleteProject` + project-scoped resolved appeal | `{deleted:true}`；项目被删除 |
+| node-scoped resolved cancel appeal + fresh evidence + chief → tool `cancel_node` | `{"ok":true,"cancelled":true}`；runtime 收到 `expectedRevision=3`（整数） |
+| 同上 direct `cancelNode` | `ok:true`；runtime 收到 `expectedRevision=3` |
+| project-scoped delete resolution → `cancel_node` | `appeal_target_mismatch`；`runtimeCalls=[]` |
+
+**结论：§30.6.2 的实际 handler 绕过已修。** 负向全部 fail closed，正向在
+correctly-scoped resolution 下成功。
+
+### 32.2 canonical identity：ASCII 通过，Unicode/case-fold 仍绕过
+
+#### 32.2.1 作者声明的三种变体
+
+requester `h1`、raiser `advisor`、resolver 分别：
+
+| resolver raw | stored `resolvedBy.id` | action |
+|---|---|---|
+| `H1` | `h1` | `human_confirmation_required` |
+| `h1 ` | `h1` | `human_confirmation_required` |
+| `h1:resolver` | `h1` | `human_confirmation_required` |
+| `h1:resolver:extra` | `h1` | `human_confirmation_required` |
+| `h1#resolver` | `h1` | `human_confirmation_required` |
+| `h1@resolver` | `h1` | `human_confirmation_required` |
+| `h1\u00a0` (NBSP) | `h1` | `human_confirmation_required` |
+| `h1\t` / `h1\u3000` / `h1\ufeff` / `h1\u2028` | `h1` | `human_confirmation_required` |
+
+这些是作者 §31.3 的探针，独立复跑通过。
+
+#### 32.2.2 未覆盖的 Unicode / 格式字符变体
+
+同一 requester `h1`、raiser `advisor`，resolver 换成：
+
+| resolver raw | stored `resolvedBy.id` | action |
+|---|---|---|
+| `ｈ１`（全角 h1） | `ｈ１` | **`ok:true`**，`humanConfirmedBy=ｈ１` |
+| `h1\u200b`（零宽空格） | `h1\u200b` | **`ok:true`** |
+| `h1：resolver`（全角冒号） | `h1：resolver` | **`ok:true`** |
+| `h1.resolver` | `h1.resolver` | **`ok:true`** |
+| `h1/resolver` | `h1/resolver` | **`ok:true`** |
+| `h1\u200dresolver`（ZWJ） | `h1\u200dresolver` | **`ok:true`** |
+| `h1\u0301`（组合附加符） | `h1\u0301` | **`ok:true`** |
+| `h1\u0000resolver`（NUL） | `h1\u0000resolver` | **`ok:true`** |
+| `h1 resolver`（内部空格） | `h1 resolver` | **`ok:true`** |
+| `h1%2Fresolver` | `h1%2fresolver` | **`ok:true`** |
+| `İ`（土耳其大写 I） | `i̇` | **`ok:true`** |
+| `ß` / `ẞ` | `ß` | **`ok:true`** |
+| `ſ`（long s） | `ſ` | **`ok:true`** |
+| `K` / `K`（Kelvin） | `k` | `human_confirmation_required`（这个 case-fold 覆盖到了） |
+| `SS` / `ss` | `ss` | `human_confirmation_required`（这个覆盖到了） |
+
+`canonicalActorId` 只做 `trim`、`toLowerCase`、去掉 `:`/`#`/`@` 后的 suffix；它
+不是 Unicode case-fold，也不是 NFKC：
+
+- `toLowerCase("İ")` 是 `i` + combining dot，不是 `i`；
+- `toLowerCase("ß")` 是 `ß`，不是 `ss`；`ẞ` 是 `ß`；
+- `ſ` 不会被 case-fold 成 `s`；
+- `ｈ１` 保持全角；`h1\u200b` 的零宽空格不在 `trim` 集合；
+- 全角冒号 `：` 不等于 `:`，点/斜杠/百分号/内部空格也不在 suffix 规则。
+
+#### 32.2.3 Unicode resolver 能让真实 irreversible handler 执行
+
+不只 action intent：同一 `ｈ１` resolver 的 project-scoped delete appeal 让真实
+`delete_project` 删除项目；node-scoped cancel appeal 让真实 `cancel_node` 调用
+runtime：
+
+```json
+{
+  "deleteUnicode": {
+    "resolvedBy": "ｈ１",
+    "delete": {"deleted": true},
+    "exists": false
+  },
+  "cancelUnicode": {
+    "resolvedBy": "ｈ１",
+    "cancel": {"ok": true},
+    "runtimeCalls": [{"expectedRevision": 3}]
+  }
+}
+```
+
+即：同一个 human 用 `ｈ１` 作为 resolver，requester 用 `h1`；canonical 比较认为
+两者不同，真实删除/取消都通过。**B27 仍失败，且是可执行路径。**
+
+#### 32.2.4 canonical 过宽：合法不同 actor 被折叠
+
+同一 requester/resolver 分别是不同的合法字符串：
+
+| requester | resolver | canonical | action |
+|---|---|---|---|
+| `alice@home.com` | `alice@work.com` | both `alice` | `human_confirmation_required`（误拒） |
+| `team:alice` | `team:bob` | both `team` | `human_confirmation_required`（误拒） |
+| `a#one` | `a#two` | both `a` | `human_confirmation_required`（误拒） |
+
+这是 fail-closed，不是越权；但 `canonicalActorId` 把 `@`/`:`/`#` 后所有内容当
+transport suffix，无法区分“session suffix”与“合法 namespace/local-part”。
+它同时造成了 **Unicode 绕过**和 **合法 actor 误拒**两个方向的问题。
+
+#### 32.2.5 “不同字段”探针
+
+| 探针 | 结果 |
+|---|---|
+| legacy `resolvedBy.id='h1:resolver'`，requester `h1` | `human_confirmation_required`；canonical 比较拦截 |
+| legacy `actor.id='h1:raiser'`，requester `h1` | `human_confirmation_required`；raiser==requester |
+| legacy `actor.id='h2:raiser'` + `resolvedBy.id='H2'` | `human_confirmation_required`；raiser==resolver |
+| `claim.humanConfirmedBy.id='h1'`，但 `resolvedBy.id='h2'` | `ok:true`；`claim.humanConfirmedBy` 被忽略，确认来自 `resolvedBy` |
+| `resolutionBy` 替代字段（无 `resolvedBy`） | `human_confirmation_required`；替代字段不被接受 |
+| `claim.resolvedBy` 替代字段（无 `resolvedBy`） | `human_confirmation_required`；claim 字段不被接受 |
+| request 顶层 `claim.humanConfirmedBy` 无 appeal | `human_confirmation_required` |
+| `exec.session.id='h2'`、`meta.sessionId='h1'` | 以 `session.id` 为准，resolver=`h2`；meta 字段不参与 |
+
+结论：身份比较只认 canonical `resolvedBy.id` / `intent.actor.id` / requester
+`actor.id`；把 requester id 放进 claim/alternate 字段不会制造确认。这个方向
+是 fail closed 的。真正的失败是 32.2.2 的 Unicode 变体。
+
+### 32.3 Action-commit CAS
+
+#### 32.3.1 injected withdraw / resolve
+
+在 action gate 之后、`intent.put` 之前暂停 action commit；分别插入：
+
+- 同 target+action 的新 appeal，再 withdraw；
+- 同 target+action 的新 appeal，再 resolve upheld。
+
+结果：
+
+```text
+injectWithdraw: intercepted=1, action=stale_basis (expected 3, actual 5)
+injectResolve:  intercepted=1, action=stale_basis (expected 3, actual 5)
+```
+
+两次 action 都没有落盘；final 只有 base resolved + 注入的 withdrawn/resolved
+appeal。CAS 在 `intent.put` / executor 边界生效，不是只在 gate 前检查一次。
+
+#### 32.3.2 race two irreversible actions
+
+同一 project、两个不同 node，各自有 exact resolved `prune_branch` appeal，两个
+action intent 同时提交：
+
+```json
+{
+  "calls": [
+    {"ok": true, "status": "pending", "target": {"nodeId": "n1"}},
+    {"ok": false, "code": "stale_basis",
+     "message": "project revision changed since authorization (expected 5, actual 6)"}
+  ],
+  "stored": [{"target": "n1", "status": "pending"}],
+  "revision": 6
+}
+```
+
+一个成功、一个 `stale_basis`；没有两个 action 同时基于同一 revision 落盘。
+
+#### 32.3.3 delete handler CAS
+
+在真实 `deleteProject` 的第二次授权之后、`kernel.executor.deleteProject` 之前
+暂停；插入一条新的 project-scoped pending delete appeal：
+
+```json
+{
+  "seen": {"expectedRevision": 3, "currentRevision": 3},
+  "result": {"ok": false, "code": "stale_basis",
+             "message": "project revision changed since authorization (expected 3, actual 4)"},
+  "exists": true,
+  "finalIntents": [
+    {"status": "resolved", "action": "delete_project"},
+    {"status": "pending", "action": "delete_project"}
+  ]
+}
+```
+
+项目仍在；CAS 阻止删除。**CAS 三项通过。**
+
+### 32.4 Exact scope
+
+| 探针 | 结果 |
+|---|---|
+| exact resolved prune + foreign pending cancel → prune | `ok:true`；gate `appealPending=false` |
+| 再 withdraw foreign cancel → prune | `ok:true`；gate 仍 false |
+| exact pending prune → prune | `appeal_pending` |
+| exact withdrawn prune → prune | `appeal_not_resolved` |
+| project delete resolved + foreign pending node cancel → delete | `deleted:true`；项目被删除 |
+| node-scoped delete appeal at write boundary | `appeal_target_mismatch` |
+| manual legacy node-scoped resolved delete appeal → delete | `appeal_target_mismatch`；项目仍在 |
+| manual legacy resolved cancel appeal → delete | `appeal_target_mismatch`；项目仍在 |
+| project-scoped delete pending → delete | `appeal_pending`；项目仍在 |
+| 同上 withdrawn → delete | `appeal_not_resolved`；项目仍在 |
+| node action appeal scoped to project (`prune_branch` target project) | `appeal_target_mismatch` |
+| node action appeal without target (`cancel_running`) | `appeal_target_mismatch` |
+| project delete appeal without target | `ok:true`，target=`{projectId}`；project scope 正确 |
+| delete action without target（clean project） | `human_confirmation_required` |
+| delete action with node target | `appeal_target_mismatch` |
+| node action with project target (`cancel_running`) | `appeal_target_mismatch` |
+
+**结论：§30.6.5 的 foreign pending 阻断问题已修，node/project scope 分离正确。**
+project-scoped delete 只能由 project-scoped resolution 授权；node-scoped resolution
+不能授权整项目删除；foreign pending/withdrawn 不再 DoS 精确 action。
+
+### 32.5 回归（HEAD `4a209bc`）
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT=0；**668 ok**（37 files） |
+| `node scripts/claims-selftest.mjs` | EXIT=0；**103 checks** |
+| `node scripts/tool-surface-selftest.mjs` | EXIT=0；**41** |
+| `node scripts/policy-selftest.mjs` | EXIT=0；**120** |
+| `npm run bench:scale` | EXIT=0；**11/11**；100k first page 0.65 ms；restart 2.06 ms；dispatch max 26.9 ms / p95 26.8 ms / starts 161 |
+| `node scripts/strict-writes-selftest.mjs` | EXIT=0；**17**；bypass **0** |
+| `node scripts/client-smoke.mjs` | EXIT=0；**16/16** |
+| `node scripts/replay-client-selftest.mjs` | EXIT=0；**8**（既有项） |
+| U14 partial probe | EXIT=0；3 次 `refresh_partial`，前两次 degraded=false，第三次 degraded=true；`previousSuccess=true` |
+| S12 restart first page | EXIT=0；first same-store 2 ms；reopen 1.5 ms；list 106.2 ms；5 segments；total 100000；last 100000 |
+
+回归全绿，但 claims 的 103 checks 与 Unicode/case-fold 探针不重叠；作者 §31.3
+只测了 `H1`/`h1 `/`h1:resolver`。
+
+### 32.6 计数与判定
+
+| 判定 | 数量 |
+|---|---|
+| PASS | **107** |
+| FAIL | **57** |
+| 未测量 | **10**（浏览器 2 行 = 不适用） |
+| 合计 | **174** |
+
+- **1 个阻断：B27**。结构层三项已过：
+  - 实际 handler 负向 fail closed，正向通过；
+  - action CAS 的 injected withdraw/resolve 和 race two actions 均正确；
+  - exact scope / node-vs-project 分离正确。
+- B27 仍失败的唯一根因是 **canonical identity 未覆盖 Unicode/case-fold/
+  format-character**：`ｈ１`、`h1\u200b`、`h1：resolver`、`h1.resolver`、
+  `İ`、`ß`、`ſ` 等可让同一 human 以“不同 resolver”通过，且真实
+  `delete_project`/`cancel_node` 可执行（32.2.3）。
+- canonical 还把 `alice@home.com`/`alice@work.com`、`team:alice`/`team:bob`
+  折叠为同一 actor，导致合法不同 human 被误拒（32.2.4）。这是可用性/正确性
+  问题，不是越权，但说明 canonical 规则既不够全又太宽。
+- **56 个能力未建，0 个只差文档。**
+
+**明确判定：NO-SHIP。** 不能说 “narrow release possible”。作者 §31 的
+668 checks / 103 claims 没有覆盖 Unicode/case-fold，且 canonical 规则本身不能
+证明“不同的人”。
+
+**如果** 把 canonical 修到真正的 Unicode 安全形式（NFKC + 完整 case-fold +
+format/zero-width 处理，并保留合法 namespace），并把 §32.2.2/32.2.3 加入
+selftest，且剩余 56 项确认为 capability-not-built，独立计数才可改为
+**108 / 56 / 10**；届时排除范围必须显式写 `1.3`、`5.3.2`/Q3、Stage 3–5，以及
+未测量的 browser/provider/restart。当前不得使用该措辞。
+
+### 32.7 修复建议
+
+1. **Canonical actor**：用 `normalize('NFKC')` + Unicode full case-fold
+   （不是 `toLowerCase`），移除 zero-width/format 字符，统一全角/半角标点；
+   但不要无条件把 `:`/`#`/`@` 后内容当 session suffix。应显式解析 transport
+   suffix（例如只接受带 `session:` 前缀或已知分隔符的形式），保留合法
+   namespace（`team:alice`、`alice@work.com`）。
+2. **不要只用字符串证明不同人**：canonical 只能去掉拼写绕过，不能替代外部
+   身份/双人确认；B27 的最终证明需要职责分离/外部身份，而不是更复杂的
+   normalize。
+3. **测试**：把 `ｈ１`、`h1\u200b`、`h1：resolver`、`h1.resolver`、`İ`、
+   `ß`、`ſ`、`alice@home.com`/`alice@work.com` 加入 claims-selftest，并用真实
+   `delete_project`/`cancel_node` handler 做 positive/negative，不只测 intent。
+4. **保持本轮已通过的结构**：handler gate、action commit CAS、delete handler
+   CAS、foreign pending 不阻断、project/node scope 分离都应作为回归保留；不要
+   为了修 canonical 回退这些。
+5. **scope 边界**：project delete appeal 可以没有 target node（target 是
+   project），node action 必须恰好有 node；保持 32.4 的矩阵。
+
+### 32.8 边界
+
+- 只修改了本文件；生产代码未改。
+- 未执行 sandbox escalation；未写 `~/.dsh/storages/*`；未重启 Host。
+- 浏览器二维未测；provider/restart 仍是既有未测量项。
+- 结论对 HEAD `4a209bc` 有效；后续修改 `policy.js`、`lab-service.js`、
+  `runtime.js`、`executor.js`、`mutations.js` 后，必须重跑 handler、Unicode
+  canonical、CAS、scope 四组探针，不能只跑 `npm test`。
+
+---
+
+## §33 作者第十三轮整改（B27：opaque `actorKey`）
+
+> 作者侧整改记录，不替代独立复核。§32 的 **107 PASS / 57 FAIL / 10 未测量，
+> NO-SHIP** 仍是当前独立判定；本节只说明 §32.2 的根因已按“不规范化显示名”的
+> 方向移除，等待 verifier 重放后才能改独立计数。
+
+### 33.1 根因与设计
+
+§32.2 的根因不是 `canonicalActorId` 少了几条 Unicode 规则，而是它试图把
+自由格式的显示字符串规范成身份。任何 trim/case-fold/NFKC/零宽剥离/suffix
+规则都同时存在绕过和过宽两个方向。本轮删除 `canonicalActorId`（`host/`
+中已无该调用），改为：
+
+- **`host/kernel/actors.js`**
+  - `actorKeyFor(id)`：对**精确 id 字节**（JavaScript UTF-16 code units，保留
+    孤立 surrogate）做 SHA-256，输出 `ak_<base64url>`；不 trim、不 lower、
+    不 NFKC、不剥离 `@`/`:`/`#`/`/`，不把 `:`/`#`/`@` 之后当 suffix。
+  - `withActorKey(actor)`：保留已有 key，否则给 legacy/inline actor 派生确定 key。
+  - `sameActor(a,b)`：**两方都有 key 时只比较 key 是否完全相等**；两方都没有
+    key 时只比较 `id` 的 exact-byte 相等；一方有 key、一方没有时返回 false，
+    fail closed。
+    `appealState` 进一步要求 raiser/requester/resolver 三者的 key 状态一致；
+    `resolveAppeal`/`withdrawIntent` 对 keyed/unkeyed 混用直接拒绝，避免把
+    “无法证明相等”当成“不同人”。
+  - `migrateProjectActorKeys(project)`：给 pre-key 的 `intent.actor`、
+    `resolvedBy`、`withdrawnBy` 补 key；key 只由该 legacy actor 的 exact id
+    确定性派生，所以重开同一项目得到同一身份，旧 resolution 仍可解析。
+- **session 注册边界**：`policy.actorForSession` 在 session 对象上 pin 住一个
+  key（WeakMap）；同一 session 对象从 `h1` 改名为 `ｈ１` 不会换 key，冲突的
+  后续 metadata 也不能旋转 key。显式 `session.actorKey` /
+  `header.meta.actorKey` 可注入外部身份；没有时按 exact registration id 派生。
+  `actorFromToolExecution` 把 session 对象、meta 和 key 一起传入，终端的
+  `session.id` 仍是可信来源。
+- **写入记录**：`createIntent` 写 `intent.actor.actorKey`；`intent.withdraw`
+  写 `resolvedBy.actorKey` / `withdrawnBy.actorKey`；`intent.put` 对 raw intent
+  的 actor 也补 key。gate 比较 `appealState` 的 raiser / requester / resolver
+  时只调用 `sameActor`，不再使用显示名。
+- **加载迁移**：`store.getProject`、`listProjects`、`saveProject` 都调用
+  `migrateProjectActorKeys`；这是读时迁移，不额外写表，也不改变 project
+  revision。新 intent 始终带 key；exact id fallback 只留给真正没有 key 的
+  legacy actor。
+
+### 33.2 Unicode / 格式字符表（29/29）
+
+测试构造：requester 与 resolver 使用**同一个已注册 actorKey**
+（`ak_unicode_shared_identity_0001`），raiser 是另一个 expert；因此显示名从
+`H1` 到 `İ`/`ß`/`ſ` 的任何变化都仍是同一个 actor，gate 必须拒绝自确认。
+测试同时断言 `stored` 保持原始显示名（不 trim/lower/NFKC）、`resolvedBy.actorKey`
+仍是该 registration key、所有 29 个 raw 的 `actorKeyFor` 两两不同。下表 raw
+用 JSON escape 表示，`stored` 是实际持久化的 `resolvedBy.id`：
+
+| raw（JSON escape） | stored（JSON escape） | actorKey | action |
+|---|---|---|---|
+| `H1` | `H1` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1 ` | `h1 ` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1:resolver` | `h1:resolver` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1:resolver:extra` | `h1:resolver:extra` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1#resolver` | `h1#resolver` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1@resolver` | `h1@resolver` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1\u00a0` | `h1\u00a0` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1\t` | `h1\t` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1\u3000` | `h1\u3000` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1\ufeff` | `h1\ufeff` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1\u2028` | `h1\u2028` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `\uff48\uff11` | `\uff48\uff11` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1\u200b` | `h1\u200b` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1\uff1aresolver` | `h1\uff1aresolver` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1.resolver` | `h1.resolver` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1/resolver` | `h1/resolver` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1\u200dresolver` | `h1\u200dresolver` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1\u0301` | `h1\u0301` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1\u0000resolver` | `h1\u0000resolver` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1 resolver` | `h1 resolver` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `h1%2Fresolver` | `h1%2Fresolver` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `\u0130` | `\u0130` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `\u00df` | `\u00df` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `\u1e9e` | `\u1e9e` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `\u017f` | `\u017f` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `K` | `K` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `\u212a` | `\u212a` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `SS` | `SS` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+| `ss` | `ss` | `ak_unicode_shared_identity_0001` | `human_confirmation_required` |
+
+29/29 都是 `human_confirmation_required`；没有一行变成 `ok`。这与 §32.2.2 的
+旧结果（`ｈ１`、`h1\u200b`、`h1：resolver` 等为 `ok:true`）形成红→绿对照。
+
+### 33.3 真实 handler 探针（逐字）
+
+负向探针使用真实 `registerAgentTool` + `tool.execute(input, exec)`。session 对象
+以 `h1` 注册，resolve 前只把同一对象的显示 id 改为 `ｈ１`；没有 caller 提供
+`actorKey`，key 来自 session pin。随后 delete/cancel 仍以 `h1` 显示名请求：
+
+```text
+UNICODE_HANDLERS {"delete":{"code":"human_confirmation_required","projectExists":true,"resolvedBy":"ｈ１","resolvedKey":"ak_yuFroCrXYMvQ_P5Fh7crqwo7eXI7rFdl"},"cancel":{"code":"human_confirmation_required","runtimeCalls":0,"resolvedBy":"ｈ１"}}
+```
+
+- delete：`human_confirmation_required`；项目仍存在；resolvedBy 显示 `ｈ１`，
+  resolvedKey 是同一 registration key。
+- cancel：`human_confirmation_required`；`runtimeCalls=0`；resolvedBy `ｈ１`。
+
+namespace 正向对照使用两个不同 key 的 actor，并经真实 delete handler：
+
+```text
+NAMESPACE_HANDLERS {"resolved":true,"resolvedBy":"alice@work.com","deleted":true,"projectExists":false}
+```
+
+- `alice@home.com`（requester）与 `alice@work.com`（resolver）是不同 actor，
+  resolver 确认后真实 delete 成功，项目消失；二者不再被折叠成 `alice`。
+
+### 33.4 legacy / migration 探针
+
+`claims-selftest` 新增并通过：
+
+- `legacy identity fallback is exact bytes and fails closed when mixed with a key`：
+  无 key 的 `h1` 与 `H1`/`h1 `/`ｈ１`/`h1:resolver` 均不相等；`h1` 与 `h1` 相等；
+  一个 keyed、一个 unkeyed 的同一显示名不相等。
+- `pre-key intents receive deterministic actorKey values at load`：`actor` /
+  `resolvedBy` / `withdrawnBy` 都得到 key，重复迁移结果相同。
+- `pre-key intents are migrated when the project is loaded`：直接向 storage table
+  写一条没有 key 的 project row，经 `store.getProject` 读出后三个字段都有 key。
+- `namespace and formatting variants hash to distinct legacy keys`：29 个 Unicode
+  变体以及 `alice@home.com`/`alice@work.com` 两两不同；没有任何 suffix 合并。
+- `the registration key is pinned across a display rename and conflicting metadata`：
+  session 改名不换 key；两个显式不同 key 的同显示名 actor 不相等。
+- `keyed actors are compared only by actorKey, never by display spelling`。
+- `namespace-distinct actors authorize the real delete handler`。
+
+`host/` 中 `canonicalActorId` 已无定义和调用；剩余字符串仅出现在本文件的 §31/§32
+历史验收记录中。
+
+### 33.5 验证结果
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT=0；37 个文件 / **676 checks**（原 668，新增 actorKey 表/迁移/handler 探针） |
+| `node scripts/claims-selftest.mjs` | EXIT=0；**111 checks**（原 103；删除 3 条错误的 canonical 折叠断言，新增 11 条） |
+| `node scripts/strict-writes-selftest.mjs` | EXIT=0；**17**；permitted deletion 不计 bypass |
+| `node scripts/client-smoke.mjs` | EXIT=0；**16/16** |
+| `npm run bench:scale` | EXIT=0；**11/11**；100k first page 0.48 ms；restart 1.90 ms；dispatch max 37.9 ms / p95 31.4 ms / starts 161；snapshot 3.5 KB / 21.9 ms |
+| `git grep canonicalActorId host` | 无输出（实现已移除） |
+
+本轮的 red→green 不是把旧 canonical 的 3 条断言改绿，而是移除“折叠显示名”这个
+错误前提，改为 registration key 的 self-confirmation 表和真实 handler 探针。
+
+### 33.6 边界
+
+- 本节是作者侧报告，不是独立复核；**§32 的 107/57/10 NO-SHIP 保持不变**，
+  直到 verifier 重放 §32.2/32.2.3/32.2.4。
+- 只做 repo 内实现与测试；未执行 sandbox escalation，未写 `~/.dsh/storages/*`，
+  未重启 Host。
+- actorKey 是应用层身份，不是外部身份提供者；真正的双人独立意志仍需外部身份/
+  审批。key 的 fallback 由 exact registration id 派生，不能替代该信任边界。
+- 浏览器二维仍 N/A；provider/restart 仍是既有未测量项。

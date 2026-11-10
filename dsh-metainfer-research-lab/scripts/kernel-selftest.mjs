@@ -51,7 +51,9 @@ await test('commit creates nodes, bumps revision once, writes events with envelo
   assert.equal(events.length, 2);
   assert.deepEqual(events.map((e) => e.type), ['node/created', 'node/created']);
   for (const event of events) {
-    assert.deepEqual(event.actor, human);
+    assert.equal(event.actor.kind, human.kind);
+    assert.equal(event.actor.id, human.id);
+    assert.match(event.actor.actorKey, /^ak_[A-Za-z0-9_-]+$/);
     assert.equal(event.revision, 1);
     assert.equal(event.commit.size, 2);
   }

@@ -27,7 +27,7 @@ import {
   redoEffect,
 } from './mutations.js';
 import { currentCause } from './trace.js';
-import { canonicalActorId } from './policy.js';
+import { actorKeyFor, actorKeyOf } from './actors.js';
 
 const ACTOR_KINDS = new Set(['human', 'expert', 'dispatcher', 'mcp', 'system', 'legacy']);
 const IDEMPOTENCY_LIMIT = 10_000;
@@ -36,9 +36,11 @@ function normalizeActor(actor) {
   if (!actor || typeof actor !== 'object') throw new MutationError('invalid_commit', 'actor is required');
   if (!ACTOR_KINDS.has(actor.kind)) throw new MutationError('invalid_commit', `unknown actor kind ${actor.kind}`);
   if (typeof actor.id !== 'string' || !actor.id) throw new MutationError('invalid_commit', 'actor.id is required');
-  const id = canonicalActorId(actor.id);
-  if (!id) throw new MutationError('invalid_commit', 'actor.id is empty after canonicalization');
-  return { kind: actor.kind, id };
+  // The display id is not normalized. The opaque key is the identity and is
+  // preserved from the registration boundary; inline system actors get the
+  // deterministic key for their exact registration id.
+  const actorKey = actorKeyOf(actor) ?? actorKeyFor(actor.id);
+  return { kind: actor.kind, id: actor.id, actorKey };
 }
 
 /**

@@ -6,6 +6,8 @@
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
+import { actorKeyFor, hasActorIdentity, migrateProjectActorKeys, sameActor } from '../host/kernel/actors.js';
+import { actorForSession } from '../host/kernel/policy.js';
 import { registerAgentTool } from '../host/agent-tool.js';
 import { ACTION_VERIFICATION, CLAIM_PREDICATES, MIN_CITATION_EVIDENCE, VERIFICATION_LEVELS, citationErrorRate, citationTier, gateClaimAction, verifyClaims, wilsonLowerBound } from '../host/kernel/claims.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
@@ -16,7 +18,8 @@ function check(name, condition, detail = '') {
   else { failed += 1; console.log(`FAIL ${name}${detail ? ` — ${detail}` : ''}`); }
 }
 
-const store = await openStore(storeContext(memoryDomain()));
+const domain = memoryDomain();
+const store = await openStore(storeContext(domain));
 const kernel = createKernel({ store });
 const projectId = 'claims-p';
 await store.saveProject({ id: projectId, revision: 0, counters: { eventSeq: 0 }, config: {}, createdAt: 0, updatedAt: 0 });
@@ -32,10 +35,9 @@ await kernel.executor.commit(projectId, {
     { op: 'node.create', node: { id: 'self-target', title: 'self-raised probe', status: 'completed', timestamps: { createdAt: 6 } } },
     { op: 'node.create', node: { id: 'race-target', title: 'resolution race probe', status: 'completed', timestamps: { createdAt: 7 } } },
     { op: 'node.create', node: { id: 'other-target', title: 'different target probe', status: 'completed', timestamps: { createdAt: 8 } } },
-    { op: 'node.create', node: { id: 'canonical-case', title: 'canonical case probe', status: 'completed', timestamps: { createdAt: 9 } } },
-    { op: 'node.create', node: { id: 'canonical-space', title: 'canonical whitespace probe', status: 'completed', timestamps: { createdAt: 10 } } },
-    { op: 'node.create', node: { id: 'canonical-suffix', title: 'canonical suffix probe', status: 'completed', timestamps: { createdAt: 11 } } },
     { op: 'node.create', node: { id: 'foreign-pending', title: 'foreign pending probe', status: 'completed', timestamps: { createdAt: 12 } } },
+    { op: 'node.create', node: { id: 'unicode-target', title: 'unicode identity probe', status: 'completed', timestamps: { createdAt: 13 } } },
+    { op: 'node.create', node: { id: 'namespace-target', title: 'namespace identity probe', status: 'completed', timestamps: { createdAt: 14 } } },
   ],
 });
 const nodes = store.listNodes(projectId);
@@ -43,6 +45,31 @@ const service = createLabService({
   ctx: { effect: () => {}, get: () => null, logger: { info() {}, warn() {} } },
   store, kernel, git: null, runtime: null, transcript: null, orchestrator: null, auto: null, cluster: null, clusterAdmin: null,
 });
+
+// Raw pre-key project row written straight to the storage table, then read
+// through the store. Migration is a read-time load step, not a new write.
+const legacyLoadId = 'legacy-load-p';
+await domain.table('projects').put(legacyLoadId, {
+  id: legacyLoadId, revision: 0, counters: { eventSeq: 0 }, config: {}, createdAt: 0, updatedAt: 0,
+  intents: [{
+    id: 'legacy-load-intent', kind: 'note', status: 'resolved',
+    actor: { kind: 'human', id: 'legacy@home.com' },
+    resolvedBy: { kind: 'human', id: 'legacy@work.com' },
+    withdrawnBy: { kind: 'human', id: 'legacy@home.com' },
+    claim: { action: 'appeal', targetAction: 'cancel_running' },
+    target: { nodeId: 'n1' },
+  }],
+});
+const legacyLoaded = store.getProject(legacyLoadId);
+const legacyLoadRow = {
+  actorKey: legacyLoaded?.intents?.[0]?.actor?.actorKey ?? null,
+  resolverKey: legacyLoaded?.intents?.[0]?.resolvedBy?.actorKey ?? null,
+  withdrawnKey: legacyLoaded?.intents?.[0]?.withdrawnBy?.actorKey ?? null,
+};
+check('pre-key intents are migrated when the project is loaded',
+  legacyLoadRow.actorKey === actorKeyFor('legacy@home.com')
+  && legacyLoadRow.resolverKey === actorKeyFor('legacy@work.com')
+  && legacyLoadRow.withdrawnKey === legacyLoadRow.actorKey, JSON.stringify(legacyLoadRow));
 
 const valid = [
   { predicate: 'nodeExists', nodeId: 'child' },
@@ -194,36 +221,150 @@ for (const targetAction of ['cancel_running', 'prune_branch', 'delete_project'])
 }
 check('scoped resolved appeals supply the Host-side window for L2/L3/L4',
   setupResolved.every((row) => row.ok === true), JSON.stringify(setupResolved));
-// Canonical actor identity: trim, case-fold and session suffix are transport
-// spellings, not separate people. Each probe must still require confirmation.
-const canonicalRequester = { agent: { session: { id: 'h1' } } };
-const canonicalCases = [
-  ['canonical-case', 'H1'],
-  ['canonical-space', 'h1 '],
-  ['canonical-suffix', 'h1:resolver'],
+// Opaque actor identity. The shared key is the registration boundary: changing
+// the display spelling on that registration must not mint a second identity,
+// and no spelling rule (trim/case/NFKC/suffix stripping) is consulted.
+const actorExec = (id, actorKey) => ({ agent: { session: { id, actorKey } } });
+const registeredSession = { id: 'h1' };
+const registeredActor = actorForSession({ sessionId: 'h1', session: registeredSession });
+const renamedActor = actorForSession({ sessionId: 'ｈ１', session: registeredSession, actorKey: 'ak_conflicting_metadata' });
+const separateRegistration = actorForSession({ sessionId: 'h1', actorKey: 'ak_separate_h1' });
+check('the registration key is pinned across a display rename and conflicting metadata',
+  registeredActor.actorKey === renamedActor.actorKey
+  && registeredActor.id === 'h1' && renamedActor.id === 'ｈ１'
+  && separateRegistration.actorKey !== registeredActor.actorKey
+  && sameActor({ id: 'h1', actorKey: 'ak_a' }, { id: 'h1', actorKey: 'ak_b' }) === false,
+  JSON.stringify({ registered: registeredActor, renamed: renamedActor, separate: separateRegistration }));
+const unicodeKey = 'ak_unicode_shared_identity_0001';
+const unicodeRequester = actorExec('unicode-human', unicodeKey);
+const unicodeResolver = (id) => actorExec(id, unicodeKey);
+await kernel.executor.commit(projectId, {
+  actor: { kind: 'human', id: 'unicode-seed' },
+  mutations: [{
+    op: 'project.update',
+    set: { claimStats: { ...(store.getProject(projectId).claimStats ?? {}), 'unicode-human': { total: 20, failed: 0 } } },
+    eventType: 'claim/verified',
+    eventData: { actorId: 'unicode-human', total: 20, failed: 0 },
+  }],
+});
+const unicodeVariants = [
+  'H1', 'h1 ', 'h1:resolver', 'h1:resolver:extra', 'h1#resolver', 'h1@resolver',
+  'h1\u00a0', 'h1\t', 'h1\u3000', 'h1\ufeff', 'h1\u2028',
+  'ｈ１', 'h1\u200b', 'h1：resolver', 'h1.resolver', 'h1/resolver',
+  'h1\u200dresolver', 'h1\u0301', 'h1\u0000resolver', 'h1 resolver',
+  'h1%2Fresolver', 'İ', 'ß', 'ẞ', 'ſ', 'K', 'K', 'SS', 'ss',
 ];
-const canonicalResults = [];
-for (const [targetNode, resolverId] of canonicalCases) {
+const unicodeRows = [];
+for (const resolverId of unicodeVariants) {
   const opened = await service.submitIntent(projectId, {
-    kind: 'note', nodeId: targetNode, claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'canonical identity probe' },
+    kind: 'note', nodeId: 'unicode-target',
+    claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'unicode identity probe' },
   }, expertExec);
-  const resolverExec = { agent: { session: { id: resolverId } } };
-  const resolvedCanonical = await service.resolveAppeal(projectId, opened.intent.id, {
-    resolution: 'upheld', reason: `canonical resolver ${resolverId}`,
-  }, resolverExec);
+  const resolved = await service.resolveAppeal(projectId, opened.intent?.id, {
+    resolution: 'upheld', reason: `same registration, display ${resolverId}`,
+  }, unicodeResolver(resolverId));
   const action = await service.submitIntent(projectId, {
-    kind: 'note', nodeId: targetNode,
+    kind: 'note', nodeId: 'unicode-target',
     claim: { action: 'prune_branch', evidence: valid.slice(0, 3) },
     chiefConfirmed: true,
-  }, canonicalRequester);
-  canonicalResults.push({ resolverId, resolved: resolvedCanonical.ok === true, stored: resolvedCanonical.intent?.resolvedBy?.id ?? null, code: action.error?.code ?? (action.ok ? 'ok' : 'unknown') });
+  }, unicodeRequester);
+  unicodeRows.push({
+    raw: resolverId,
+    stored: resolved.intent?.resolvedBy?.id ?? null,
+    key: resolved.intent?.resolvedBy?.actorKey ?? null,
+    code: action.error?.code ?? (action.ok ? 'ok' : 'unknown'),
+  });
 }
-for (const row of canonicalResults) {
-  check(`canonical resolver ${JSON.stringify(row.resolverId)} is the requester, not a distinct actor`,
-    row.resolved && row.stored === 'h1' && row.code === 'human_confirmation_required',
-    JSON.stringify(row));
-}
-console.log(`ACTOR_CANONICAL ${JSON.stringify(canonicalResults)}`);
+check('every display spelling of one registered actor still cannot confirm itself',
+  unicodeRows.every((row) => row.stored === row.raw && row.key === unicodeKey && row.code === 'human_confirmation_required'),
+  JSON.stringify(unicodeRows));
+check('keyed actors are compared only by actorKey, never by display spelling',
+  unicodeRows.every((row) => sameActor({ actorKey: unicodeKey }, { actorKey: unicodeKey }))
+  && unicodeRows.every((row) => !sameActor({ id: row.raw }, { id: 'h1' })),
+  JSON.stringify(unicodeRows));
+console.log(`UNICODE_TABLE ${JSON.stringify(unicodeRows)}`);
+
+// Exact-byte legacy fallback: no case folding, Unicode folding, trimming or
+// namespace stripping is allowed when a record predates actorKey.
+const legacySame = sameActor({ id: 'h1' }, { id: 'h1' });
+const legacyDifferent = [
+  sameActor({ id: 'h1' }, { id: 'H1' }),
+  sameActor({ id: 'h1' }, { id: 'h1 ' }),
+  sameActor({ id: 'h1' }, { id: 'ｈ１' }),
+  sameActor({ id: 'h1' }, { id: 'h1:resolver' }),
+  sameActor({ id: 'alice@home.com' }, { id: 'alice@work.com' }),
+  sameActor({ actorKey: 'ak_a' }, { id: 'h1' }),
+];
+check('legacy identity fallback is exact bytes and fails closed when mixed with a key',
+  legacySame && legacyDifferent.every((result) => result === false)
+  && hasActorIdentity({ id: 'h1' }) && !hasActorIdentity({ kind: 'human' })
+  && sameActor({ kind: 'human' }, { kind: 'human' }) === false,
+  JSON.stringify({ legacySame, legacyDifferent }));
+
+// Namespace strings are distinct actor registrations, not aliases.
+const homeKey = 'ak_alice_home_0001';
+const workKey = 'ak_alice_work_0001';
+const aliceHome = actorExec('alice@home.com', homeKey);
+const aliceWork = actorExec('alice@work.com', workKey);
+await kernel.executor.commit(projectId, {
+  actor: { kind: 'human', id: 'namespace-seed' },
+  mutations: [{
+    op: 'project.update',
+    set: { claimStats: { ...(store.getProject(projectId).claimStats ?? {}), 'alice@home.com': { total: 20, failed: 0 } } },
+    eventType: 'claim/verified',
+    eventData: { actorId: 'alice@home.com', total: 20, failed: 0 },
+  }],
+});
+const namespaceAppeal = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'namespace-target',
+  claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'namespace confirmation probe' },
+}, expertExec);
+const namespaceResolved = await service.resolveAppeal(projectId, namespaceAppeal.intent?.id, {
+  resolution: 'upheld', reason: 'alice at work is a different registered actor',
+}, aliceWork);
+const namespaceAction = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'namespace-target',
+  claim: { action: 'prune_branch', evidence: valid.slice(0, 3) },
+  chiefConfirmed: true,
+}, aliceHome);
+const namespaceRow = {
+  resolved: namespaceResolved.ok === true,
+  resolvedBy: namespaceResolved.intent?.resolvedBy?.id ?? null,
+  resolvedKey: namespaceResolved.intent?.resolvedBy?.actorKey ?? null,
+  code: namespaceAction.error?.code ?? (namespaceAction.ok ? 'ok' : 'unknown'),
+  confirmedBy: namespaceAction.intent?.claim?.gate?.humanConfirmedBy?.id ?? null,
+};
+check('alice@home.com and alice@work.com are distinct actors and can confirm each other',
+  namespaceRow.resolved && namespaceRow.resolvedBy === 'alice@work.com'
+  && namespaceRow.resolvedKey === workKey && namespaceRow.code === 'ok'
+  && namespaceRow.confirmedBy === 'alice@work.com'
+  && namespaceAction.intent?.actor?.actorKey === homeKey, JSON.stringify(namespaceRow));
+console.log(`NAMESPACE_CONFIRM ${JSON.stringify(namespaceRow)}`);
+check('namespace and formatting variants hash to distinct legacy keys',
+  new Set(['h1', 'ｈ１', 'h1\u200b', 'h1.resolver', 'h1/resolver', 'h1 resolver',
+    'alice@home.com', 'alice@work.com'].map((value) => actorKeyFor(value))).size === 8
+  && new Set(unicodeVariants.map((value) => actorKeyFor(value))).size === unicodeVariants.length);
+
+// Pre-key intent migration is deterministic from the exact legacy actor id.
+const legacyRaw = {
+  intents: [
+    { id: 'legacy-intent', actor: { kind: 'human', id: 'legacy@home.com' }, resolvedBy: { kind: 'human', id: 'legacy@work.com' }, withdrawnBy: { kind: 'human', id: 'legacy@home.com' } },
+  ],
+};
+const migratedOne = migrateProjectActorKeys(structuredClone(legacyRaw));
+const migratedAgain = migrateProjectActorKeys(structuredClone(legacyRaw));
+const migrationRow = {
+  actorKey: migratedOne.intents[0].actor.actorKey,
+  again: migratedAgain.intents[0].actor.actorKey,
+  resolverKey: migratedOne.intents[0].resolvedBy.actorKey,
+  withdrawnKey: migratedOne.intents[0].withdrawnBy.actorKey,
+};
+check('pre-key intents receive deterministic actorKey values at load',
+  migrationRow.actorKey === migrationRow.again
+  && migrationRow.actorKey === actorKeyFor('legacy@home.com')
+  && migrationRow.resolverKey === actorKeyFor('legacy@work.com')
+  && migrationRow.withdrawnKey === migrationRow.actorKey, JSON.stringify(migrationRow));
+
 // Exact action scoping for all states: a pending/withdrawn objection to
 // cancel_running must not block prune_branch on the same node.
 // Give this probe actor its own clean history so it cannot perturb the C7
@@ -633,6 +774,115 @@ check('direct service.cancelNode also fails closed without an appeal',
   handlerProbes.directCancel.code === 'human_confirmation_required' && handlerProbes.directCancel.runtimeCalls === 0,
   JSON.stringify(handlerProbes.directCancel));
 console.log(`HANDLER_PROBES ${JSON.stringify(handlerProbes)}`);
+
+// Real-handler Unicode probe: the same registered human changes only display
+// spelling to `ｈ１`; the opaque key is still the requester's key, so this is
+// self-confirmation and neither destructive handler may run.
+const unicodeToolProjectId = 'claims-unicode-tool-p';
+await store.saveProject({
+  id: unicodeToolProjectId, revision: 0, counters: { eventSeq: 0 },
+  config: { maxRunningNodes: 4, resourcePools: {}, maxNodes: 100 }, createdAt: 0, updatedAt: 0,
+});
+kernel.load(unicodeToolProjectId);
+await kernel.executor.commit(unicodeToolProjectId, {
+  actor: { kind: 'human', id: 'setup' },
+  mutations: [
+    { op: 'node.create', node: { id: 'n1', title: 'unicode probe node', status: 'planned', timestamps: { createdAt: 1 } } },
+    { op: 'project.update', set: { claimStats: { h1: { total: 20, failed: 0 } } }, eventType: 'claim/verified', eventData: { actorId: 'h1', total: 20, failed: 0 } },
+  ],
+});
+// This probe uses a real session registration, not a caller-supplied key: the
+// same session object is renamed from `unicode-human` to `ｈ１`, so its pinned
+// actorKey is the only thing that can identify it.
+const unicodeToolSession = { id: 'h1' };
+// Issue the registration key before the display rename; the resolver below
+// uses the same session object after only its display id changes.
+const unicodeToolRegistration = actorForSession({ sessionId: 'h1', session: unicodeToolSession });
+const unicodeToolRequester = { agent: { session: unicodeToolSession } };
+const unicodeDeleteAppeal = await toolService.submitIntent(unicodeToolProjectId, {
+  kind: 'note', target: { projectId: unicodeToolProjectId },
+  claim: { action: 'appeal', targetAction: 'delete_project', reason: 'unicode display delete appeal' },
+}, expertExec);
+unicodeToolSession.id = 'ｈ１';
+const unicodeDeleteResolved = await toolService.resolveAppeal(unicodeToolProjectId, unicodeDeleteAppeal.intent?.id, {
+  resolution: 'upheld', reason: 'same registered human under full-width display',
+}, { agent: { session: unicodeToolSession } });
+unicodeToolSession.id = 'h1';
+const unicodeCancelAppeal = await toolService.submitIntent(unicodeToolProjectId, {
+  kind: 'note', nodeId: 'n1',
+  claim: { action: 'appeal', targetAction: 'cancel_running', reason: 'unicode display cancel appeal' },
+}, expertExec);
+unicodeToolSession.id = 'ｈ１';
+const unicodeCancelResolved = await toolService.resolveAppeal(unicodeToolProjectId, unicodeCancelAppeal.intent?.id, {
+  resolution: 'upheld', reason: 'same registered human under full-width display',
+}, { agent: { session: unicodeToolSession } });
+unicodeToolSession.id = 'h1';
+const unicodeToolCall = async (action, input = {}) => JSON.parse((await toolCtx.tool.execute({
+  action, projectId: unicodeToolProjectId, ...input,
+}, unicodeToolRequester)).result);
+runtimeCalls.length = 0;
+const unicodeDelete = await unicodeToolCall('delete_project');
+const unicodeCancel = await unicodeToolCall('cancel_node', {
+  nodeId: 'n1', chiefConfirmed: true,
+  claim: { evidence: [{ predicate: 'nodeExists', nodeId: 'n1' }, { predicate: 'statusIs', nodeId: 'n1', status: 'planned' }] },
+});
+const unicodeHandlers = {
+  delete: {
+    code: unicodeDelete.error?.code ?? (unicodeDelete.deleted ? 'deleted' : 'unknown'),
+    projectExists: Boolean(store.getProject(unicodeToolProjectId)),
+    resolvedBy: unicodeDeleteResolved.intent?.resolvedBy?.id ?? null,
+    resolvedKey: unicodeDeleteResolved.intent?.resolvedBy?.actorKey ?? null,
+  },
+  cancel: {
+    code: unicodeCancel.error?.code ?? (unicodeCancel.ok ? 'ok' : 'unknown'),
+    runtimeCalls: runtimeCalls.length,
+    resolvedBy: unicodeCancelResolved.intent?.resolvedBy?.id ?? null,
+  },
+};
+check('real delete_project rejects a full-width alias of the requester',
+  unicodeHandlers.delete.code === 'human_confirmation_required'
+  && unicodeHandlers.delete.projectExists && unicodeHandlers.delete.resolvedBy === 'ｈ１'
+  && unicodeHandlers.delete.resolvedKey === unicodeToolRegistration.actorKey
+  && unicodeToolRegistration.actorKey === actorKeyFor('h1'),
+  JSON.stringify(unicodeHandlers.delete));
+check('real cancel_node rejects a full-width alias of the requester before runtime',
+  unicodeHandlers.cancel.code === 'human_confirmation_required'
+  && unicodeHandlers.cancel.runtimeCalls === 0 && unicodeHandlers.cancel.resolvedBy === 'ｈ１',
+  JSON.stringify(unicodeHandlers.cancel));
+console.log(`UNICODE_HANDLERS ${JSON.stringify(unicodeHandlers)}`);
+
+// Positive namespace probe through the real delete handler: alice@home.com
+// requests, alice@work.com (a different key) resolves; this must delete.
+const namespaceToolProjectId = 'claims-namespace-tool-p';
+await store.saveProject({
+  id: namespaceToolProjectId, revision: 0, counters: { eventSeq: 0 },
+  config: { maxRunningNodes: 4, resourcePools: {}, maxNodes: 100 }, createdAt: 0, updatedAt: 0,
+});
+kernel.load(namespaceToolProjectId);
+await kernel.executor.commit(namespaceToolProjectId, {
+  actor: { kind: 'human', id: 'setup' },
+  mutations: [{ op: 'project.update', set: { claimStats: { 'alice@home.com': { total: 20, failed: 0 } } }, eventType: 'claim/verified', eventData: { actorId: 'alice@home.com', total: 20, failed: 0 } }],
+});
+const namespaceDeleteAppeal = await toolService.submitIntent(namespaceToolProjectId, {
+  kind: 'note', target: { projectId: namespaceToolProjectId },
+  claim: { action: 'appeal', targetAction: 'delete_project', reason: 'namespace delete appeal' },
+}, expertExec);
+const namespaceDeleteResolved = await toolService.resolveAppeal(namespaceToolProjectId, namespaceDeleteAppeal.intent?.id, {
+  resolution: 'upheld', reason: 'different namespace actor confirms',
+}, actorExec('alice@work.com', workKey));
+const namespaceDelete = JSON.parse((await toolCtx.tool.execute({
+  action: 'delete_project', projectId: namespaceToolProjectId, removeWorktrees: false,
+}, actorExec('alice@home.com', homeKey))).result);
+const namespaceHandlers = {
+  resolved: namespaceDeleteResolved.ok === true,
+  resolvedBy: namespaceDeleteResolved.intent?.resolvedBy?.id ?? null,
+  deleted: namespaceDelete.deleted === true,
+  projectExists: Boolean(store.getProject(namespaceToolProjectId)),
+};
+check('namespace-distinct actors authorize the real delete handler',
+  namespaceHandlers.resolved && namespaceHandlers.resolvedBy === 'alice@work.com'
+  && namespaceHandlers.deleted && !namespaceHandlers.projectExists, JSON.stringify(namespaceHandlers));
+console.log(`NAMESPACE_HANDLERS ${JSON.stringify(namespaceHandlers)}`);
 
 // Positive control: a project-scoped resolved delete appeal and a funded
 // claim history must still execute through the same wrapper.

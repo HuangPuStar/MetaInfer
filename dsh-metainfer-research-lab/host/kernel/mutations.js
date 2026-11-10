@@ -11,6 +11,7 @@
  * Reducers are pure with respect to I/O: they never touch the store.
  */
 import { isPriorityClass, normalizePriority } from './priority.js';
+import { withActorKey } from './actors.js';
 
 export const NODE_STATUSES = Object.freeze(['proposed', 'planned', 'running', 'completed', 'failed', 'cancelled']);
 
@@ -362,7 +363,9 @@ const reducers = {
       });
     }
     if (expired.length > 0) ws.projectTouched = true;
-    const next = [...current, { ...structuredClone(intent), id }].slice(-500);
+    const stored = { ...structuredClone(intent), id };
+    if (stored.actor) stored.actor = withActorKey(stored.actor);
+    const next = [...current, stored].slice(-500);
     ws.project.intents = next;
     ws.projectTouched = true;
     const effects = [{ op: 'project.merge', set: { intents: structuredClone(next) } }];
@@ -425,13 +428,13 @@ const reducers = {
       ...(resolving
         ? {
             resolvedAt: ctx.now,
-            resolvedBy: m.actor ?? null,
+            resolvedBy: m.actor ? withActorKey(m.actor) : null,
             resolution: typeof m.resolution === 'string' ? m.resolution.slice(0, 80) : 'resolved',
             resolutionReason: typeof m.reason === 'string' ? m.reason.slice(0, 500) : 'resolved',
           }
         : {
             withdrawnAt: ctx.now,
-            withdrawnBy: m.actor ?? null,
+            withdrawnBy: m.actor ? withActorKey(m.actor) : null,
             withdrawReason: typeof m.reason === 'string' ? m.reason.slice(0, 500) : 'withdrawn',
           }),
     };
