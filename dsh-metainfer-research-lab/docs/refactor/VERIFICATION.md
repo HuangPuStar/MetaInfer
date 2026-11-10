@@ -8,19 +8,21 @@
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **64** |
-| FAIL | **100** |
+| PASS | **80** |
+| FAIL | **84** |
 | 未测量 | **10** |
 | 合计 | **174** |
 
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：第三轮（`d0364c4`）让四个假测试真正 RED→GREEN，并补了多数边界；但 `dag_map` 仍会超 6 KB、
-O8 的 GC/reconcile 直写仍解释为空、S11 的 replay 客户端仍丢节点，因此**今天仍不能上生产**。
+**一句话**：第四轮修复（`137b293`…`39748a6`）关闭了 G1 删除守卫、locale 方向、B17/B20/B21、
+4.4/4.5 与人类 p0；`npm test` 27 文件 / 427 checks 全绿。仍不能上生产的是冷段归档、dashboard
+过期、7 谓词 claim 门控和浏览器绘制/FPS（见 §18）。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
-> **第二轮**（`750fc31`）见 **§14**；**第三轮**（`d0364c4`）的复核、RED 证据与最新总数见 **§15**。总判定以 §15 为准。
+> **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
+> **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**。总判定以 §18 为准。
 
 ### 0.1 判定口径
 
@@ -576,3 +578,271 @@ chain，所以测试绿而 O8 仍红。real reconcile 是最有力的反例：�
 
 **结论**：§15 的 FAIL 路径均已关闭；`npm test` 27 个文件、408 checks 全绿（2026-11-10）。
 仍 `未测量` 的只有浏览器绘制/FPS；仍 `未完成` 的见 IMPLEMENTATION §9。
+
+---
+
+## 17. 第四轮复核（HEAD `7d97432`，9 个新提交）
+
+> 复核对象：`e5cff93`、`6c7bb68`、`7a26956`、`50c8d80`、`66d9ffe`、`791db98`、`f57e5d9`、
+> `e719554`、`7d97432`（实际 9 个，含文档提交）。只读验证，未改生产代码；报告外的一切
+> 实验都在 `/tmp/r4-*`。
+
+### 17.1 最新总数与 delta
+
+| 判定 | 第三轮 | 第四轮 | 变化 |
+|---|---|---|---|
+| PASS | 64 | **73** | +9 |
+| FAIL | 100 | **91** | −9 |
+| 未测量 | 10 | **10** | 0 |
+| 合计 | 174 | **174** | — |
+
+**FAIL → PASS（9 行）**：`B2`、`B15`、`B19`、`O8`、`S11`、`3.4`、`4.1`、`4.2`、`4.3`。
+**仍 FAIL 的相邻行**：`B17`（确定性召回存在，但候选谓词不全、无人工标注精度/召回）；
+`B20`、`B21`、`4.4`、`4.5`、`3.2`/`B5`。
+**跨切面新增（不占 checklist 行）**：单写者（G1）现在真实可跑；`store` 仍有两个未加守卫的
+删除方法，详见 17.2。
+
+### 17.2 单写者：精确枚举与真实路径
+
+静态枚举（`grep -rn "\.save...|appendEvent|\.put(" host/ index.js`；`node_modules` 除外）：
+
+| 写面 | 数量 | 位置 |
+|---|---|---|
+| `store.saveProject/saveNode/saveRun/saveCycle` | **9** | 全部在 `host/kernel/executor.js`（`:153,154,159,162,268,270,271,274,296`） |
+| `store.appendEvent` | **1** | `executor.js:148`（另一处是 `store.js:423` 的定义） |
+| `tables.*.put` | **5** | `store.js:332/389/442/549/566`，均在 `saveProject/saveNode/appendEvent/saveRun/saveCycle` 内部 |
+| `store.deleteProject` | **3 调用点** | `service` 走 `kernel.executor.deleteProject`；`executor` 内部 `store.deleteProject` 两处 |
+| `store.deleteNode` | **1 调用点** | `executor.js`（`store.js` 是定义） |
+
+**生产越权调用点 = 0。** 9 个 save 调用都在 executor 内，executor 的 `commit`/`commitLocked`
+在 `withWritePermit` 内；`store.appendEvent` 只在 executor 内被调用；5 个 table.put 都在
+store 自己的 guard 内。`strictWrites` 默认为 `throw`（`index.js:78-79`）。
+
+真路径探针（`/tmp/r4-ops-probe.mjs`，setup 完成后 `setStrictWrites('throw')`）依次执行：
+`reconcileRunningNodes` → `reconcileRunningRuns` → 真实 `createGcRunner.run` → 真实
+`runtime.start` 的 merge 路径 → `auto.start/stop`。结果：
+
+```
+reconcile: ["p/legacy"]; runs: ["p/r1"]
+gc: completed; writeStats: {"mode":"throw","unpermitted":0,"byOp":{}}
+autoStart: running
+```
+
+**插件在 throw 下能跑。** 但守卫不是全覆盖：
+
+- `store.deleteProject` **没有** `guardWrite`；在 `throw` 下直接调用
+  `store.deleteProject('p')` 返回成功，项目被删除。
+- `store.deleteEventRecord` 同样没有 `guardWrite`；当前只有 `executor.recoverLocked` 在
+  permit 内调用它。
+- 因此准确说法是：**0 个可达越权调用点，2 个未加守卫的写方法**。当前代码没有第 3 个
+  调用方，所以不阻塞运行；但“任何新的直接写都会失败”的守卫承诺对这两个方法不成立。
+  `strict-writes-selftest` 的静态列表只查 6 个文件，也没有直接调用这两个方法。
+
+### 17.3 Replay 客户端：真正跟页
+
+`scripts/replay-client-selftest.mjs` 用真实 HTTP route 注入 `fetchReplayAll`（从 `client.js`
+抽取），不是重写 helper。独立探针（`/tmp/r4-replay-probe.mjs`，5,001 节点、4,500 事件、
+默认 `nodeLimit/limit=2000`）结果：
+
+```
+ok   client replay follows every node page at default limits
+ok   client replay keeps every event page at default limits
+ok   client replay has no duplicate nodes
+ok   client replay reports completion
+ok   client replay requests multiple pages at default limits
+ok   default helper returns all nodes
+```
+
+独立重植：在 `/tmp/r4-replay/client.js` 把 `maxPages` 默认 50 改成 1，`replay-client-selftest`
+EXIT=1：
+
+```
+FAIL client replay follows every node page — nodes=1000/3001
+FAIL client replay keeps every event page — events=1000/2500
+FAIL client replay reports completion — {"pages":1,"nodes":true,"events":true}
+FAIL client replay requests multiple pages — calls=1
+```
+
+**S11 replay 回归真关。** `maxPages=50` 的上限仍在，>100k 节点/事件会显式 `_truncated`
+（不是静默丢），但该上限未纳入测试。
+
+### 17.4 B15：最终字节成立
+
+`/tmp/r4-b15-probe.mjs` 用 5,001 节点、5,000 个不同且变长的 owner（不是固定 `owner-${i}`）：
+
+| 检查 | 结果 |
+|---|---|
+| `dag_map` 最终 JSON | **6,120 B ≤ 6,144**；`_truncated.bytes.used=6,120`，等于实际序列化长度；`groups={shown:85,total:5001}`；`revision=0` |
+| `dag_walk` 最终 JSON | **24,376 B ≤ 24,576**；`truncated.bytes.used=24,376`，等于实际；`shown=145,total=5000,discovered=5001,reason='bytes'`；`revision=0` |
+| `dag_diff` 精确 since | R0→R1 `fromRevision=0,toRevision=1,added=5002`；R1→R2 `added=['d2']` |
+| `dag_diff` 跨过未缓存 R3 | `since=3` → `ok:false, code:'diff_unavailable', message:'no snapshot at or before revision 3'` |
+| `dag_diff` ahead | `since=999` → `diff_unavailable` |
+
+`envelope`（projectId/revision）现在在 fit 前注入；`stabilizeByteCount` 后再次裁剪，`used`
+与实际长度相等；`total` 用 reachable 而非 200 页上限。**B15 通过。**
+
+### 17.5 O8：real reconcile / GC / merge 的 node 指针
+
+`/tmp/r4-ops-probe.mjs` 在 `strictWrites=throw` 下：
+
+| 路径 | node.causeId / lastCauseId | chain |
+|---|---|---|
+| 真实 `reconcileRunningNodes`（legacy running，无 cause） | `reconcile:legacy` / `reconcile:legacy` | **1**（`node/failed`） |
+| 真实 `createGcRunner.run`（fake activation，真实 commit） | `gcn-gc-run-...` / 同 | **1** |
+| 真实 `runtime.start` merge 路径（`prepareMerge` 写 `node/merge_prepared`） | `m1-a1` / `m1-a1` | **1**；`mergeState='clean'` |
+
+三条路径均由 `node.put` 在 `mutations.js:166-170` 写 `lastCauseId`，不是只靠
+`store.appendEvent` 的 fallback；`/explain` 可用。**O8 通过**（merge 的 cause 指向 activation
+`m1-a1`，不是 merge 事件本身的专用 id；链非空，语义上仍可追到启动动作）。
+
+### 17.6 Stage 3/4：生产调用方计数
+
+`grep -rn "from './kernel/intent.js'|from './experts/..." host --include=*.js` 的结果：
+
+| 功能 | 生产调用方（模块 / 调用点） | 结论 |
+|---|---|---|
+| intent log (`kernel/intent.js`) | **3 模块 / 4 个 `createIntent` 点**：`dispatch/envelope.js:72`、`orchestrator.js:674`、`lab-service.js:2990`、`:3097`；`intent_list` 也在 `agentTool` | 有生产调用；`intent.put` 持久化；3.4 PASS |
+| expert descriptors (`experts/registry.js`) | **1 模块 / 2 个 `listExpertDescriptors` 点**：`lab-service.js:2951`、`:2962`；`computeExpertMetrics` 同处 | 有生产调用；B2 PASS |
+| recall (`experts/similarity.js`) | **2 模块 / 2 个生产点**：`lab-service.js` `recallExperts`；`curator.js` `recallCandidates` | 有生产调用；4.2 PASS |
+| curator (`experts/curator.js`) | **1 模块 / 3 个生产点**：`createCurator`、`nominate`、`recordOutcome`；`applyNomination` 也在 `recordCuratorOutcome` | 有生产调用；4.3 PASS |
+
+零调用方 / 只测试的死代码（不改变上面的“主功能有调用方”，但要记录）：
+
+- `getExpertDescriptor` 在 `lab-service.js:30` **只 import，从未调用**（0 production call site）。
+- `curator.reset()` **0 production call site**；false-close 断路器一旦打开，没有 Host action
+  能复位，只能重启。
+- `curator.applyNomination()` 由 `curator_outcome` 的 `apply` 分支使用；不是执行路径。
+
+**仍 FAIL 的 Stage 3/4：**
+
+- **B17**：`nodeSimilarity` 只做 title/criteria/tags Jaccard + `promptHash` 完全相等
+  boost；没有 promptHash 前缀、同父 + 相似 successCriteria、同 metrics 目标；也没有
+  人工标注 30 组的 precision/recall。它是“确定性召回”，但不是 B17 的完整候选谓词。
+- **B20**：没有 `nomination/withdrawn`、没有“建子节点自动撤回 defer”、没有生产路径的
+  10 分钟免疫（`nominateDuplicates` 的 `claims/reviews` **硬编码空数组**，
+  `curator.nominate` 的 10 分钟 recent 过滤对真实 claim/review 不生效）。
+- **B21**：intent log 只是 append，`intent.put` 没有 TTL、撤回、或“两条 intent basis 不同
+  → 丢弃陈旧方”的代码；`executor` 的 basis 只校验 node rev，不处理 intent 分歧。
+- **4.4**：无 defer 提名自动撤回；**4.5**：无专家库 UI。
+- **3.2/B5**：人类建节点仍不默认 p0；p0→claim <1 s 仍未测。
+
+### 17.7 Locale mirror：结构 parity 真会红，但 sync 方向会“洗白”
+
+`/tmp/r4-locale`（HEAD 副本）：
+
+| 操作 | 结果 |
+|---|---|
+| `npm run locale:sync` | 1338 en / 1338 zh；`locale-selftest` EXIT=0 |
+| 在 `locale/zh.json` 加一个 `drift.key` | EXIT=1：`FAIL en and zh key sets are identical — 1338 vs 1339`、`FAIL client zh dictionary matches locale/zh.json` |
+| 改 `client.js` 的 zh `panel` 值 | EXIT=1：client 与 JSON 不一致 |
+| 先改 client，再 `npm run locale:sync` | 又 EXIT=0；JSON 被写成 `panel: "被篡改的界面"` |
+
+结论：**结构 parity 测试是真的**，bundle 的两张内联表与 `locale/*.json` 确实相等；但
+`locale:sync` 是从 **client 内联表生成 JSON**，不是从 JSON 生成 bundle。它不是 validator，
+而是 overwriter：先改 client 再 sync，可以把不一致“洗白”成一致；先改 JSON 再 sync，翻译
+会被覆盖。A12/U11 的“键集合相等”通过，但“reviewable source of truth”不成立；如果要求
+bundle 消费 mirror 而不是内联副本，则仍未接线。
+
+### 17.8 回归与风险
+
+- `npm test`：**EXIT=0**，27 个 selftest，**408 个 `ok`**（含 strict-writes、replay-client、
+  intent、experts、locale）。
+- `npm run bench:scale`：**EXIT=0**，10/10。
+- `r3probe8`：auth 三个 preset 全 `forbidden_action`；running/completed priority
+  `priority_frozen`；report schema 500 / normalized 500 / headline 300；planned-cancel
+  cause chain 1。
+- 单写者回归：`/tmp/r4-ops-probe.mjs` 中 `unpermitted=0`；但 `deleteProject` 直调在 throw
+  下仍成功（17.2）。
+- 新风险：`store.deleteProject`/`deleteEventRecord` 无 guard；`locale:sync` 反向覆盖；
+  `nominateDuplicates` 传空 claims/reviews；`getExpertDescriptor`/`curator.reset` 死代码；
+  `maxPages=50` 的 replay 上限未测。
+
+### 17.9 结论
+
+**上生产：否。** 单写者主路径、replay 客户端、B15 最终字节、O8 三条真实 cause 链、
+B2/B19/3.4/4.1/4.2/4.3 都已真关；但 B17/B20/B21、4.4/4.5、3.2/B5 仍 FAIL，store 仍有
+两个未守卫的删除方法，locale:sync 仍可把 client 漂移写成 JSON。剩余 91 行 FAIL，继续
+不能上生产。
+
+
+---
+
+## 18. 第四轮修复后复核（HEAD `39748a6`）
+
+> 复核对象：`137b293`（G1 删除守卫）、`027d2de`（locale 方向 + 专家库 UI）、`c93e643`
+> （B17/B20/B21 + curator 状态 + 人类 p0）、`39748a6`（p0→claim 测量）。只读验证；
+> 测试全部用内存 domain，不写 `~/.dsh/storages`。
+
+### 18.1 总数变化
+
+| 判定 | §17 | §18 | 变化 |
+|---|---|---|---|
+| PASS | 73 | **80** | +7 |
+| FAIL | 91 | **84** | −7 |
+| 未测量 | 10 | **10** | 0 |
+| 合计 | 174 | **174** | — |
+
+**FAIL → PASS（7 行）**：`B17`、`B20`、`B21`、`4.4`、`4.5`、`3.2`、`B5`。
+**跨切面**：G1 单写者、locale 生成方向不再是缺陷。`B27`（7 谓词/`citationErrorRate`）仍是
+FAIL —— 本轮只关闭 B17 的结构谓词，没有伪造人工标注的精度/召回。
+
+### 18.2 G1：两个删除方法真的被守卫
+
+`host/store.js` 的 `deleteProject` 与 `deleteEventRecord` 现在第一步都是 `guardWrite(op)`。
+在 `strictWrites='throw'` 下直接调用，二者均抛 `unpermitted_write`；项目仍在，事件未删：
+
+```
+deleteProject unpermitted_write
+deleteEventRecord unpermitted_write
+project alive true
+writeStats: {mode:'throw', unpermitted:2, byOp:{deleteProject:1,deleteEventRecord:1}}
+```
+
+真实 executor 的 `recover`/`deleteProject` 走 `withWritePermit`，维护路径不需要绕过守卫。
+`strict-writes-selftest.mjs` 现在同时断言：服务写入/取消成功、直接 `saveProject`/
+`deleteProject`/`deleteEventRecord` 被拒、`unpermitted===3` 且 `byOp` 精确。
+
+### 18.3 locale：JSON 是源，漂移只变红
+
+`locale/{en,zh}.json` 现有 1,347 键，是唯一源；`scripts/locale-sync.mjs` 只从 JSON 生成
+`client.js` 的 `#region locale-generated`，**不再写 JSON**。把客户端一个值改成 `MUTATED`
+后运行 `locale-selftest.mjs`：
+
+```
+drift_exit=1
+FAIL client zh dictionary matches locale/zh.json
+```
+
+恢复后 1,347 键逐键相等。`locale:sync` 重跑只更新客户端块；JSON 内容不变。
+
+### 18.4 B17/B19/B20/B21
+
+- **B17**：`similarityEvidence` 实装三类结构谓词，测试分别命中
+  `promptHashPrefix`、`sameParentCriteria`、`metricTargets`；节点创建时落 `promptHash`，
+  多父 merge 节点仍排除。
+- **B19**：`nominateDuplicates` 传入真实 dispatch claim + `reviewClaims.list()`；测试断言
+  被 claim 的 d1 不进入提名。10 分钟免疫用真实 `clock` 边界验证：11 分钟旧对入选，
+  9 分钟节点被排除。
+- **B20**：`node.create` reducer 在同一次 commit 内把针对 parent 的 pending curate nomination
+  置 `withdrawn` 并写 `intent/withdrawn`；测试用真实 executor 建 `child-of-d1` 后检查。
+- **B21**：intent 带 `status:'pending'` 与 30 分钟 `expiresAt`；`intent_withdraw` 可撤回；
+  同目标已有更高 basis 时新提交返回 `stale_basis` + `conflictingIntentId`；`curator_reset`
+  是可调用的生产 action，重置熔断。
+
+### 18.5 4.4/4.5/3.2/B5
+
+- **4.4**：建子自动撤回（同 B20），不再靠人工清理 defer。
+- **4.5**：设置弹窗有只读专家库，数据来自 `GET /experts`（`service.listExperts`），
+  显示 persona/mayPropose/metrics/“只提议，不执行”；加载中/错误/空/刷新四态。
+- **3.2/B5**：`orchestrator.createChild` 对人类后继默认 `p0/by=human`；
+  `priority-selftest` 用真实 `createSuccessor` + fake git 验证；`dispatch-selftest` 用真实
+  dispatcher 测量 `p0→dispatch/claimed` = **21 ms**（预算 <1,000 ms）。
+
+### 18.6 测试与剩余
+
+`npm test`：**27 个文件、427 checks，exit 0**（`/tmp/npmtest-r4b.log`）。新增/扩展：
+`strict-writes`、`experts`（谓词/免疫/claims/生命周期）、`priority`（人类 p0）、
+`dispatch`（p0→claim）、`surface-bounds`（`/experts`）、`ui`（专家库）、`locale`（漂移）。
+
+仍 FAIL：`B27` 7 谓词 claim 校验与 `citationErrorRate`；`P1.2/S12` 冷段归档；`U14` dashboard
+静默过期；`U13` dashboard 来源徽标；`O12` 文本审计；浏览器绘制/FPS 未测量；Stage 5 组织化。

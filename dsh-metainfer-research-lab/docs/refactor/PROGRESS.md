@@ -156,3 +156,19 @@
 
 **仍开着**：冷段事件归档、dashboard 静默过期/来源徽标、7 谓词 claim 校验与
 `citationErrorRate` 门控、浏览器绘制/FPS 实测、Stage 5 组织化能力。
+
+## 2026-11-11 第四轮验收修复（G1 / locale / B17 / B20 / B21 / 4.4 / 4.5 / 3.2）
+
+| WP | 状态 | 提交 | 证据 |
+|---|---|---|---|
+| G1 删除守卫 | done | `137b293` | `deleteProject` / `deleteEventRecord` 加 `guardWrite`；throw 下直接调用均 `unpermitted_write` 且数据不变；executor 路径仍成功；stats 精确 3 次拒绝 |
+| locale 方向反转 | done | `027d2de` | `locale/*.json` 为唯一源；`locale-sync` 只生成客户端字典；改坏客户端一个值 → `locale-selftest` RED；恢复后绿 |
+| 专家库 UI | done | `027d2de` | 设置弹窗新增只读专家库（id/persona/mayPropose/metrics/“只提议”），`GET /experts` + `fetchExperts`；空/加载/错误/刷新四态 |
+| B17 真实谓词 | done | `c93e643` | promptHash 前缀、同父 + criteria、metric targets 三个谓词分别命中；节点落 `promptHash`；merge 多父排除 |
+| B20 建子自动撤回 | done | `c93e643` | 真实 executor `node.create` 同提交把 parent 的 pending curate 提名置 `withdrawn` 并写 `intent/withdrawn` |
+| B21 生命周期 | done | `c93e643` | intent `expiresAt` 30 min、`intent_withdraw`、同目标旧 basis → `stale_basis` + conflictingIntentId；`curator_reset` 生产 action |
+| curator 状态 | done | `c93e643` | 真实 dispatch/review claim 传入；10 分钟免疫边界测试；claims/reviews 排除；提名 intent 可撤回 |
+| 3.2/B5 人类 p0 | done | `c93e643`/`39748a6` | 人类后继默认 `p0/by=human`；p0→dispatch claim 21 ms（<1 s），真实 dispatcher |
+
+**测试**：`npm test` 27 个文件、427 checks 全绿。仍开着：冷段归档、dashboard 静默过期/来源徽标、
+7 谓词 claim 校验与 `citationErrorRate`、浏览器绘制/FPS、Stage 5 组织化能力。

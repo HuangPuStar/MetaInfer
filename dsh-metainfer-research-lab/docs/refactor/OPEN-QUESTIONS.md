@@ -41,12 +41,14 @@
 - **影响**：advisor 上下文更省；规划更早触发；大规模项目可导入。
 - **可逆性**：改常量即可。
 
-### A5. `kernel.strictWrites` 生产默认 `warn`
+### A5. `kernel.strictWrites` 生产默认 `throw`
 
-- **问题**：64 处 legacy 直接写（runtime/gc/reconcile）还没迁到 executor；`throw` 会打断线上 Host。
-- **裁决**：默认 `warn`，计数进 `health.writes`，测试用 `throw` 证明 executor 的 ALS 许可覆盖
-  `commit` 与 `recover`；**不做** store 写入 → executor 的自动桥（会掩盖迁移债）。
-- **影响**：线上可观测、不阻断；迁移完成后把默认改 `throw`。
+- **问题**：早期 64 处 legacy 直接写（runtime/gc/reconcile）还没迁到 executor；`throw` 会打断线上 Host。
+- **裁决**：所有生产写已迁到 `kernel.executor`（`commit`/`recover`/`deleteProject` 持有 ALS 许可），
+  store 的 `save*/appendEvent/deleteProject/deleteEventRecord` 全部 `guardWrite`；默认改为 `throw`。
+  **不做** store 写入 → executor 的自动桥（会掩盖迁移债）。
+- **影响**：任何绕过 executor 的写都会 `unpermitted_write` 并计数；测试同时覆盖服务成功路径与
+  直接删除被拒。
 - **可逆性**：配置项。
 
 ### A6. `state` 是索引，单节点详情单独取
@@ -76,14 +78,15 @@
 - **影响**：issue 0001 的默认分支从"全量"变"只读"；新 preset 必须先写策略。
 - **可逆性**：高（改常量）。
 
-### A9. 未实现的 action 从枚举移除
+### A9. 未实现的 action 从枚举移除；实现的 action 三表一致
 
-- **问题**：`intent_*`/`experts_*`/`curator_*` 在 schema enum 里但没有 service 分支，调用必
+- **问题**：`intent_*`/`experts_*`/`curator_*` 早期在 schema enum 里但没有 service 分支，调用必
   `unknown_command`（复核 B15/S11）。
-- **裁决**：未实现就不广告——从 `ACTION_ENUM` 与 `ACTION_CATALOG` 同时删除；
-  `dag_*`/`nodes_page`/`events_page`/claim 三件套/`health` 则补齐 handler。
-  `ACTION_ENUM == ACTION_CATALOG == 有 handler 的集合` 由测试守住。
-- **影响**：Stage 3–5 实现后需同时加回三处（测试会提醒）。
+- **裁决**：未实现就不广告；`intent_submit/list/withdraw`、`expert_list/recall`、
+  `curator_nominate/outcome/reset` 在 `ACTION_ENUM`、`ACTION_CATALOG` 与 handler 三处同时存在，
+  `dag_*`/分页/claim 三件套/`health` 同理。旧名 `experts_list`/`expert_upsert`/`curator_scan`
+  永久移除。`ACTION_ENUM == ACTION_CATALOG == 有 handler 的集合` 由测试守住。
+- **影响**：新增 action 必须三处同步；测试会提醒。
 - **可逆性**：高。
 
 ### A10. 报告 summary 的源头上限 vs D16「不截断存储报告」
@@ -131,8 +134,8 @@
 3. ~~`experts_list` / `curator_*`~~：Stage 4 已实现 `expert_list` / `expert_recall` /
    `curator_nominate` / `curator_outcome`；`experts_list`/`expert_upsert`/`curator_scan`
    这些旧名仍保持移除。
-4. ~~i18n 全量迁移~~：`locale/{en,zh}.json` 已含 1,338 键；客户端内联表由
-   `npm run locale:sync` 生成，`locale-selftest` 做结构 parity。
+4. ~~i18n 全量迁移~~：`locale/{en,zh}.json` 已含 1,347 键，且是**唯一源**；客户端字典由
+   `npm run locale:sync` 单向生成，`locale-selftest` 在客户端漂移时报红（不回写 JSON）。
 5. **5 MB `getState` 预算**来自本轮审计，不是原设计条目；若未来 20,000 节点项目成为常态，
    需要把预算改成"每节点 ≤ 0.9 KB"并按规模线性化。
 
