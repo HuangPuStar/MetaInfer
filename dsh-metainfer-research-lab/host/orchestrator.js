@@ -142,7 +142,11 @@ function advisorPrompt(project, snapshot, lens) {
     '',
     '# Rules',
     '1. Only propose successors whose parentId is in candidateParents. A parent must be completed.',
-    '2. At most the configured number of proposals; prefer 1, use 2-3 for genuinely different hypotheses.',
+    '2. Size the proposal count to idle capacity, not to caution: resources.free / resources.maxRunningNodes',
+    '   say how many slots are idle. When free slots exceed the runnable nodes, propose 2-4 INDEPENDENT',
+    '   successors (different parent, or the same parent with genuinely different hypotheses) so the queue',
+    '   does not drain; when capacity is tight (free < 2) propose only the single best next step.',
+    '   Never exceed policy.maxProposalsPerReviewer in one answer: the Host rejects the extras.',
     '3. Each proposal prompt must be self-contained: a fresh agent with only the project brief, the',
     '   parent worktree and ancestor summaries must be able to execute it.',
     '4. needs is an array of {key, amount}; keys must be in resources.pools and within the pool size.',
@@ -232,15 +236,22 @@ async function sessionUsage(ctx, sessionId) {
 
 function mergeAdvisorOutputs(project, outputs) {
   const max = project.config.advisor?.maxProposalsPerPass ?? 3;
+  // Per-reviewer cap: one lens cannot fill the whole pass, otherwise a single
+  // chatty reviewer crowds out every other perspective (and the DAG stays one
+  // node wide). Independent reviewers each get their own slice of the budget.
+  const perReviewer = Math.max(1, project.config.advisor?.maxProposalsPerReviewer ?? 2);
   const seen = new Set();
   const proposals = [];
   for (const output of outputs) {
     if (!output || typeof output !== 'object') continue;
+    let taken = 0;
     for (const proposal of Array.isArray(output.proposals) ? output.proposals : []) {
+      if (taken >= perReviewer) break;
       const key = `${proposal?.parentId ?? ''}::${promptHash(proposal?.prompt ?? '')}`;
       if (seen.has(key)) continue;
       seen.add(key);
       proposals.push(proposal);
+      taken += 1;
     }
   }
   return {
@@ -1280,4 +1291,4 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
   };
 }
 
-export { ADVISOR_SCHEMA, SCHEDULER_SCHEMA, advisorPrompt, schedulerPrompt };
+export { ADVISOR_SCHEMA, SCHEDULER_SCHEMA, advisorPrompt, schedulerPrompt, mergeAdvisorOutputs };

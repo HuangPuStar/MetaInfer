@@ -259,6 +259,7 @@ export function buildAdvisorSnapshot(store, project, cluster) {
     },
     policy: {
       maxProposalsPerPass: project.config.advisor?.maxProposalsPerPass ?? 3,
+      maxProposalsPerReviewer: project.config.advisor?.maxProposalsPerReviewer ?? 2,
       acceptMode: project.config.advisor?.acceptMode ?? 'auto',
       allowedParentKinds: ['leaf', 'ancestor'],
     },
