@@ -192,6 +192,7 @@
 | `5ce5279` | P17.2(U14,A20) 成功刷新记录实际读取 revision（`revision`/`dataRevision`）与写入后 `committedRevision`；失败刷新保留上次成功并永不 stale:false；可关闭告警、3 次失败降级/退避、widget 隐藏数字 | `dashboard-selftest` 10 checks；真实 `refreshDashboard` 成功/失败/连续失败；`ui-selftest` 12/12 |
 | `6584441` | P17.2(U14) 把读 revision 与 dashboard 自身写入 revision 分开，freshness 用 `committedRevision` | 成功刷新 `lastRun.revision=2` 且非 stale；失败仍 stale |
 | `e533164` | P18.1(D) jsdom 挂载 15 个面板 + degraded 载荷；修 `RunsPanel` 缺少 `cycles` 的崩溃 | `client-smoke` 15/15；`npm test` 32 文件 / 532 checks |
+| uncommitted | P18.2(Q3/5.3.1) `maxPlannedInFlight` 默认 max(2×free,4)，超限跳过 advisor pass；未做 reservedSlots/抢占 | `auto-wip-selftest` 4/4；`npm test` 33 文件 / 536 checks |
 | 已落 | S12 100k 首读：`timelineCache` 归档边界预热 + hot 尾追加 | `scale-selftest` 11/11，100k 首读 0.27–0.35 ms（≤50 ms） |
 
 状态：3 个阻断项清零；S12/A20 关闭。§22 计数 **87 PASS / 77 FAIL / 10 N/A**。

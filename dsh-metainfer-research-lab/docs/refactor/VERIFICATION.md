@@ -1320,13 +1320,13 @@ UI：`U1`、`U2`、`U3`、`U12`。
 
 | 判定 | §21（`ad396b7`） | §22（`5ce5279`） | 变化 |
 |---|---|---|---|
-| PASS | 82 | **87** | +5 |
-| FAIL | 82 | **77** | −5 |
+| PASS | 82 | **88** | +6 |
+| FAIL | 82 | **76** | −6 |
 | 未测量 | 10（含 2 N/A） | **10** | 0 |
 | 合计 | 174 | **174** | — |
 
-**FAIL → PASS（5 行）**：`B27`、`C7`、`U14`、`S12`、`A20`。
-剩余 **77 FAIL** = 20 个只差文档/口径 + 57 个能力未建；3 个阻断项已清零。
+**FAIL → PASS（6 行）**：`B27`、`C7`、`U14`、`S12`、`A20`、`5.3.1`。
+剩余 **76 FAIL** = 20 个只差文档/口径 + 56 个能力未建；3 个阻断项已清零。
 因此可以继续做文档收尾与能力建设，但**仍不能**据此宣称 174 行全部上线。
 
 ### 22.2 B27：5 级验证强度
@@ -1404,11 +1404,23 @@ hot 尾部追加进去；首读不再解压/排序全部 cold 段。`scale-selft
 
 ### 22.6 回归
 
-- `npm test`：**EXIT=0**，32 个文件，**532 个 `ok`**（新增 claims 17、dashboard 3、
-  ui 1、jsdom 15 等）。
+- `npm test`：**EXIT=0**，33 个文件，**536 个 `ok`**（新增 claims 17、dashboard 3、
+  ui 1、jsdom 15、auto WIP 4 等）。
 - `npm run bench:scale`：**EXIT=0**，11/11；新增 100k 首读断言。
 - `locale-selftest`：en/zh 均 1,375 keys，client 字典同步。
 - `ui-selftest`：12/12；新增可关闭失败告警与降级断言（仍不测真实 DOM/帧率）。
+
+### 22.9 5.3.1：`maxPlannedInFlight`
+
+`host/auto.js` 新增 `maxPlannedInFlightOf(project, capacity)`：默认
+`max(2 × freeSlots, 4)`，项目可显式配置 `config.maxPlannedInFlight`。`tickOne`
+把 runnable + claimed + held 的 planned 节点合计为 in-flight；达到上限时只跳过
+advisor pass，确定性 dispatch 仍先执行，`status.lastPlanSkip` 暴露原因。
+
+`auto-wip-selftest.mjs` 4/4：默认公式三组；5 个 runnable、容量 2（上限 4）时
+`orchestrator.step` 0 次；2 个 runnable 时 1 次；显式上限 1 时 2 个也跳过。
+这关闭 5.3.1，但 **Q3 的 `reservedSlots.p0` 与项目内抢占仍未做**，所以 Q3 整体
+仍是 FAIL。
 
 ### 22.8 D 类：面板降级 smoke
 
@@ -1429,5 +1441,5 @@ DOM/面板层。§22.7 的结论不把 D 类算作全部关闭。
 ### 22.7 结论
 
 **三个阻断项已关闭，S12 预算达标，A20 随之可见。** 但 174 行仍有 77 FAIL：
-20 行需要把文档/验收口径落实，57 行是 Stage 3–5 组织、争议、预算、观测与 UI 能力。
+20 行需要把文档/验收口径落实，56 行是 Stage 3–5 组织、争议、预算、观测与 UI 能力。
 本轮没有开始 Stage 5，也没有用文档改写替代代码证据。

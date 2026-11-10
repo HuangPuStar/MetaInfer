@@ -13,6 +13,24 @@ function newNodeCount(nodes) {
 }
 
 /**
+ * Queue cap (QA Q3 mechanism B): `max(2 * freeSlots, 4)` by default. A deep
+ * queue must not make the advisor plan even deeper; it only spends a model pass
+ * on more work that cannot start. The cap is configurable per project for
+ * experiments, but the default is derived from present capacity, not a magic
+ * global number.
+ *
+ * @param {object} project
+ * @param {{ runningCount: number }} capacity
+ */
+export function maxPlannedInFlightOf(project, capacity) {
+  const configured = Number(project?.config?.maxPlannedInFlight);
+  if (Number.isFinite(configured) && configured >= 1) return Math.floor(configured);
+  const maxRunning = Number(project?.config?.maxRunningNodes ?? 4);
+  const freeSlots = Math.max(0, (Number.isFinite(maxRunning) ? maxRunning : 4) - (capacity?.runningCount ?? 0));
+  return Math.max(2 * freeSlots, 4);
+}
+
+/**
  * @param {{ctx: object, store: object, orchestrator: object, intervalMs?: number}} deps
  */
 export function createAutoController({ store, kernel, orchestrator, cluster, dispatchOnce = null, intervalMs = 2000 }) {
@@ -58,6 +76,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
         idleStreak: 0,
         errorStreak: 0,
         lastCycleAt: 0,
+        lastPlanSkip: null,
         pauseCounts: {},
       };
       states.set(projectId, state);
@@ -90,6 +109,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       idleStreak: state.idleStreak,
       errorStreak: state.errorStreak,
       lastCycleAt: state.lastCycleAt,
+      lastPlanSkip: state.lastPlanSkip,
       tokensUsed: tokensUsed(projectId),
       costUsed: costUsed(projectId),
       limits: {
@@ -251,6 +271,10 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
 
     const capacity = capacityOf(project, nodes, cluster);
     const summary = runnableSummary(nodes, { now: Date.now() });
+    const plannedLimit = maxPlannedInFlightOf(project, capacity);
+    const plannedInFlight = summary.runnable + summary.claimed + summary.held;
+    const wipFull = plannedInFlight >= plannedLimit;
+    state.lastPlanSkip = wipFull ? 'maxPlannedInFlight' : null;
     const planner = plannerOf(project);
     const trigger = planner.evaluate({ remainingMs: summary.remainingMs, queueDepth: summary.runnable });
 
@@ -280,7 +304,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     // Unreviewed completed leaves are always worth planning for; queue depth is
     // paced by the low-water trigger so a long-running batch is not replanned
     // every tick.
-    const shouldPlan = actionables.length > 0 || trigger.trigger;
+    const shouldPlan = !wipFull && (actionables.length > 0 || trigger.trigger);
 
     if (!shouldPlan) {
       if (proposed.length > 0) return waiting(projectId, 'awaitingConfirmation');

@@ -5,7 +5,7 @@
 > 每条要么给出**文件 · 函数 · 测试**，要么写 `未完成` + 原因。状态只有「完成 / 未完成」，
 > 没有「部分完成」——部分完成的条目拆成两条。
 >
-> 分支：`refactor/v2`。测试入口：`npm test`（32 个自测文件 / 532 checks，见文末）。
+> 分支：`refactor/v2`。测试入口：`npm test`（33 个自测文件 / 536 checks，见文末）。
 
 ## 1. 内核与写路径（B3/B5/B21/G1/G2，P1）
 
@@ -34,7 +34,8 @@
 | Q9 review claim（同父提案互斥） | 完成 | `host/orchestrator.js` `claimReview`/`releaseReview`/`reviewClaims` | `review-claims-selftest.mjs` 9/9 |
 | 人类 p0 快路（改优先级立即重排） | 完成 | `lab-service.setNodePriority` 走 `kernel.executor.commit`（`node.setPriority`）；`orchestrator.createChild` 的 `createdBy=user` 默认 `p0/by=human`；HTTP `node.priority`；UI `↑/↓` | `priority-selftest.mjs`（planned 接受；running/completed 返回 `priority_frozen`；人类后继 p0 且 <1 s）；`dispatch-selftest.mjs`（p0→claim 21 ms） |
 | 优先级只允许运行前修改（B7） | 完成 | `lab-service.setNodePriority` + `mutations.js node.setPriority` 双重状态校验；`updateNode` 复用同一提交 | `priority-selftest.mjs`（service、kernel、updateNode 三条路径） |
-| `maxPlannedInFlight` / 预留槽 / 抢占 | 未完成 | — | 原因：会影响线上 254 节点项目的吞吐，需先有观测基线；已进 PROGRESS 未完成项 |
+| `maxPlannedInFlight` WIP 上限（Q3 机制 B） | 完成 | `host/auto.js` `maxPlannedInFlightOf` 默认 `max(2 × freeSlots, 4)`，项目可显式覆盖；`tickOne` 在队列（runnable + claimed + held）达到上限时跳过 advisor pass，`status.lastPlanSkip='maxPlannedInFlight'`；仍先走确定性 dispatch | `auto-wip-selftest.mjs` 4/4（公式、超限跳过、未超限规划、显式覆盖） |
+| `reservedSlots.p0` / 项目内抢占 | 未完成 | — | 原因：会改变线上 254 节点项目的吞吐，需先有观测基线；已进 PROGRESS 未完成项 |
 
 ## 3. 能力表与权限（B1/Q1，issue 0001）
 
