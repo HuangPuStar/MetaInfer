@@ -42,6 +42,9 @@ window.__ModuleLoader__.load({
       dashboardChat: 'api/metainfer-research-lab/dashboard/chat',
       dashboardLayout: 'api/metainfer-research-lab/dashboard/layout',
       filesInfo: 'api/metainfer-research-lab/files/info',
+      facts: 'api/metainfer-research-lab/status',
+      metrics: 'api/metainfer-research-lab/metrics',
+      node: 'api/metainfer-research-lab/node',
       filesDownload: 'api/metainfer-research-lab/files/download',
     };
 
@@ -544,6 +547,22 @@ window.__ModuleLoader__.load({
       'ws.action.start': '▶ 启动',
       'ws.action.starting': '正在启动…',
       'ws.action.cancel': '■ 取消',
+      'ws.priority.raise': '↑ 提高优先级',
+      'ws.priority.lower': '↓ 降低优先级',
+      'ws.priority.current': '优先级 {class}',
+      'ws.priority.deferred': 'deferred（变体）',
+      'ws.facts.badge': 'HOST',
+      'ws.facts.title': 'Host 计算的状态',
+      'ws.facts.loading': '读取中…',
+      'ws.facts.empty': '还没有节点。创建根节点后这里会显示 Host 判定。',
+      'ws.facts.error': '读取 Host 状态失败',
+      'ws.facts.retry': '重试',
+      'ws.facts.running': '运行 {count}',
+      'ws.facts.queued': '排队 {count}',
+      'ws.facts.failed': '失败 {count}',
+      'ws.facts.next': '下一个启动：{id}（{why}）',
+      'ws.facts.none': '当前没有可启动的节点',
+      'ws.facts.failure': '最近失败：{id} · {error}',
       'ws.action.cancelling': '正在取消…',
       'ws.action.failed': '操作失败',
       'ws.action.openTranscript': '查看对话',
@@ -1872,6 +1891,22 @@ window.__ModuleLoader__.load({
       'ws.action.start': '▶ Start',
       'ws.action.starting': 'Starting…',
       'ws.action.cancel': '■ Cancel',
+      'ws.priority.raise': '↑ Raise priority',
+      'ws.priority.lower': '↓ Lower priority',
+      'ws.priority.current': 'Priority {class}',
+      'ws.priority.deferred': 'deferred (variant)',
+      'ws.facts.badge': 'HOST',
+      'ws.facts.title': 'Host-computed status',
+      'ws.facts.loading': 'loading…',
+      'ws.facts.empty': 'No nodes yet. Host facts appear after the root node exists.',
+      'ws.facts.error': 'Failed to read Host status',
+      'ws.facts.retry': 'Retry',
+      'ws.facts.running': 'running {count}',
+      'ws.facts.queued': 'queued {count}',
+      'ws.facts.failed': 'failed {count}',
+      'ws.facts.next': 'Next: {id} ({why})',
+      'ws.facts.none': 'Nothing runnable right now',
+      'ws.facts.failure': 'Last failure: {id} · {error}',
       'ws.action.cancelling': 'Cancelling…',
       'ws.action.failed': 'Action failed',
       'ws.action.openTranscript': 'View conversation',
@@ -3013,6 +3048,17 @@ window.__ModuleLoader__.load({
       '.rl-dot-cancelled { background: var(--dsw-alias-state-idle-primary); }',
       '@keyframes rl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }',
       '.rl-canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--dsw-alias-bg-base); cursor: grab; touch-action: none; }',
+      '.rl-host-facts { position: absolute; top: 10px; left: 10px; z-index: 3; display: flex; flex-direction: column; gap: 4px; max-width: min(520px, calc(100% - 20px)); padding: 8px 10px; border: 0.5px solid var(--dsw-alias-border-l2); border-left: 2px solid var(--dsw-alias-state-success-primary); border-radius: 8px; background: var(--dsw-alias-bg-elevated); box-shadow: 0 2px 10px rgba(0,0,0,0.08); cursor: default; }',
+      '.rl-host-facts-head { display: flex; align-items: center; gap: 6px; }',
+      '.rl-host-badge { flex: 0 0 auto; padding: 0 5px; border-radius: 4px; background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-base); font-family: var(--dsw-font-mono, monospace); font-size: 9.5px; letter-spacing: 0.08em; }',
+      '.rl-host-facts-title { color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 600; }',
+      '.rl-host-facts-body { display: flex; flex-wrap: wrap; gap: 3px 10px; font-family: var(--dsw-font-mono, monospace); font-size: 10.5px; color: var(--dsw-alias-label-secondary); }',
+      '.rl-host-facts-stat { white-space: nowrap; }',
+      '.rl-host-facts-next { flex: 1 1 100%; color: var(--dsw-alias-label-primary); overflow-wrap: anywhere; }',
+      '.rl-host-facts-failure { flex: 1 1 100%; color: var(--dsw-alias-state-error-primary); overflow-wrap: anywhere; }',
+      '.rl-host-facts-hint { color: var(--dsw-alias-label-tertiary); font-size: 10.5px; }',
+      '.rl-host-facts-error { color: var(--dsw-alias-state-error-primary); font-size: 10.5px; overflow-wrap: anywhere; }',
+      '.rl-host-facts-retry { border: 0; background: none; padding: 0; color: var(--dsw-alias-brand-primary); font-size: 10.5px; cursor: pointer; }',
       '.rl-canvas-dragging { cursor: grabbing; }',
       '.rl-canvas-inner { position: absolute; left: 0; top: 0; will-change: transform; }',
       '.rl-canvas-svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }',
@@ -3530,6 +3576,18 @@ window.__ModuleLoader__.load({
         if (typeof revision === 'number' && Number.isFinite(revision)) path += '&revision=' + encodeURIComponent(String(revision));
         return requestJson(path, { signal }, t);
       },
+      fetchFacts(projectId, signal, t) {
+        return requestJson(ROUTES.facts + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
+      },
+      fetchMetrics(projectId, signal, t) {
+        return requestJson(ROUTES.metrics + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
+      },
+      fetchNode(projectId, nodeId, signal, t) {
+        return requestJson(ROUTES.node + '?projectId=' + encodeURIComponent(projectId) + '&nodeId=' + encodeURIComponent(nodeId), { signal }, t);
+      },
+      fetchChanges(projectId, revision, signal, t) {
+        return requestJson('api/metainfer-research-lab/changes?projectId=' + encodeURIComponent(projectId) + '&revision=' + encodeURIComponent(String(revision)), { signal }, t);
+      },
       fetchEvents(projectId, after, signal, t) {
         const cursor = typeof after === 'number' && Number.isFinite(after) ? after : 0;
         // `cursor` is the first unseen seq. Send one before it so a Host that
@@ -3751,6 +3809,16 @@ window.__ModuleLoader__.load({
     }
     function nodeResourcesHeldOf(node) {
       return asObject(asObject(node).resourcesHeld);
+    }
+    const PRIORITY_ORDER = ['p0', 'p1', 'p2', 'p3', 'deferred'];
+    function nodePriorityClassOf(node) {
+      const value = asObject(asObject(node).priority).class;
+      return PRIORITY_ORDER.includes(value) ? value : 'p2';
+    }
+    function nodePriorityTargetOf(node, direction) {
+      const current = PRIORITY_ORDER.indexOf(nodePriorityClassOf(node));
+      const next = direction === 'raise' ? Math.max(0, current - 1) : Math.min(PRIORITY_ORDER.length - 1, current + 1);
+      return PRIORITY_ORDER[next];
     }
     function nodeReportOf(node) {
       const report = asObject(node).report;
@@ -8627,6 +8695,26 @@ window.__ModuleLoader__.load({
         return null;
       }, [nodes, selectedId]);
 
+      // The state list is an index: it keeps prompts/reports capped. The
+      // inspector needs the full record, so load it once per selection.
+      const [fullNode, setFullNode] = React.useState(null);
+      React.useEffect(() => {
+        let cancelled = false;
+        setFullNode(null);
+        if (selectedId === null) return undefined;
+        const summary = selectedNode;
+        if (summary === null) return undefined;
+        const needsFull = summary.promptComplete === false || summary.reportAvailable === true;
+        if (!needsFull) {
+          setFullNode(summary);
+          return undefined;
+        }
+        api.fetchNode(projectId, selectedId, undefined, t)
+          .then((data) => { if (!cancelled) setFullNode(data?.node ?? data ?? summary); })
+          .catch(() => { if (!cancelled) setFullNode(summary); });
+        return () => { cancelled = true; };
+      }, [projectId, selectedId, selectedNode === null ? null : nodeIdOf(selectedNode)]); // eslint-disable-line react-hooks/exhaustive-deps
+
       const continueNode = React.useMemo(() => {
         if (continueNodeId === null) return null;
         for (const node of nodes) if (nodeIdOf(node) === continueNodeId) return node;
@@ -8648,6 +8736,7 @@ window.__ModuleLoader__.load({
             t,
           );
           applyCommandResult(data);
+          if (data !== null && typeof data === 'object' && data.node !== null && typeof data.node === 'object') setFullNode(data.node);
           return { ok: true };
         } catch (error) {
           if (isAbortError(error)) return { ok: false, error: t('error.unknown') };
@@ -8681,8 +8770,8 @@ window.__ModuleLoader__.load({
         }
       }, [applyCommandResult, projectId, t]);
 
-      const handleNodeAction = React.useCallback((type, nodeId) => {
-        void runNodeCommand(type, nodeId);
+      const handleNodeAction = React.useCallback((type, nodeId, extra) => {
+        void runNodeCommand(type, nodeId, extra);
       }, [runNodeCommand]);
       /** Open a session in DSH's native conversation (trajectory/chat preset). */
       const openSessionNative = React.useCallback((sessionId, view, nodeId) => {
@@ -9137,6 +9226,7 @@ window.__ModuleLoader__.load({
           { className: 'rl-workspace-grid' },
           h(NodeRail, { project, nodes: displayNodes, selectedId, onSelect: setSelectedId, t }),
           h(DagCanvas, {
+            factsSlot: h(HostFactsCard, { projectId, t }),
             nodes: displayNodes,
             edges: displayEdges,
             layout,
@@ -9171,7 +9261,7 @@ window.__ModuleLoader__.load({
           h(NodeInspector, {
             project,
             nodes,
-            node: selectedNode,
+            node: fullNode !== null && nodeIdOf(fullNode) === nodeIdOf(selectedNode ?? {}) ? fullNode : selectedNode,
             now,
             busyKey,
             onSave: saveNode,
@@ -10043,7 +10133,74 @@ window.__ModuleLoader__.load({
      * Background drag pans, wheel zooms around the pointer, the toolbar fits the
      * graph, and clicking empty space clears the selection.
      */
-    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, replayFooter, t }) {
+    /**
+     * Host facts are computed by the Host, not written by an agent: counts,
+     * the next node that will start and why, and the newest failure. Visually a
+     * monospace "HOST" card so it cannot be mistaken for advisor commentary.
+     */
+    function HostFactsCard({ projectId, t }) {
+      const [state, setState] = React.useState({ phase: 'loading', facts: null, error: '' });
+      const [reloadKey, setReloadKey] = React.useState(0);
+      React.useEffect(() => {
+        let cancelled = false;
+        let timer = null;
+        const load = async () => {
+          try {
+            const facts = await api.fetchFacts(projectId, undefined, t);
+            if (cancelled) return;
+            const empty = facts === null || typeof facts !== 'object' || !facts.counts || facts.counts.total === 0;
+            setState({ phase: empty ? 'empty' : 'ready', facts: empty ? null : facts, error: '' });
+          } catch (error) {
+            if (!cancelled) setState({ phase: 'error', facts: null, error: describeError(error, t) });
+          }
+          if (!cancelled) timer = setTimeout(load, 5000);
+        };
+        load();
+        return () => { cancelled = true; if (timer !== null) clearTimeout(timer); };
+      }, [projectId, reloadKey, t]);
+      const facts = state.facts;
+      const next = facts !== null && Array.isArray(facts.nextToStart) ? facts.nextToStart[0] : null;
+      const failure = facts !== null && Array.isArray(facts.recentFailures) ? facts.recentFailures[0] : null;
+      return h(
+        'div',
+        { className: 'rl-host-facts', role: 'status', 'aria-live': 'polite' },
+        h(
+          'div',
+          { className: 'rl-host-facts-head' },
+          h('span', { className: 'rl-host-badge' }, t('ws.facts.badge')),
+          h('span', { className: 'rl-host-facts-title' }, t('ws.facts.title')),
+          state.phase === 'loading' ? h('span', { className: 'rl-host-facts-hint' }, t('ws.facts.loading')) : null,
+          state.phase === 'error'
+            ? h(
+                'button',
+                { type: 'button', className: 'rl-host-facts-retry', onClick: () => setReloadKey((value) => value + 1) },
+                t('ws.facts.retry'),
+              )
+            : null,
+        ),
+        state.phase === 'error'
+          ? h('div', { className: 'rl-host-facts-error' }, state.error)
+          : state.phase === 'empty'
+            ? h('div', { className: 'rl-host-facts-hint' }, t('ws.facts.empty'))
+            : facts === null
+              ? null
+              : h(
+                  'div',
+                  { className: 'rl-host-facts-body' },
+                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.running', { count: facts.counts.running })),
+                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.queued', { count: facts.counts.planned })),
+                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.failed', { count: facts.counts.failed })),
+                  next !== null
+                    ? h('span', { className: 'rl-host-facts-next' }, t('ws.facts.next', { id: next.nodeId, why: next.why?.message ?? next.why?.code ?? '' }))
+                    : h('span', { className: 'rl-host-facts-hint' }, t('ws.facts.none')),
+                  failure !== null
+                    ? h('span', { className: 'rl-host-facts-failure' }, t('ws.facts.failure', { id: failure.nodeId, error: (failure.error ?? '').slice(0, 120) }))
+                    : null,
+                ),
+      );
+    }
+
+    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, replayFooter, factsSlot, t }) {
       const viewportRef = React.useRef(null);
       const [pan, setPan] = React.useState({ x: 0, y: 0 });
       const [zoom, setZoom] = React.useState(1);
@@ -10195,6 +10352,7 @@ window.__ModuleLoader__.load({
           onPointerCancel: endDrag,
           onClick: onCanvasClick,
         },
+        factsSlot ?? null,
         layout.width > 0
           ? h(
               'div',
@@ -10334,6 +10492,28 @@ window.__ModuleLoader__.load({
         actions.push({ key: 'escalate', label: t('ws.escalate.action'), run: () => onEscalate(id) });
       } else if (status === 'cancelled') {
         actions.push({ key: 'retry', label: t('ws.retry.cancelled'), run: () => onRetryRequest(id) });
+      }
+      // Priority is a human intervention that works on any node: raising a
+      // planned node reorders the next dispatch tick, lowering a blocked branch
+      // freezes it without cancelling work in flight.
+      if (status !== 'proposed') {
+        const currentClass = nodePriorityClassOf(node);
+        if (currentClass !== 'p0') {
+          actions.push({
+            key: 'priority-raise',
+            label: t('ws.priority.raise'),
+            title: t('ws.priority.current', { class: currentClass }),
+            run: () => onNodeAction('node.priority', id, { priority: { class: nodePriorityTargetOf(node, 'raise') } }),
+          });
+        }
+        if (currentClass !== 'deferred') {
+          actions.push({
+            key: 'priority-lower',
+            label: t('ws.priority.lower'),
+            title: t('ws.priority.current', { class: currentClass }),
+            run: () => onNodeAction('node.priority', id, { priority: { class: nodePriorityTargetOf(node, 'lower') } }),
+          });
+        }
       }
       let className = 'rl-node rl-node-' + status;
       if (isMergeNode) className += ' rl-node-merge';

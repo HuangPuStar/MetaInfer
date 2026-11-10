@@ -28,7 +28,7 @@ import { rejection, toActionable } from './kernel/errors.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
 // A state index row never carries a full prompt; the inspector loads the node.
-const STATE_PROMPT_CHARS = 600;
+const STATE_PROMPT_CHARS = 400;
 // Upper bound on independent root nodes created together with a project.
 const MAX_ROOT_NODES = 8;
 
@@ -653,32 +653,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
    * (`getNode`). Without this, 5,000 nodes serialize to ~80 MB.
    */
   function stateNode(node) {
-    const out = { ...node };
-    const prompt = typeof node.prompt === 'string' ? node.prompt : null;
-    if (prompt !== null) {
-      out.prompt = prompt.slice(0, STATE_PROMPT_CHARS);
-      out.promptChars = prompt.length;
-      out.promptComplete = prompt.length <= STATE_PROMPT_CHARS;
-    }
-    const report = node.report && typeof node.report === 'object' ? node.report : null;
-    const summary = report && typeof report.summary === 'string' ? report.summary : '';
-    const reportText = typeof node.reportText === 'string' ? node.reportText : '';
-    delete out.reportText;
-    if (report !== null) {
-      const headline = (typeof report.headline === 'string' && report.headline.trim())
-        ? report.headline.trim().slice(0, 300)
-        : summary.split('\n')[0].slice(0, 300);
-      out.report = { ...report, summary: headline, headline, summaryChars: summary.length };
-    }
-    out.reportChars = summary.length || reportText.length;
-    out.reportAvailable = Boolean(summary || reportText);
-    if (Array.isArray(node.attempts) && node.attempts.length > 0) {
-      out.attempts = node.attempts.slice(-2).map((attempt) => ({
-        ...attempt,
-        error: attempt.error === undefined || attempt.error === null ? attempt.error : String(attempt.error).slice(0, 300),
-      }));
-    }
-    return out;
+    return slimStateNode(node);
   }
 
   async function getState(projectId, sinceRevision, options = {}) {
@@ -2808,6 +2783,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return {
       ok: true,
       nodeId,
+      node: store.getNode(projectId, nodeId),
+      revision: project.revision,
       before,
       after,
       event: { seq: event.seq, type: event.type },
@@ -3040,4 +3017,28 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     metricsCollector,
     toActionable,
   };
+}
+
+/** Exported for the scale test: the state-index projection of one node. */
+export function slimStateNode(node) {
+  const out = { ...node };
+  const prompt = typeof node.prompt === 'string' ? node.prompt : null;
+  if (prompt !== null) {
+    out.prompt = prompt.slice(0, STATE_PROMPT_CHARS);
+    out.promptChars = prompt.length;
+    out.promptComplete = prompt.length <= STATE_PROMPT_CHARS;
+  }
+  const report = node.report && typeof node.report === 'object' ? node.report : null;
+  const summary = report && typeof report.summary === 'string' ? report.summary : '';
+  const reportText = typeof node.reportText === 'string' ? node.reportText : '';
+  delete out.reportText;
+  if (report !== null) {
+    const headline = (typeof report.headline === 'string' && report.headline.trim())
+      ? report.headline.trim().slice(0, 300)
+      : summary.split('\n')[0].slice(0, 300);
+    out.report = { ...report, summary: headline, headline, summaryChars: summary.length };
+  }
+  out.reportChars = summary.length || reportText.length;
+  out.reportAvailable = Boolean(summary || reportText);
+  return out;
 }

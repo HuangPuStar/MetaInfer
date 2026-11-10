@@ -124,6 +124,16 @@ export function registerHttpRoutes(ctx, service) {
     return ok(await service.getState(projectId, revision, { full: params.get('full') === '1' }));
   });
 
+  route(`${PREFIX}/status`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(await service.statusFacts(params.get('projectId')));
+  });
+
+  route(`${PREFIX}/metrics`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(await service.metricsFor(params.get('projectId')));
+  });
+
   route(`${PREFIX}/node`, ['GET'], async (request) => {
     const params = query(request);
     return ok(await service.getNode(params.get('projectId'), params.get('nodeId')));
@@ -249,6 +259,9 @@ export function registerHttpRoutes(ctx, service) {
   route(`${PREFIX}/commands`, ['POST'], async (request) => {
     const body = await readJsonBody(request);
     const type = body.type;
+    if (type === 'node.priority') {
+      return ok(await service.setNodePriority(body.projectId, body.nodeId, body.priority ?? body));
+    }
     if (type === 'node.edit') {
       const result = await service.updateNode(body.projectId, body.nodeId, body);
       return ok(result);

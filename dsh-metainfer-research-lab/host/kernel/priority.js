@@ -103,27 +103,55 @@ export function fairOrder(nodes, usageBySource = new Map(), options = {}) {
   // Simulate the fair-share effect of handing out slots in order: once a source
   // gets a slot its vruntime grows by one nominal slot (`slotSeconds` GPU-seconds
   // divided by its weight), so one prolific source cannot take every slot.
-  const pending = [...nodes];
+  //
+  // Candidates are normalised once and selected by scanning for the best unused
+  // entry. The earlier version spliced the array on every pick, which was
+  // O(n²) copies on a 5,000-node DAG; this stays O(n × limit) cheap comparisons.
+  const items = nodes.map((node) => ({ node, p: normalizePriority(node.priority) }));
+  const usage = new Map();
   const bump = new Map();
+  const used = new Uint8Array(items.length);
+  const vruntimeOf = (source) => {
+    let value = usage.get(source);
+    if (value === undefined) {
+      value = (usageBySource.get(source)?.gpuSeconds ?? 0) / weightOf(source);
+      usage.set(source, value);
+    }
+    return value + (bump.get(source) ?? 0);
+  };
   const out = [];
-  while (pending.length > 0 && out.length < limit) {
-    let bestIndex = 0;
-    for (let index = 1; index < pending.length; index += 1) {
-      const candidate = pending[index];
-      const best = pending[bestIndex];
-      const pc = normalizePriority(candidate.priority);
-      const pb = normalizePriority(best.priority);
-      const byClass = classRank(pc.class) - classRank(pb.class);
+  while (out.length < limit) {
+    let bestIndex = -1;
+    for (let index = 0; index < items.length; index += 1) {
+      if (used[index] === 1) continue;
+      if (bestIndex === -1) { bestIndex = index; continue; }
+      const candidate = items[index];
+      const best = items[bestIndex];
+      const byClass = classRank(candidate.p.class) - classRank(best.p.class);
       if (byClass < 0) { bestIndex = index; continue; }
       if (byClass > 0) continue;
-      const vc = vruntime(candidate) + (bump.get(pc.by) ?? 0);
-      const vb = vruntime(best) + (bump.get(pb.by) ?? 0);
-      if (vc < vb || (vc === vb && comparePriority(candidate, best) < 0)) bestIndex = index;
+      const vc = vruntimeOf(candidate.p.by);
+      const vb = vruntimeOf(best.p.by);
+      if (vc < vb) { bestIndex = index; continue; }
+      if (vc > vb) continue;
+      const score = candidate.p.score - best.p.score;
+      if (score > 0) { bestIndex = index; continue; }
+      if (score < 0) continue;
+      const ca = candidate.node.timestamps?.createdAt ?? candidate.node.createdAt ?? 0;
+      const cb = best.node.timestamps?.createdAt ?? best.node.createdAt ?? 0;
+      if (ca < cb) { bestIndex = index; continue; }
+      if (ca > cb) continue;
+      const sa = candidate.node.seq ?? 0;
+      const sb = best.node.seq ?? 0;
+      if (sa < sb) { bestIndex = index; continue; }
+      if (sa > sb) continue;
+      if (String(candidate.node.id ?? '').localeCompare(String(best.node.id ?? '')) < 0) bestIndex = index;
     }
-    const [chosen] = pending.splice(bestIndex, 1);
-    const source = normalizePriority(chosen.priority).by;
-    bump.set(source, (bump.get(source) ?? 0) + slotSeconds / weightOf(source));
-    out.push(chosen);
+    if (bestIndex === -1) break;
+    used[bestIndex] = 1;
+    const chosen = items[bestIndex];
+    bump.set(chosen.p.by, (bump.get(chosen.p.by) ?? 0) + slotSeconds / weightOf(chosen.p.by));
+    out.push(chosen.node);
   }
   return out;
 }
