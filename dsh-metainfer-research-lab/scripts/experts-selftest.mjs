@@ -90,6 +90,21 @@ check('5.3.9: the six checklist thresholds fire (queue 5m, stall 15m, errorKind 
   && threshold.find((row) => row.code === 'queue_overload')?.detail?.queue === 2,
   JSON.stringify({ expected: CHECKLIST_THRESHOLD_CODES, fired: threshold }));
 
+const zeroSlotOverload = evaluateThresholdTriggers({
+  nodes: [
+    { id: 'z1', status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: triggerNow - 600_000 } },
+    { id: 'z2', status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: triggerNow - 600_000 } },
+    { id: 'z3', status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: triggerNow - 600_000 } },
+  ],
+  freeSlots: 0,
+  queueOverloadSince: triggerNow - 5 * 60_000 - 1,
+  now: triggerNow,
+});
+check('5.3.9: the checklist overload formula applies with freeSlots=0 (planned 3 > 0)',
+  zeroSlotOverload.find((row) => row.code === 'queue_overload')?.detail?.planned === 3
+  && zeroSlotOverload.find((row) => row.code === 'queue_overload')?.detail?.freeSlots === 0,
+  JSON.stringify(zeroSlotOverload));
+
 const metrics = computeExpertMetrics({
   expertId: 'lab-advisor',
   nodes: [
@@ -194,7 +209,7 @@ const thresholdProjectId = 'threshold-p';
 const t0 = Date.now();
 await store.saveProject({
   id: thresholdProjectId, revision: 0, counters: { eventSeq: 0, tokensUsed: 900 },
-  config: { maxRunningNodes: 1, resourcePools: { gpu: 1 }, maxNodes: 50, auto: { maxTokens: 1_000 } },
+  config: { maxRunningNodes: 1, resourcePools: {}, maxNodes: 50, auto: { maxTokens: 1_000 } },
   intents: [1, 2, 3, 4, 5].map((index) => ({ id: `reject-${index}`, expertId: 'lab-advisor', status: 'rejected' })),
   createdAt: 0, updatedAt: 0,
 });
@@ -224,14 +239,15 @@ check('5.3.9: the production observer emits all six threshold triggers and keeps
   && new Set(observedCodes).size === CHECKLIST_THRESHOLD_CODES.length
   && (firstObserve.thresholdTriggers ?? []).every((row) => row.code !== 'queue_overload')
   && secondObserve.thresholdTriggers?.find((row) => row.code === 'queue_overload')?.detail?.planned === 3
-  && secondObserve.thresholdTriggers?.find((row) => row.code === 'queue_overload')?.detail?.queue === 2,
+  && secondObserve.thresholdTriggers?.find((row) => row.code === 'queue_overload')?.detail?.queue === 2
+  && secondObserve.thresholdTriggers?.find((row) => row.code === 'queue_overload')?.detail?.freeSlots === 0,
   JSON.stringify({ first: firstObserve.thresholdTriggers, second: secondObserve.thresholdTriggers }));
 
 // B13 production path: the observer receives the same facts the checker sees.
 const escalationProjectId = 'escalation-p';
 await store.saveProject({
   id: escalationProjectId, revision: 0, counters: { eventSeq: 0, tokensUsed: 900 },
-  config: { maxRunningNodes: 1, resourcePools: { gpu: 1 }, maxNodes: 50, auto: { maxTokens: 1_000 } },
+  config: { maxRunningNodes: 1, resourcePools: {}, maxNodes: 50, auto: { maxTokens: 1_000 } },
   knownHypotheses: ['the old direction'],
   ledger: [{ id: 'l1', target: 'c1', value: 'keep' }, { id: 'l2', target: 'c1', value: 'change' }],
   createdAt: 0, updatedAt: 0,

@@ -61,12 +61,16 @@ export function isRunnableNode(node, now = Date.now()) {
 export function runnableSince(node) {
   const created = Number(node?.timestamps?.createdAt ?? node?.createdAt);
   const plannedAt = Number(node?.timestamps?.plannedAt);
-  let since = Number.isFinite(plannedAt) && plannedAt > 0 ? plannedAt : created;
-  const deferUntil = Number(node?.deferUntil);
-  if (Number.isFinite(deferUntil) && deferUntil > since) since = deferUntil;
-  const holdUntil = Number(node?.dispatchHold?.untilMs);
-  if (Number.isFinite(holdUntil) && holdUntil > since) since = holdUntil;
-  return Number.isFinite(since) && since > 0 ? since : null;
+  const runnableAt = Number(node?.timestamps?.runnableAt);
+  const entered = [created, plannedAt, runnableAt].filter((value) => Number.isFinite(value));
+  let since = entered.length > 0 ? Math.max(...entered) : null;
+  const raiseTo = (value) => {
+    const number = Number(value);
+    if (Number.isFinite(number) && (since === null || number > since)) since = number;
+  };
+  raiseTo(node?.deferUntil);
+  raiseTo(node?.dispatchHold?.untilMs);
+  return Number.isFinite(since) ? since : null;
 }
 
 /** @returns {boolean} whether the node is deferred now (pruned class or scheduled `deferUntil`). */

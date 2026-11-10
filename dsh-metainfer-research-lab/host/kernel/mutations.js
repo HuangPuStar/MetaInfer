@@ -10,7 +10,7 @@
  *
  * Reducers are pure with respect to I/O: they never touch the store.
  */
-import { isPriorityClass, normalizePriority } from './priority.js';
+import { isDispatchableClass, isPriorityClass, normalizePriority } from './priority.js';
 import { withActorKey } from './actors.js';
 
 export const NODE_STATUSES = Object.freeze(['proposed', 'planned', 'running', 'completed', 'failed', 'cancelled']);
@@ -139,7 +139,7 @@ const reducers = {
     node.timestamps = {
       ...(input.timestamps ?? {}),
       createdAt,
-      ...(status === 'planned' ? { plannedAt: input.timestamps?.plannedAt ?? createdAt } : {}),
+      ...(status === 'planned' ? { plannedAt: input.timestamps?.plannedAt ?? createdAt, runnableAt: input.timestamps?.runnableAt ?? input.timestamps?.plannedAt ?? createdAt } : {}),
       updatedAt: ctx.now,
     };
     ws.putNode(node);
@@ -254,7 +254,7 @@ const reducers = {
     if (ctx.causeId) node.lastCauseId = ctx.causeId;
     node.timestamps = {
       ...nextTimestamps,
-      ...(to === 'planned' ? { plannedAt: ctx.now } : {}),
+      ...(to === 'planned' ? { plannedAt: ctx.now, runnableAt: ctx.now } : {}),
       updatedAt: ctx.now,
     };
     ws.putNode(node);
@@ -280,10 +280,18 @@ const reducers = {
     const before = normalizePriority(node.priority);
     const priority = normalizePriority({ ...before, ...raw, by: ctx.actor.id, at: ctx.now });
     node.priority = priority;
-    node.timestamps = { ...(node.timestamps ?? {}), updatedAt: ctx.now };
+    const timestamps = { ...(node.timestamps ?? {}), updatedAt: ctx.now };
+    // O3: promotion changes the runnable-set membership. A deferred node was
+    // not runnable before; it becomes runnable now, so this is a new queue
+    // entry and must not inherit the old createdAt/plannedAt wait.
+    if (node.status === 'planned' && !isDispatchableClass(before) && isDispatchableClass(priority)) {
+      timestamps.plannedAt = ctx.now;
+      timestamps.runnableAt = ctx.now;
+    }
+    node.timestamps = timestamps;
     ws.putNode(node);
     return [nodeEvent(m.eventType ?? 'node/priority_changed', node, m.eventData ?? { before, after: priority }, {
-      op: 'node.merge', nodeId, set: { priority }, unset: [], updatedAt: ctx.now,
+      op: 'node.merge', nodeId, set: { priority, timestamps: structuredClone(timestamps) }, unset: [], updatedAt: ctx.now,
     })];
   },
 

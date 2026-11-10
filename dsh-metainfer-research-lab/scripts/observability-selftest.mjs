@@ -238,7 +238,7 @@ await test('O3: production dispatchOnce records runnable->claimed queue wait', a
   const now = Date.now();
   await store.saveProject({
     id: projectId, revision: 0, counters: { eventSeq: 0 }, updatedAt: 0,
-    config: { maxRunningNodes: 1, resourcePools: { gpu: 1 }, maxNodes: 10 },
+    config: { maxRunningNodes: 2, resourcePools: { gpu: 2 }, maxNodes: 10 },
   });
   kernel.load(projectId);
   const executor = kernel.executor;
@@ -248,11 +248,16 @@ await test('O3: production dispatchOnce records runnable->claimed queue wait', a
     mutations: [{ op: 'node.create', node: {
       id: 'held', title: 'held then released', status: 'planned', needs: { gpu: 1 },
       timeboxMs: 600_000, priority: { class: 'p2' },
-      timestamps: { createdAt: now - 3_600_000 },
+      timestamps: { createdAt: now - 7_200_000 },
       dispatchHold: { untilMs: now - 1 },
+    }, },
+    { op: 'node.create', node: {
+      id: 'promoted', title: 'deferred then promoted', status: 'planned', needs: { gpu: 1 },
+      timeboxMs: 600_000, priority: { class: 'deferred' },
+      timestamps: { createdAt: now - 3_600_000 },
     } }],
   });
-  const local = createLocalPoolBroker({ limits: () => ({ maxRunningNodes: 1, resourcePools: { gpu: 1 } }) });
+  const local = createLocalPoolBroker({ limits: () => ({ maxRunningNodes: 2, resourcePools: { gpu: 2 } }) });
   const brokers = new Map([['local-pool', local], ['cluster', local]]);
   const dispatcher = createDispatchOnce({
     projectId, executor, projection, brokers,
@@ -277,12 +282,18 @@ await test('O3: production dispatchOnce records runnable->claimed queue wait', a
   });
   const round = await service.dispatchOnce(projectId, { includeStatus: false, maxStarts: 1 });
   assert.deepEqual(round.startedNodeIds, ['held']);
+  // A deferred node is not runnable; promote it through the real service path.
+  const promotion = await service.setNodePriority(projectId, 'promoted', { class: 'p2' }, human);
+  assert.equal(promotion.ok, true, JSON.stringify(promotion));
+  const promotedRound = await service.dispatchOnce(projectId, { includeStatus: false, maxStarts: 1 });
+  assert.deepEqual(promotedRound.startedNodeIds, ['promoted']);
   const metrics = await service.metricsFor(projectId);
-  assert.equal(metrics.dispatch.queueWait.count, 1, 'production dispatchOnce must feed the queue-wait ring');
+  assert.equal(metrics.dispatch.queueWait.count, 2, 'both runnable entries must feed the queue-wait ring');
   // The hold expired one millisecond before dispatch: wait starts at release,
-  // not at createdAt, so a 1h-old node has a near-zero queue wait.
+  // not at createdAt. The promoted node was deferred for an hour and is
+  // measured from the promotion, not its creation.
   assert.ok(metrics.dispatch.queueWait.p50 < 5_000, `wait ${metrics.dispatch.queueWait.p50}`);
-  assert.equal(metrics.dispatch.decisions.at(-1)?.nodeId, 'held');
+  assert.equal(metrics.dispatch.decisions.at(-1)?.nodeId, 'promoted');
   assert.equal(metrics.dispatch.decisions.at(-1)?.status, 'started');
   assert.ok(metrics.dispatch.decisions.at(-1)?.waitMs >= 0 && metrics.dispatch.decisions.at(-1)?.waitMs < 5_000);
 });

@@ -41,7 +41,7 @@ export function queueOverloadState(nodes, freeSlotsValue) {
   const planned = nodes.filter((node) => node?.status === 'planned' && !node?.archivedAt).length;
   const freeSlots = Math.max(0, Number(freeSlotsValue ?? 0));
   return {
-    overloaded: freeSlots > 0 && planned > 2 * freeSlots,
+    overloaded: planned > 2 * freeSlots,
     planned,
     freeSlots,
   };
@@ -194,7 +194,7 @@ export function evaluateThresholdTriggers(input = {}) {
     const since = Number(input.queueOverloadSince);
     const overMs = Number.isFinite(since) && since > 0 ? Math.max(0, now - since) : 0;
     if (overMs >= queueOverloadMs) {
-      triggers.push({ code: 'queue_overload', detail: { planned, queue: queue.length, freeSlots, ratio: Number((planned / freeSlots).toFixed(2)), overMs, thresholdMs: queueOverloadMs } });
+      triggers.push({ code: 'queue_overload', detail: { planned, queue: queue.length, freeSlots, ratio: freeSlots > 0 ? Number((planned / freeSlots).toFixed(2)) : null, overMs, thresholdMs: queueOverloadMs } });
     }
   }
 

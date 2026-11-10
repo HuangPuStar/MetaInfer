@@ -11,6 +11,7 @@
 import { actorFromToolExecution, authorizeAction } from './kernel/policy.js';
 import { rejection, toActionable } from './kernel/errors.js';
 import { publicView } from './kernel/actors.js';
+import { ESCALATION_REASON_CODES } from './kernel/intent.js';
 const ACTION_ENUM = [
   'dag_map',
   'dag_query',
@@ -101,19 +102,9 @@ const ACTION_ENUM = [
   'intake_discard',
 ];
 
-/**
- * @param ctx Cordis context with `tools` injected.
- * @param service the `metainferLab` Host service.
- * @returns a disposer that removes the tool.
- */
-export function registerAgentTool(ctx, service) {
-  return ctx.tools.register({
-    name: 'metainfer_lab',
-    description:
-      'Drive the MetaInfer Research Lab: list projects, inspect node state, create a project bound to a git repo, start/cancel experiment nodes, continue a completed node, read a transcript, run one manual Step cycle, add a successor node, or inspect advisor/scheduler runs. Returns compact JSON as a string.',
-    parameters: {
-      type: 'object',
-      properties: {
+export const AGENT_TOOL_PARAMETERS = {
+  type: 'object',
+  properties: {
         action: { type: 'string', enum: ACTION_ENUM },
         projectId: { type: 'string' },
         nodeId: { type: 'string' },
@@ -170,8 +161,15 @@ export function registerAgentTool(ctx, service) {
         hypothesis: { type: 'string', description: 'for ledger_update op=open' },
         evidence: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'evidence pointers {kind,ref,note?}; never log bodies' },
         reason: { type: 'string', description: 'for ledger_update op=rule_out or set_priority' },
-        kind: { type: 'string', enum: ['dispatch', 'priority', 'proposal', 'review', 'curate', 'note'], description: 'for intent_submit/intent_list' },
-        claim: { type: 'object', additionalProperties: true, description: 'for intent_submit: {action, strategy?, reason?, evidence?}; required and stored verbatim' },
+        kind: { type: 'string', enum: ['dispatch', 'priority', 'proposal', 'review', 'curate', 'note', 'escalate'], description: 'for intent_submit/intent_list; escalate requires claim.reasonCode' },
+        claim: {
+          type: 'object',
+          additionalProperties: true,
+          description: 'for intent_submit: {action, strategy?, reason?, reasonCode?, evidence?}; reasonCode is required for action escalate and must be one of the checklist escalation codes',
+          properties: {
+            reasonCode: { type: 'string', enum: [...ESCALATION_REASON_CODES], description: 'B13 escalation reason; required when action=escalate' },
+          },
+        },
         chiefConfirmed: { type: 'boolean', description: 'for intent_submit: chief confirmation of a level-2/3 irreversible action; only a human or the chief preset may set it' },
         target: { type: 'object', additionalProperties: true, description: 'for intent_submit: {nodeId?, parentId?}' },
         rationale: { type: 'string', description: 'for intent_submit: ≤2,000 characters' },
@@ -206,7 +204,14 @@ export function registerAgentTool(ctx, service) {
       },
       required: ['action'],
       additionalProperties: false,
-    },
+};
+
+export function registerAgentTool(ctx, service) {
+  return ctx.tools.register({
+    name: 'metainfer_lab',
+    description:
+      'Drive the MetaInfer Research Lab: list projects, inspect node state, create a project bound to a git repo, start/cancel experiment nodes, continue a completed node, read a transcript, run one manual Step cycle, add a successor node, or inspect advisor/scheduler runs. Returns compact JSON as a string.',
+    parameters: AGENT_TOOL_PARAMETERS,
     output: {
       schema: {
         type: 'object',

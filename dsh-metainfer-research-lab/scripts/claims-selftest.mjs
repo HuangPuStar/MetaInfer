@@ -9,7 +9,7 @@ import { createLabService } from '../host/lab-service.js';
 import { actorKeyFor, hasActorIdentity, isIssuedActorKey, migrateProjectActorKeys, sameActor } from '../host/kernel/actors.js';
 import { actorForSession } from '../host/kernel/policy.js';
 import { createIntent, detectIntentConflicts, semanticFallback } from '../host/kernel/intent.js';
-import { registerAgentTool } from '../host/agent-tool.js';
+import { AGENT_TOOL_PARAMETERS, registerAgentTool } from '../host/agent-tool.js';
 import { ACTION_VERIFICATION, CLAIM_PREDICATES, MIN_CITATION_EVIDENCE, VERIFICATION_LEVELS, citationErrorRate, citationTier, gateClaimAction, verifyClaims, wilsonLowerBound } from '../host/kernel/claims.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
@@ -64,6 +64,38 @@ const semanticIntent = createIntent({
 check('C5: the intent record itself carries the executor/fallback route',
   semanticIntent.fallback?.code === 'human_review' && semanticIntent.fallback?.executor === 'human',
   JSON.stringify(semanticIntent.fallback));
+
+function schemaViolations(schema, value, path = '$') {
+  const errors = [];
+  if (!schema || value === undefined) return errors;
+  if (schema.type === 'object') {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return [`${path} must be object`];
+    for (const key of schema.required ?? []) if (!(key in value)) errors.push(`${path}.${key} is required`);
+    for (const [key, child] of Object.entries(schema.properties ?? {})) {
+      if (value[key] !== undefined) errors.push(...schemaViolations(child, value[key], `${path}.${key}`));
+    }
+  } else if (schema.type === 'string') {
+    if (typeof value !== 'string') errors.push(`${path} must be string`);
+    else if (Array.isArray(schema.enum) && !schema.enum.includes(value)) errors.push(`${path}=${value} is not in enum`);
+  }
+  return errors;
+}
+const schemaCall = {
+  action: 'intent_submit', projectId: 'schema-p', kind: 'escalate',
+  claim: { action: 'escalate', reasonCode: 'conflict', reason: 'variants disagree' },
+  basis: { projectRevision: 0, snapshotAgeMs: 0, nodesSeen: 0 },
+  rationale: 'escalate the conflict to a human',
+};
+const schemaErrors = schemaViolations(AGENT_TOOL_PARAMETERS, schemaCall);
+check('B13: the tool schema accepts a model-shaped escalate call',
+  schemaErrors.length === 0 && AGENT_TOOL_PARAMETERS.properties.kind.enum.includes('escalate')
+  && AGENT_TOOL_PARAMETERS.properties.claim.properties.reasonCode.enum.includes('conflict'),
+  JSON.stringify(schemaErrors));
+const schemaBadReason = schemaViolations(AGENT_TOOL_PARAMETERS, {
+  ...schemaCall, claim: { ...schemaCall.claim, reasonCode: 'stalled_node' },
+});
+check('B13: the tool schema rejects an unknown escalate reasonCode',
+  schemaBadReason.some((error) => error.includes('claim.reasonCode')), JSON.stringify(schemaBadReason));
 
 const escalateActor = actorForSession({ sessionId: 'claims-escalate', kind: 'expert' });
 const escalateIntent = createIntent({
