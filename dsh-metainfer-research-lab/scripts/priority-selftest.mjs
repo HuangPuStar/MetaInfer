@@ -7,6 +7,7 @@ import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
 import { registerAgentTool } from '../host/agent-tool.js';
+import { createOrchestrator } from '../host/orchestrator.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -96,6 +97,38 @@ check('kernel refusal left the node unchanged', store.getNode('p', 'running').pr
 // 5. Validation still happens before the commit.
 const badClass = await service.setNodePriority('p', 'planned', { class: 'urgent' });
 check('unknown priority class is rejected', badClass.ok === false && badClass.error?.code === 'bad_request', JSON.stringify(badClass));
+
+// 6. A human-created successor defaults to p0, so the human path bypasses the
+// advisor queue. The fake git only supplies the two methods createChild uses.
+const humanProject = {
+  id: 'hp', revision: 0, counters: { eventSeq: 0, nextNodeSeq: 2, nodes: 1, cycles: 0 },
+  config: { maxRunningNodes: 2, resourcePools: { gpu: 2 }, maxNodes: 100, nodeTimeoutMinutes: 30, maxNodeTimeoutMinutes: 240 },
+  repo: { path: process.cwd(), worktreeRoot: process.cwd(), baseBranch: 'main', baseCommit: 'base' },
+  createdAt: 0, updatedAt: 0,
+};
+await store.saveProject(humanProject);
+kernel.load('hp');
+await kernel.executor.commit('hp', {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{ op: 'node.create', node: { id: 'parent', title: 'completed parent', status: 'completed', createdBy: 'user', git: { headCommit: 'base' }, timestamps: { createdAt: 1, completedAt: 2 } } }],
+});
+const fakeGit = {
+  async commitWorktree() { return { head: 'abc123' }; },
+  async tagCommit() {},
+};
+const orchestrator = createOrchestrator({ ctx: fakeCtx, store, git: fakeGit, runtime: null, cluster: null, kernel });
+const humanStarted = Date.now();
+const successor = await orchestrator.createSuccessor('hp', 'parent', {
+  title: 'human successor',
+  prompt: 'Run the human-requested follow-up experiment.',
+  successCriteria: 'a measurable result',
+  timeboxMinutes: 10,
+});
+const humanElapsed = Date.now() - humanStarted;
+check('human successor is created', Boolean(successor?.node?.id), JSON.stringify(successor));
+check('human successor defaults to p0', successor.node.priority?.class === 'p0', JSON.stringify(successor.node.priority));
+check('human successor is attributed to the human', successor.node.priority?.by === 'human', JSON.stringify(successor.node.priority));
+check('human p0 creation completes under one second', humanElapsed < 1000, `${humanElapsed} ms`);
 
 console.log(`\n${failed === 0 ? 'priority-selftest: all checks passed' : `priority-selftest: ${failed} failed`}`);
 process.exit(failed === 0 ? 0 : 1);

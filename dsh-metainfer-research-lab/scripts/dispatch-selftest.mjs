@@ -94,6 +94,21 @@ await test('deterministic strategy starts by priority up to capacity, skips defe
   await dispatcher.stop();
 });
 
+await test('human p0 node reaches claim in under one second', async () => {
+  const env = await setup();
+  const started = Date.now();
+  await addNodes(env.executor, [['n1', 'p0']]);
+  const dispatcher = dispatcherFor(env);
+  await dispatcher.start({ watchdogIntervalMs: 0 });
+  await settle();
+  const claimed = env.store.listEvents('p').find((event) => event.type === 'dispatch/claimed' && event.nodeId === 'n1');
+  const elapsed = Date.now() - started;
+  assert.ok(claimed, 'p0 node was not claimed');
+  assert.ok(elapsed < 1000, `p0->claim took ${elapsed} ms`);
+  console.log(`     p0->claim ${elapsed} ms`);
+  await dispatcher.stop();
+});
+
 await test('envelope rejects stale, forged and reused leases and releases what it rejects', async () => {
   const env = await setup();
   await addNodes(env.executor, [['n1', 'p2'], ['n2', 'p2']]);
