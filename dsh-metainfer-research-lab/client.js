@@ -10224,7 +10224,14 @@ window.__ModuleLoader__.load({
       const failure = facts !== null && Array.isArray(facts.recentFailures) ? facts.recentFailures[0] : null;
       return h(
         'div',
-        { className: 'rl-host-facts', role: 'status', 'aria-live': 'polite' },
+        {
+          className: 'rl-host-facts',
+          role: 'status',
+          'aria-live': 'polite',
+          onPointerDown: (event) => event.stopPropagation(),
+          onClick: (event) => event.stopPropagation(),
+          onWheel: (event) => event.stopPropagation(),
+        },
         h(
           'div',
           { className: 'rl-host-facts-head' },
