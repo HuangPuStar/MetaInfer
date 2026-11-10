@@ -574,5 +574,5 @@ chain，所以测试绿而 O8 仍红。real reconcile 是最有力的反例：�
 | `getNode` 仍全量 `listNodes` | store 维护 `children` 索引 + `hasChildren`；`getNode` 直接查询 | 同一测试 `metainfer_get_node` 返回 isLeaf，且不再调用 `listNodes` |
 | HTTP `full=1` 绕过 slim 字节预算 | HTTP 路由不再转发 `full`，强制 slim + 1,000/页 | `surface-bounds-selftest`：`full=1` 仍 `_indexed=true`、<2 MB |
 
-**结论**：§15 的 FAIL 路径均已关闭；`npm test` 28 个文件、418 checks 全绿（2026-11-10）。
+**结论**：§15 的 FAIL 路径均已关闭；`npm test` 27 个文件、408 checks 全绿（2026-11-10）。
 仍 `未测量` 的只有浏览器绘制/FPS；仍 `未完成` 的见 IMPLEMENTATION §9。
