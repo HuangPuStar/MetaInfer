@@ -79,6 +79,20 @@ await test('illegal transitions and protected fields are refused', async () => {
   assert.equal(protectedField.code, 'protected_field');
 });
 
+await test('cycle.put returns its event and persists the cycle', async () => {
+  const { store, executor } = await setup();
+  const result = await executor.commit('prj-t', {
+    actor: system,
+    mutations: [{ op: 'cycle.put', cycle: { id: 'cyc-1', projectId: 'prj-t', status: 'running', trigger: 'manual' }, counters: { eventSeq: 0, cycles: 1 } }],
+  });
+  assert.equal(result.ok, true);
+  const cycles = store.listCycles('prj-t');
+  assert.equal(cycles.length, 1);
+  assert.equal(cycles[0].id, 'cyc-1');
+  assert.equal(store.getProject('prj-t').counters.cycles, 1);
+  assert.ok(store.listEvents('prj-t').some((event) => event.type === 'cycle/saved'));
+});
+
 await test('stale basis is rejected with conflicts; allowStale bypasses', async () => {
   const { executor } = await setup();
   const first = await executor.commit('prj-t', { actor: human, mutations: [nodeSpec('n-1')] });

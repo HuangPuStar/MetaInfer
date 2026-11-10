@@ -423,30 +423,7 @@ const reducers = {
       ws.projectTouched = true;
       event.effects.push({ op: 'project.merge', set: { counters: structuredClone(m.counters) } });
     }
-    const events = [event];
-    // B20: a new child is a vote that its parent is alive. Any pending curator
-    // nomination to defer/close the parent is withdrawn in the same commit.
-    const parentIds = parentIdsOf(input);
-    if (parentIds.length > 0 && Array.isArray(ws.project.intents)) {
-      let changed = false;
-      for (const intent of ws.project.intents) {
-        if (intent.status !== 'pending' || intent.kind !== 'curate') continue;
-        if (!(intent.claim?.nominations ?? []).some((row) => parentIds.includes(row.nodeId))) continue;
-        intent.status = 'withdrawn';
-        intent.withdrawnAt = ctx.now;
-        intent.withdrawnBy = { kind: 'system', id: 'node.create' };
-        intent.withdrawReason = `child ${id} created under ${parentIds.join(',')}`;
-        changed = true;
-        events.push({
-          type: 'nomination/withdrawn',
-          nodeId: intent.target?.nodeId,
-          data: { intentId: intent.id, nominationId: intent.id, reason: 'child_created', childId: id },
-          effects: [{ op: 'project.merge', set: { intents: structuredClone(ws.project.intents) } }],
-        });
-      }
-      if (changed) ws.projectTouched = true;
-    }
-    return events;
+    return [event];
   },
 
   /** Full run-record write for migrated legacy runners (GC/reconcile/experts). */
