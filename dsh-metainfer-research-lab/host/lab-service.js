@@ -20,7 +20,7 @@ import { clampNodeTitle } from './titles.js';
 import { buildStatusFacts } from './observability/status.js';
 import { computeProjectMetrics, createMetricsCollector } from './observability/metrics.js';
 import { createExplainer } from './observability/explain.js';
-import { queryDag, dagGet } from './context/dag.js';
+import { queryDag, dagGet, mapDag, walkDag, createDiffCache } from './context/dag.js';
 import { createExplorationBudget } from './context/limits.js';
 import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
@@ -466,6 +466,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   const metricsCollector = createMetricsCollector();
   const explainer = createExplainer({ store });
   const ledgerReader = createLedgerReader({ store });
+  const diffCache = createDiffCache({ maxProjects: 32 });
   // Exploration budgets are per DSH session, not per call: a model that keeps
   // navigating the DAG must run out of budget inside one pass.
   const budgets = new Map();
@@ -1193,6 +1194,19 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   async function updateNode(projectId, nodeId, input) {
+    // Priority is a separate executor commit (G1): apply it before the edit so
+    // a terminal node's priority is rejected even when fields are also edited.
+    let priorityResult = null;
+    if (input?.priority !== undefined) {
+      if (typeof input.priority !== 'object' || input.priority === null || Array.isArray(input.priority)) {
+        throw new LabError('bad_request', 'priority must be {class, score?}', 400);
+      }
+      priorityResult = await setNodePriority(projectId, nodeId, { ...input.priority, reason: input.reason });
+      if (priorityResult.ok !== true) {
+        const error = priorityResult.error ?? {};
+        throw new LabError(error.code ?? 'priority_frozen', error.message ?? 'priority update failed', 409);
+      }
+    }
     let validatedModel;
     if (input?.model !== undefined) {
       const candidate = cleanModelRef(input.model);
@@ -1209,28 +1223,6 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         throw new LabError('node_not_editable', 'only planned or proposed nodes can be edited', 409);
       }
       let changed = false;
-      let priorityChange = null;
-      if (input?.priority !== undefined) {
-        const classes = ['p0', 'p1', 'p2', 'p3', 'deferred'];
-        if (typeof input.priority !== 'object' || input.priority === null || Array.isArray(input.priority)) {
-          throw new LabError('bad_request', 'priority must be {class, score?}', 400);
-        }
-        if (input.priority.class !== undefined && !classes.includes(input.priority.class)) {
-          throw new LabError('bad_request', `priority.class must be one of ${classes.join(', ')}`, 400);
-        }
-        const before = normalizePriority(node.priority);
-        const after = normalizePriority({
-          ...before,
-          ...(input.priority.class !== undefined ? { class: input.priority.class } : {}),
-          ...(Number.isFinite(input.priority.score) ? { score: input.priority.score } : {}),
-          by: 'operator',
-          reason: typeof input.reason === 'string' && input.reason.trim() ? input.reason.trim().slice(0, 500) : 'manual priority change',
-          at: Date.now(),
-        });
-        node.priority = after;
-        priorityChange = { before, after };
-        changed = true;
-      }
       if (input?.title !== undefined) {
         // A title is a label: clamp an over-long edit instead of rejecting it.
         node.title = clampNodeTitle(text(input.title, 'title', { required: true }));
@@ -1282,13 +1274,6 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       project.revision += 1;
       project.updatedAt = Date.now();
       await store.saveNode(projectId, node);
-      if (priorityChange !== null) {
-        await store.appendEvent(project, 'node/priority_changed', {
-          nodeId,
-          actor: { kind: 'human', id: 'operator' },
-          data: { before: priorityChange.before, after: priorityChange.after, revision: project.revision },
-        });
-      }
       await store.appendEvent(project, 'node/edited', { nodeId, data: { revision: project.revision } });
       await store.saveProject(project);
       return { node, revision: project.revision, priority: node.priority ?? null };
@@ -2726,6 +2711,77 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { ...result, budget: { remaining: charge.remaining } };
   }
 
+  function dagMapAction(projectId, input) {
+    requireProject(projectId);
+    const by = ['status', 'depth', 'owner', 'parent'].includes(input?.by) ? input.by : 'status';
+    const sample = Number.isFinite(input?.sample) ? Math.max(1, Math.min(20, input.sample)) : 5;
+    return mapDag({ nodes: projectNodes(projectId), by, sample });
+  }
+
+  function dagWalkAction(projectId, input) {
+    requireProject(projectId);
+    const from = text(input?.from, 'from', { required: true, max: 120 });
+    const nodes = projectNodes(projectId);
+    const result = walkDag({ nodes, from, direction: input?.direction === 'up' ? 'up' : 'down', depth: input?.depth, limit: input?.limit });
+    if (result.ok !== true) return rejection(result.code ?? 'node_not_found', result.message ?? `node ${from} does not exist`);
+    return result;
+  }
+
+  function dagDiffAction(projectId, input) {
+    requireProject(projectId);
+    const since = Number.isFinite(Number(input?.sinceRevision)) ? Math.max(0, Math.trunc(Number(input.sinceRevision))) : null;
+    const nodes = projectNodes(projectId);
+    const revision = store.getProject(projectId)?.revision ?? 0;
+    // The cache holds the last snapshot this process served. A caller-supplied
+    // revision older than the cache cannot be reconstructed (events are the
+    // durable source) — say so instead of pretending the diff is complete.
+    return { ok: true, projectId, sinceRevision: since, ...diffCache.diff(projectId, nodes, revision) };
+  }
+
+  async function nodesPageAction(projectId, input) {
+    requireProject(projectId);
+    const limit = Number.isFinite(input?.limit) ? Math.max(1, Math.min(500, input.limit)) : 100;
+    const cursor = typeof input?.cursor === 'string' && input.cursor ? input.cursor : null;
+    const page = store.listNodes(projectId, { limit, cursor });
+    const total = store.countNodes(projectId);
+    const nextCursor = page.length === limit ? page[page.length - 1]?.id ?? null : null;
+    return { ok: true, projectId, nodes: page, nextCursor, total, hasMore: nextCursor !== null };
+  }
+
+  async function eventsPageAction(projectId, input) {
+    requireProject(projectId);
+    const after = Number.isFinite(Number(input?.after)) ? Math.max(0, Math.trunc(Number(input.after))) : 0;
+    const limit = Number.isFinite(input?.limit) ? Math.max(1, Math.min(500, input.limit)) : 100;
+    const page = store.pageEvents(projectId, { after, limit });
+    return { ok: true, projectId, events: page.events, nextSeq: page.nextSeq, total: page.total, hasMore: page.hasMore };
+  }
+
+  function reviewClaimAction(projectId, input, exec) {
+    requireProject(projectId);
+    if (!orchestrator) return rejection('unavailable', 'review claims are not wired');
+    const nodeId = text(input?.nodeId, 'nodeId', { required: true, max: 120 });
+    const expertId = exec?.agent?.session?.id ?? 'operator';
+    const result = orchestrator.reviewClaims.claim({ projectId, nodeId, expertId, intent: input?.op, title: input?.title, ttlMs: input?.ttlMs });
+    if (result.ok !== true) return rejection(result.code ?? 'review_claimed', result.message ?? 'claim failed', result.holder ? { holder: result.holder } : {});
+    return { ok: true, claim: result.claim, refreshed: result.refreshed === true };
+  }
+
+  function reviewReleaseAction(projectId, input, exec) {
+    requireProject(projectId);
+    if (!orchestrator) return rejection('unavailable', 'review claims are not wired');
+    const nodeId = text(input?.nodeId, 'nodeId', { required: true, max: 120 });
+    const expertId = exec?.agent?.session?.id ?? 'operator';
+    const result = orchestrator.reviewClaims.release({ projectId, nodeId, expertId });
+    if (result.ok !== true) return rejection(result.code ?? 'not_claimed', result.message ?? 'release failed', result.holder ? { holder: result.holder } : {});
+    return { ok: true };
+  }
+
+  function reviewClaimsAction(projectId) {
+    requireProject(projectId);
+    if (!orchestrator) return rejection('unavailable', 'review claims are not wired');
+    return { ok: true, projectId, claims: orchestrator.reviewClaims.list(projectId) };
+  }
+
   function ledgerRead(projectId, limits) {
     requireProject(projectId);
     return { ok: true, projectId, ledger: ledgerReader.view(projectId, limits) };
@@ -2760,34 +2816,43 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (input?.class !== undefined && !classes.includes(input.class)) {
       return rejection('bad_request', `priority.class must be one of ${classes.join(', ')}`);
     }
-    const before = normalizePriority(node.priority);
-    const after = normalizePriority({
-      ...before,
+    // Priority is a pre-run scheduling hint. Once a node is running or terminal
+    // the dispatch order no longer means anything, and silently accepting the
+    // write would fake an intervention that cannot happen (B7).
+    if (node.status !== 'planned' && node.status !== 'proposed') {
+      return rejection(
+        'priority_frozen',
+        `node ${nodeId} is ${node.status}; priority can only change while planned or proposed`,
+        { status: node.status },
+      );
+    }
+    if (!kernel?.executor) return rejection('internal_error', 'kernel executor is not wired');
+    const actor = { kind: 'human', id: 'operator' };
+    const priority = {
       ...(input?.class !== undefined ? { class: input.class } : {}),
       ...(Number.isFinite(input?.score) ? { score: input.score } : {}),
-      by: 'operator',
-      reason: typeof input?.reason === 'string' ? input.reason.slice(0, 500) : 'manual priority change',
-      at: Date.now(),
+      reason: typeof input?.reason === 'string' && input.reason.trim() ? input.reason.trim().slice(0, 500) : 'manual priority change',
+    };
+    // G1/B7: the only write path is the kernel executor, so the change is an
+    // event-sourced commit (same invariant as dispatch and node edits).
+    const commit = await kernel.executor.commit(projectId, {
+      actor,
+      mutations: [{ op: 'node.setPriority', nodeId, priority }],
     });
-    node.priority = after;
-    node.timestamps = { ...(node.timestamps ?? {}), updatedAt: Date.now() };
-    await store.saveNode(projectId, node);
-    const event = await store.appendEvent(project, 'node/priority_changed', {
-      nodeId,
-      actor: { kind: 'human', id: 'operator' },
-      data: { before, after },
-    });
-    project.revision = (project.revision ?? 0) + 1;
-    project.updatedAt = Date.now();
-    await store.saveProject(project);
+    if (commit.ok !== true) {
+      return rejection(commit.code ?? 'internal_error', commit.message ?? 'priority update failed');
+    }
+    const fresh = store.getNode(projectId, nodeId);
+    const before = normalizePriority(node.priority);
+    const after = normalizePriority(fresh?.priority ?? priority);
     return {
       ok: true,
       nodeId,
-      node: store.getNode(projectId, nodeId),
-      revision: project.revision,
+      node: fresh ?? null,
+      revision: store.getProject(projectId)?.revision ?? project.revision,
       before,
       after,
-      event: { seq: event.seq, type: event.type },
+      event: commit.events?.[0] ? { seq: commit.events[0].seq, type: commit.events[0].type } : null,
       effect: after.class === 'p0'
         ? 'The next dispatch tick will consider this node first.'
         : 'The node keeps its place; runnable ordering updates on the next tick.',
@@ -2924,6 +2989,15 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'trace_explain') return traceExplain(input?.projectId, input?.nodeId, { window: input?.window });
     if (action === 'dag_query') return dagQuery(input?.projectId, input, exec);
     if (action === 'dag_get') return dagGetAction(input?.projectId, input, exec);
+    if (action === 'dag_map') return dagMapAction(input?.projectId, input);
+    if (action === 'dag_walk') return dagWalkAction(input?.projectId, input);
+    if (action === 'dag_diff') return dagDiffAction(input?.projectId, input);
+    if (action === 'nodes_page') return nodesPageAction(input?.projectId, input);
+    if (action === 'events_page') return eventsPageAction(input?.projectId, input);
+    if (action === 'claim_review') return reviewClaimAction(input?.projectId, input, exec);
+    if (action === 'release_review') return reviewReleaseAction(input?.projectId, input, exec);
+    if (action === 'review_claims') return reviewClaimsAction(input?.projectId);
+    if (action === 'health') return health();
     if (action === 'ledger_read') return ledgerRead(input?.projectId, input?.limits);
     if (action === 'ledger_update') return ledgerUpdate(input?.projectId, input, exec);
     if (action === 'set_priority') return setNodePriority(input?.projectId, input?.nodeId, input);

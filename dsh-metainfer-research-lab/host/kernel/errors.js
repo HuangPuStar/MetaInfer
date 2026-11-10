@@ -10,7 +10,7 @@
 
 const NEXT_STEPS = Object.freeze({
   forbidden_action: 'This preset is not allowed to run that action. Ask a human operator (main session) to do it, or use a read-only action such as status_facts / dag_query.',
-  forbidden_dispatch: 'Only the dispatcher or a human may start/stop work. Submit an intent (intent_submit) or ask the operator to start the node.',
+  forbidden_dispatch: 'Only the dispatcher or a human may start/stop work. Ask the operator to start the node, or use claim_review while it is under review.',
   unknown_action: 'Check the action name against the tool description; use `status` or `status_facts` to see what is available.',
   agent_tool_scope: 'Use a read-only action or ask the operator.',
   project_not_found: 'Call `projects` to list project ids, then retry with an existing projectId.',
@@ -28,6 +28,7 @@ const NEXT_STEPS = Object.freeze({
   preconditions: 'The repository is not in the required state. Read the message, fix the repo, and retry.',
   illegal_transition: 'The node is in a different state than the action requires. Refresh status_facts and choose an action valid for the current status.',
   stale: 'Another write landed first. Re-read the node (dag_get) and retry with the fresh revision.',
+  priority_frozen: 'Priority is a pre-run scheduling hint; only planned or proposed nodes can change it. Refresh status_facts and pick a planned node.',
   not_runnable: 'The node is not runnable (deferred, claimed, held, or not planned). Check `status_facts.nextToStart` for the reason.',
   start_failed: 'The experiment failed to boot. Read explain_node(nodeId), fix the cause, then retry; the node backs off automatically.',
   internal_error: 'Read the Host log for the stack, then retry. If it repeats, report the code to the operator.',

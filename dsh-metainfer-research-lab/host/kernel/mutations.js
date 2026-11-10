@@ -194,6 +194,12 @@ const reducers = {
     const nodeId = requireString(m.nodeId, 'nodeId');
     const node = ws.getNode(nodeId);
     if (!node) throw new MutationError('not_found', `node ${nodeId} does not exist`);
+    // Defense in depth: priority is a pre-run hint. The service checks first,
+    // but the kernel must reject the write even if another writer changed the
+    // status between that check and this commit (B7, single writer).
+    if (node.status !== 'planned' && node.status !== 'proposed') {
+      throw new MutationError('priority_frozen', `node ${nodeId} is ${node.status}; priority can only change while planned or proposed`);
+    }
     const raw = requirePlainObject(m.priority, 'priority');
     if (raw.class !== undefined && !isPriorityClass(raw.class)) {
       throw new MutationError('invalid_mutation', `unknown priority class ${raw.class}`);

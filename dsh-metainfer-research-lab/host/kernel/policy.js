@@ -22,6 +22,8 @@ export const ACTION_CATALOG = Object.freeze({
   projects: 'read',
   status: 'read',
   state: 'read',
+  get_node: 'read',
+  dashboard_get: 'read',
   models: 'read',
   cluster: 'read',
   cluster_config: 'read',
@@ -47,8 +49,6 @@ export const ACTION_CATALOG = Object.freeze({
   nodes_page: 'read',
   events_page: 'read',
   runs_page: 'read',
-  experts_list: 'read',
-  intent_list: 'read',
   review_claims: 'read',
   // project / node writes
   create_project: 'write',
@@ -66,11 +66,8 @@ export const ACTION_CATALOG = Object.freeze({
   copilot: 'write',
   ledger_update: 'write',
   set_priority: 'write',
-  intent_submit: 'write',
   claim_review: 'write',
   release_review: 'write',
-  expert_upsert: 'write',
-  curator_nominate: 'write',
   // control (runtime / driver)
   start_node: 'control',
   cancel_node: 'control',
@@ -79,7 +76,6 @@ export const ACTION_CATALOG = Object.freeze({
   message_node: 'control',
   step: 'control',
   dispatch_once: 'control',
-  curator_scan: 'control',
   auto_start: 'control',
   auto_stop: 'control',
   auto_resume: 'control',
@@ -105,13 +101,40 @@ export const ALL_ACTIONS = Object.freeze(Object.keys(ACTION_CATALOG).sort());
 
 const READ = ALL_ACTIONS.filter((action) => ACTION_CATALOG[action] === 'read');
 const DAG = Object.freeze(['dag_map', 'dag_query', 'dag_walk', 'dag_get', 'dag_diff', 'ledger_read']);
-const EXPERT_PROPOSE = Object.freeze(['intent_submit', 'claim_review', 'release_review', 'review_claims']);
+const EXPERT_PROPOSE = Object.freeze(['claim_review', 'release_review', 'review_claims', 'ledger_update']);
 
 /**
- * Preset -> allowlist. A preset missing from this table is an operator/human
- * surface (the main session, the controller root) and keeps the full surface;
- * that is intentional, but every role that can run arbitrary model output is
- * listed explicitly so the default is never "accidentally full".
+ * Smallest safe surface for a preset that is not listed below (default-deny).
+ *
+ * An unlisted preset used to inherit the full 77-action surface, which is how a
+ * `lab-chat` session could call `delete_project`. The fallback is now explicit
+ * read-only navigation: project/state summaries, DAG reads and the review claim
+ * board. Anything else is forbidden until the preset gets a named policy.
+ */
+export const DEFAULT_PRESET_ACTIONS = Object.freeze([
+  'projects',
+  'status',
+  'state',
+  'get_node',
+  'dashboard_get',
+  'dag_map',
+  'dag_query',
+  'dag_walk',
+  'dag_get',
+  'dag_diff',
+  'ledger_read',
+  'status_facts',
+  'metrics',
+  'health',
+  'review_claims',
+]);
+
+/**
+ * Preset -> allowlist. A preset missing from this table is **denied by default**
+ * (`DEFAULT_PRESET_ACTIONS`), never the global list. The only actor that keeps
+ * the full surface is one with no preset at all: the operator UI/human session,
+ * which is trusted because it is not model output. Every role that can run
+ * arbitrary model output must appear here.
  */
 export const PRESET_POLICIES = Object.freeze({
   'lab-worker': Object.freeze({
@@ -131,12 +154,12 @@ export const PRESET_POLICIES = Object.freeze({
   }),
   'lab-curator': Object.freeze({
     kind: 'expert',
-    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'curator_scan']),
+    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE]),
     note: 'the curator may only nominate; Host applies any close',
   }),
   'lab-chief': Object.freeze({
     kind: 'expert',
-    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update', 'curator_scan', 'approve_node', 'reject_node']),
+    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update', 'approve_node', 'reject_node']),
     note: 'the chief arbitrates proposals; it cannot start or cancel runs',
   }),
   'lab-scheduler': Object.freeze({
@@ -159,6 +182,30 @@ export const PRESET_POLICIES = Object.freeze({
     allowed: Object.freeze([...READ, ...DAG]),
     note: 'the controller root belongs to the UI; it hosts sessions instead of acting',
   }),
+  'lab-chat': Object.freeze({
+    kind: 'expert',
+    allowed: Object.freeze([
+      ...READ,
+      ...DAG,
+      'update_node',
+      'successor',
+      'approve_node',
+      'reject_node',
+      'ledger_update',
+      'set_priority',
+    ]),
+    note: 'the copilot may discuss and edit planned work, but never starts, cancels or deletes',
+  }),
+  'lab-merge': Object.freeze({
+    kind: 'worker',
+    allowed: Object.freeze([...READ, ...DAG]),
+    note: 'the merge agent edits files in its worktree; the Host commits, so it needs no lab writes',
+  }),
+  'lab-dashboard': Object.freeze({
+    kind: 'worker',
+    allowed: Object.freeze([...READ, ...DAG, 'metrics', 'status_facts']),
+    note: 'the dashboard collector is strictly read-only',
+  }),
 });
 
 /** Actor kinds used by the kernel. Mirrors executor's ACTOR_KINDS. */
@@ -178,7 +225,10 @@ export const ACTOR_KIND = Object.freeze({
 export function actorForSession(input = {}) {
   const preset = typeof input.agentPreset === 'string' && input.agentPreset ? input.agentPreset : null;
   const policy = preset ? PRESET_POLICIES[preset] : null;
-  const kind = input.kind ?? (policy?.kind === 'expert' ? ACTOR_KIND.EXPERT : (policy ? ACTOR_KIND.SYSTEM : ACTOR_KIND.HUMAN));
+  // An unlisted preset is untrusted model output, not the human operator: it is
+  // actor kind LEGACY so the dispatch authorization paths deny it too.
+  const fallbackKind = preset ? ACTOR_KIND.LEGACY : ACTOR_KIND.HUMAN;
+  const kind = input.kind ?? (policy?.kind === 'expert' ? ACTOR_KIND.EXPERT : (policy ? ACTOR_KIND.SYSTEM : fallbackKind));
   return Object.freeze({
     kind,
     id: typeof input.sessionId === 'string' && input.sessionId ? input.sessionId : (preset ?? 'human'),
@@ -208,9 +258,9 @@ export function isKnownAction(action) {
 /** @returns {string[]} the actions this actor may call, sorted. */
 export function allowedActions(actor) {
   const preset = actor?.preset;
-  const policy = preset ? PRESET_POLICIES[preset] : null;
-  if (!policy) return ALL_ACTIONS;
-  return [...policy.allowed].sort();
+  if (!preset) return ALL_ACTIONS; // trusted operator/UI session
+  const policy = PRESET_POLICIES[preset];
+  return [...(policy ? policy.allowed : DEFAULT_PRESET_ACTIONS)].sort();
 }
 
 /**
