@@ -15336,7 +15336,13 @@ window.__ModuleLoader__.load({
 
     /** Runs/cycles panel: list + detail; polls `/runs` every 2s while mounted. */
     function RunsPanel({ projectId, initialRunId, onClose, runsState, onRetryRuns, onOpenSession, t }) {
-      const state = runsState !== null && runsState !== undefined ? runsState : { phase: 'loading', runs: [], cycles: [], error: null };
+      const source = asObject(runsState);
+      const state = {
+        phase: firstString(source.phase) || 'ready',
+        runs: asArray(source.runs),
+        cycles: asArray(source.cycles),
+        error: source.error ?? null,
+      };
       const retry = typeof onRetryRuns === 'function' ? onRetryRuns : () => {};
       const [tab, setTab] = React.useState('runs');
       const [selectedRunId, setSelectedRunId] = React.useState(
@@ -16114,7 +16120,7 @@ window.__ModuleLoader__.load({
 
     // #endregion
 
-    return {
+    const exported = {
       inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'layout', 'sidebarRight'],
       apply(ctx) {
         ctx.effect(
@@ -16229,5 +16235,27 @@ window.__ModuleLoader__.load({
 
       },
     };
+    // Private component handles for the jsdom smoke test. The flag is only set
+    // by that test; the Web shell never sees these fields.
+    if (typeof window !== 'undefined' && window.__METAINFER_TEST__ === true) {
+      exported.__components = {
+        LandingScreen,
+        WorkspaceScreen,
+        ProjectsPanel,
+        DashboardPanel,
+        RunsPanel,
+        ExplainPanel,
+        ProposalPanel,
+        GcPanel,
+        SettingsModal,
+        FinishMergeDialog,
+        PushDialog,
+        DeleteProjectDialog,
+        ConfirmDialog,
+        AttemptsPanel,
+        TrajectoryPage,
+      };
+    }
+    return exported;
   },
 });
