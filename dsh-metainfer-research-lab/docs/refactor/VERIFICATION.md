@@ -8,17 +8,19 @@
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **50** |
-| FAIL | **114** |
+| PASS | **63** |
+| FAIL | **101** |
 | 未测量 | **10** |
 | 合计 | **174** |
 
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：内核的“零件”和规模预算大多真实可用（`npm test` 17 个文件全绿；5,000 节点读预算、
-12 KB 快照、`dispatchOnce` 快路径都有会红的测试），但**权限面、工具面、Stage 3–5、可观测性出口**
-远没有达到清单要求；其中权限面有一条可复现的越权路径，因此**今天不能上生产**。
+**一句话**：第二轮（`750fc31`）关闭了越权、优先级写路径和报告源头上限；但 `dag_*` 的返回契约、
+运行路径 causeId、`/state` 等读出口仍未达标，Stage 3–5 仍缺，因此**今天仍不能上生产**。
+
+> 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
+> **第二轮**（`750fc31`）的复核、行级变更与最新总数见 **§14**。总判定以 §14 为准。
 
 ### 0.1 判定口径
 
@@ -342,7 +344,80 @@
 
 ---
 
-## 13. 上生产结论
+## 13. 上生产结论（第一轮，已被 §14 取代）
 
-**否。** 权限面存在可复现的越权删除，且工具面/可观测性/Stage 3–5 大量半接线；当前只适合作为
-`refactor/v2` 的继续开发分支，不应切生产。
+**否。** 第一轮时权限面存在可复现的越权删除，且工具面/可观测性/Stage 3–5 大量半接线。
+第二轮已关闭越权，但仍不满足上生产条件；最新结论见 §14.5。
+
+
+---
+
+## 14. 第二轮复核（HEAD `750fc31`，4 个新提交）
+
+> 复核对象：`218fe32`、`5f2ec13`、`317543c`、`750fc31`。工作树干净。
+> 方法同第一轮：先跑测试，再用真实 service + 真工具包装器探针；测试通过但生产路径不成立的，
+> 仍判 FAIL。第一轮表保留原判，本节给出变更与最新总数。
+
+### 14.1 最新总数与 delta
+
+| 判定 | 第一轮 | 第二轮 | 变化 |
+|---|---|---|---|
+| PASS | 50 | **63** | +13 |
+| FAIL | 114 | **101** | −13 |
+| 未测量 | 10 | **10** | 0 |
+| 合计 | 174 | **174** | — |
+
+**FAIL → PASS（13 行）**：`B1`、`B7`、`B26`、`U4`、`U9`、`U11`、`1.1`、`3.1`、`3.3`、
+`A12`、`A13`、`A15`、`A18`。
+
+**仍 FAIL 的上一轮点名行（4 行）**：`B15`、`O8`、`S11`、`A16`。其中 `B15` 与 `A16` 是
+**“工具/脚本已存在，但契约没守住”**；`O8` 是**数据仍有洞**；`S11` 未改动。
+
+**PASS 回归**：`npm test` 23 个 selftest 全绿（EXIT=0，298 个 `ok`）；`npm run bench:scale`
+EXIT=0（10/10）；context 11/11、wiring 7/7、ui 7/7、observability 6/6、scale 10/10 均未回退。
+
+### 14.2 行级变更（只列变更行）
+
+| ID | 第一轮 | 第二轮 | 证据（命令 + 关键输出，或 file:line） | 备注 |
+|---|---|---|---|---|
+| B1 | FAIL | **PASS** | `probe5`：`lab-chat`/`lab-rogue`/`lab-worker`/`lab-merge`/`lab-dashboard` 调 `delete_project` 均 `forbidden_action` 且 `store.getProject('p')` 仍存在；`probe6`：`lab-worker`/`lab-advisor` 的 `cancel_node`/`auto_stop` 也 `forbidden_action`；`policy-selftest` 78/78 | 越权面已关；`ACTION_ENUM` 仍全局 71（OPEN-QUESTIONS A1 判为 schema 不可收窄），issue 0001 仍写“待修”（文档债） |
+| B7 | FAIL | **PASS** | `probe4`：running/completed `priority_frozen`、`eventsAdded:0`、class 仍 p2；planned 接受且产生 1 条 `node/priority_changed`；`updateNode` running 抛 `priority_frozen` 且未改名；kernel 直调 `node.setPriority` 同样拒绝；`priority-selftest` 17/17 | 服务层 + kernel 双重校验，提交点恢复 |
+| B26 | FAIL | **PASS** | `probe4`：schema `summary.maxLength=500`；900 字符 summary→500、headline→300、空 summary→null；`runtime.js:899/1861` 两处落库前 `normalizeNodeReport`；`prompts.js:31-33` 写明 500/300 | 源头上限与 Host 派生 headline 均落地；`reportText` 仍 8k 上限（非本行） |
+| U4 | FAIL | **PASS** | `client.js:10858` `ExplainPanel` + `fetchExplain` + `ROUTES.explain`；`http.js:142` `GET /explain`；`trace-selftest` 21/21（三态/重试静态断言） | 有 UI 入口；无浏览器，绘制未测 |
+| U9 | FAIL | **PASS** | 同 U4；Inspector 挂载 `h(ExplainPanel, …)`（`client.js:11478`） | 同上 |
+| U11 | FAIL | **PASS** | `i18n-parity` 11/11；`client.js` zh/en 各 1342 条词条（4 组重复，去重 1338），8 个 replay/dashboard 键已补 | 见 14.4：字典仍有 4 组同名键（`panel/title/subtitle/badge`），新加的带引号键被后面未加引号的旧键覆盖；脚本只查带引号键 |
+| 1.1 | FAIL | **PASS** | 同 B26；`NODE_REPORT_SCHEMA` + `WORKER_RULES` + `normalizeNodeReport` 三处都在 | 全库聚合 1.3 MB→200 KB 未实测 |
+| 3.1 | FAIL | **PASS** | `probe5/6` 越权全部 `forbidden_action`；`policy-selftest` 断言每个 preset 的拒绝矩阵；`agent-tool.js` 已调用 `authorizeAction` | 越权调用可执行性已达标；issue 0001 状态仍未改 |
+| 3.3 | FAIL | **PASS** | `probe4`：`dag_map`/`dag_walk`/`dag_diff` 均走到 handler（`dag_walk` 缺参时是 `bad_request`，不是 `unknown_command`）；`tool-surface` 25/25 | 工具面已开；B15 的 revision/字节上限契约仍 FAIL（见 14.3） |
+| A12 | FAIL | **PASS** | `node scripts/i18n-parity.mjs` → 11/11，EXIT=0；已接入 `npm test` | 脚本会漏掉未加引号的重复键（14.4） |
+| A13 | FAIL | **PASS** | `node scripts/policy-selftest.mjs` → 78/78，EXIT=0；已接入 `npm test`；真工具探针交叉验证 | 断言是真实的 `authorizeAction`，不是文本 grep |
+| A15 | FAIL | **PASS** | `node scripts/snapshot-size-selftest.mjs` → 11/11；2,000 节点 6,256 B / 2.8–6.2 ms | 脚本用 2,000 而非 5,000；5,000 的同一预算仍由 scale 10/10 覆盖 |
+| A18 | FAIL | **PASS** | `npm run bench:scale` → EXIT=0，10/10；`package.json` 已加脚本，指向 `scale-selftest.mjs` | 是 5,000 节点预算的真执行；不是独立基准工具 |
+
+### 14.3 五个严重项：哪些真关了，哪些只是“有名字”
+
+| 严重项 | 结论 | 依据 |
+|---|---|---|
+| **B1 权限越权** | **真关闭（安全面）** | `lab-chat`/未列出 preset/worker/advisor 的删除、启动、取消、auto_stop 全部 `forbidden_action`，项目仍在；3 个真实 preset 已有显式策略。遗留：全局 enum（A1）、issue 文档未改 |
+| **B15 工具面** | **只关了“可调用”，契约仍 FAIL** | 71 个 enum 全部有 handler，0 个 `unknown_command`；但 `dag_map` 在 5,000 个不同 owner 下输出 **372,846 B**（要求 ≤6 KB）；`dag_walk` 默认 `limit=100`，没有 `maxRows=200 / maxBytes=24000`；`dag_map/walk/diff/get/query` 返回值都没有 `revision`（`probe7`）；`dag_diff` 收 `sinceRevision` 但完全不用 |
+| **B7 优先级写路径** | **真关闭** | running/completed 拒绝、0 事件、kernel 二次拒绝；planned 恰好 1 条 executor 事件 |
+| **B26 报告体积** | **真关闭（源头上限）** | schema 500 + 落库 clamp + headline 300；两处 report 写入都过 `normalizeNodeReport` |
+| **U4/U9/O8 原因链** | **UI 关了，数据没全关** | ExplainPanel/`/explain` 存在；但 `persistNode` 只在 start/resume/retry 生成 cause，planned 节点 `runtime.cancel()` 的事件 **`causeId:null`**（`probe4`），`explain_node` 对该节点 `causeChain:0`。merge 准备等非激活事件同样可能为空 |
+
+### 14.4 修复引入的新半接线 / 测试盲点
+
+1. **`dag_map` 无字节上限**：`host/context/dag.js:220` 按 owner 分组时不截断；5,000 个 owner → **372,846 B**，远超 B15 的 6 KB，也足以打爆 12 KB 上下文。
+2. **`dag_walk` 上限不符**：`walkDag` 默认 `limit=100`、无 `maxBytes`；B15 要求 200 行 / 24,000 B。
+3. **`dag_*` 无 `revision`**：`probe7` 对 `dag_map/walk/diff/get/query` 的返回均无 `revision` 字段；B15 明确要求“返回值带 revision”。
+4. **`dag_diff` 的 `sinceRevision` 是摆设**：`host/lab-service.js:2735-2745` 把 `since` 解析出来后没有传给 `diffCache.diff`；`host/context/dag.js:347` 的 `diff()` 也没有 since 参数。冷启动返回全量 `added`，之后只和进程内上一份缓存比。
+5. **`trace-selftest` 的“live path”是静态正则**：`scripts/trace-selftest.mjs:78-80` 只 grep `runtime.js` 文本；真实的 planned cancel 事件没有 causeId，脚本仍全绿。`A16` 因此判 FAIL，而不是 PASS。
+6. **`tool-surface-selftest` 的“移除项不被静默接受”是空断言**：`scripts/tool-surface-selftest.mjs:90` 写的是 `thrown === null || thrown.code === 'unknown_command'`；如果 action 被静默接受（`thrown===null`），这条也通过。实际服务确实抛 `unknown_command`，但测试本身守不住回归。
+7. **`i18n-parity` 的“无重复键”只查带引号的键**：`parseDict` 正则 `^\s+'([^']+)':` 忽略 `panel:`/`title:` 这类未加引号键；实际 zh/en 各有 4 组重复（`panel/title/subtitle/badge`），新加的 `'panel': 'MetaInfer Research Lab'` 被后面的 `panel: '科研实验台'` 覆盖。8 个缺失键本身已补齐。
+8. **优先级事件 actor 被硬编码为 human**：`host/lab-service.js:2830` 的 `setNodePriority` 固定 `{kind:'human', id:'operator'}`；`lab-chat` 调 `set_priority` 时事件也记成人类，审计上无法区分专家干预。
+9. **allowed 列表重复**：`READ` 与 `DAG` 有交集，`lab-chat` 的 `forbidden_action.allowed` 出现 `dag_diff/dag_get/dag_map/dag_query/dag_walk` 各两次；不影响权限，但属于新代码的脏输出。
+
+### 14.5 第二轮上生产结论
+
+**否。** 越权、优先级、报告上限已真关闭；但 `B15` 的 `dag_map` 372 KB / 无 revision、`O8` 的 planned
+cancel 无 causeId、`S11` 的 `/state` 等出口仍无界，且 101 行仍 FAIL；只能继续作为 `refactor/v2`
+的开发分支。

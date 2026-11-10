@@ -5,7 +5,7 @@
 > 每条要么给出**文件 · 函数 · 测试**，要么写 `未完成` + 原因。状态只有「完成 / 未完成」，
 > 没有「部分完成」——部分完成的条目拆成两条。
 >
-> 分支：`refactor/v2`。测试入口：`npm test`（23 个自测文件，见文末）。
+> 分支：`refactor/v2`。测试入口：`npm test`（24 个自测文件，见文末）。
 
 ## 1. 内核与写路径（B3/B5/B21/G1/G2，P1）
 
@@ -92,14 +92,14 @@
 | S1 节点表全表扫描 | 完成 | `store.js` `indexes` + `listNodes` 游标分页（O(page)） | `scale-selftest.mjs` |
 | S2 事件表全表扫描 | 完成 | `store.js` `pageEvents` 二分 `firstEventAfter` | 同上（20k 事件 100 条 0.24 ms） |
 | S3 run 列表 | 完成 | `store.js` `pageRuns` 排序索引 | 同上（5k runs 50 条 0.52 ms） |
-| S4 全量状态序列化 | 完成 | `lab-service.getState` → `slimStateNode` + `_indexed` | 同上（4.13 MB / 47 ms） |
-| S5 replay 全量 | 未完成 | — | 原因：replay 仍 `getState + 全事件`；需与冷段归档一起做 |
+| S4 全量状态序列化 | 完成（HTTP 分页） | `lab-service.getState` → `slimStateNode` + `_indexed`；HTTP `/state` 默认 1,000 节点/页 + `nextCursor`，客户端 `fetchStateAll` 翻页合并 | `surface-bounds-selftest.mjs`（1,000/1,000/501） |
+| S5 replay 全量 | 完成 | `getReplay` 分页 nodes/events，返回 `nextSeq`/`nextNodeCursor`/`_truncated` | `surface-bounds-selftest.mjs`（500 节点/100 事件） |
 | S6 advisor 快照 | 完成 | `host/snapshot.js`（2 层祖先、focus 截断）；`orchestrator` 记录 `snapshotBytes` | 同上（3.5 KB / 26 ms） |
 | S7 scheduler 候选选择 | 完成 | `snapshot.js` 用 `projection.runnable` + `fairOrder(limit)` | `dispatch-selftest.mjs` |
 | S8 UI 首屏渲染 | 完成（视口窗口化）/ 未完成（浏览器帧率） | `client.js` `computeViewportWindow`（≤300 卡、边只连可见点） | `ui-selftest.mjs` 7/7（1.18 ms/轮） |
 | S9 UI 事件风暴 | 完成 | `client.js` `applyChangeDelta` + `api.fetchChanges` | 同上（合并/拒收两例） |
 | S10 增量读 | 完成 | `store.changesSince` + `/changes` | `scale-selftest.mjs` |
-| S11 分页覆盖 | 完成（state/events/runs/nodes）/ 未完成（`/replay`、MCP 列表） | `http.js` `limit`；`agent-tool` 枚举 `nodes_page`/`events_page`/`runs_page` | `wiring-selftest.mjs` |
+| S11 分页覆盖 | 完成 | `http.js` `/state`（默认 1,000）、`/transcript`（首 200 行）、`/replay`（2,000/2,000）；MCP `list_nodes` 100 行游标、`get_node` 直取；`nodes_page`/`events_page`/`runs_page` | `surface-bounds-selftest.mjs`、`tool-surface-selftest.mjs` |
 | S12 事件增长 / 冷段 | 未完成 | — | 原因：同 P1.2 |
 | S13 规模回归测试 | 完成 | `scripts/scale-selftest.mjs`（5,000 节点） | 本文件 |
 | S14 `maxNodes` 硬上限 | 完成 | `lab-service.updateProject` 1..20,000；`client.js` 向导 max 20,000 | 手工核对（无单测） |
@@ -157,15 +157,16 @@
 ## 9. 覆盖统计
 
 - 条目总数：**90**
-- 完成：**69**；未完成：**15**；拆分条目（完成 X / 未完成 Y）：**6**
+- 完成：**71**；未完成：**14**；拆分条目（完成 X / 未完成 Y）：**5**
 - 未完成原因集中在：legacy 写点迁移（64 处）、冷段归档、意图日志/专家/curator（Stage 3–5）、
   `locale/*.json` 全量迁移、dashboard 子系统、无浏览器导致的 UI 绘制测量。
-- `npm test` 覆盖 23 个文件：`runnable 11`、`advisor-merge 7`、`kernel 15`、`strict-writes 6`、
+- `npm test` 覆盖 24 个文件：`runnable 11`、`advisor-merge 7`、`kernel 15`、`strict-writes 6`、
   `gang-planner 14`、`dispatch 7`、`dispatch-once 6`、`low-water 8`、`review-claims 9`、
-  `context 11`、`observability 6`、`wiring 7`、`policy`（逐 preset 矩阵）、`tool-surface`（11 个
-  曾 `unknown_command` 的 action）、`priority`（`priority_frozen` 三路径）、`trace`（causeId +
-  explain 三态）、`snapshot-size`（2,000 节点 <12 KB）、`i18n-parity`、`scale 10`、`ui 7`、
-  `migrate-domain 11`、`cluster-fleet`、`placement`。
+  `context 11`、`observability 6`、`wiring 7`、`policy`（逐 preset 矩阵 + 去重）、`tool-surface`
+  （11 个 action + dag 6 KB/24 KB 上限 + `sinceRevision`）、`surface-bounds`（state/transcript/
+  replay/MCP 分页）、`priority`（`priority_frozen` 三路径 + 真实 actor）、`trace`（真实 planned
+  cancel + merge/GC cause + explain 三态）、`snapshot-size`（2,000 节点 <12 KB）、`i18n-parity`
+  （含未加引号键）、`scale 10`、`ui 7`、`migrate-domain 11`、`cluster-fleet`、`placement`。
 
 ## 10. 验收脚本（2026-11-10 复核后新增）
 
@@ -176,5 +177,6 @@
 | 优先级只走 executor、终态拒绝 | `scripts/priority-selftest.mjs` | 是 |
 | causeId 端到端 + UI explain | `scripts/trace-selftest.mjs` | 是 |
 | advisor 快照 12 KB 回归 | `scripts/snapshot-size-selftest.mjs` | 是 |
-| zh/en 与 locale 结构 parity | `scripts/i18n-parity.mjs` | 是 |
+| zh/en 与 locale 结构 parity（含未加引号键） | `scripts/i18n-parity.mjs` | 是 |
+| `/state`、transcript、replay、MCP 列表有界 | `scripts/surface-bounds-selftest.mjs` | 是 |
 | 5,000 节点预算基准 | `npm run bench:scale`（同 `scale-selftest.mjs`） | 是（同文件） |

@@ -29,6 +29,7 @@
 | `218fe32` | P8.1(B1,B7,B15/S11) preset 默认拒绝 + `lab-chat`/`lab-merge`/`lab-dashboard` 策略；枚举/策略/处理器三表一致；优先级只走 executor，运行后拒绝 |
 | `5f2ec13` | P8.2(B26,U4/U9/O8) 报告 summary 源头上限 500 + Host 派生 headline；`persistNode` 每条事件带 `causeId`；UI 原因链面板 |
 | `317543c` | P9.1(S6,U11) 新增 `policy`/`tool-surface`/`priority`/`trace`/`snapshot-size`/`i18n-parity` 验收脚本；`bench:scale`；全部接入 `npm test` |
+| `f67348f` | P9.3(S11,B15,O8,T1–T4) 四个假测试先红后绿；planned cancel/merge/GC 全部带 cause；dag 6 KB/24 KB 上限 + revision + 真 `sinceRevision`；`/state` 分页、transcript/replay/MCP 有界 |
 
 ## 状态
 
@@ -49,6 +50,9 @@
 | P8.1 preset 默认拒绝 | done | `218fe32` | `lab-chat`/`lab-merge`/`lab-dashboard` 显式策略；`lab-rogue` 仅 15 个只读 action；逐 preset 测试 |
 | P8.2 优先级单写者 | done | `218fe32` | `setNodePriority`/`updateNode` 走 `kernel.executor.commit`；planned/proposed 之外返回 `priority_frozen`；kernel mutation 二次校验 |
 | P8.3 工具面一致 | done | `218fe32` | `dag_map/walk/diff`、`nodes_page/events_page`、`claim_review/release_review/review_claims`、`health` 可调用；`get_node`/`dashboard_get` 入目录；未实现的 `intent_*`/`experts_*`/`curator_*` 从枚举移除 |
+| P9.3 工具契约与出口 | done | `f67348f` | `dag_map` 6 KB / `dag_walk` 24 KB 硬上限；`dag_*` 带 `revision`；`dag_diff` 使用 `sinceRevision`；`/state` 1,000 节点分页；transcript/replay/MCP 列表有界 |
+| P9.4 cause 全覆盖 | done | `f67348f` | planned cancel 用真实 runtime 探针；store 为 merge/GC/reconcile 等非激活写补稳定 `causeId`；`explain_node` 回退 `lastCauseId` |
+| P9.5 测试真实性 | done | `f67348f` | trace 用真实事件、tool-surface 断言精确 `unknown_action`、i18n 解析未加引号键、priority 断言真实 actor |
 | P2.3 低水位 | done | `0170092` | 5 min 剩余 / 60 s debounce / 30 s minGap |
 | P3.6 接入 Dispatcher | done | `cc792d9` | `index.js` 构造 kernel/broker 映射；auto tick 与 `onTerminated` 都调 |
 | P3 dag_map/walk/diff | done | `218fe32` | 已接 `agentTool`；`tool-surface-selftest.mjs` 驱动真实调用 |
@@ -81,6 +85,16 @@
 | B26 报告无源头上限 | schema `summary.maxLength=500`、prompt 规则、`normalizeNodeReport`（Host 派生 300 字符 headline，列表/指标有界） | `trace-selftest.mjs` |
 | U4/U9/O8 原因链不在主路径 | `runtime.persistNode` 每条事件写 `causeId`；HTTP `/explain` + UI `ExplainPanel`（loading/empty/error） | `trace-selftest.mjs`、`observability-selftest.mjs` |
 | 验收脚本缺失 | 新增 `policy`/`tool-surface`/`priority`/`trace`/`snapshot-size`/`i18n-parity`；`bench:scale` 别名；全部进 `npm test` | `npm test`（23 文件） |
+
+### 第二轮复核（§14）追加修复
+
+| 缺陷 | 修复 | 回归测试 |
+|---|---|---|
+| 4 个测试假绿 | trace 改真实 planned cancel；tool-surface 断言 `unknown_action`；i18n 解析未加引号键；priority 断言真实actor | 先红后绿，`f67348f` 提交信息记录 RED 输出 |
+| B15 dag 契约 | `dag_map` 6 KB（原 372,846 B）、`dag_walk` 24 KB/200 行、全部带 `revision`、`sinceRevision` 真生效 | `tool-surface-selftest.mjs` |
+| O8 原因链洞 | planned cancel + merge prep + GC + reconcile 等非激活事件都有 cause | `trace-selftest.mjs`、store fallback |
+| S11 无界出口 | `/state` 1,000 节点/页（客户端自动翻页）、transcript/replay limit、MCP list_nodes 分页 | `surface-bounds-selftest.mjs` |
+| allowed 重复 | `allowedActions` 去重 | `policy-selftest.mjs` |
 
 ## 历史（地基分支 `refactor/async-foundation`）
 

@@ -96,6 +96,31 @@
 - **影响**：更长的叙述必须进 `changes/metrics/reproduce`，索引字段不再承载长文。
 - **可逆性**：中（放宽 schema 即回到旧行为）。
 
+### A11. 测试必须能在缺陷上变红
+
+- **问题**：复核发现 4 个测试在功能坏掉时仍绿（grep `causeId`、`thrown === null`、
+  只解析带引号键、actor 硬编码）。测试通过不等于路径可用。
+- **裁决**：每个断言必须驱动真实路径（store+kernel+service+工具包装器/runtime）；
+  无法自然变红的断言加"变异检查"（对静默接受/错误 code 的假结果必须判负）。
+  四个测试均先运行并记录 RED 输出，修复后转绿。
+- **可逆性**：高。
+
+### A12. `dag_*` 的硬字节预算
+
+- **问题**：`dag_map` 在 5,000 个 owner 下 372,846 B；`dag_walk` 只有行数上限。
+- **裁决**：`dag_map` 默认 6 KB、`dag_walk` 24 KB/200 行；二分前缀保证含截断元数据的
+  整个响应不超预算；全部 `dag_*` 带 `revision`；`dag_diff` 用进程内 16 份快照历史兑现
+  `sinceRevision`，未知/超前 revision 返回 `diff_unavailable`，不伪造差异。
+- **可逆性**：高（常量/参数）。
+
+### A13. HTTP 列表默认分页
+
+- **问题**：`/state` 5,000 节点 4.13 MB；transcript/replay/MCP 列表无界。
+- **裁决**：`/state` 默认 1,000 节点/页 + `nextCursor`，客户端 `fetchStateAll` 自动翻页；
+  transcript 默认 200 行、replay 2,000/2,000、MCP list_nodes 100 行；内部 `getState`
+  仍可显式取全量（scale 测试），但 HTTP 出口必须有界并带 `_truncated`。
+- **可逆性**：高。
+
 ## 未决（下一轮开工前需要确认）
 
 1. **意图日志的写入口**：`node.create` 的意图应该由 advisor 工具直接提交，还是由

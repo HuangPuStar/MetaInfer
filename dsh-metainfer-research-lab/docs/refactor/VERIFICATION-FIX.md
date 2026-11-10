@@ -33,6 +33,19 @@
 - Stage 3–5（意图日志、专家注册表/相似度、curator）未实现，对应 action 已从枚举移除。
 - `locale/*.json` 仍只有 meta，UI 文案在 `client.js` 内联表（parity 已守住，迁移未做）。
 
+## 第二轮复核（`docs/refactor/VERIFICATION.md` §14）
+
+| 项 | RED（修复前真实运行） | 修复 | GREEN |
+|---|---|---|---|
+| T1 trace 假路径 | 真实 `runtime.cancel(planned)` → `causeId:null`，`explain_node` `causeChain:[]` | `persistNode` 为所有事件合成 action cause；`explain` 回退 `lastCauseId`；store 为 merge/GC/reconcile 补 cause | `trace-selftest` 取消链非空 |
+| T2 removed action 空断言 | 旧断言 `thrown===null || unknown_command` 会放过静默接受；包装器实际返回 `unknown_action` | 断言精确 `unknown_action`，并对 `{ok:true,null}`/其它 code 做变异检查 | `tool-surface-selftest` 通过 |
+| T3 i18n 未加引号键 | zh/en 各有 4 组重复 `panel/title/subtitle/badge`，带引号新键被后写覆盖 | 解析器同时识别两种键，比较 resolved map；删除被覆盖的重复项 | `i18n-parity` 通过 |
+| T4 priority actor | `lab-chat` 的 `set_priority` 事件 actor = `{kind:human,id:operator}` | actor 从工具会话传入 `setNodePriority`/`updateNode`，HTTP 无 actor 时仍为 operator | `priority-selftest` 断言 `sess-chat-1`/expert |
+| B15 dag 契约 | `dag_map` 5,000 owner = **372,846 B**；`dag_walk` 无字节上限；`dag_*` 无 `revision`；`sinceRevision` 未传入 | 6 KB/24 KB 前缀二分 + 显式 `_truncated`；全部带 `revision`；16 份快照历史兑现 `sinceRevision`（未知/超前 → `diff_unavailable`） | `tool-surface-selftest`：map <6 KB（实测 ~6.1 KB 含元数据）、walk <24 KB、since 只含新节点 |
+| O8 cause 洞 | planned cancel 的 `node/cancelled` causeId null | runtime action cause + store fallback（merge/GC/reconcile/dashboard） | `trace-selftest` merge/GC 事件有 cause |
+| S11 无界 | `/state` 4.13 MB；`/transcript`、`/replay`、MCP list_nodes 全量 | `/state` 1,000/页 + 客户端翻页；transcript 200、replay 2,000/2,000、MCP 100 + cursor | `surface-bounds-selftest`（state 1,000/1,000/501、replay <1 MB） |
+| allowed 重复 | `dag_*` 在 `allowed` 出现两次 | `allowedActions` 去重 | `policy-selftest` 无重复 |
+
 ## 复核结论对照
 
 | 复核项 | 修复前 | 修复后 |
