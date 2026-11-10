@@ -45,7 +45,7 @@ await test('the Host index builds a kernel and passes dispatchOnce to auto + ser
   assert.match(index, /import \{ createKernel \}/);
   assert.match(index, /createKernel\(\{ store/);
   assert.match(index, /createDispatchOnce\(\{/);
-  assert.match(index, /launcher: \{ start: \(pid, nodeId, opts\) => runtime\.start\(pid, nodeId, opts\) \}/);
+  assert.match(index, /launcher: \{\s+start: \(pid, nodeId, opts\) => runtime\.start\(pid, nodeId, opts\),\s+preempt: \(pid, nodeId, opts\) => runtime\.preempt\(pid, nodeId, opts\),\s+\}/);
   assert.match(index, /createAutoController\(\{ store, kernel, orchestrator, cluster, dispatchOnce \}\)/);
   assert.match(index, /dispatchOnce,\n\s+version/);
 });
@@ -67,6 +67,26 @@ await test('dag_query / dag_get are registered in the tool enum and dispatched b
   }
   assert.match(serviceSource, /if \(action === 'dag_query'\) return dagQuery\(/);
   assert.match(serviceSource, /if \(action === 'dag_get'\) return dagGetAction\(/);
+});
+
+await test('Stage 3-5 surfaces are wired from HTTP through the service and into the client', async () => {
+  const http = await source('host/http.js');
+  const serviceSource = await source('host/lab-service.js');
+  const dispatcherSource = await source('host/dispatch/dispatch-once.js');
+  const client = await source('client.js');
+  for (const route of ['disputes', 'budgets', 'reviews', 'retrospective', 'intents']) {
+    assert.ok(http.includes(`/${route}\``), `HTTP route /${route} exists`);
+  }
+  for (const method of ['listDisputes', 'classBudgetReport', 'generateRetrospective', 'listRetrospectives', 'reviewClaimsAction']) {
+    assert.ok(serviceSource.includes(`function ${method}(`), `${method} exists`);
+    assert.ok(serviceSource.includes(`    ${method},`), `${method} is exported on the service`);
+  }
+  assert.match(dispatcherSource, /applyClassBudgets\(/);
+  assert.match(client, /ObservabilityDrawer/);
+  assert.match(client, /fetchRetrospectives/);
+  assert.match(client, /fetchDisputes/);
+  assert.match(client, /fetchBudgets/);
+  assert.match(client, /fetchReviews/);
 });
 
 await test('the prompt tells the model to call dag_query, so a tool call really returns rows', async () => {

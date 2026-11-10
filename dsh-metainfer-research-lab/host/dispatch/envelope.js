@@ -160,7 +160,14 @@ export function createDispatchEnvelope({ projectId, executor, projection, broker
         if (!victim || victim.status !== 'running') return { ok: false, code: 'not_running', decisionId };
         if (typeof launcher.preempt !== 'function') return { ok: false, code: 'not_supported', message: 'runtime has no preemption yet (WP P3.5.9)', decisionId };
         await record(actor, 'dispatch/preempting', { decisionId, victimNodeId: victim.id, forNodeId: decision.forNodeId, reason: decision.reason }, victim.id);
-        await launcher.preempt(projectId, victim.id, { decisionId, reason: decision.reason, at: clock() });
+        await launcher.preempt(projectId, victim.id, {
+          decisionId,
+          reason: decision.reason,
+          forNodeId: decision.forNodeId,
+          by: actor.kind === 'system' ? actor.id : actor.kind,
+          causeId: `preempt:${decisionId}`,
+          at: clock(),
+        });
         return { ok: true, decisionId };
       }
       default:

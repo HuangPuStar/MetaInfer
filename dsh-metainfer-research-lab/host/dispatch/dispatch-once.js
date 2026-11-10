@@ -18,7 +18,7 @@ import { DISPATCH_POLICY } from '../kernel/policy.js';
 import { createDispatchEnvelope } from './envelope.js';
 import { defaultRequestFor } from './deterministic-strategy.js';
 import { dispatchRound } from './round.js';
-import { applyReservation, reservedSlotsOf } from './reservation.js';
+import { applyClassBudgets, applyReservation, classBudgetOf, reservedSlotsOf, selectPreemptionVictim } from './reservation.js';
 
 /** Default broker choice: fleet nodes need the cluster broker, everything else the local pool. */
 export function defaultBrokerIdFor(request) {
@@ -66,14 +66,59 @@ export function createDispatchOnce({
     const budget = Number.isFinite(options.maxStarts) ? Math.max(0, Math.floor(options.maxStarts)) : maxStarts;
     const candidateStart = clock();
     const runnable = projection.runnable(projectId, candidateStart);
+    const maxRunningNodes = options.maxRunningNodes ?? Infinity;
+    const running = projection.listByStatus(projectId, 'running');
+    // Project-local p0 preemption (5.3.2/Q3): if every slot is held by a
+    // lower-class node that has already run > 10 min, the dispatcher preempts
+    // exactly one victim through the safety envelope. The victim records a
+    // cause and an open appeal; the p0 below can then acquire the freed slot in
+    // this same round.
+    let preempted = null;
+    const p0Candidate = runnable.find((node) => node?.priority?.class === 'p0');
+    const p0Budget = classBudgetOf(options.config, 'p0');
+    const p0Running = running.filter((node) => node?.priority?.class === 'p0').length;
+    const p0HasBudget = p0Budget === null || p0Running < p0Budget;
+    const victim = p0HasBudget
+      ? selectPreemptionVictim({
+          now: candidateStart,
+          running,
+          runnable,
+          maxRunningNodes,
+          enabled: options.preemption !== false,
+        })
+      : null;
+    if (victim) {
+      const p0 = p0Candidate;
+      const decision = await envelope.submit(
+        { kind: 'system', id: 'preemptor' },
+        {
+          kind: 'preempt',
+          victimNodeId: victim.id,
+          forNodeId: p0?.id ?? null,
+          basis: victim.rev ?? 0,
+          reason: `p0 ${p0?.id ?? 'waiting'} needs a slot; preempt ${victim.priority?.class ?? 'lower'} ${victim.id} after >10 min`,
+        },
+      );
+      if (decision.ok) {
+        // The victim's broker lease is local to the dispatcher, while runtime
+        // preemption only knows the node. Sweep orphaned leases now so the p0
+        // can use the freed slot in this same round instead of waiting a tick.
+        for (const broker of brokers.values()) {
+          broker.releaseOrphans?.(executor.store?.listNodes?.(projectId) ?? projection.listNodes(projectId));
+        }
+        preempted = { victimNodeId: victim.id, forNodeId: p0?.id ?? null, decisionId: decision.decisionId };
+      } else {
+        preempted = { victimNodeId: victim.id, forNodeId: p0?.id ?? null, code: decision.code ?? 'rejected' };
+      }
+    }
     // Reserve capacity for waiting p0 work before ordering/limiting. The filter
     // is round-local; the queue remains the projection, never a second store.
     const reserved = options.reservedSlots ?? reservedSlotsOf(options.config);
-    const admitted = applyReservation(runnable, {
+    const admitted = applyClassBudgets(applyReservation(runnable, {
       runningCount: projection.countByStatus(projectId).running ?? 0,
-      maxRunningNodes: options.maxRunningNodes ?? Infinity,
+      maxRunningNodes,
       reservedSlots: reserved,
-    });
+    }), { running, config: options.config ?? {} });
     const candidates = fairOrder(admitted, usageBySource(), {
       // Slack so a queued head does not stop smaller nodes from backfilling.
       limit: Math.max(budget * 4, budget),
@@ -98,6 +143,7 @@ export function createDispatchOnce({
       ...round,
       candidates: candidates.length,
       runnable: runnable.length,
+      ...(preempted ? { preempted } : {}),
       selectionMs,
       durationMs: clock() - startedAt,
     };

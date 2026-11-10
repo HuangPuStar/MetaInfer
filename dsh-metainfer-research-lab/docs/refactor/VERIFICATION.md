@@ -16,38 +16,43 @@
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：第十三轮独立复核（HEAD `4a209bc`，§32）确认作者 §31 的三项结构
-修改在英文/ASCII 范围内成立：真实 `delete_project`/`cancel_node` handler 的负向
-探针全部 fail closed，正向控制通过；action commit 的 injected withdraw/resolve
-都得到 `stale_basis`；foreign pending 不再阻断精确 action；project-scoped delete
-与 node-scoped cancel 分离。但 **B27 仍未闭**：canonical actor 只做 `trim` +
-`toLowerCase` + 去 `:`/`#`/`@` 后缀，未做 Unicode case-fold/NFKC，也不处理
-零宽字符、全角冒号、点/斜杠后缀，因此同一个 human 仍可用 `ｈ１`、`h1\u200b`、
-`h1：resolver`、`h1.resolver`、`İ`、`ß`、`ſ` 等作为“独立” resolver；实际
-`delete_project`/`cancel_node` 用 `ｈ１` resolve 后仍然成功。canonical 还会把
-`alice@home.com` 与 `alice@work.com`、`team:alice` 与 `team:bob` 折叠为同一
-actor，造成合法的不同 human 被误拒。
+**一句话**：第十四轮独立复核（HEAD `1f3e20e`，§34）确认 opaque `actorKey`
+解决了 §32 的显示名 normalisation 问题：29/29 Unicode/格式字符变体在**同一
+registration key** 下全部 `human_confirmation_required`；同一 session 改名
+`h1`→`ｈ１` 后真实 `delete_project`/`cancel_node` 都被拒绝；namespace
+`alice@home.com`/`alice@work.com` 可用两个不同 key 正向确认；mixed keyed/unkeyed
+fail closed；load-time migration 跨 restart 稳定且可重放。
+
+但 **B27 仍未闭**，根因从“display canonicalisation”变成了 **key 的来源与
+保密性**：`actorForSession` 接受 caller 提供的 `session.actorKey` /
+`header.meta.actorKey`（任意非空字符串，例如 `x`），并在 session 上 pin 住；
+`intent_list` 又公开返回 `resolvedBy.actorKey`。因此一个 `h1` session 可以把
+另一个 actor 的 key 放进 meta，或读取已公开的 h2 key 后重放，随后真实
+`delete_project`/`cancel_node` 仍然执行。两个 session 注册同一 key 会折叠成
+同一 actor，且没有唯一性/来源校验。display 名的 Unicode 绕过没有了，但
+**key 本身不是不可伪造的 registration 凭证**。
 
 因此独立计数仍是 **107 PASS / 57 FAIL / 10 未测量**：1 个阻断（B27）、56 个
-能力未建、0 个只差文档。作者 §31 的 668 checks / 103 claims 覆盖了 ASCII
-canonical，但没有覆盖 Unicode/format-character 变体。浏览器绘制仍 N/A。
+能力未建、0 个只差文档。作者 §33 的 676 checks / 111 claims 覆盖了 Unicode
+共享 key、session pin、namespace、migration，但没有覆盖 caller 注入/回放 key。
+浏览器绘制仍 N/A。
 
-> 作者针对 §30.6 的第十二轮整改见 **§31**，不替代独立复核。
-> 独立总判定以 **§32** 为准：**107 PASS / 57 FAIL / 10 未测量（NO-SHIP）**。
-> 作者第十三轮 `actorKey` 整改见 **§33**（作者侧报告，不替代 §32 的独立复核）。
+> 作者针对 §32 的第十三轮整改见 **§33**，不替代独立复核。
+> 独立总判定以 **§34** 为准：**107 PASS / 57 FAIL / 10 未测量（NO-SHIP）**。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
-> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**；第十一轮作者 scope/CAS 整改见 **§30**，第十二轮独立复核（`e85b213`）见 **§30.6**；第十二轮作者 handler/canonical/CAS 整改见 **§31**，第十三轮独立复核（`4a209bc`）见 **§32**。
-> 独立总判定以 **§32** 为准；§20/§22/§24/§26/§28/§29/§30/§31 是作者报告，不能代替独立复核。§22 曾声称关闭
+> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**；第十一轮作者 scope/CAS 整改见 **§30**，第十二轮独立复核（`e85b213`）见 **§30.6**；第十二轮作者 handler/canonical/CAS 整改见 **§31**，第十三轮独立复核（`4a209bc`）见 **§32**；第十三轮作者 `actorKey` 整改见 **§33**，第十四轮独立复核（`1f3e20e`）见 **§34**。
+> 独立总判定以 **§34** 为准；§20/§22/§24/§26/§28/§29/§30/§31/§33 是作者报告，不能代替独立复核。§22 曾声称关闭
 > B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了其中 B27/U14/S12/A20 四项；
 > §24 作者报告为 112 PASS / 52 FAIL，§25 复核为 103 PASS / 61 FAIL，§27 复核为
 > **107 PASS / 57 FAIL / 10 未测量**，§28.4 复核仍为 **107 / 57 / 10**，
 > §29.6 复核仍为 **107 / 57 / 10（NO-SHIP）**，
 > §30.6 复核仍为 **107 / 57 / 10（NO-SHIP）**，
-> §32 复核仍为 **107 / 57 / 10（NO-SHIP）**。
+> §32 复核仍为 **107 / 57 / 10（NO-SHIP）**，
+> §34 复核仍为 **107 / 57 / 10（NO-SHIP）**。
 
 ### 0.1 判定口径
 
@@ -3753,6 +3758,10 @@ selftest，且剩余 56 项确认为 capability-not-built，独立计数才可�
 > 作者侧整改记录，不替代独立复核。§32 的 **107 PASS / 57 FAIL / 10 未测量，
 > NO-SHIP** 仍是当前独立判定；本节只说明 §32.2 的根因已按“不规范化显示名”的
 > 方向移除，等待 verifier 重放后才能改独立计数。
+>
+> 第十四轮独立复核见 **§34**：Unicode 共享 key、session pin、mixed、
+> migration、namespace 通过；但 caller 可注入/回放 `actorKey`，真实
+> delete/cancel 仍可执行，**B27 仍失败，107 / 57 / 10（NO-SHIP）**。
 
 ### 33.1 根因与设计
 
@@ -3901,3 +3910,542 @@ NAMESPACE_HANDLERS {"resolved":true,"resolvedBy":"alice@work.com","deleted":true
 - actorKey 是应用层身份，不是外部身份提供者；真正的双人独立意志仍需外部身份/
   审批。key 的 fallback 由 exact registration id 派生，不能替代该信任边界。
 - 浏览器二维仍 N/A；provider/restart 仍是既有未测量项。
+
+---
+
+## §34 第十四轮独立复核（HEAD `1f3e20e`，2026-11-10）
+
+> 复核人：独立验证者。为避开验证期间出现的并发未提交改动，本轮所有探针在
+> **clean worktree `/tmp/r14-head`（detached HEAD `1f3e20e`）** 中执行；主工作区
+> 的 `host/runtime.js` / `scripts/plugin-smoke*.mjs` 在 21:15 左右出现了**不是本次
+> 验证产生**的未提交改动（K8/1.3 activity-write 相关），本报告不把它们算作
+> HEAD `1f3e20e`，也不修改它们。生产代码未由本验证改动。
+>
+> 采样时间 `2026-11-10T21:08:52+08:00`（`Asia/Shanghai`）；浏览器时区不可用。
+>
+> **结论：opaque actorKey 关闭了 §32.2 的显示名规范化根因，但 B27 仍失败在
+> key 的来源/绑定/保密性：caller 可把任意 key 放进 `session.meta.actorKey`
+> 或 `session.actorKey`，`intent_list` 又公开 `resolvedBy.actorKey`，同一
+> `h1` session 因此可重放 h2 的 key 并让真实 delete/cancel 执行。**
+
+### 34.1 29 行 Unicode/格式字符表（共享 registration key）
+
+构造与作者 §33 相同但独立重写：requester `unicode-human` 和 resolver 使用**同一个
+显式 registration key** `ak_unicode_shared_identity_0001`；raiser 是另一个 expert。
+29 个 raw 变体逐一 resolve + prune 请求：
+
+```json
+{
+  "checks": 29,
+  "allRejected": true,
+  "allStoredExact": true,
+  "allSharedKey": true,
+  "distinctHashes": 29
+}
+```
+
+逐行关键值：
+
+| raw | stored | key | action |
+|---|---|---|---|
+| `H1` | `H1` | shared | `human_confirmation_required` |
+| `h1 ` | `h1 ` | shared | `human_confirmation_required` |
+| `h1:resolver` | `h1:resolver` | shared | `human_confirmation_required` |
+| `h1:resolver:extra` | `h1:resolver:extra` | shared | `human_confirmation_required` |
+| `h1#resolver` / `h1@resolver` | exact | shared | `human_confirmation_required` |
+| `h1\u00a0` / `h1\t` / `h1\u3000` / `h1\ufeff` / `h1\u2028` | exact | shared | `human_confirmation_required` |
+| `ｈ１` | `ｈ１` | shared | `human_confirmation_required` |
+| `h1\u200b` / `h1：resolver` / `h1.resolver` / `h1/resolver` | exact | shared | `human_confirmation_required` |
+| `h1\u200dresolver` / `h1\u0301` / `h1\u0000resolver` | exact | shared | `human_confirmation_required` |
+| `h1 resolver` / `h1%2Fresolver` | exact | shared | `human_confirmation_required` |
+| `İ` / `ß` / `ẞ` / `ſ` | exact | shared | `human_confirmation_required` |
+| `K` / `K` / `SS` / `ss` | exact | shared | `human_confirmation_required` |
+
+29 个 raw 的 `actorKeyFor` 两两不同（`distinctHashes=29`），但 authorization
+只比较同一个 registration key，所以显示名不同不再是不同 actor。**§32.2 的
+display-name 绕过在这条路径上已闭。**
+
+### 34.2 真实 handler：同一 session 改名必须拒绝
+
+使用真实 `registerAgentTool` + `tool.execute(input, exec)`；session 对象先以
+`h1` 注册，只把同一对象的 `id` 改成 `ｈ１`，没有显式 key；resolve 后再改回
+`h1` 发起删除/取消：
+
+```json
+{
+  "sameSessionDelete": {
+    "requesterKey": "ak_yuFroCrXYMvQ_P5Fh7crqwo7eXI7rFdl",
+    "resolvedById": "ｈ１",
+    "resolvedKey": "ak_yuFroCrXYMvQ_P5Fh7crqwo7eXI7rFdl",
+    "code": "human_confirmation_required",
+    "projectExists": true
+  },
+  "sameSessionCancel": {
+    "requesterKey": "ak_yuFroCrXYMvQ_P5Fh7crqwo7eXI7rFdl",
+    "resolvedById": "ｈ１",
+    "resolvedKey": "ak_yuFroCrXYMvQ_P5Fh7crqwo7eXI7rFdl",
+    "code": "human_confirmation_required",
+    "runtimeCallsAdded": 0
+  }
+}
+```
+
+实际 `runtimeCalls` 在取消后新增 **0**，`calls=[]`；项目仍存在。session pin
+按作者设计生效。
+
+但一个**新注册**的 session `{id:'ｈ１'}` 没有显式 key 时得到不同 key：
+
+```json
+{
+  "separateFullwidth": {
+    "requesterKey": "ak_yuFroCrXYMvQ_P5Fh7crqwo7eXI7rFdl",
+    "resolverKey": "ak_DVcV2q9ahkUmr6PJqeGA_omlLUvmw-I3",
+    "code": "deleted",
+    "deleted": true,
+    "projectExists": false
+  }
+}
+```
+
+这是 key 模型按设计把“同一个人、两个 key”当成两个 actor（用户第 5 点明确要求）；
+它不是同一 session 的 display alias。若验收要求“同一个 human 的任何新注册也必须
+被识别为同一人”，key 模型无法仅凭字符串做到；这一点在 34.11 单列为边界，不在
+34.2 的同一 registration 探针里重复计失败。
+
+### 34.3 Key integrity：B27 仍失败
+
+#### 34.3.1 Request 字段不覆盖 exec actor（PASS）
+
+实际 `delete_project` 请求同时带 `actorKey`、`claim.actorKey`、`actor`、
+`resolvedBy`（全部指向 h2/key），exec 仍为 h1：
+
+```json
+{
+  "requestFields": {"deleted": true, "projectExists": false},
+  "directRequestFields": {"ok": true, "deleted": true, "projectExists": false}
+}
+```
+
+direct `svc.deleteProject(p, {exec:h1, actorKey:h2key})` 也删除成功。`submitIntent`
+请求里的 `actor`/`actorKey` 被忽略，intent actor 仍是 h1/h1key；`resolveAppeal`
+请求里的 `resolvedBy` 被忽略，resolvedBy 仍是 h2/h2key。**claim/resolvedBy/intent
+actor 三个 request 字段都不接受 caller key。**
+
+#### 34.3.2 Session meta 接受 caller key（FAIL）
+
+同一个 `h1` session，只把 `header.meta.actorKey` 设为 h3 的 key：
+
+```json
+{
+  "sessionMetaInjection": {
+    "metaActorKey": "ak_8jPFXayh8hZs3bP2ojvWD65gX-QO9uUR",
+    "metaActorId": "h1",
+    "resolvedById": "h1",
+    "resolvedKey": "ak_8jPFXayh8hZs3bP2ojvWD65gX-QO9uUR",
+    "deleted": true,
+    "projectExists": false
+  }
+}
+```
+
+同一个 meta session 对 `cancel_node`：
+
+```json
+{
+  "resolver": {"id": "h1", "key": "ak_8jPFXayh8hZs3bP2ojvWD65gX-QO9uUR"},
+  "resolved": {"id": "h1", "key": "ak_8jPFXayh8hZs3bP2ojvWD65gX-QO9uUR"},
+  "tool": {"ok": true, "cancelled": true, "nodeId": "n1", "revision": 3},
+  "runtimeCallsAdded": 1
+}
+```
+
+`actorForSession` 的优先级是 `input.actorKey` → `session.actorKey` →
+`input.meta.actorKey` → `actorKeyFor(sessionId)`。caller 可自带任意非空字符串：
+
+```json
+{
+  "session": {"kind": "human", "id": "h1", "actorKey": "ak_explicit_injected"},
+  "meta": {"kind": "human", "id": "h1", "actorKey": "ak_meta_injected"},
+  "arbitrary": {"kind": "human", "id": "h1", "actorKey": "x"}
+}
+```
+
+`x` 也被接受；没有前缀/长度/签名/registry 校验。key 不是由 session registration
+唯一派生，也不绑定到创建它的 session。
+
+#### 34.3.3 key 被 `intent_list` 公开并可重放（FAIL）
+
+第一次 appeal 由 h2 resolve；真实 `intent_list` 返回完整 intent：
+
+```json
+{
+  "firstResolvedKey": "ak_-xrlee9wxQxj5y56Nhb5QaM-MQjWUnbU",
+  "listedResolvedKey": "ak_-xrlee9wxQxj5y56Nhb5QaM-MQjWUnbU",
+  "keyLeaksThroughIntentList": true
+}
+```
+
+把这个 key 放进 `h1` session 的 meta，再次 resolve；第二次 `resolvedBy` 显示
+`h1`，key 为 h2 的 key；随后 h1 的真实 delete 成功：
+
+```json
+{
+  "replaySession": {"id": "h1", "metaKey": "ak_-xrlee9wxQxj5y56Nhb5QaM-MQjWUnbU"},
+  "secondResolved": {"by": "h1", "key": "ak_-xrlee9wxQxj5y56Nhb5QaM-MQjWUnbU"},
+  "delete": {"deleted": true},
+  "projectExists": false
+}
+```
+
+即：同一个 human/session 先读取另一个 actor 的公开 key，再作为该 actor 签名。
+**这是可执行的 B27 绕过，不是显示名问题。**
+
+#### 34.3.4 两个 session 注册同一 key
+
+```json
+{
+  "requester": {"id": "h1", "actorKey": "ak_shared_two_sessions_0001"},
+  "resolver":  {"id": "h2", "actorKey": "ak_shared_two_sessions_0001"},
+  "sameActor": true,
+  "resolved": {"id": "h2", "key": "ak_shared_two_sessions_0001"},
+  "action": "human_confirmation_required"
+}
+```
+
+两个 session 同 key 被折叠为同一 actor，没有“key 已注册给另一个 session”的错误或
+唯一性检查。若 key 是外部发放的凭证，这应当是拒绝而不是静默接受。
+
+#### 34.3.5 session key 改名 mid-flight（PASS）
+
+同一 session 对象首次 `h1` 后：
+
+```json
+{
+  "first": {"id": "h1", "actorKey": "ak_yuFroCrXYMvQ_P5Fh7crqwo7eXI7rFdl"},
+  "later": {"id": "ｈ１", "actorKey": "ak_yuFroCrXYMvQ_P5Fh7crqwo7eXI7rFdl"},
+  "sameKey": true
+}
+```
+
+即使后来传入 `session.actorKey='ak_conflict_meta'` / `meta.actorKey`，pin 仍保留
+原 key；只有显示 id 变化。**这个探针通过。**
+
+#### 34.3.6 哈希稳定性与 exact UTF-16（PASS）
+
+```json
+{
+  "stable": true,
+  "distinct": true,
+  "loneSurrogateDistinct": true
+}
+```
+
+`actorKeyFor('h1')`、`actorKeyFor('ｈ１')`、`actorKeyFor('h1\\u200b')`、
+`actorKeyFor('alice@home.com')`、`actorKeyFor('alice@work.com')` 都稳定且不同；
+孤立 surrogate `\\ud800`/`\\ud801` 也不碰撞。哈希实现本身符合“exact UTF-16”
+描述。
+
+### 34.4 Mixed keyed/unkeyed（fail closed，PASS）
+
+三个层次都 fail closed：
+
+1. 真实 service：legacy raiser（`actor:{kind:'expert'}`，无 id/key）+ keyed
+   resolver：
+   ```json
+   {"code":"forbidden_action","message":"appeal raiser and resolver have incomparable actor identities"}
+   ```
+2. keyed intent + legacy resolver（`resolvedBy` 无 id/key）的 synthetic project，
+   action 均：
+   ```json
+   [{"label":"keyed-intent/legacy-resolver","code":"human_confirmation_required"},
+    {"label":"legacy-intent/keyed-resolver","code":"human_confirmation_required"}]
+   ```
+3. 无 id 的 resolver 直接 `intent.withdraw resolve:true`：
+   ```json
+   {"ok":false,"code":"invalid_commit","message":"actor.id is required"}
+   ```
+4. `sameActor` 的 keyed/unkeyed 两个方向均为 `false`；id 相同且都无 key 时为
+   `true`；`h1` vs `H1` 为 `false`。
+
+**mixed 不会把“不确定”当成“不同”放行。**
+
+### 34.5 Load-time migration（PASS，含一个 forged-key caveat）
+
+直接向 storage table 写 pre-key project（`intent.actor`/`resolvedBy` 无 key），
+经 `store.getProject()` 读时迁移；同一 memory domain restart 后重读：
+
+```json
+{
+  "before1": {"actor":"ak_JGPOXYgP9X-shXhzchLmgUqGpOzV5di_",
+              "resolved":"ak_-xrlee9wxQxj5y56Nhb5QaM-MQjWUnbU",
+              "status":"resolved","resolution":"upheld"},
+  "afterRestart": {"actor":"ak_JGPOXYgP9X-shXhzchLmgUqGpOzV5di_",
+                   "resolved":"ak_-xrlee9wxQxj5y56Nhb5QaM-MQjWUnbU",
+                   "status":"resolved","resolution":"upheld"},
+  "action1":"ok", "action2":"ok",
+  "stableActor":true, "stableResolver":true,
+  "replaySame":true, "statusesSame":true
+}
+```
+
+- `actor` 得到 `actorKeyFor('advisor')`，`resolvedBy` 得到 `actorKeyFor('h2')`；
+- 相同输入重复迁移（`replayA`/`replayB`/`replayLoaded`）key 完全相同；
+- resolution/status 不被迁移改变；
+- restart 后 action1/action2 都 `ok`，旧 resolution 仍可解析；
+- 没有额外 event，project revision 不被迁移推进（action 前 revision 仍为原值）。
+
+**Caveat**：`withActorKey` 会保留 legacy 记录中**已经存在的** `actorKey`。把
+`resolvedBy={id:'h2',actorKey:'ak_forged_resolver_key'}` 写入 pre-key row 后：
+
+```json
+{"before":{"id":"h2","key":"ak_forged_resolver_key"},
+ "after":{"resolved":"ak_forged_resolver_key","status":"resolved","resolution":"upheld"},
+ "preserved":true, "action":"ok"}
+```
+
+迁移不会校验该 key 是否由 id 派生，因此一个有 storage 写权限的 legacy 记录可以
+伪造 resolver。这不是 public request 路径，但属于 migration/key-integrity 的
+残余风险；不能声称“migration 只产生可信 key”。
+
+### 34.6 Namespace / 同一人两个 key
+
+真实 delete handler：
+
+```json
+{
+  "namespace": {
+    "requesterKey": "ak_alice_home_0001",
+    "resolvedById": "alice@work.com",
+    "resolvedKey": "ak_alice_work_0001",
+    "deleted": true,
+    "projectExists": false
+  },
+  "sameIdTwoKeys": {
+    "requesterKey": "ak_alice_a_0001",
+    "resolverKey": "ak_alice_b_0001",
+    "deleted": true,
+    "projectExists": false
+  }
+}
+```
+
+`alice@home.com` 与 `alice@work.com` 不再被拆成 `alice`；同一显示 `alice` 的两个
+不同 key 被当成两个 actor，删除成功。**namespace 与“同一个人两个 key 两个 actor”
+按第 5 点通过。** 这也说明 key 模型不证明人类独立性；若同一人能创建两个 session/
+两个 key，它就是一个可用的共谋路径（见 34.9）。
+
+### 34.7 §32 CAS/scope 回归（clean HEAD）
+
+在同一 clean worktree 重放 §32 的 action CAS 与 scope 探针：
+
+- 注入 withdraw：action `stale_basis`（expected 3, actual 5），无 action intent；
+- 注入 resolve：action `stale_basis`（expected 3, actual 5）；
+- 同一 project 两个 prune action race：一个 `ok:true`、一个 `stale_basis`
+  （expected 5, actual 6）；
+- delete handler CAS：authorization 后注入 pending project appeal，删除返回
+  `stale_basis`（expected 3, actual 4），项目仍在；
+- foreign pending 不阻断 exact prune；exact pending/withdrawn 仍阻断；
+- node-scoped legacy delete resolution → project delete `appeal_target_mismatch`；
+  project-scoped delete pending/withdrawn 仍阻断；node/project target 分离。
+
+这些路径在 `actorKey` 改造后仍通过，未出现以 key 为理由的 scope/CAS 回退。
+
+### 34.8 回归（clean HEAD `1f3e20e`）
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT=0；**676 ok**（37 files） |
+| `node scripts/claims-selftest.mjs` | EXIT=0；**111 checks** |
+| `npm run bench:scale` | EXIT=0；**11/11**；100k first page **0.73 ms**；restart first page **2.01 ms**；dispatch max **40.5 ms** / p95 **33.3 ms** / starts 161 |
+| `node scripts/strict-writes-selftest.mjs` | EXIT=0；**17**；bypass **0**（permitted deletion 不计） |
+| `node scripts/client-smoke.mjs` | EXIT=0；**16/16** |
+| U14 partial probe | EXIT=0；3 次 `refresh_partial`；前两次 degraded=false，第三次 degraded=true；三次 `previousSuccess=true` |
+| S12 restart first page | EXIT=0；segments 5；firstSameStore **2.2 ms**；firstAfterReopen **1.3 ms**；listAfterReopen **93.1 ms**；page1/page2=100；total 100000；last 100000 |
+
+`git grep canonicalActorId`：
+
+```text
+git -C /tmp/r14-head grep -n canonicalActorId -- dsh-metainfer-research-lab/host
+# 无输出（实现已移除）
+
+git -C /tmp/r14-head grep -n canonicalActorId
+# 仅 docs/refactor/VERIFICATION.md 的 §31/§32/§33 历史验收记录
+```
+
+实现路径为空；全 repo 不为空是因为历史验证文档仍引用旧名。若验收严格要求
+`git grep canonicalActorId` **整个 repo** 为空，需要删除/改写历史文档，不能用
+“实现已移除”冒充全 repo 空；本轮未改历史段落。
+
+### 34.9 计数与判定
+
+| 判定 | 数量 |
+|---|---|
+| PASS | **107** |
+| FAIL | **57** |
+| 未测量 | **10**（浏览器 2 行 = 不适用） |
+| 合计 | **174** |
+
+- **1 个阻断：B27**。它已从 display-string canonicalisation 转为 **key
+  integrity**：
+  - `session.meta.actorKey` / `session.actorKey` 接受 caller 自带 key（34.3.2）；
+  - `intent_list` 公开 `resolvedBy.actorKey`，可读取并重放（34.3.3）；
+  - 两个 session 可注册同一 key，没有唯一性/绑定检查（34.3.4）；
+  - 任意非空字符串（`x`）就是合法 key，没有签名/来源校验；
+  - 真实 `delete_project`/`cancel_node` 在这些路径下执行。
+- Unicode 共享 key 表、同一 session 改名、mixed、migration、namespace 都通过；
+  B27 仍失败不是因为显示名。
+- **56 个能力未建，0 个只差文档。**
+
+**明确判定：NO-SHIP。** 不能说 “narrow release possible”。
+
+如果只把 29 行 display table 当作 B27 的全部，会得到假绿；本轮 34.3.2/34.3.3
+是真实 handler 执行路径。只有 key 由 Host 签发并绑定到不可伪造的 registration、
+且 request/meta 不能自带 key、key 不作为公开 bearer 值，才可能重开 narrow
+release；届时计数为 **108 PASS / 56 FAIL / 10 未测量**，并显式排除 `1.3`、
+`5.3.2`/Q3、Stage 3–5、browser 2 行、provider/restart。
+
+### 34.10 修复建议
+
+1. **key 由 Host 签发，不从 request/meta 接受**：`actorForSession` 应拒绝
+   caller-supplied `actorKey`；session 注册时由 Host 生成/登记，session 对象只
+   引用 server-side registry id，authorization 不接受 metadata key。
+2. **key 不应是公开 bearer**：`intent_list` / logs / error payload 不应返回可用于
+   认证的 `actorKey`；若审计需要关联，返回不可逆的 key id 或仅返回 display id。
+   只读展示与认证凭证必须分离。
+3. **unique binding**：一个 key 只能绑定一个注册 session；同一 key 的第二个
+   session 应拒绝（或明确标记为同一 session 的恢复，而不是新 actor）。
+4. **attestation**：真正的独立 human 仍需外部身份/双人审批；key 只能解决
+   “不同 spelling 不折叠”，不能证明不是同一人。若产品接受“同一人两个 key 两个
+   actor”，必须在验收口径中显式写为限制，不能把它算作 human-level B27。
+5. **migration**：迁移 pre-key actor 时只从 exact legacy id 派生 key；不要保留
+   legacy record 自带的不受信 key（或校验其来源）；加 migration replay 测试。
+6. **回归**：保留 29 行共享 key、same-session pin、mixed、migration 和 namespace
+   正向；同时把 34.3.2/34.3.3 的真实 delete/cancel 加入 red→green 测试，防止
+   只测 display table 就宣布关闭。
+
+### 34.11 边界
+
+- 验证在 clean HEAD `1f3e20e` 完成；主工作区并发出现的 K8/1.3 未提交改动不属于
+  本轮，未修改、未计入。
+- 只修改本文件；未执行 sandbox escalation，未写 `~/.dsh/storages/*`，未重启 Host。
+- 浏览器二维 N/A；provider/restart 仍是既有未测量项。
+- 结论对 HEAD `1f3e20e` 有效；后续修改 `actors.js`、`policy.js`、
+  `lab-service.js`、`store.js` 后必须重跑 34.1–34.6，不能只跑 `npm test`。
+
+---
+
+## §35 作者第十四轮：B27 Host key 与能力 Wave 1–3
+
+> **边界**：本节是作者侧实现记录，不是独立复核。§32/§34 的 **107 PASS /
+> 57 FAIL / 10 未测量，NO-SHIP** 仍是当前独立判定；作者侧测试不能改写独立计数，
+> 也不能声称 B27 已闭合。只有验证者按 §32.2/§34.3 重放后才能改判。
+
+### 35.1 B27 单缺陷 commit（`e134acf`）
+
+B27 只修一个缺陷：actor key 由 caller 提供且可作 bearer 重放。
+
+- **Host 签发**：`host/kernel/actors.js` 在 session registration 时生成
+  `ak_host_<randomUUID>`，保存在 Host registry；`actorForSession` 不再接受
+  `input.actorKey`、`session.actorKey`、`input.meta.actorKey`，命中即抛
+  `caller_supplied_actor_key`。`actorFromToolExecution` 保留传参，因此注入会在
+  真实 tool 路径被拒绝，而不是静默忽略。
+- **唯一绑定**：一个 key 只绑定一个 registration；第二个 session 复用同一 key
+  返回 `actor_key_shared`；已绑定 registration 再换 key 返回 `actor_key_rebind`。
+  旧 `ak_legacy_*` deterministic key 仍可供旧测试构造，但不进入 registry，不能
+  authorize。
+- **不披露**：`publicView` 在 service 读方法、HTTP `ok`/`fail`、agent tool 成功与
+  错误路径递归删除 `actorKey`；`intent_list` / `trace_explain` 只返回 actor id。
+- **迁移 fail-closed**：`migrateProjectActorKeys` 在 load 时剥掉所有未登记 key；
+  irreversibility gate 同时要求 resolver/raiser/requester 三方都是
+  `isIssuedActorKey`，legacy/forged key 的已解决申诉仍返回
+  `human_confirmation_required`。
+- **作者探针**（`claims-selftest`）：
+  - `B27_META_INJECTION`：delete/cancel 带 `meta.actorKey` 均返回
+    `caller_supplied_actor_key`，project 存在、runtime 调用 0 次；
+  - `B27_KEY_REPLAY`：`intent_list` / `trace_explain` 无 `actorKey`，拿读到的 key
+    重放返回 `actor_key_shared`；
+  - `B27_BINDING`：两 session 共享 key 返回 `actor_key_shared`，中途换 key 返回
+    `actor_key_rebind` 且原 key 不变；
+  - `B27_FORGED_LEGACY`：load 后 forged `resolvedBy.actorKey` 为 null，delete 仍
+    被 `human_confirmation_required` 挡住。
+
+**这仍是作者侧红→绿，不是独立验证。** 独立计数保持 §32 的 107/57/10；B27 的
+“同一自然人/双人确认”性质仍未被本 commit 证明。
+
+### 35.2 Wave 1：`1.3` + `5.3.2/Q3`（2/56）
+
+| 行 | 生产调用点 | 真实探针 | 结果 |
+|---|---|---|---|
+| `1.3` | `host/runtime.js` 监听 turn 内 session event，节流写 `node/activity` 并推进 `lastActivityAt` | `plugin-smoke` 真实进程：第二节点运行中产生 turn-internal event，断言 `lastActivityAt` 前进且事件为 `node/activity` | 5/5 process smoke；`node/completed` 后 cause chain 非空 |
+| `5.3.2/Q3` | `host/dispatch/reservation.js` 的 p0 reservation + `selectPreemptionVictim`；`dispatch-once.js` 在容量满且 p0 waiting 时通过 envelope 提交 `preempt`；`runtime.preempt` 写 `node/preempted` 与开放 appeal | `reserved-slots-selftest` 10/10：selector 只选 p3→p2、p1/merge 排除、>10 min 门槛；集成 p0 抢占旧 p2 并拿到释放 slot；`plugin-smoke` 用真实 runtime 抢占第二节点并 `appealPreemption` 写 `node/preemption_appealed` | 真实进程 5/5；预占/抢占 10/10 |
+
+Wave 1 关闭 **2/56**。`5.3.2` 的 p0 仅限同项目，p1/merge 不抢占；appeal 记录
+`forNodeId/at/by/causeId/deadlineAt/endpoint`，可由 service 和 HTTP 读取。
+
+### 35.3 Wave 2：U1/U2/U3/U12 四个观测面板（4/56，累计 6/56）
+
+新增只读 Observability drawer，生产挂载在 WorkspaceTopBar 的 `📊` 按钮；每个面板
+直接调用真实 Host endpoint，缺 payload 时显示错误/空态而不是崩溃：
+
+- **Dispatch & queue（U1/U2）**：`/state` + `/status` + `/metrics` + `/budgets`，
+  running 节点的 startedAt、队列/阻塞原因、p0 class、per-class budget 报告。
+- **Event timeline（U3）**：`/events` + `/explain`，按 seq 展示事件，选中节点后
+  加载 cause chain；无 chain 时显式提示。
+- **Claims & evidence（U12）**：`/state` + `/intents`，展示 node claim、preemption
+  appeal、p0 priority 与 intent claim/gate/resolution；选择后展开证据。
+- **Expert library（U12）**：`/experts`，展示 lifecycle 与 Host-computed metrics。
+- 新增 `GET /intents` 与客户端 `api.fetchIntents`；所有读响应继续经过
+  `publicView`，不返回 `actorKey`。
+- `client-smoke` 由 16/16 增至 **24/24**（多挂 5 个新组件 + drawer）；degraded
+  payload 全部通过，UI budget 12/12 仍绿。
+
+Wave 2 关闭 **4/56**（U1、U2、U3、U12）。
+
+### 35.4 Wave 3：组织能力（0 新关闭，4 个部分面）
+
+这一批有真实生产调用点，但每项都仍有文档中点名的残余，因此**不把它们算作关闭**：
+
+| 面 | 已落地 | 仍缺（故不计数） |
+|---|---|---|
+| 争议表（B22 邻域） | `GET /disputes` + `listDisputes`：appeal 状态、raiser、target、resolution、resolvedBy、resolutionReason、resolvedAt；HTTP 探针通过 | B22 的 8 类裁决者映射与超时默认仍未建；`B22` 不能整行改 PASS |
+| 复盘（B23 邻域） | `POST/GET /retrospective` + `generateRetrospective`：从节点/事件计算 counts、failureStages、preemptions、disputes、classBudgets，写 durable `retrospective/generated` 事件；HTTP POST→GET 持久化探针通过 | B23 的 `expected` 与轮换仍未建；只完成 retro 一半 |
+| 每类预算/报告 | `scheduling.classBudgets`（兼容 `scheduling.budgets`）；dispatcher 在 `start` 前 `applyClassBudgets`，一轮内累计计数；`GET /budgets` 报告 running/queued/completed/failed/preempted；集成探针 `p2:1` 只启动一个 | 无独立验收行号；`5.3.4` 的公平权重/usage 仍未对齐，不能并入该行 |
+| 观察/评审面 | `GET /reviews` 暴露 review claims；`GET /experts` 的 curator 状态；UI 的 Review & curation 面板；`/reviews` 在 orchestrator 缺失时返回命名 `unavailable` 错误而非崩溃 | `5.3.13` 的 long-poll/升级触发仍缺；`5.3.14` 的“观察 + 有限写 + 仲裁”仍缺；不计数 |
+| 专家生命周期 UI | Expert library 面板复用现有 `expert_hire/expert_drain/expert_fire` command，按 lifecycle 显示 Hire/Drain/Retire；HTTP `/commands` 探针通过 | 不是新的 56 行；B19/B20 的旧计数不由本节改写 |
+
+Wave 3 新关闭 **0/56**；部分交付 **4 个面**（争议、复盘、预算、观察/评审），
+其中专家 UI 是既有能力的可发现性改进。
+
+### 35.5 计数（对 56 行能力缺口）
+
+| 桶 | 数量 | 行 |
+|---|---|---|
+| 已关闭（作者侧） | **6** | `1.3`、`5.3.2`、`U1`、`U2`、`U3`、`U12` |
+| 部分交付、未关闭 | **4** | `B22`（争议表）、`B23`（仅 retro）、`5.3.13`（仅评审面）、`5.3.14`（仅读/错误面） |
+| 未动 | **46** | 其余 56 行 |
+| 合计 | **56** | 6 + 4 + 46 |
+
+因此作者侧口径是 **6/56 关闭、4/56 部分、46/56 未动**；独立口径仍是 §32 的
+**107 PASS / 57 FAIL / 10 N/A，NO-SHIP**。这两组数字不能相加或相互替代。
+
+### 35.6 回归门
+
+本工作树（B27 commit `e134acf` + 未提交 Wave 1–3）实测：
+
+- `npm test`：EXIT 0，无 FAIL；`claims-selftest`、`wiring-selftest` 8/8、
+  `reserved-slots-selftest` 10/10、`expert-lifecycle-selftest` 全通过；
+- `npm run bench:scale`：11/11；
+- `node scripts/strict-writes-selftest.mjs`：all checks passed；
+- `node scripts/client-smoke.mjs`：24/24；
+- `node scripts/plugin-smoke.mjs`：5/5（真实进程、完成节点、activity、抢占 +
+  appeal）；
+- 未放宽任何预算/断言；未写 `~/.dsh/storages/*`；未重启 Host。
+
+### 35.7 边界与下一步
+
+- **B27 仍未由独立验证者闭合**；作者侧只证明 §34.3.2/34.3.3 的 caller-key
+  注入/重放路径在当前树被拒，不能证明自然人独立性。
+- 剩余 **50 个未关闭能力行**（46 未动 + 4 部分）仍需逐行生产调用点、真实探针、
+  红→绿；Wave 3 不得因“有面板”被算作关闭。
+- 独立验证者重放 §32.2/§34.3 后，才可讨论把 B27 从 FAIL 改为 PASS；独立计数
+  才可能变为 **108 PASS / 56 FAIL / 10 N/A**。在那之前，NO-SHIP 不变。

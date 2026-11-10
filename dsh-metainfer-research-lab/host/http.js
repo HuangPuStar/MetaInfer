@@ -143,9 +143,56 @@ export function registerHttpRoutes(ctx, service) {
     return ok(await service.metricsFor(params.get('projectId')));
   });
 
+  route(`${PREFIX}/intents`, ['GET'], async (request) => {
+    const params = query(request);
+    const limit = params.get('limit');
+    return ok(service.listIntents(params.get('projectId'), {
+      limit: limit === null ? 100 : Number(limit),
+      kind: params.get('kind') ?? null,
+    }));
+  });
+
   route(`${PREFIX}/experts`, ['GET'], async (request) => {
     const params = query(request);
     return ok(service.listExperts(params.get('projectId')));
+  });
+
+  route(`${PREFIX}/disputes`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(service.listDisputes(params.get('projectId'), {
+      limit: params.get('limit') === null ? 200 : Number(params.get('limit')),
+      status: params.get('status') ?? null,
+    }));
+  });
+
+  route(`${PREFIX}/budgets`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(service.classBudgetReport(params.get('projectId')));
+  });
+
+  route(`${PREFIX}/reviews`, ['GET'], async (request) => {
+    const params = query(request);
+    const result = service.reviewClaimsAction(params.get('projectId'));
+    // `reviewClaimsAction` returns a rejection envelope for a missing
+    // orchestrator; lift it to the HTTP error envelope so the UI's normal
+    // error path shows the reason instead of an empty claim list.
+    if (result?.ok === false) {
+      const error = new Error(result.error?.message ?? 'review claims unavailable');
+      error.code = result.error?.code ?? 'unavailable';
+      throw error;
+    }
+    return ok(result);
+  });
+
+  route(`${PREFIX}/retrospective`, ['GET', 'POST'], async (request) => {
+    const params = query(request);
+    if (request.method === 'GET') {
+      return ok(service.listRetrospectives(params.get('projectId'), {
+        limit: params.get('limit') === null ? 20 : Number(params.get('limit')),
+      }));
+    }
+    const body = await readJsonBody(request);
+    return ok(await service.generateRetrospective(body.projectId, body, null));
   });
 
   route(`${PREFIX}/node`, ['GET'], async (request) => {
@@ -291,6 +338,11 @@ export function registerHttpRoutes(ctx, service) {
       params.get('nodeId'),
       params.get('after') ?? 0,
     ));
+  });
+
+  route(`${PREFIX}/preemption/appeal`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    return ok(await service.appealPreemption(body.projectId, body.nodeId, body));
   });
 
   route(`${PREFIX}/commands`, ['POST'], async (request) => {

@@ -10,7 +10,7 @@ import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createDispatchOnce } from '../host/dispatch/dispatch-once.js';
 import { createLocalPoolBroker } from '../host/dispatch/brokers.js';
-import { applyReservation, reservedSlotsOf } from '../host/dispatch/reservation.js';
+import { PREEMPTION_MIN_RUN_MS, applyClassBudgets, applyReservation, classBudgetOf, reservedSlotsOf, selectPreemptionVictim } from '../host/dispatch/reservation.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let checks = 0;
@@ -50,6 +50,17 @@ await test('reservedSlots=0 is the pre-change behaviour', () => {
   const list = [node('p0', 'p0'), node('p2', 'p2')];
   const kept = applyReservation(list, { runningCount: 0, maxRunningNodes: 1, reservedSlots: 0 });
   assert.deepEqual(kept.map((n) => n.id), ['p0', 'p2']);
+});
+
+await test('per-class budgets parse both shapes and treat absent budgets as uncapped', () => {
+  assert.equal(classBudgetOf({}, 'p2'), null);
+  assert.equal(classBudgetOf({ scheduling: { classBudgets: { p2: 1 } } }, 'p2'), 1);
+  assert.equal(classBudgetOf({ scheduling: { budgets: { p3: 2 } } }, 'p3'), 2);
+  assert.equal(classBudgetOf({ classBudgets: { p0: 0 } }, 'p0'), 0);
+  const admitted = applyClassBudgets([node('p2a', 'p2'), node('p2b', 'p2'), node('p3', 'p3')], {
+    running: [], config: { scheduling: { classBudgets: { p2: 1 } } },
+  });
+  assert.deepEqual(admitted.map((row) => row.id), ['p2a', 'p3']);
 });
 
 async function dispatch(projectId, { nodes, reserved, maxRunning = 1 }) {
@@ -95,6 +106,101 @@ await test('integration: no p0 waiting, p2 still starts with the reserve configu
   });
   assert.equal(round.started, 1);
   assert.deepEqual(round.startedNodeIds, ['p2']);
+});
+
+
+await test('preemption selector only takes an old lower-class running experiment', () => {
+  const now = 20_000_000;
+  const running = [
+    { id: 'p2-new', status: 'running', priority: { class: 'p2' }, timestamps: { startedAt: now - 60_000 } },
+    { id: 'p3-old', status: 'running', priority: { class: 'p3' }, timestamps: { startedAt: now - PREEMPTION_MIN_RUN_MS - 1 } },
+    { id: 'p2-old', status: 'running', priority: { class: 'p2' }, timestamps: { startedAt: now - PREEMPTION_MIN_RUN_MS - 2 } },
+    { id: 'merge', status: 'running', kind: 'merge', priority: { class: 'p3' }, timestamps: { startedAt: now - PREEMPTION_MIN_RUN_MS - 3 } },
+  ];
+  const p0 = node('p0', 'p0');
+  const victim = selectPreemptionVictim({ now, running, runnable: [p0], maxRunningNodes: 4 });
+  assert.equal(victim?.id, 'p3-old');
+  assert.equal(selectPreemptionVictim({ now, running, runnable: [p0], maxRunningNodes: 5 }), null);
+  const withP1 = [...running, { id: 'p1-old', status: 'running', priority: { class: 'p1' }, timestamps: { startedAt: now - PREEMPTION_MIN_RUN_MS - 5 } }];
+  assert.equal(selectPreemptionVictim({ now, running: withP1, runnable: [p0], maxRunningNodes: 5 })?.id, 'p3-old');
+  assert.equal(selectPreemptionVictim({ now, running, runnable: [node('p2', 'p2')], maxRunningNodes: 4 }), null);
+  assert.equal(selectPreemptionVictim({ now, running, runnable: [p0], maxRunningNodes: 4, enabled: false }), null);
+  assert.equal(selectPreemptionVictim({ now, running: [{ ...running[0], timestamps: { startedAt: now - 10 } }], runnable: [p0], maxRunningNodes: 1 }), null);
+});
+
+await test('integration: a p0 preempts one old p2 and takes the freed slot', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const projectId = 'p-preempt';
+  const now = Date.now();
+  await store.saveProject({
+    id: projectId, name: projectId, mode: 'manual', repo: {}, revision: 0,
+    counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 1, maxNodes: 100, resourcePools: {} },
+  });
+  const victim = {
+    ...node('victim', 'p2'), status: 'running',
+    timestamps: { createdAt: now - 900_000, startedAt: now - PREEMPTION_MIN_RUN_MS - 1 },
+  };
+  await store.saveNode(projectId, victim);
+  await store.saveNode(projectId, node('p0', 'p0'));
+  const kernel = createKernel({ store });
+  kernel.load(projectId);
+  const broker = createLocalPoolBroker({ limits: () => ({ maxRunningNodes: 1, resourcePools: {} }) });
+  broker.adopt({ leaseId: 'lease-victim', requestId: 'victim:1', projectId, nodeId: 'victim', resources: {} });
+  const preempted = [];
+  const dispatcher = createDispatchOnce({
+    projectId,
+    executor: kernel.executor,
+    projection: kernel.projection,
+    brokers: new Map([['local-pool', broker]]),
+    launcher: {
+      start: async () => ({ ok: true }),
+      preempt: async (pid, nodeId, options) => {
+        preempted.push({ nodeId, options });
+        const commit = await kernel.executor.commit(pid, {
+          actor: { kind: 'system', id: 'test-preemptor' },
+          mutations: [{ op: 'node.transition', nodeId, from: 'running', to: 'cancelled' }],
+        });
+        assert.equal(commit.ok, true, JSON.stringify(commit));
+      },
+    },
+  });
+  const round = await dispatcher.run({ maxStarts: 1, maxRunningNodes: 1, config: store.getProject(projectId).config });
+  assert.deepEqual(round.startedNodeIds, ['p0']);
+  assert.equal(round.preempted?.victimNodeId, 'victim');
+  assert.equal(round.preempted?.forNodeId, 'p0');
+  assert.equal(preempted.length, 1);
+  assert.equal(preempted[0].options.forNodeId, 'p0');
+  assert.equal(store.getNode(projectId, 'victim').status, 'cancelled');
+  assert.ok(store.listEvents(projectId).some((event) => event.type === 'dispatch/preempting'));
+  kernel.dispose();
+});
+
+await test('integration: a per-class budget caps starts even when global capacity remains', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const projectId = 'p-class-budget';
+  await store.saveProject({
+    id: projectId, name: projectId, mode: 'manual', repo: {}, revision: 0,
+    counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 4, maxNodes: 100, resourcePools: {}, scheduling: { classBudgets: { p2: 1 } } },
+  });
+  await store.saveNode(projectId, node('p2a', 'p2'));
+  await store.saveNode(projectId, node('p2b', 'p2'));
+  const kernel = createKernel({ store });
+  kernel.load(projectId);
+  const broker = createLocalPoolBroker({ limits: () => ({ maxRunningNodes: 4, resourcePools: {} }) });
+  const dispatcher = createDispatchOnce({
+    projectId,
+    executor: kernel.executor,
+    projection: kernel.projection,
+    brokers: new Map([['local-pool', broker]]),
+    launcher: { start: async () => ({ ok: true }) },
+  });
+  const round = await dispatcher.run({ maxStarts: 2, maxRunningNodes: 4, config: store.getProject(projectId).config });
+  assert.equal(round.started, 1);
+  assert.deepEqual(round.startedNodeIds, ['p2a']);
+  assert.equal(store.getNode(projectId, 'p2b').status, 'planned');
+  kernel.dispose();
 });
 
 process.stdout.write(`${checks - failed}/${checks} reserved-slot checks passed\n`);

@@ -100,6 +100,36 @@ const httpCommand = async (body) => {
 const viaHttp = await httpCommand({ type: 'expert_hire', projectId, expertId: 'lab-advisor' });
 check('HTTP /commands exposes expert_hire (not unknown_command)', viaHttp.ok === true && viaHttp.data?.expert?.lifecycle?.status === 'active', JSON.stringify(viaHttp));
 
+const httpRequest = async (routePath, options = {}) => {
+  const [pathname, search = ''] = routePath.split('?');
+  const handler = routes.get('/api/metainfer-research-lab/' + pathname);
+  const response = await handler(new Request('http://local/api/metainfer-research-lab/' + pathname + (search ? '?' + search : ''), options));
+  return response.json();
+};
+const disputesHttp = await httpRequest('disputes?projectId=' + encodeURIComponent(projectId));
+check('HTTP /disputes returns the dispute table', disputesHttp.ok === true && Array.isArray(disputesHttp.data?.disputes), JSON.stringify(disputesHttp));
+const budgetsHttp = await httpRequest('budgets?projectId=' + encodeURIComponent(projectId));
+check('HTTP /budgets returns five uncapped class rows without actor keys',
+  budgetsHttp.ok === true && budgetsHttp.data?.classes?.length === 5
+  && budgetsHttp.data.classes.every((row) => row.budget === null && !Object.prototype.hasOwnProperty.call(row, 'actorKey')),
+  JSON.stringify(budgetsHttp));
+const reviewsHttp = await httpRequest('reviews?projectId=' + encodeURIComponent(projectId));
+check('HTTP /reviews degrades to a named unavailable error when no orchestrator is wired',
+  reviewsHttp.ok === false && reviewsHttp.error?.code === 'unavailable', JSON.stringify(reviewsHttp));
+const retroBeforeHttp = await httpRequest('retrospective?projectId=' + encodeURIComponent(projectId));
+const retroGenerateHttp = await httpRequest('retrospective', {
+  method: 'POST', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ projectId, title: 'http probe' }),
+});
+const retroAfterHttp = await httpRequest('retrospective?projectId=' + encodeURIComponent(projectId));
+check('HTTP POST/GET /retrospective persists one generated record',
+  retroBeforeHttp.ok === true && retroGenerateHttp.ok === true
+  && retroGenerateHttp.data?.retrospective?.counts?.nodes === 2
+  && retroAfterHttp.data?.retrospectives?.length === retroBeforeHttp.data.retrospectives.length + 1
+  && retroAfterHttp.data.retrospectives.slice(-1)[0]?.retrospective?.id === retroGenerateHttp.data.retrospective.id,
+  JSON.stringify({ before: retroBeforeHttp.data?.retrospectives?.length, after: retroAfterHttp.data?.retrospectives?.length, generated: retroGenerateHttp }));
+
+
 const selfExec = { agent: { session: { id: 'lab-advisor', header: { meta: { agentPreset: 'lab-advisor' } } } } };
 let selfError = null;
 try { await service.hireExpert(projectId, { expertId: 'lab-advisor' }, selfExec); } catch (error) { selfError = error; }

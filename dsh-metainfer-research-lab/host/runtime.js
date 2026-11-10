@@ -116,6 +116,38 @@ function blocksText(blocks) {
     .trim();
 }
 
+/** Session events that mean a running turn is still making progress (K8/1.3). */
+export const ACTIVITY_EVENT_TYPES = Object.freeze([
+  'turn/start',
+  'assistant/message',
+  'tool/call',
+  'tool/use',
+  'tool/result',
+  'reasoning/message',
+  'step/start',
+  'step/end',
+]);
+
+/** Minimum spacing between durable activity writes for one node, per turn. */
+export const ACTIVITY_WRITE_INTERVAL_MS = 30_000;
+
+/** True for assistant chunks, tool calls/results, reasoning and step boundaries. */
+export function isTurnActivityEvent(event) {
+  const type = typeof event?.type === 'string' ? event.type : '';
+  if (!type || type === 'turn/end') return false;
+  return ACTIVITY_EVENT_TYPES.includes(type)
+    || type.startsWith('step/')
+    || type.startsWith('tool/')
+    || type.startsWith('assistant/')
+    || type.startsWith('reasoning/');
+}
+
+/** The turn id is only used to let the first event of a new turn bypass throttle. */
+export function turnIdOf(event) {
+  const data = event?.data;
+  return data?.turnId ?? data?.turn?.id ?? event?.turnId ?? null;
+}
+
 /** Compare filesystem paths across Windows slash/case normalisation. */
 function sameFsPath(left, right) {
   if (typeof left !== 'string' || typeof right !== 'string') return left === right;
@@ -885,6 +917,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
 
   async function finish(projectId, nodeId, result) {
     const key = keyOf(projectId, nodeId);
+    activityWrites.delete(key);
     const entry = active.get(key);
     if (!entry || entry.phase !== 'running') return;
     entry.phase = 'finishing';
@@ -1445,6 +1478,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
 
   async function finishFailure(projectId, nodeId, error) {
     const key = keyOf(projectId, nodeId);
+    activityWrites.delete(key);
     const entry = active.get(key);
     if (!entry || entry.phase !== 'running') return;
     entry.phase = 'finishing';
@@ -1471,6 +1505,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
 
   async function terminate(projectId, nodeId, kind, payload = {}) {
     const key = keyOf(projectId, nodeId);
+    activityWrites.delete(key);
     const expectedProjectRevision = Number.isInteger(payload.expectedRevision) ? payload.expectedRevision : null;
     const entry = active.get(key);
     if (!entry || entry.phase !== 'running') return null;
@@ -1529,8 +1564,8 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       await releaseNode(project, node);
       applyUsage(project, node, await sessionUsage(entry.node.sessionId));
       endAttempt(node, {
-        stopReason: kind === 'cancel' ? 'cancelled' : 'timeout',
-        status: kind === 'cancel' ? 'cancelled' : 'failed',
+        stopReason: kind === 'cancel' || kind === 'preempted' ? 'cancelled' : 'timeout',
+        status: kind === 'cancel' || kind === 'preempted' ? 'cancelled' : 'failed',
       });
       const leftover = [...reaped.leftover, ...gpu.leftover];
       node.termination = {
@@ -1546,18 +1581,42 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
         reaperSupported: reaped.reaperSupported,
         reaperNote: reaped.reaperNote,
       };
-      node.status = kind === 'cancel' ? 'cancelled' : 'failed';
+      if (kind === 'preempted') {
+        // Project-local p0 preemption is a deliberate policy decision, not a
+        // user cancellation or a timeout. Keep the reason, the beneficiary and
+        // an open appeal record on the node and in the event cause chain.
+        node.preemption = {
+          at: requestedAt,
+          by: payload.by ?? 'dispatcher',
+          forNodeId: payload.forNodeId ?? null,
+          reason: payload.reason ?? 'higher-priority work needed this slot',
+          causeId: payload.causeId ?? `preempt:${node.id}:${requestedAt}`,
+          appeal: {
+            status: 'open',
+            deadlineAt: Date.now() + 24 * 60 * 60_000,
+            endpoint: `/api/metainfer-research-lab/preemption/appeal`,
+          },
+        };
+      }
+      const cancelled = kind === 'cancel' || kind === 'preempted';
+      node.status = cancelled ? 'cancelled' : 'failed';
       node.error = {
-        message: payload.message || (kind === 'cancel' ? 'cancelled by user' : 'node timed out and was terminated'),
+        message: payload.message || (kind === 'cancel'
+          ? 'cancelled by user'
+          : kind === 'preempted'
+            ? `preempted for ${payload.forNodeId ?? 'higher-priority work'}`
+            : 'node timed out and was terminated'),
         at: Date.now(),
-        stage: kind === 'cancel' ? 'run' : kind === 'timeout' ? 'timeout' : 'run',
+        stage: kind === 'cancel' || kind === 'preempted' ? 'run' : kind === 'timeout' ? 'timeout' : 'run',
       };
       node.timestamps = { ...(node.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
       const terminalEvent = kind === 'cancel'
         ? 'node/cancelled'
-        : kind === 'resource_lost'
-          ? 'node/resource_lost'
-          : 'node/timeout';
+        : kind === 'preempted'
+          ? 'node/preempted'
+          : kind === 'resource_lost'
+            ? 'node/resource_lost'
+            : 'node/timeout';
       const currentProject = store.getProject(projectId);
       if (expectedProjectRevision !== null && (currentProject?.revision ?? 0) !== expectedProjectRevision) {
         throw new LabError('stale_basis', `project revision changed while cancelling (expected ${expectedProjectRevision}, actual ${currentProject?.revision ?? 0})`, 409);
@@ -1571,7 +1630,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
           leftover,
           reaper: reaped.reaper,
           reaperSupported: reaped.reaperSupported,
+          ...(node.preemption ? { preemption: node.preemption } : {}),
         },
+        ...(node.preemption?.causeId ? { causeId: node.preemption.causeId } : {}),
         expectedProjectRevision,
       });
     }
@@ -1590,6 +1651,56 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       }
     }
     return { node, revision: project?.revision ?? null };
+  }
+
+  /** Record a human/system appeal against a preemption; the slot decision is never rewritten. */
+  async function appealPreemption(projectId, nodeId, options = {}) {
+    const project = requireProject(projectId);
+    const node = requireNode(projectId, nodeId);
+    if (!node.preemption) {
+      throw new LabError('preemption_not_found', `node ${nodeId} has no preemption record`, 404);
+    }
+    const appeal = node.preemption.appeal ?? {};
+    if (appeal.status === 'appealed') {
+      throw new LabError('preemption_already_appealed', `node ${nodeId} preemption is already appealed`, 409);
+    }
+    const reason = typeof options.reason === 'string' ? options.reason.trim().slice(0, 2000) : '';
+    if (!reason) throw new LabError('bad_request', 'preemption appeal reason is required', 400);
+    node.preemption = {
+      ...node.preemption,
+      appeal: {
+        ...appeal,
+        status: 'appealed',
+        at: Date.now(),
+        by: options.actor ?? { kind: 'human', id: 'operator' },
+        reason,
+      },
+    };
+    await persistNode(project, node, 'node/preemption_appealed', {
+      data: { reason, by: node.preemption.appeal.by, preemption: node.preemption },
+    });
+    return { node: store.getNode(projectId, nodeId), revision: store.getProject(projectId)?.revision ?? null };
+  }
+
+  /**
+   * Project-local p0 preemption (5.3.2/Q3 mechanism C).
+   * The dispatcher selects a lower-class victim that has run > 10 min; this
+   * method is the only producer of the `preempted` termination kind.
+   */
+  async function preempt(projectId, nodeId, options = {}) {
+    const node = requireNode(projectId, nodeId);
+    if (node.status !== 'running') {
+      throw new LabError('node_not_preemptible', `node ${nodeId} is ${node.status}; only a running node can be preempted`, 409);
+    }
+    if (node.kind === 'merge') {
+      throw new LabError('node_not_preemptible', 'merge nodes are never preempted', 409);
+    }
+    return terminate(projectId, nodeId, 'preempted', {
+      ...options,
+      forNodeId: options.forNodeId ?? null,
+      reason: options.reason ?? 'higher-priority work needed this slot',
+      by: options.by ?? 'dispatcher',
+    });
   }
 
   async function cancel(projectId, nodeId, options = {}) {
@@ -1942,7 +2053,52 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     });
   }
 
+  const activityWrites = new Map();
+
+  /** Find the active node whose worker session emitted this event. */
+  function activeEntryForSession(sessionId) {
+    if (!sessionId) return null;
+    for (const entry of active.values()) {
+      if (entry?.node?.sessionId === sessionId) return entry;
+    }
+    return null;
+  }
+
+  /**
+   * K8/1.3: a turn can run for minutes without a turn/end. Assistant/tool/step
+   * events still prove the node is alive, so move `lastActivityAt` and write a
+   * bounded `node/activity` record. The first event of a turn is immediate; the
+   * rest are throttled per node to avoid turning a token stream into event spam.
+   */
+  async function recordActivity(entry, event, now) {
+    const key = keyOf(entry.projectId, entry.nodeId);
+    const turnId = turnIdOf(event);
+    const previous = activityWrites.get(key);
+    const newTurn = turnId !== null && previous?.turnId !== turnId;
+    if (!newTurn && previous && now - previous.at < ACTIVITY_WRITE_INTERVAL_MS) return false;
+    activityWrites.set(key, { at: now, turnId: turnId ?? previous?.turnId ?? null });
+    const project = store.getProject(entry.projectId);
+    const node = store.getNode(entry.projectId, entry.nodeId);
+    if (!project || !node || node.status !== 'running') return false;
+    node.timestamps = { ...(node.timestamps ?? {}), lastActivityAt: now };
+    await persistNode(project, node, 'node/activity', {
+      data: { event: event.type, turnId, at: now },
+    });
+    return true;
+  }
+
   async function onSessionEvent(session, event) {
+    if (session?.id && isTurnActivityEvent(event)) {
+      const entry = activeEntryForSession(session.id);
+      if (entry) {
+        try {
+          await recordActivity(entry, event, Date.now());
+        } catch {
+          // Activity telemetry must never take down the worker's event stream.
+        }
+      }
+      return;
+    }
     if (event?.type !== 'turn/end') return;
     const pending = pendingFollowUps.get(session?.id);
     if (!pending) return;
@@ -2151,6 +2307,14 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     decorateNodes,
     ensureAnchor,
     onSessionEvent,
+    preempt,
+    appealPreemption,
+    isTurnActivityEvent,
+    recordSessionActivity: async (sessionId, event) => {
+      const entry = activeEntryForSession(sessionId);
+      if (!entry) return false;
+      return recordActivity(entry, event, Date.now());
+    },
     dispose,
   };
 }

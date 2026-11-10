@@ -25,6 +25,7 @@ import { createExplorationBudget } from './context/limits.js';
 import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
+import { PRIORITY_CLASSES, classBudgetOf } from './dispatch/reservation.js';
 import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
 import { actorKeyOf, hasActorIdentity, isIssuedActorKey, publicView, sameActor } from './kernel/actors.js';
 import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
@@ -2601,6 +2602,27 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return runtime.cancel(projectId, nodeId, { expectedRevision: authorization.projectRevision });
   }
 
+  /**
+   * Internal/system preemption entrypoint (5.3.2/Q3). The dispatcher owns the
+   * decision; this wrapper exists for the process probe and recoverable
+   * operator tooling, not as a human bypass of the p0 policy.
+   */
+  async function preemptNode(projectId, nodeId, options = {}) {
+    return runtime.preempt(projectId, nodeId, {
+      forNodeId: options.forNodeId ?? null,
+      reason: options.reason ?? 'project-local p0 preemption',
+      by: options.by ?? 'dispatcher',
+      causeId: options.causeId ?? null,
+    });
+  }
+
+  async function appealPreemption(projectId, nodeId, input = {}) {
+    return runtime.appealPreemption(projectId, nodeId, {
+      reason: input.reason,
+      actor: input.actor ?? { kind: 'human', id: 'operator' },
+    });
+  }
+
   async function messageNode(projectId, nodeId, text) {
     return runtime.message(projectId, nodeId, text);
   }
@@ -3906,6 +3928,143 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     });
   }
 
+  /** Read-only dispute table: every appeal with its resolution record. */
+  function listDisputes(projectId, { limit = 200, status = null } = {}) {
+    const project = requireProject(projectId);
+    const size = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.trunc(limit))) : 200;
+    const rows = (Array.isArray(project.intents) ? project.intents : [])
+      .filter((intent) => intent && (intent.kind === 'appeal' || intent.claim?.action === 'appeal'))
+      .filter((intent) => !status || intent.status === status)
+      .slice(-size)
+      .map((intent) => ({
+        id: intent.id,
+        targetAction: intent.claim?.targetAction ?? null,
+        target: intent.target ?? null,
+        raiser: intent.actor ? { kind: intent.actor.kind, id: intent.actor.id } : null,
+        status: intent.status,
+        resolution: intent.resolution ?? null,
+        resolutionReason: intent.resolutionReason ?? null,
+        resolvedBy: intent.resolvedBy ? { kind: intent.resolvedBy.kind, id: intent.resolvedBy.id } : null,
+        resolvedAt: intent.resolvedAt ?? null,
+        withdrawnBy: intent.withdrawnBy ? { kind: intent.withdrawnBy.kind, id: intent.withdrawnBy.id } : null,
+        withdrawnAt: intent.withdrawnAt ?? null,
+        openedAt: intent.at ?? null,
+        expiresAt: intent.expiresAt ?? null,
+      }));
+    return publicView({ ok: true, projectId, revision: project.revision ?? 0, disputes: rows, total: rows.length });
+  }
+
+  /** Per-class scheduling budgets plus observed outcomes; missing budgets mean no cap. */
+  function classBudgetReport(projectId) {
+    const project = requireProject(projectId);
+    const nodes = store.listNodes(projectId);
+    const classes = PRIORITY_CLASSES.map((priorityClass) => {
+      const matching = nodes.filter((node) => (node.priority?.class ?? 'p2') === priorityClass);
+      const count = (status) => matching.filter((node) => node.status === status).length;
+      return {
+        class: priorityClass,
+        budget: classBudgetOf(project.config ?? {}, priorityClass),
+        running: count('running'),
+        queued: matching.filter((node) => ['planned', 'proposed', 'deferred'].includes(node.status)).length,
+        completed: count('completed'),
+        failed: count('failed'),
+        cancelled: count('cancelled'),
+        preempted: matching.filter((node) => Boolean(node.preemption)).length,
+      };
+    });
+    return publicView({ ok: true, projectId, revision: project.revision ?? 0, classes });
+  }
+
+  /** Deterministic Stage-5 retrospective built from durable events/nodes. */
+  function retrospectiveOf(project, nodes, now) {
+    const completed = nodes.filter((node) => node.status === 'completed');
+    const failed = nodes.filter((node) => node.status === 'failed');
+    const cancelled = nodes.filter((node) => node.status === 'cancelled');
+    const preempted = nodes.filter((node) => Boolean(node.preemption));
+    const durations = completed
+      .map((node) => Number(node.timestamps?.completedAt) - Number(node.timestamps?.startedAt))
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    const failureStages = new Map();
+    const failureMessages = new Map();
+    for (const node of failed) {
+      const stage = typeof node.error?.stage === 'string' ? node.error.stage : 'unknown';
+      failureStages.set(stage, (failureStages.get(stage) ?? 0) + 1);
+      const message = typeof node.error?.message === 'string' ? node.error.message.slice(0, 180) : 'unknown failure';
+      failureMessages.set(message, (failureMessages.get(message) ?? 0) + 1);
+    }
+    const disputes = listDisputes(project.id, { limit: 500 }).disputes;
+    const resolved = disputes.filter((row) => row.status === 'resolved');
+    const classReport = classBudgetReport(project.id).classes;
+    const started = nodes.filter((node) => Number.isFinite(Number(node.timestamps?.startedAt)));
+    const wallClockMs = started.length === 0
+      ? 0
+      : Math.max(0, now - Math.min(...started.map((node) => Number(node.timestamps.startedAt))));
+    return {
+      id: `retro-${project.id}-${now}`,
+      projectId: project.id,
+      generatedAt: now,
+      projectRevision: project.revision ?? 0,
+      window: { wallClockMs, firstStartAt: started.length ? Math.min(...started.map((node) => Number(node.timestamps.startedAt))) : null },
+      counts: {
+        nodes: nodes.length,
+        completed: completed.length,
+        failed: failed.length,
+        cancelled: cancelled.length,
+        preempted: preempted.length,
+        running: nodes.filter((node) => node.status === 'running').length,
+        planned: nodes.filter((node) => ['planned', 'proposed', 'deferred'].includes(node.status)).length,
+      },
+      throughputPerHour: wallClockMs > 0 ? Number(((completed.length * 3_600_000) / wallClockMs).toFixed(2)) : null,
+      durationMs: { avg: durations.length ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length) : null, max: durations.length ? Math.max(...durations) : null },
+      failureStages: [...failureStages.entries()].sort((a, b) => b[1] - a[1]).map(([stage, count]) => ({ stage, count })),
+      failureMessages: [...failureMessages.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([message, count]) => ({ message, count })),
+      preemptions: preempted.map((node) => ({
+        nodeId: node.id,
+        forNodeId: node.preemption?.forNodeId ?? null,
+        at: node.preemption?.at ?? null,
+        appeal: node.preemption?.appeal?.status ?? null,
+      })),
+      disputes: {
+        total: disputes.length,
+        resolved: resolved.length,
+        upheld: resolved.filter((row) => row.resolution === 'upheld').length,
+        rejected: resolved.filter((row) => row.resolution === 'rejected').length,
+        withdrawn: disputes.filter((row) => row.status === 'withdrawn').length,
+        pending: disputes.filter((row) => row.status === 'pending').length,
+      },
+      classBudgets: classReport,
+    };
+  }
+
+  async function generateRetrospective(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    const now = Date.now();
+    const retrospective = retrospectiveOf(project, store.listNodes(projectId), now);
+    const commit = await commitMutations(projectId, [{
+      op: 'event.record',
+      type: 'retrospective/generated',
+      data: { retrospective, title: typeof input.title === 'string' ? input.title.slice(0, 200) : null },
+    }], { actor, causeId: `retrospective:${projectId}:${now}` });
+    const event = commit.events?.[0] ?? null;
+    return publicView({ ok: true, projectId, retrospective, event: event ? { seq: event.seq, type: event.type } : null });
+  }
+
+  function listRetrospectives(projectId, { limit = 20 } = {}) {
+    const project = requireProject(projectId);
+    const size = Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.trunc(limit))) : 20;
+    const rows = store.listEvents(projectId)
+      .filter((event) => event.type === 'retrospective/generated')
+      .slice(-size)
+      .map((event) => ({
+        seq: event.seq,
+        at: event.at,
+        title: event.data?.title ?? null,
+        retrospective: event.data?.retrospective ?? null,
+      }));
+    return publicView({ ok: true, projectId, revision: project.revision ?? 0, retrospectives: rows });
+  }
+
   /**
    * Resolve an appeal. This is deliberately distinct from a generic withdraw:
    * the record names the resolver and the reason, and the status becomes
@@ -4280,6 +4439,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     listNodesPage,
     submitIntent,
     listIntents,
+    listDisputes,
+    classBudgetReport,
+    generateRetrospective,
+    listRetrospectives,
+    reviewClaimsAction,
     withdrawIntent,
     resolveAppeal,
     resetCurator,
@@ -4318,6 +4482,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     compilePlacementPolicyForProject,
     deleteProject,
     cancelNode,
+    preemptNode,
+    appealPreemption,
     messageNode,
     getTranscript,
     getSessionTranscript,

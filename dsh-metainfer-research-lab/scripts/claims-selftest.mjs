@@ -1022,6 +1022,35 @@ check('a forged legacy resolver key is stripped on load and cannot authorize del
   JSON.stringify(forgedProbe));
 console.log(`B27_FORGED_LEGACY ${JSON.stringify(forgedProbe)}`);
 
+// Stage 5 retrospective: generated from durable nodes and persisted as one
+// real event, then read back through the same service surface the HTTP route
+// uses. Class budgets and the dispute table are read from the same project.
+const budgetProbe = service.classBudgetReport(projectId);
+const beforeRetro = service.listRetrospectives(projectId).retrospectives.length;
+const retroProbe = await service.generateRetrospective(projectId, { title: 'claims probe' });
+const afterRetro = service.listRetrospectives(projectId);
+const persistedRetro = afterRetro.retrospectives.slice(-1)[0] ?? null;
+check('retrospective generation writes a durable event and computes real counts',
+  retroProbe.ok === true
+  && retroProbe.retrospective?.counts?.nodes === nodes.length
+  && retroProbe.retrospective?.counts?.completed > 0
+  && retroProbe.event?.type === 'retrospective/generated'
+  && afterRetro.retrospectives.length === beforeRetro + 1
+  && persistedRetro?.retrospective?.id === retroProbe.retrospective.id
+  && Array.isArray(persistedRetro?.retrospective?.failureStages),
+  JSON.stringify({ counts: retroProbe.retrospective?.counts, event: retroProbe.event, persisted: Boolean(persistedRetro) }));
+check('per-class budget report lists every class with an explicit uncapped default',
+  budgetProbe.classes.length === 5
+  && budgetProbe.classes.every((row) => row.budget === null && Number.isFinite(row.running) && Number.isFinite(row.completed)),
+  JSON.stringify(budgetProbe.classes));
+const disputeProbe = service.listDisputes(projectId);
+check('dispute table projects appeals with a resolution record and no actor keys',
+  disputeProbe.ok === true
+  && disputeProbe.disputes.length >= 1
+  && disputeProbe.disputes.every((row) => !Object.prototype.hasOwnProperty.call(row, 'actorKey'))
+  && disputeProbe.disputes.every((row) => ['id', 'status', 'targetAction', 'raiser', 'resolvedBy', 'resolution'].every((key) => Object.prototype.hasOwnProperty.call(row, key))),
+  JSON.stringify(disputeProbe.disputes.slice(0, 2)));
+
 // Positive control: a project-scoped resolved delete appeal and a funded
 // claim history must still execute through the same wrapper.
 await kernel.executor.commit(toolProjectId, {

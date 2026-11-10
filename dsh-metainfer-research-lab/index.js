@@ -138,7 +138,10 @@ export async function apply(ctx, config = {}) {
       executor: kernel.executor,
       projection: kernel.projection,
       brokers,
-      launcher: { start: (pid, nodeId, opts) => runtime.start(pid, nodeId, opts) },
+      launcher: {
+        start: (pid, nodeId, opts) => runtime.start(pid, nodeId, opts),
+        preempt: (pid, nodeId, opts) => runtime.preempt(pid, nodeId, opts),
+      },
       maxStarts: options.maxStarts ?? 8,
     });
     return dispatcher.run({

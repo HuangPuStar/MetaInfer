@@ -69,6 +69,7 @@ function subprocessSeam() {
 
 const agents = new Map();
 const disposers = [];
+const sessionEventHandlers = [];
 let service = null;
 const subagents = {
   async startActivation(options) {
@@ -77,7 +78,9 @@ const subagents = {
     const append = () => {};
     agents.set(sessionId, { session: { id: sessionId, header: { cwd }, append } });
     return {
-      result: Promise.resolve({
+      // Keep the turn open long enough for the process smoke to deliver a real
+      // session event while the node is still running, not just at turn/end.
+      result: new Promise((resolve) => setTimeout(() => resolve({
         stopReason: 'completed',
         output: [{ type: 'text', text: 'stub worker finished' }],
         structured: {
@@ -88,7 +91,7 @@ const subagents = {
         },
         usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
         threadId: 'stub-thread',
-      }),
+      }), 300)),
       dispose: async () => {},
     };
   },
@@ -129,7 +132,10 @@ const ctx = {
     if (key === 'jobs') return null;
     return null;
   },
-  on: () => () => {},
+  on: (name, handler) => {
+    if (name === 'session/event') sessionEventHandlers.push(handler);
+    return () => {};
+  },
   effect: (factory) => {
     const dispose = factory();
     if (typeof dispose === 'function') disposers.push(dispose);
@@ -153,6 +159,22 @@ try {
   const projectId = created.project.id;
   const nodeId = created.rootNode.id;
   await service.startNode(projectId, nodeId);
+  const startedNode = service.getNode(projectId, nodeId)?.node;
+  assert.equal(startedNode?.status, 'running', 'node did not enter running state before activity probe');
+  assert.ok(sessionEventHandlers.length > 0, 'plugin did not subscribe to session/event');
+  const startedAt = startedNode.timestamps?.lastActivityAt ?? startedNode.timestamps?.startedAt;
+  await sessionEventHandlers[0](
+    { id: startedNode.sessionId },
+    { type: 'assistant/message', time: Date.now(), data: { turnId: 'smoke-turn-1' } },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const activeNode = service.getNode(projectId, nodeId)?.node;
+  const activityAdvanced = Number(activeNode?.timestamps?.lastActivityAt ?? 0) > Number(startedAt ?? 0);
+  const activeExplanation = service.explainNode(projectId, nodeId, { window: 200 });
+  const activityEvent = Array.isArray(activeExplanation.events)
+    && activeExplanation.events.some((event) => event.type === 'node/activity');
+  assert.equal(activityAdvanced, true, 'turn-internal event did not move lastActivityAt');
+  assert.equal(activityEvent, true, 'node/activity was not written before turn/end');
 
   let node = null;
   const deadline = Date.now() + 15_000;
@@ -168,6 +190,47 @@ try {
   assert.ok(Array.isArray(explanation.causeChain) && explanation.causeChain.length > 0, 'cause chain is empty');
   assert.ok(Array.isArray(explanation.events) && explanation.events.some((event) => event.type === 'node/completed'), 'node/completed missing from explanation');
 
+  // 5.3.2/Q3 process probe: start a second real runtime node, then preempt it
+  // through the same runtime path the dispatcher uses. The activation result is
+  // still pending when terminate disposes it, so an unhandled rejection here
+  // would fail the child.
+  const successor = await service.createSuccessor(projectId, nodeId, {
+    title: 'preemption victim',
+    prompt: 'stay running until the p0 preemption probe terminates this node',
+  });
+  const victimId = successor.node.id;
+  await service.startNode(projectId, victimId);
+  assert.equal(service.getNode(projectId, victimId)?.node?.status, 'running');
+  const preempted = await service.preemptNode(projectId, victimId, {
+    forNodeId: 'p0-smoke',
+    reason: 'process smoke: p0 needs the slot',
+    by: 'dispatcher',
+  });
+  const preemptedNode = preempted.node ?? service.getNode(projectId, victimId)?.node;
+  const preemptionExplanation = service.explainNode(projectId, victimId, { window: 200 });
+  const preemptionEvent = Array.isArray(preemptionExplanation.events)
+    && preemptionExplanation.events.some((event) => event.type === 'node/preempted');
+  assert.equal(preemptedNode?.status, 'cancelled');
+  assert.equal(preemptedNode?.preemption?.forNodeId, 'p0-smoke');
+  assert.equal(preemptedNode?.preemption?.appeal?.status, 'open');
+  assert.equal(preemptedNode?.preemption?.appeal?.endpoint, '/api/metainfer-research-lab/preemption/appeal');
+  assert.equal(preemptionEvent, true, 'node/preempted missing from explanation');
+  const appealed = await service.appealPreemption(projectId, victimId, {
+    reason: 'smoke: record and review the preemption',
+    actor: { kind: 'human', id: 'smoke-operator' },
+  });
+  const appealedNode = appealed.node ?? service.getNode(projectId, victimId)?.node;
+  assert.equal(appealedNode?.preemption?.appeal?.status, 'appealed');
+  assert.equal(appealedNode?.preemption?.appeal?.reason, 'smoke: record and review the preemption');
+  const appealedExplanation = service.explainNode(projectId, victimId, { window: 200 });
+  assert.equal(
+    Array.isArray(appealedExplanation.events)
+      && appealedExplanation.events.some((event) => event.type === 'node/preemption_appealed'),
+    true,
+    'node/preemption_appealed missing from explanation',
+  );
+  await new Promise((resolve) => setTimeout(resolve, 350));
+
   process.stdout.write(`${JSON.stringify({
     status: node.status,
     reportSummary: node.report.summary,
@@ -175,6 +238,14 @@ try {
     chainLength: explanation.causeChain.length,
     chainFirst: explanation.causeChain[0]?.ref?.type ?? null,
     completedEvent: explanation.events.some((event) => event.type === 'node/completed'),
+    activityAdvanced,
+    activityEvent,
+    preemptionStatus: preemptedNode?.status,
+    preemptionFor: preemptedNode?.preemption?.forNodeId,
+    preemptionAppeal: appealedNode?.preemption?.appeal?.status,
+    preemptionAppealReason: appealedNode?.preemption?.appeal?.reason,
+    preemptionEvent,
+    preemptionAppealedEvent: appealedExplanation.events.some((event) => event.type === 'node/preemption_appealed'),
     eventCount: explanation.events.length,
   })}\n`);
 } catch (error) {

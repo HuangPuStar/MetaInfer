@@ -48,10 +48,20 @@ try {
   assert.ok(typeof result.reportSummary === 'string' && result.reportSummary.length > 0);
   assert.ok(result.chainLength > 0, 'cause chain is empty');
   assert.equal(result.completedEvent, true);
+  assert.equal(result.activityAdvanced, true, 'turn-internal activity was not observed');
+  assert.equal(result.activityEvent, true, 'node/activity event was not observed');
+  assert.equal(result.preemptionStatus, 'cancelled');
+  assert.equal(result.preemptionFor, 'p0-smoke');
+  assert.equal(result.preemptionAppeal, 'appealed');
+  assert.equal(result.preemptionAppealReason, 'smoke: record and review the preemption');
+  assert.equal(result.preemptionEvent, true);
+  assert.equal(result.preemptionAppealedEvent, true);
   process.stdout.write(`ok   plugin activates and completes one node (${result.status}, cause chain ${result.chainLength})\n`);
   process.stdout.write(`ok   completed node carries summary: ${result.reportSummary}\n`);
   process.stdout.write(`ok   node/completed is in the explanation (${result.eventCount} events)\n`);
-  process.stdout.write('3/3 process smoke checks passed\n');
+  process.stdout.write('ok   a turn-internal event moves lastActivityAt and writes node/activity\n');
+  process.stdout.write('ok   a running node is preempted for p0 with a reviewable appeal trail\n');
+  process.stdout.write('5/5 process smoke checks passed\n');
 } finally {
   await rm(root, { recursive: true, force: true }).catch(() => {});
 }
