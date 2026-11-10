@@ -1404,11 +1404,27 @@ hot 尾部追加进去；首读不再解压/排序全部 cold 段。`scale-selft
 
 ### 22.6 回归
 
-- `npm test`：**EXIT=0**，31 个文件，**517 个 `ok`**（新增 claims 17、dashboard 3、
-  ui 1 等）。
+- `npm test`：**EXIT=0**，32 个文件，**532 个 `ok`**（新增 claims 17、dashboard 3、
+  ui 1、jsdom 15 等）。
 - `npm run bench:scale`：**EXIT=0**，11/11；新增 100k 首读断言。
 - `locale-selftest`：en/zh 均 1,375 keys，client 字典同步。
 - `ui-selftest`：12/12；新增可关闭失败告警与降级断言（仍不测真实 DOM/帧率）。
+
+### 22.8 D 类：面板降级 smoke
+
+新增 `scripts/client-smoke.mjs`（jsdom + React 19），按真实 `window.__ModuleLoader__`
+合同加载 `client.js`，设置 `window.__METAINFER_TEST__` 后取得私有组件句柄，逐个挂载
+15 个面板：Landing、Workspace、Projects、Dashboard、Runs、Explain、Proposal、GC、
+Settings、FinishMerge、Push、DeleteProject、Confirm、Attempts、Trajectory。
+所有 fetch 返回空/错误/degraded 结构，断言不进入组件树外的未捕获异常、不显示
+`crash.title` 边界。
+
+首次运行就抓到 `RunsPanel` 在 `runsState.cycles` 缺失时的
+`Cannot read properties of undefined (reading 'length')`；已把 `runsState` 归一化为
+`runs: []` / `cycles: []`。现在 **15/15 panel smoke checks passed**。
+
+进程级“启动插件 → activate → 跑一个完整节点”的 smoke **尚未**加入；本轮只完成
+DOM/面板层。§22.7 的结论不把 D 类算作全部关闭。
 
 ### 22.7 结论
 
