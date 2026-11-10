@@ -51,7 +51,7 @@ const ok = await service.setNodePriority('p', 'planned', { class: 'p0', reason: 
 check('planned node accepts a priority change', ok.ok === true, JSON.stringify(ok));
 check('priority is applied', store.getNode('p', 'planned').priority.class === 'p0', store.getNode('p', 'planned').priority.class);
 check('priority change is an executor event', store.listEvents('p', 0).some((event) => event.type === 'node/priority_changed' && event.nodeId === 'planned' && event.actor?.kind === 'human'));
-check('exactly one event was committed', store.listEvents('p', 0).length === beforeEvents + 1, String(store.listEvents('p', 0).length - beforeEvents));
+check('priority and its intent are committed together', store.listEvents('p', 0).length === beforeEvents + 2 && store.listEvents('p', 0).some((event) => event.type === 'intent/submitted' && event.nodeId === 'planned'), String(store.listEvents('p', 0).length - beforeEvents));
 
 // 2. Running/terminal nodes: rejected with a defined, actionable code, no write.
 for (const nodeId of ['running', 'done']) {

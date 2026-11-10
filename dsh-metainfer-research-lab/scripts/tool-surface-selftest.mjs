@@ -140,7 +140,7 @@ check('claim board is empty after release', released.ok === true && released.cla
 // reject them with the exact documented code. `null` (silent acceptance) is a
 // failure, not a pass — that was the weak assertion the verifier caught.
 const { ACTION_CATALOG } = await import('../host/kernel/policy.js');
-const removed = ['intent_submit', 'intent_list', 'experts_list', 'expert_upsert', 'curator_scan', 'curator_nominate'];
+const removed = ['experts_list', 'expert_upsert', 'curator_scan'];
 /** @returns {{ok: boolean, code: string|null}} */
 async function removedVerdict(wrapper, action) {
   const parsed = JSON.parse((await wrapper.execute({ action, projectId: 'p' }, exec)).result);

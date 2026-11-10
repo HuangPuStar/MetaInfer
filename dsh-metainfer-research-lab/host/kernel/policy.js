@@ -65,6 +65,12 @@ export const ACTION_CATALOG = Object.freeze({
   clear_chat: 'write',
   copilot: 'write',
   ledger_update: 'write',
+  intent_submit: 'write',
+  intent_list: 'read',
+  expert_list: 'read',
+  expert_recall: 'read',
+  curator_nominate: 'write',
+  curator_outcome: 'control',
   set_priority: 'write',
   claim_review: 'write',
   release_review: 'write',
@@ -101,7 +107,7 @@ export const ALL_ACTIONS = Object.freeze(Object.keys(ACTION_CATALOG).sort());
 
 const READ = ALL_ACTIONS.filter((action) => ACTION_CATALOG[action] === 'read');
 const DAG = Object.freeze(['dag_map', 'dag_query', 'dag_walk', 'dag_get', 'dag_diff', 'ledger_read']);
-const EXPERT_PROPOSE = Object.freeze(['claim_review', 'release_review', 'review_claims', 'ledger_update']);
+const EXPERT_PROPOSE = Object.freeze(['claim_review', 'release_review', 'review_claims', 'ledger_update', 'intent_submit']);
 
 /**
  * Smallest safe surface for a preset that is not listed below (default-deny).
@@ -154,7 +160,7 @@ export const PRESET_POLICIES = Object.freeze({
   }),
   'lab-curator': Object.freeze({
     kind: 'expert',
-    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE]),
+    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'curator_nominate']),
     note: 'the curator may only nominate; Host applies any close',
   }),
   'lab-chief': Object.freeze({
@@ -193,6 +199,7 @@ export const PRESET_POLICIES = Object.freeze({
       'reject_node',
       'ledger_update',
       'set_priority',
+      'intent_submit',
     ]),
     note: 'the copilot may discuss and edit planned work, but never starts, cancels or deletes',
   }),

@@ -16,6 +16,7 @@ import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
 import { clampNodeTitle, isBlank } from './titles.js';
 import { createReviewClaimBoard } from './dispatch/review-claims.js';
 import { createLedgerReader } from './context/ledger.js';
+import { createIntent, intentId, intentMutation } from './kernel/intent.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 
@@ -670,13 +671,27 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       nextNodeSeq: (project.counters.nextNodeSeq ?? 2) + 1,
       nodes: (project.counters.nodes ?? 0) + 1,
     };
+    const proposalIntent = createIntent({
+      id: intentId('proposal', project.revision + 1, meta.createdBy ?? 'advisor'),
+      kind: 'proposal',
+      actor: { kind: 'expert', id: meta.createdBy ?? 'advisor' },
+      claim: {
+        action: 'propose_node',
+        parentId: parent.id,
+        title: node.title,
+        expectedInfoGain: meta.expectedInfoGain ?? null,
+      },
+      basis: project.revision,
+      target: { nodeId, parentId: parent.id },
+      rationale: meta.rationale ?? null,
+    });
     const result = await commitMutations(project.id, [{
       op: 'node.create',
       node,
       counters,
       eventType: 'node/proposed',
       eventData: { title: node.title, parentId: parent.id, createdBy: node.createdBy, timeboxMinutes: spec.timeboxMinutes },
-    }], { causeId: `propose:${nodeId}` });
+    }, intentMutation(proposalIntent)], { causeId: `intent:${proposalIntent.id}` });
     if (result.ok !== true) throw new LabError(result.code ?? 'commit_failed', result.message ?? 'proposal commit failed', 500);
     return store.getNode(project.id, nodeId);
   }

@@ -315,6 +315,39 @@ const reducers = {
     return [{ type: m.eventType ?? 'project/edited', data: m.eventData ?? { fields: Object.keys(set) }, effects: [{ op: 'project.merge', set: structuredClone(set), updatedAt: ctx.now }] }];
   },
 
+  /** Append one judgement record to the project intent log (Stage 3). */
+  'intent.put'(ws, m, ctx) {
+    const intent = requirePlainObject(m.intent, 'intent');
+    const id = requireString(intent.id, 'intent.id');
+    const current = Array.isArray(ws.project.intents) ? ws.project.intents : [];
+    const next = [...current, { ...structuredClone(intent), id }].slice(-500);
+    ws.project.intents = next;
+    ws.projectTouched = true;
+    const effects = [{ op: 'project.merge', set: { intents: structuredClone(next) } }];
+    // Point the target node at this judgement so /explain can resolve it.
+    if (intent.target?.nodeId && ctx.causeId) {
+      const node = ws.getNode(intent.target.nodeId);
+      if (node) {
+        node.lastCauseId = ctx.causeId;
+        if (!node.causeId) node.causeId = ctx.causeId;
+        ws.putNode(node);
+        effects.push({ op: 'node.merge', nodeId: node.id, set: { lastCauseId: node.lastCauseId, ...(node.causeId ? { causeId: node.causeId } : {}) }, unset: [], updatedAt: node.timestamps?.updatedAt ?? ctx.now });
+      }
+    }
+    return [{
+      type: 'intent/submitted',
+      ...(intent.target?.nodeId ? { nodeId: intent.target.nodeId } : {}),
+      data: {
+        intentId: id,
+        kind: intent.kind,
+        claim: intent.claim,
+        basis: intent.basis,
+        target: intent.target ?? null,
+      },
+      effects,
+    }];
+  },
+
   /** Full cycle-record write for migrated legacy orchestrator paths. */
   'cycle.put'(ws, m) {
     const cycle = requirePlainObject(m.cycle, 'cycle');

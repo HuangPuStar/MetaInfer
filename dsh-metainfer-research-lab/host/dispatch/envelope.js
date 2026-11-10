@@ -16,6 +16,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { validateDecision } from './types.js';
+import { createIntent, intentId, intentMutation } from '../kernel/intent.js';
 
 const LAUNCH_BACKOFF_BASE_MS = 30_000;
 const LAUNCH_BACKOFF_MAX_MS = 30 * 60_000;
@@ -68,6 +69,23 @@ export function createDispatchEnvelope({ projectId, executor, projection, broker
       if (!verdict?.ok) return rejectStart(actor, decision, decisionId, verdict?.code ?? 'forbidden', 'policy denied dispatch.start');
     }
     usedLeases.add(decision.lease.leaseId);
+    const dispatchIntent = createIntent({
+      id: intentId('dispatch', node.rev ?? 0, actor.id),
+      kind: 'dispatch',
+      actor,
+      claim: {
+        action: 'claim_node',
+        decisionId,
+        strategyId: actor.id,
+        broker: broker.id,
+        leaseId: decision.lease.leaseId,
+        reason: decision.reason ?? null,
+        hardEndAt: decision.lease.hardEndAt ?? null,
+      },
+      basis: Number.isInteger(decision.basis) ? decision.basis : (node.rev ?? 0),
+      target: { nodeId: node.id },
+      rationale: decision.reason ?? null,
+    });
     const claimed = await executor.commit(projectId, {
       actor,
       basis: decision.basis,
@@ -77,7 +95,7 @@ export function createDispatchEnvelope({ projectId, executor, projection, broker
         nodeId: node.id,
         claim: { decisionId, strategyId: actor.id, broker: broker.id, leaseId: decision.lease.leaseId },
         eventData: { decisionId, strategyId: actor.id, broker: broker.id, leaseId: decision.lease.leaseId, reason: decision.reason, hardEndAt: decision.lease.hardEndAt ?? null },
-      }],
+      }, intentMutation(dispatchIntent)],
     });
     if (!claimed.ok) {
       usedLeases.delete(decision.lease.leaseId);

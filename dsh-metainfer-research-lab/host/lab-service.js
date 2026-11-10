@@ -26,6 +26,10 @@ import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
 import { rejection, toActionable } from './kernel/errors.js';
 import { actorFromToolExecution } from './kernel/policy.js';
+import { INTENT_KINDS, createIntent, intentId, intentMutation } from './kernel/intent.js';
+import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
+import { recallExperts } from './experts/similarity.js';
+import { applyNomination, createCurator } from './experts/curator.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
 // A state index row never carries a full prompt; the inspector loads the node.
@@ -2933,6 +2937,136 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { ok: true, projectId, event: { seq: event.seq, type: event.type }, ledger: ledgerReader.view(projectId) };
   }
 
+  const curator = createCurator({ clock: () => Date.now() });
+
+  /** Expert descriptors plus Host-computed performance metrics (Stage 4.1). */
+  function listExperts(projectId) {
+    const project = requireProject(projectId);
+    const nodes = store.listNodes(projectId);
+    const runs = store.listRuns(projectId);
+    return {
+      ok: true,
+      projectId,
+      revision: project.revision,
+      experts: listExpertDescriptors().map((descriptor) => ({
+        ...descriptor,
+        metrics: computeExpertMetrics({ expertId: descriptor.id, nodes, runs }),
+      })),
+      curator: curator.status(),
+    };
+  }
+
+  /** Deterministic expert recall for a task (Stage 4.2 production call site). */
+  function recallExpertFor(projectId, task, { limit = 3 } = {}) {
+    requireProject(projectId);
+    const descriptors = listExpertDescriptors();
+    const recall = recallExperts(descriptors, typeof task === 'string' ? task : '', { limit });
+    const nodes = store.listNodes(projectId);
+    const runs = store.listRuns(projectId);
+    return {
+      ok: true,
+      projectId,
+      task: typeof task === 'string' ? task : '',
+      experts: recall.experts.map((row) => ({
+        ...row,
+        descriptor: descriptors.find((descriptor) => descriptor.id === row.id),
+        metrics: computeExpertMetrics({ expertId: row.id, nodes, runs }),
+      })),
+      total: recall.total,
+      _truncated: recall.total > recall.experts.length ? { shown: recall.experts.length, total: recall.total } : null,
+    };
+  }
+
+  /** Curator nominations: code recalls, curator only judges and proposes. */
+  async function nominateDuplicates(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    if (!kernel?.executor) return rejection('internal_error', 'kernel executor is not wired');
+    const nodes = store.listNodes(projectId);
+    const claims = [];
+    const reviews = [];
+    const result = curator.nominate({ nodes, claims, reviews });
+    const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    if (result.nominations.length > 0 && result.circuitOpen !== true) {
+      const intent = createIntent({
+        id: intentId('curate', project.revision + 1, actor.id),
+        kind: 'curate',
+        actor,
+        claim: {
+          action: 'nominate_close',
+          candidates: result.candidates,
+          nominations: result.nominations.map((row) => ({ nodeId: row.nodeId, duplicateOf: row.duplicateOf, kind: row.kind, confidence: row.confidence })),
+        },
+        basis: project.revision,
+        target: { nodeId: result.nominations[0].nodeId },
+        rationale: `deterministic recall produced ${result.candidates} candidate pair(s)`,
+      });
+      const commit = await commitMutations(projectId, [intentMutation(intent)], { actor, causeId: `intent:${intent.id}` });
+      if (commit.ok !== true) return rejection(commit.code ?? 'internal_error', commit.message ?? 'curator intent failed');
+      return { ok: true, projectId, ...result, intent: { id: intent.id }, canExecute: false };
+    }
+    return { ok: true, projectId, ...result, canExecute: false };
+  }
+
+  /** Human feedback that drives the false-close circuit breaker. */
+  function recordCuratorOutcome(input = {}) {
+    if (input?.apply === true) return rejection('curator_cannot_execute', applyNomination().message);
+    return { ok: true, ...curator.recordOutcome({ falseClose: input?.falseClose === true }) };
+  }
+
+  /** Append one judgement to the project intent log (Stage 3). */
+  async function submitIntent(projectId, input, exec = null) {
+    const project = requireProject(projectId);
+    if (!kernel?.executor) return rejection('internal_error', 'kernel executor is not wired');
+    const kind = typeof input?.kind === 'string' ? input.kind : 'note';
+    if (!INTENT_KINDS.includes(kind)) return rejection('bad_request', `intent.kind must be one of ${INTENT_KINDS.join(', ')}`);
+    const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    const target = input?.target && typeof input.target === 'object'
+      ? { nodeId: input.target.nodeId ?? input?.nodeId ?? null, parentId: input.target.parentId ?? input?.parentId ?? null }
+      : (input?.nodeId || input?.parentId ? { nodeId: input.nodeId ?? null, parentId: input.parentId ?? null } : null);
+    if (target?.nodeId && !store.getNode(projectId, target.nodeId)) {
+      return rejection('node_not_found', `unknown node: ${target.nodeId}`);
+    }
+    const basis = input?.basis === undefined ? project.revision : Number(input.basis);
+    if (!Number.isInteger(basis) || basis < 0) return rejection('bad_request', 'intent.basis must be a non-negative integer revision');
+    if (basis > project.revision) return rejection('basis_ahead', `basis ${basis} is newer than project revision ${project.revision}`);
+    let intent;
+    try {
+      intent = createIntent({
+        id: intentId(kind, project.revision + 1, actor.id),
+        kind,
+        actor,
+        claim: input?.claim,
+        basis,
+        target,
+        rationale: input?.rationale,
+      });
+    } catch (error) {
+      return rejection('bad_request', error instanceof Error ? error.message : String(error));
+    }
+    const commit = await commitMutations(projectId, [intentMutation(intent)], {
+      actor,
+      causeId: `intent:${intent.id}`,
+    });
+    if (commit.ok !== true) return rejection(commit.code ?? 'internal_error', commit.message ?? 'intent write failed');
+    return { ok: true, projectId, intent, revision: store.getProject(projectId)?.revision ?? null, event: commit.events?.[0] ? { seq: commit.events[0].seq, type: commit.events[0].type, causeId: commit.events[0].causeId } : null };
+  }
+
+  /** Bounded, newest-last view of the intent log. */
+  function listIntents(projectId, { limit = 100, kind = null } = {}) {
+    const project = requireProject(projectId);
+    const all = (Array.isArray(project.intents) ? project.intents : []).filter((intent) => !kind || intent.kind === kind);
+    const size = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.trunc(limit))) : 100;
+    const intents = all.slice(-size);
+    return {
+      ok: true,
+      projectId,
+      revision: project.revision,
+      intents,
+      total: all.length,
+      _truncated: all.length > intents.length ? { shown: intents.length, total: all.length } : null,
+    };
+  }
+
   async function setNodePriority(projectId, nodeId, input, actor = null) {
     const project = requireProject(projectId);
     const node = requireNode(projectId, nodeId);
@@ -2960,11 +3094,21 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       ...(Number.isFinite(input?.score) ? { score: input.score } : {}),
       reason: typeof input?.reason === 'string' && input.reason.trim() ? input.reason.trim().slice(0, 500) : 'manual priority change',
     };
+    const judgement = createIntent({
+      id: intentId('priority', project.revision + 1, commitActor.id),
+      kind: 'priority',
+      actor: commitActor,
+      claim: { action: 'set_priority', from: normalizePriority(node.priority), to: normalizePriority(priority), reason: priority.reason },
+      basis: project.revision,
+      target: { nodeId },
+      rationale: priority.reason,
+    });
     // G1/B7: the only write path is the kernel executor, so the change is an
     // event-sourced commit (same invariant as dispatch and node edits).
     const commit = await kernel.executor.commit(projectId, {
       actor: commitActor,
-      mutations: [{ op: 'node.setPriority', nodeId, priority }],
+      mutations: [{ op: 'node.setPriority', nodeId, priority }, intentMutation(judgement)],
+      causeId: `intent:${judgement.id}`,
     });
     if (commit.ok !== true) {
       return rejection(commit.code ?? 'internal_error', commit.message ?? 'priority update failed');
@@ -3129,6 +3273,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'ledger_read') return ledgerRead(input?.projectId, input?.limits);
     if (action === 'ledger_update') return ledgerUpdate(input?.projectId, input, exec);
     if (action === 'set_priority') return setNodePriority(input?.projectId, input?.nodeId, input, actor);
+    if (action === 'intent_submit') return submitIntent(input?.projectId, input, exec);
+    if (action === 'intent_list') return listIntents(input?.projectId, { limit: input?.limit, kind: input?.kind ?? null });
+    if (action === 'expert_list') return listExperts(input?.projectId);
+    if (action === 'expert_recall') return recallExpertFor(input?.projectId, input?.task ?? input?.text ?? '', { limit: input?.limit });
+    if (action === 'curator_nominate') return nominateDuplicates(input?.projectId, input, exec);
+    if (action === 'curator_outcome') return recordCuratorOutcome(input);
     throw new LabError('unknown_command', `unknown metainfer_lab action: ${String(action)}`, 400);
   }
 
@@ -3154,6 +3304,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     getState,
     getNode,
     listNodesPage,
+    submitIntent,
+    listIntents,
+    listExperts,
+    recallExpertFor,
+    nominateDuplicates,
+    recordCuratorOutcome,
     changesSince,
     getEvents,
     getReplay,
