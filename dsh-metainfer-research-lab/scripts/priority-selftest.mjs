@@ -128,6 +128,7 @@ const humanElapsed = Date.now() - humanStarted;
 check('human successor is created', Boolean(successor?.node?.id), JSON.stringify(successor));
 check('human successor defaults to p0', successor.node.priority?.class === 'p0', JSON.stringify(successor.node.priority));
 check('human successor is attributed to the human', successor.node.priority?.by === 'human', JSON.stringify(successor.node.priority));
+check('human successor stores its prompt fingerprint', typeof successor.node.promptHash === 'string' && successor.node.promptHash.length > 0, String(successor.node.promptHash));
 check('human p0 creation completes under one second', humanElapsed < 1000, `${humanElapsed} ms`);
 
 console.log(`\n${failed === 0 ? 'priority-selftest: all checks passed' : `priority-selftest: ${failed} failed`}`);
