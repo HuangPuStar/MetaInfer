@@ -551,6 +551,9 @@ window.__ModuleLoader__.load({
       'ws.priority.lower': '↓ 降低优先级',
       'ws.priority.current': '优先级 {class}',
       'ws.priority.deferred': 'deferred（变体）',
+      'ws.rail.loadMore': '加载更多（还有 {count} 个）',
+      'ws.canvas.window': '视口内 {shown}/{total} 个节点',
+      'ws.canvas.windowHint': '平移/缩放查看其余节点；渲染上限 {limit}',
       'ws.facts.badge': 'HOST',
       'ws.facts.title': 'Host 计算的状态',
       'ws.facts.loading': '读取中…',
@@ -1895,6 +1898,12 @@ window.__ModuleLoader__.load({
       'ws.priority.lower': '↓ Lower priority',
       'ws.priority.current': 'Priority {class}',
       'ws.priority.deferred': 'deferred (variant)',
+      'ws.rail.loadMore': '加载更多（还有 {count} 个）',
+      'ws.canvas.window': '视口内 {shown}/{total} 个节点',
+      'ws.canvas.windowHint': '平移/缩放查看其余节点；渲染上限 {limit}',
+      'ws.rail.loadMore': 'Load more ({count} remaining)',
+      'ws.canvas.window': 'showing {shown}/{total} nodes in view',
+      'ws.canvas.windowHint': 'pan/zoom for the rest; render cap {limit}',
       'ws.facts.badge': 'HOST',
       'ws.facts.title': 'Host-computed status',
       'ws.facts.loading': 'loading…',
@@ -3059,6 +3068,8 @@ window.__ModuleLoader__.load({
       '.rl-host-facts-hint { color: var(--dsw-alias-label-tertiary); font-size: 10.5px; }',
       '.rl-host-facts-error { color: var(--dsw-alias-state-error-primary); font-size: 10.5px; overflow-wrap: anywhere; }',
       '.rl-host-facts-retry { border: 0; background: none; padding: 0; color: var(--dsw-alias-brand-primary); font-size: 10.5px; cursor: pointer; }',
+      '.rl-canvas-window { position: absolute; right: 10px; bottom: 52px; z-index: 3; padding: 2px 6px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 5px; background: var(--dsw-alias-bg-elevated); color: var(--dsw-alias-label-tertiary); font-family: var(--dsw-font-mono, monospace); font-size: 10px; cursor: default; }',
+      '.rl-rail-more { margin: 4px 6px 10px; padding: 4px 8px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: none; color: var(--dsw-alias-label-secondary); font-size: 11px; cursor: pointer; }',
       '.rl-canvas-dragging { cursor: grabbing; }',
       '.rl-canvas-inner { position: absolute; left: 0; top: 0; will-change: transform; }',
       '.rl-canvas-svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }',
@@ -5385,6 +5396,8 @@ window.__ModuleLoader__.load({
       const lastEventSeqRef = React.useRef(0);
       const stateBackoffRef = React.useRef(0);
       const eventsBackoffRef = React.useRef(0);
+      const snapshotRef = React.useRef(null);
+      React.useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
       const refreshRef = React.useRef(null);
       const retryRef = React.useRef(null);
 
@@ -5463,6 +5476,31 @@ window.__ModuleLoader__.load({
           const controller = new AbortController();
           flights.state = controller;
           try {
+            // Cheap path first (S9): ask for the delta since our revision. The
+            // full state is only fetched when the journal cannot answer.
+            let delta = null;
+            if (revisionRef.current !== null && revisionRef.current > 0) {
+              delta = await api.fetchChanges(projectId, revisionRef.current, controller.signal, t);
+              if (!alive) return;
+              flights.state = null;
+              if (delta !== null && typeof delta === 'object' && delta.unchanged === true) {
+                revisionRef.current = finiteNumber(delta.revision) ?? revisionRef.current;
+                stateBackoffRef.current = 0;
+                clearFailure('state');
+                schedule('state', POLL_STATE_MS, pollState);
+                return;
+              }
+              const merged = applyChangeDelta(snapshotRef.current, delta);
+              if (merged !== null) {
+                const revision = finiteNumber(delta.revision);
+                if (revision !== null) revisionRef.current = revision;
+                setSnapshot({ ...merged, revision: revision ?? merged.revision, error: null });
+                stateBackoffRef.current = 0;
+                clearFailure('state');
+                schedule('state', POLL_STATE_MS, pollState);
+                return;
+              }
+            }
             const data = await api.fetchState(projectId, revisionRef.current, controller.signal, t);
             if (!alive) return;
             flights.state = null;
@@ -5691,6 +5729,8 @@ window.__ModuleLoader__.load({
     function useRuns(projectId, t) {
       const [state, setState] = React.useState({ phase: 'loading', runs: [], cycles: [], error: null, delay: 0 });
       const backoffRef = React.useRef(0);
+      const snapshotRef = React.useRef(null);
+      React.useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
       const refreshRef = React.useRef(null);
       const retryRef = React.useRef(null);
 
@@ -10078,7 +10118,21 @@ window.__ModuleLoader__.load({
             right.newest - left.newest
             || STATUS_ORDER.indexOf(left.status) - STATUS_ORDER.indexOf(right.status));
       }, [nodes]);
-      const groups = orderedGroups.map(({ status, bucket }) =>
+      // A 5,000-node project must not mount 5,000 rail buttons. Render one
+      // bounded window and let the operator extend it deliberately.
+      const RAIL_PAGE = 200;
+      const [railLimit, setRailLimit] = React.useState(RAIL_PAGE);
+      const totalNodes = nodes.length;
+      let railBudget = railLimit;
+      const windowedGroups = [];
+      for (const group of orderedGroups) {
+        if (railBudget <= 0) break;
+        const bucket = group.bucket.slice(0, railBudget);
+        railBudget -= bucket.length;
+        windowedGroups.push({ ...group, bucket });
+      }
+      const railHidden = Math.max(0, totalNodes - windowedGroups.reduce((sum, group) => sum + group.bucket.length, 0));
+      const groups = windowedGroups.map(({ status, bucket }) =>
           h(
             'div',
             { key: status, className: 'rl-rail-group' },
@@ -10125,6 +10179,13 @@ window.__ModuleLoader__.load({
         ),
         nodes.length === 0 ? h('p', { className: 'rl-empty-note' }, t('ws.rail.empty')) : null,
         groups,
+        railHidden > 0
+          ? h(
+              'button',
+              { type: 'button', className: 'rl-rail-more', onClick: () => setRailLimit((value) => value + RAIL_PAGE) },
+              t('ws.rail.loadMore', { count: railHidden }),
+            )
+          : null,
       );
     }
 
@@ -10200,6 +10261,108 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * Pure viewport windowing for the DAG (S8). Kept outside the component and
+     * exported through the source region below so the scale test can execute
+     * the *real* function without a browser.
+     *
+     * @returns {{nodes: Array<object>, edges: Array<object>, hidden: number}}
+     */
+    /**
+     * Apply a `changes_since` delta to the local index (S9). Returns `null` when
+     * the delta cannot be applied safely (unknown id, removal of a node we do
+     * not have) — the caller then falls back to a full `state` fetch rather
+     * than inventing nodes. Kept pure and source-extracted for the UI test.
+     */
+    // #region apply-change-delta
+    function nodeIdOfLocal(node) {
+      return node !== null && typeof node === 'object' && typeof node.id === 'string' ? node.id : '';
+    }
+    function applyChangeDelta(snapshot, delta) {
+      if (snapshot === null || typeof snapshot !== 'object') return null;
+      if (delta === null || typeof delta !== 'object' || delta.full === true) return null;
+      const removed = Array.isArray(delta.removed) ? delta.removed : [];
+      const changed = Array.isArray(delta.changed) ? delta.changed : [];
+      const nodes = Array.isArray(snapshot.nodes) ? snapshot.nodes : [];
+      const index = new Map();
+      for (const node of nodes) index.set(nodeIdOfLocal(node), node);
+      for (const id of removed) if (!index.has(id)) return null;
+      for (const row of changed) {
+        if (row === null || typeof row !== 'object') return null;
+        const id = row.id;
+        if (typeof id !== 'string' || id === '') return null;
+        if (!index.has(id) && row.kind !== 'created') return null;
+      }
+      const removedSet = new Set(removed);
+      const changedMap = new Map(changed.filter((row) => row && typeof row.id === 'string').map((row) => [row.id, row]));
+      const nextNodes = [];
+      for (const node of nodes) {
+        const id = nodeIdOfLocal(node);
+        if (removedSet.has(id)) continue;
+        const patch = changedMap.get(id);
+        if (patch === undefined) { nextNodes.push(node); continue; }
+        changedMap.delete(id);
+        nextNodes.push({
+          ...node,
+          status: typeof patch.status === 'string' ? patch.status : node.status,
+          rev: Number.isFinite(patch.rev) ? patch.rev : node.rev,
+          title: typeof patch.title === 'string' ? patch.title : node.title,
+          priority: patch.priority !== undefined ? patch.priority : node.priority,
+          timestamps: { ...(node.timestamps ?? {}), ...(Number.isFinite(patch.updatedAt) ? { updatedAt: patch.updatedAt } : {}) },
+          _delta: true,
+        });
+      }
+      // A created row we already knew is a no-op; an id we never saw is fine to
+      // append only when the row carries enough to render (title/status).
+      for (const row of changedMap.values()) {
+        if (row.kind !== 'created' || typeof row.title !== 'string' || typeof row.status !== 'string') return null;
+        nextNodes.push({ id: row.id, title: row.title, status: row.status, rev: row.rev, priority: row.priority, timestamps: { updatedAt: row.updatedAt }, _delta: true });
+      }
+      return { ...snapshot, nodes: nextNodes };
+    }
+    // #endregion apply-change-delta
+
+    // #region compute-viewport-window
+    function computeViewportWindow({ nodes, edges, positions, pan, zoom, viewportSize, nodeWidth, nodeHeight, maxRendered, pad, idOf }) {
+      const total = nodes.length;
+      if (!(viewportSize.width > 0) || !(viewportSize.height > 0) || !(zoom > 0)) {
+        const head = nodes.slice(0, maxRendered);
+        return { nodes: head, edges: [], hidden: total - head.length };
+      }
+      const left = -pan.x / zoom - pad;
+      const top = -pan.y / zoom - pad;
+      const right = left + viewportSize.width / zoom + pad * 2;
+      const bottom = top + viewportSize.height / zoom + pad * 2;
+      const visible = [];
+      for (const node of nodes) {
+        const position = positions.get(idOf(node));
+        if (!position) continue;
+        if (position.x + nodeWidth < left || position.x > right) continue;
+        if (position.y + nodeHeight < top || position.y > bottom) continue;
+        visible.push(node);
+      }
+      let rendered = visible;
+      if (rendered.length > maxRendered) {
+        const cx = (left + right) / 2;
+        const cy = (top + bottom) / 2;
+        rendered = visible
+          .map((node) => {
+            const position = positions.get(idOf(node)) ?? { x: 0, y: 0 };
+            return { node, distance: Math.abs(position.x - cx) + Math.abs(position.y - cy) };
+          })
+          .sort((a, b) => a.distance - b.distance)
+          .slice(0, maxRendered)
+          .map((entry) => entry.node);
+      }
+      const ids = new Set(rendered.map((node) => idOf(node)));
+      return {
+        nodes: rendered,
+        edges: edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)),
+        hidden: total - rendered.length,
+      };
+    }
+    // #endregion compute-viewport-window
+
     function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, replayFooter, factsSlot, t }) {
       const viewportRef = React.useRef(null);
       const [pan, setPan] = React.useState({ x: 0, y: 0 });
@@ -10210,6 +10373,20 @@ window.__ModuleLoader__.load({
       const dragRef = React.useRef(null);
       const movedRef = React.useRef(0);
       const fittedRef = React.useRef(false);
+      const [viewportSize, setViewportSize] = React.useState({ width: 0, height: 0 });
+      React.useEffect(() => {
+        const el = viewportRef.current;
+        if (!el) return undefined;
+        const update = () => setViewportSize({ width: el.clientWidth || 0, height: el.clientHeight || 0 });
+        update();
+        if (typeof ResizeObserver !== 'function') {
+          window.addEventListener('resize', update);
+          return () => window.removeEventListener('resize', update);
+        }
+        const observer = new ResizeObserver(update);
+        observer.observe(el);
+        return () => observer.disconnect();
+      }, []);
 
       React.useEffect(() => {
         panRef.current = pan;
@@ -10218,6 +10395,24 @@ window.__ModuleLoader__.load({
         zoomRef.current = zoom;
       }, [zoom]);
 
+      // No DOM per off-screen node (S8): render only what intersects the
+      // padded viewport, and cap the window so an extreme zoom-out cannot
+      // mount thousands of cards. The cap is visible in the UI, never silent.
+      // #region viewport-window
+      const windowing = computeViewportWindow({
+        nodes,
+        edges,
+        positions: layout.positions,
+        pan,
+        zoom,
+        viewportSize,
+        nodeWidth: NODE_W,
+        nodeHeight: NODE_H,
+        maxRendered: 300,
+        pad: 240,
+        idOf: nodeIdOf,
+      });
+      // #endregion viewport-window
       const clampZoom = (value) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 
       const fit = React.useCallback(() => {
@@ -10353,6 +10548,13 @@ window.__ModuleLoader__.load({
           onClick: onCanvasClick,
         },
         factsSlot ?? null,
+        windowing.hidden > 0
+          ? h(
+              'div',
+              { className: 'rl-canvas-window', title: t('ws.canvas.windowHint', { limit: MAX_RENDERED_NODES }) },
+              t('ws.canvas.window', { shown: windowing.nodes.length, total: nodes.length }),
+            )
+          : null,
         layout.width > 0
           ? h(
               'div',
@@ -10366,7 +10568,7 @@ window.__ModuleLoader__.load({
                   viewBox: '0 0 ' + layout.width + ' ' + layout.height,
                   'aria-hidden': true,
                 },
-                edges.map((edge, index) => {
+                windowing.edges.map((edge, index) => {
                   const from = layout.positions.get(edge.from);
                   const to = layout.positions.get(edge.to);
                   if (!from || !to) return null;
@@ -10378,7 +10580,7 @@ window.__ModuleLoader__.load({
                   });
                 }),
               ),
-              nodes.map((node) => {
+              windowing.nodes.map((node) => {
                 const id = nodeIdOf(node);
                 const position = layout.positions.get(id);
                 if (!position) return null;
