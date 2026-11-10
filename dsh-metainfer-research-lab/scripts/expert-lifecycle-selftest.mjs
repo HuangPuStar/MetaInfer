@@ -94,7 +94,7 @@ const httpCommand = async (body) => {
   const handler = routes.get('/api/metainfer-research-lab/commands');
   const response = await handler(new Request('http://local/api/metainfer-research-lab/commands', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-metainfer-operator': operatorAuthority.token },
     body: JSON.stringify(body),
   }));
   return response.json();
@@ -136,7 +136,7 @@ check('HTTP /reviews degrades to a named unavailable error when no orchestrator 
   reviewsHttp.ok === false && reviewsHttp.error?.code === 'unavailable', JSON.stringify(reviewsHttp));
 const retroBeforeHttp = await httpRequest('retrospective?projectId=' + encodeURIComponent(projectId));
 const retroGenerateHttp = await httpRequest('retrospective', {
-  method: 'POST', headers: { 'content-type': 'application/json' },
+  method: 'POST', headers: { 'content-type': 'application/json', 'x-metainfer-operator': operatorAuthority.token },
   body: JSON.stringify({ projectId, title: 'http probe' }),
 });
 const retroAfterHttp = await httpRequest('retrospective?projectId=' + encodeURIComponent(projectId));

@@ -770,8 +770,13 @@ const cancelWithoutAppeal = await toolCall('cancel_node', { nodeId: 'n1' });
 const cancelWithoutNode = await toolCall('cancel_node');
 let directDeleteCode = null;
 let directCancelCode = null;
-try { await toolService.deleteProject(toolProjectId); } catch (error) { directDeleteCode = error.code; }
-try { await toolService.cancelNode(toolProjectId, 'n1'); } catch (error) { directCancelCode = error.code; }
+let absentDeleteCode = null;
+let absentCancelCode = null;
+const directHuman = { kind: 'human', id: 'direct-human' };
+try { await toolService.deleteProject(toolProjectId, { exec: directHuman }); } catch (error) { directDeleteCode = error.code; }
+try { await toolService.cancelNode(toolProjectId, 'n1', { exec: directHuman }); } catch (error) { directCancelCode = error.code; }
+try { await toolService.deleteProject(toolProjectId); } catch (error) { absentDeleteCode = error.code; }
+try { await toolService.cancelNode(toolProjectId, 'n1'); } catch (error) { absentCancelCode = error.code; }
 const handlerProbes = {
   deleteWithNodeId: { code: deleteWithNodeId.error?.code ?? (deleteWithNodeId.deleted ? 'deleted' : 'unknown'), projectExists: Boolean(store.getProject(toolProjectId)) },
   deleteWithoutNode: { code: deleteWithoutNode.error?.code ?? (deleteWithoutNode.deleted ? 'deleted' : 'unknown'), projectExists: Boolean(store.getProject(toolProjectId)) },
@@ -779,6 +784,8 @@ const handlerProbes = {
   cancelWithoutNode: { code: cancelWithoutNode.error?.code ?? (cancelWithoutNode.ok ? 'ok' : 'unknown'), runtimeCalls: runtimeCalls.length },
   directDelete: { code: directDeleteCode, projectExists: Boolean(store.getProject(toolProjectId)) },
   directCancel: { code: directCancelCode, runtimeCalls: runtimeCalls.length },
+  absentDelete: { code: absentDeleteCode, projectExists: Boolean(store.getProject(toolProjectId)) },
+  absentCancel: { code: absentCancelCode, runtimeCalls: runtimeCalls.length },
 };
 check('real tool delete_project with a nodeId fails closed on the scope mismatch',
   handlerProbes.deleteWithNodeId.code === 'appeal_target_mismatch' && handlerProbes.deleteWithNodeId.projectExists,
@@ -798,6 +805,10 @@ check('direct service.deleteProject also fails closed without an appeal',
 check('direct service.cancelNode also fails closed without an appeal',
   handlerProbes.directCancel.code === 'human_confirmation_required' && handlerProbes.directCancel.runtimeCalls === 0,
   JSON.stringify(handlerProbes.directCancel));
+check('destructive services do not mint a human when the caller supplies no actor',
+  handlerProbes.absentDelete.code === 'actor_required' && handlerProbes.absentDelete.projectExists
+  && handlerProbes.absentCancel.code === 'actor_required' && handlerProbes.absentCancel.runtimeCalls === 0,
+  JSON.stringify({ absentDelete: handlerProbes.absentDelete, absentCancel: handlerProbes.absentCancel }));
 console.log(`HANDLER_PROBES ${JSON.stringify(handlerProbes)}`);
 
 // Real-handler Unicode probe: the same registered human changes only display

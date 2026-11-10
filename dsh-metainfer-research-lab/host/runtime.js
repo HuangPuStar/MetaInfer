@@ -1690,13 +1690,16 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     }
     const reason = typeof options.reason === 'string' ? options.reason.trim().slice(0, 2000) : '';
     if (!reason) throw new LabError('bad_request', 'preemption appeal reason is required', 400);
+    if (!options.actor || typeof options.actor !== 'object' || typeof options.actor.id !== 'string' || !options.actor.id) {
+      throw new LabError('actor_required', 'preemption appeal requires an authenticated actor', 403);
+    }
     node.preemption = {
       ...node.preemption,
       appeal: {
         ...appeal,
         status: 'appealed',
         at: Date.now(),
-        by: options.actor ?? { kind: 'human', id: 'operator' },
+        by: options.actor,
         reason,
       },
     };

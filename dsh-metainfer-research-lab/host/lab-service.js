@@ -1335,7 +1335,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { ...dashboardView(requireProject(projectId)), running: dashboardRuns.has(projectId) };
   }
 
-  async function getDashboard(projectId) {
+  async function getDashboard(projectId, actor = null) {
     const project = requireProject(projectId);
     let dash = dashboardOf(project);
     if (dash.lastChat?.status === 'running' && !dashboardChatRuns.has(projectId)) {
@@ -1354,7 +1354,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
             error: message,
           },
         },
-      });
+      }, { actor: actor ?? { kind: 'system', id: 'dashboard-watchdog' } });
       dash = dashboardOf(requireProject(projectId));
     }
     return { ...dashboardView(requireProject(projectId)), running: dashboardRuns.has(projectId), chatting: dashboardChatRuns.has(projectId) };
@@ -2881,10 +2881,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     });
   }
 
-  async function appealPreemption(projectId, nodeId, input = {}) {
+  async function appealPreemption(projectId, nodeId, input = {}, exec = null) {
+    const actor = actorFromDisputeExecution(exec);
+    if (!actor) throw new LabError('actor_required', 'preemption appeal requires an authenticated actor');
+    // `input.actor` is body data and is deliberately ignored.
     return runtime.appealPreemption(projectId, nodeId, {
       reason: input.reason,
-      actor: input.actor ?? { kind: 'human', id: 'operator' },
+      actor,
     });
   }
 
@@ -3547,7 +3550,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   /** Explicit operator rotation (the production path also rotates automatically). */
   async function rotateExpert(projectId, input = {}, exec = null) {
     const project = requireProject(projectId);
-    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    const actor = actorFromDisputeExecution(exec) ?? actorForSession({ sessionId: 'operator' });
     const branchId = typeof input.branchId === 'string' ? input.branchId : '';
     if (!branchId) return rejection('bad_request', 'branchId is required');
     const experts = rotationExperts(project);
@@ -3966,7 +3969,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const project = requireProject(projectId);
     const action = toolActionScope(toolAction);
     if (!action) throw new LabError('unknown_action', `unknown irreversible handler: ${toolAction}`, 400);
-    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    const actor = actorFromDisputeExecution(exec);
+    if (!actor) throw new LabError('actor_required', 'irreversible actions require an authenticated actor');
     let target;
     if (action === 'delete_project') {
       // Project-wide action: the authorization scope is the project id. A
@@ -4639,7 +4643,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   async function generateRetrospective(projectId, input = {}, exec = null) {
     const project = requireProject(projectId);
-    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    const actor = actorFromDisputeExecution(exec) ?? actorForSession({ sessionId: 'operator' });
     const now = Date.now();
     const retrospective = retrospectiveOf(project, store.listNodes(projectId), now);
     const commit = await commitMutations(projectId, [{

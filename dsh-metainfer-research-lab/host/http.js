@@ -19,22 +19,76 @@ import { actorForSession } from './kernel/policy.js';
 const PREFIX = '/api/metainfer-research-lab';
 
 /**
- * Explicit inventory of the dispute/operator HTTP surface. This is kept next
- * to the registrations so a review can compare the complete set instead of
- * spotting individual routes. `read-only` routes never mint an actor;
- * `operator-token` routes pass only a server-verified human actor;
- * `refused` routes are registered to return a named refusal so a caller
- * cannot mistake absence for an alternate credential path.
+ * One explicit policy for every HTTP method+path pair. This table is the
+ * reviewable inventory: `read-only` routes never mint an actor,
+ * `operator-token` routes require the Host-issued signed browser credential,
+ * and `refused` routes are registered only to return a named refusal.
+ *
+ * The registration wrapper below checks every pair at apply time, so a new
+ * route cannot silently appear without a decision here.
  */
-export const DISPUTE_ROUTE_POLICY = Object.freeze([
-  Object.freeze({ method: 'GET', path: '/disputes', policy: 'read-only' }),
-  Object.freeze({ method: 'POST', path: '/disputes', policy: 'operator-token' }),
-  Object.freeze({ method: 'GET', path: '/disputes/classes', policy: 'read-only' }),
-  Object.freeze({ method: 'POST', path: '/disputes/resolve', policy: 'operator-token' }),
-  Object.freeze({ method: 'POST', path: '/disputes/reopen', policy: 'operator-token' }),
-  Object.freeze({ method: 'POST', path: '/disputes/sweep', policy: 'refused', reason: 'scheduler-only' }),
-  Object.freeze({ method: 'POST', path: '/arbitrate', policy: 'operator-token' }),
+export const ROUTE_POLICY = Object.freeze([
+  Object.freeze({ method: 'GET', path: `${PREFIX}/health`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/projects`, policy: 'read-only' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/projects`, policy: 'operator-token' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/repo`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/state`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/status`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/metrics`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/intents`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/experts`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/observer`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/events/wait`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/observe`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/rotations`, policy: 'read-only' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/rotations`, policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/arbitrate`, policy: 'operator-token' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/disputes/classes`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/disputes`, policy: 'read-only' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/disputes`, policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/disputes/resolve`, policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/disputes/reopen`, policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/disputes/sweep`, policy: 'refused', reason: 'scheduler-only', message: 'dispute timeout sweep is scheduler-only; the HTTP surface does not accept a caller clock', nextStep: 'let the scheduler sweep overdue disputes; use the dispute table to inspect pending rows' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/budgets`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/reviews`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/retrospective`, policy: 'read-only' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/retrospective`, policy: 'operator-token' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/node`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/explain`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/changes`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/events`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/cluster/config`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/cluster`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/models`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/chat`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/copilot`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/intake`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/runs`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/transcript`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/files/info`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/files/download`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/replay`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/dashboard`, policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/dashboard`, policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/dashboard/refresh`, policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/dashboard/chat`, policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/dashboard/layout`, policy: 'operator-token' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/execution`, policy: 'read-only' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/preemption/appeal`, policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/commands`, policy: 'operator-token' }),
 ]);
+
+const ROUTE_POLICY_BY_KEY = new Map(ROUTE_POLICY.map((row) => [`${row.method} ${row.path}`, row]));
+if (ROUTE_POLICY.length !== 48 || ROUTE_POLICY_BY_KEY.size !== ROUTE_POLICY.length) {
+  throw new Error('HTTP route policy must contain exactly 48 unique method+path pairs');
+}
+
+/** Backwards-compatible dispute subset, still expressed relative to PREFIX. */
+export const DISPUTE_ROUTE_POLICY = Object.freeze(
+  ROUTE_POLICY
+    .filter((row) => row.path.includes('/disputes') || row.path.endsWith('/arbitrate'))
+    .map((row) => Object.freeze({ ...row, path: row.path.slice(PREFIX.length) })),
+);
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -80,6 +134,45 @@ function operatorActor(request, service) {
   return actorForSession({ sessionId: 'operator', kind: 'human' });
 }
 
+/**
+ * HTTP JSON is data, never an identity. Drop actor-shaped fields recursively
+ * so no route can accidentally forward a body-supplied human actor. The only
+ * human actor on this surface comes from the verified operator token.
+ */
+const BODY_ACTOR_KEYS = new Set(['actor', 'actorKey', 'actorId']);
+function stripBodyActors(value) {
+  if (Array.isArray(value)) return value.map((entry) => stripBodyActors(entry));
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (BODY_ACTOR_KEYS.has(key)) continue;
+    out[key] = stripBodyActors(entry);
+  }
+  return out;
+}
+
+function operatorRequired() {
+  return json({
+    ok: false,
+    error: publicView({
+      code: 'actor_required',
+      message: 'this route requires the Host-issued operator token',
+      nextStep: 'reload the owner page so the Host can inject the operator token',
+    }),
+  });
+}
+
+function refusedRoute(entry) {
+  return json({
+    ok: false,
+    error: publicView({
+      code: 'forbidden_action',
+      message: entry?.message ?? `route is refused: ${entry?.reason ?? 'not exposed over HTTP'}`,
+      ...(entry?.nextStep ? { nextStep: entry.nextStep } : {}),
+    }),
+  });
+}
+
 const MIME_BY_EXT = {
   '.pdf': 'application/pdf',
   '.txt': 'text/plain; charset=utf-8',
@@ -109,7 +202,7 @@ async function readJsonBody(request) {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
       throw new Error('body must be a JSON object');
     }
-    return value;
+    return stripBodyActors(value);
   } catch (error) {
     const wrapped = new Error(error instanceof Error ? error.message : 'invalid JSON body');
     wrapped.code = 'bad_request';
@@ -126,6 +219,11 @@ export function registerHttpRoutes(ctx, service) {
   const disposers = [];
 
   const route = (path, methods, handler) => {
+    for (const method of methods) {
+      if (!ROUTE_POLICY_BY_KEY.has(`${method} ${path}`)) {
+        throw new Error(`HTTP route ${method} ${path} has no policy row`);
+      }
+    }
     disposers.push(
       ctx.connection.fetch.register({
         path,
@@ -133,7 +231,16 @@ export function registerHttpRoutes(ctx, service) {
         requestBody: 'buffered',
         fetch: async (request) => {
           try {
-            return await handler(request);
+            const method = String(request.method ?? 'GET').toUpperCase();
+            const entry = ROUTE_POLICY_BY_KEY.get(`${method} ${path}`);
+            if (!entry) return fail(Object.assign(new Error(`HTTP route ${method} ${path} has no policy row`), { code: 'forbidden_action' }));
+            if (entry.policy === 'refused') return refusedRoute(entry);
+            let actor = null;
+            if (entry.policy === 'operator-token') {
+              actor = operatorActor(request, service);
+              if (!actor) return operatorRequired();
+            }
+            return await handler(request, actor);
           } catch (error) {
             return fail(error);
           }
@@ -217,23 +324,23 @@ export function registerHttpRoutes(ctx, service) {
     return ok(service.observe(params.get('projectId')));
   });
 
-  route(`${PREFIX}/rotations`, ['GET', 'POST'], async (request) => {
+  route(`${PREFIX}/rotations`, ['GET', 'POST'], async (request, actor) => {
     if (request.method === 'GET') {
       const params = query(request);
       return ok(service.rotationStatus(params.get('projectId')));
     }
     const body = await readJsonBody(request);
-    return okResult(await service.rotateExpert(body.projectId, body, null));
+    return okResult(await service.rotateExpert(body.projectId, body, actor));
   });
 
-  route(`${PREFIX}/arbitrate`, ['POST'], async (request) => {
+  route(`${PREFIX}/arbitrate`, ['POST'], async (request, actor) => {
     const body = await readJsonBody(request);
-    return okResult(await service.arbitrate(body.projectId, body, operatorActor(request, service)));
+    return okResult(await service.arbitrate(body.projectId, body, actor));
   });
 
   route(`${PREFIX}/disputes/classes`, ['GET'], async () => ok(service.disputeClasses()));
 
-  route(`${PREFIX}/disputes`, ['GET', 'POST'], async (request) => {
+  route(`${PREFIX}/disputes`, ['GET', 'POST'], async (request, actor) => {
     const params = query(request);
     if (request.method === 'GET') {
       return ok(service.listDisputes(params.get('projectId'), {
@@ -242,20 +349,20 @@ export function registerHttpRoutes(ctx, service) {
       }));
     }
     const body = await readJsonBody(request);
-    return okResult(await service.openDispute(body.projectId, body, operatorActor(request, service)));
+    return okResult(await service.openDispute(body.projectId, body, actor));
   });
 
-  route(`${PREFIX}/disputes/resolve`, ['POST'], async (request) => {
+  route(`${PREFIX}/disputes/resolve`, ['POST'], async (request, actor) => {
     const body = await readJsonBody(request);
     // Same limited-write gate as the `arbitrate` tool. The operator token is
-    // the only HTTP credential that maps to a human actor; a forged body still
-    // resolves to null and is rejected, never to the operator identity.
-    return okResult(await service.arbitrate(body.projectId, body, operatorActor(request, service)));
+    // the only HTTP credential that maps to a human actor; a forged body is
+    // stripped before this handler and never becomes an actor.
+    return okResult(await service.arbitrate(body.projectId, body, actor));
   });
 
-  route(`${PREFIX}/disputes/reopen`, ['POST'], async (request) => {
+  route(`${PREFIX}/disputes/reopen`, ['POST'], async (request, actor) => {
     const body = await readJsonBody(request);
-    return okResult(await service.reopenDispute(body.projectId, body.disputeId, body, operatorActor(request, service)));
+    return okResult(await service.reopenDispute(body.projectId, body.disputeId, body, actor));
   });
 
   // Timeout adjudication is a scheduler action. Refuse it on HTTP instead of
@@ -413,9 +520,9 @@ export function registerHttpRoutes(ctx, service) {
     }));
   });
 
-  route(`${PREFIX}/dashboard`, ['GET', 'POST'], async (request) => {
+  route(`${PREFIX}/dashboard`, ['GET', 'POST'], async (request, actor) => {
     const params = query(request);
-    if (request.method === 'GET') return ok(await service.getDashboard(params.get('projectId')));
+    if (request.method === 'GET') return ok(await service.getDashboard(params.get('projectId'), actor));
     const body = await readJsonBody(request);
     return ok(await service.updateDashboard(body.projectId, body));
   });
@@ -444,12 +551,14 @@ export function registerHttpRoutes(ctx, service) {
     ));
   });
 
-  route(`${PREFIX}/preemption/appeal`, ['POST'], async (request) => {
+  route(`${PREFIX}/preemption/appeal`, ['POST'], async (request, actor) => {
     const body = await readJsonBody(request);
-    return ok(await service.appealPreemption(body.projectId, body.nodeId, body));
+    // The body is data only; the verified operator actor is the only identity
+    // forwarded to the runtime. stripBodyActors already removed body.actor.
+    return ok(await service.appealPreemption(body.projectId, body.nodeId, body, actor));
   });
 
-  route(`${PREFIX}/commands`, ['POST'], async (request) => {
+  route(`${PREFIX}/commands`, ['POST'], async (request, actor) => {
     const body = await readJsonBody(request);
     const type = body.type;
     if (type === 'node.priority') {
@@ -470,13 +579,22 @@ export function registerHttpRoutes(ctx, service) {
       return ok(await service.escalateNode(body.projectId, body.nodeId, body));
     }
     if (type === 'project.delete') {
-      return ok(await service.deleteProject(body.projectId, { removeWorktrees: body.removeWorktrees === true }));
+      return ok(await service.deleteProject(body.projectId, {
+        removeWorktrees: body.removeWorktrees === true,
+        exec: actor,
+        claim: body.claim,
+        chiefConfirmed: body.chiefConfirmed === true,
+      }));
     }
     if (type === 'node.start') {
       return ok(await service.startNode(body.projectId, body.nodeId));
     }
     if (type === 'node.cancel') {
-      return ok(await service.cancelNode(body.projectId, body.nodeId));
+      return ok(await service.cancelNode(body.projectId, body.nodeId, {
+        exec: actor,
+        claim: body.claim,
+        chiefConfirmed: body.chiefConfirmed === true,
+      }));
     }
     if (type === 'node.message') {
       return ok(await service.messageNode(body.projectId, body.nodeId, body.text));

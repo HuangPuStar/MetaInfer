@@ -3666,10 +3666,10 @@ window.__ModuleLoader__.load({
         init.body = JSON.stringify(settings.body);
       }
       // HTTP carries no actor in its body. The Host-issued token is the only
-      // browser credential that can turn a POST into a human decision.
+      // browser credential; send it on every request so mutating GETs such as
+      // /dashboard are gated too. Read routes ignore it.
       const operator = operatorToken();
-      const operatorRoute = String(path).endsWith('/arbitrate') || String(path).endsWith('/disputes/resolve');
-      if (operator !== '' && init.method === 'POST' && operatorRoute) init.headers['x-metainfer-operator'] = operator;
+      if (operator !== '') init.headers['x-metainfer-operator'] = operator;
       const response = await fetch(path, init);
       let payload = null;
       try {

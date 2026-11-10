@@ -399,6 +399,7 @@ registerHttpRoutes({
   effect: () => {},
   connection: { fetch: { register({ path, fetch }) { httpRoutes.set(path, fetch); return () => {}; } } },
 }, {
+  verifyOperatorToken: (candidate) => (candidate === 'stage5-operator' ? { ok: true, id: 'operator' } : { ok: false, code: 'operator_required' }),
   disputeClasses: () => ({ classes: {} }),
   openDispute: () => ({ ok: true }),
   resolveDispute: () => { httpRoutes.directResolveCalls = (httpRoutes.directResolveCalls ?? 0) + 1; return { ok: true }; },
@@ -407,7 +408,7 @@ registerHttpRoutes({
 const resolveRoute = httpRoutes.get('/api/metainfer-research-lab/disputes/resolve');
 const routeResponse = await resolveRoute(new Request('http://local/api/metainfer-research-lab/disputes/resolve', {
   method: 'POST',
-  headers: { 'content-type': 'application/json' },
+  headers: { 'content-type': 'application/json', 'x-metainfer-operator': 'stage5-operator' },
   body: JSON.stringify({ projectId, disputeId: authorityRows.duplicate_claim.dispute?.id, resolution: 'keep_current' }),
 }));
 const routeEnvelope = await routeResponse.json();

@@ -124,12 +124,12 @@
   仍可显式取全量（scale 测试），但 HTTP 出口必须有界并带 `_truncated`。
 - **可逆性**：高。
 
-## 能力行范围裁决（2026-11-10，round 19 修订）
+## 能力行范围裁决（2026-11-10，round 20 修订）
 
 > 目的：把仍未关闭的能力行分成**承诺**、**可延后**、**明确不做**三档，
 > 并让 174 行账本每行恰好一个状态。逐行账本见
 > [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)；本节只保留 44 个 residual
-> 的范围裁决。独立验证者以 `VERIFICATION.md` §43 为准；当前独立计数为
+> 的范围裁决。独立验证者以 `VERIFICATION.md` §45 为准；当前独立计数为
 > **120 / 44 / 10**。
 
 ### 裁决口径
@@ -150,7 +150,7 @@
 | B14 | 明确不做 | 10 分钟否决窗口以 chief 审批闸门为前提；v2 用 dispute/arbiter 处理例外，不建该窗口。 |
 | B16 | 明确不做 | D6 已明确拒绝驻留会话 + `submit` 工具，v2 继续一次性激活。 |
 | B18 | 应该 | `tag:{hypothesis,variant}` 能降低重复实验，但当前先靠 Q10 的候选对与人工判重，不阻塞发布。 |
-| B22 | 必须 | resolve/arbitrate 的 token 与 authority 独立通过；作者已把 open/reopen 改为 token-gated、sweep 改为 scheduler-only，并补完整路由清单；独立重放待。 |
+| B22 | 必须 | dispute 子面已独立通过；作者 round 20 已把 14 个 operator 路由统一 token-gate、剥离 body actor、去掉 destructive human fallback（§46）；独立重放待，仍为 FAIL。 |
 | Q4 | 应该 | 专家身份/状态/预算/绩效是专家库质量项；现有 lifecycle 已可用，完整化可排后。 |
 | Q5 | 必须 | deferred 不能占 `maxNodes`、不能让 auto 误判“有进展”，这是已发生过停机的正确性缺陷。 |
 | Q8 | 明确不做 | 固定三级评审被 D7 取消；上下文切片价值转入 Q9/Q14 的地图与预算。 |
@@ -197,7 +197,7 @@
 
 | 行 | 状态 | 处理 |
 |---|---|---|
-| B22 | **FAIL（待独立重放）** | resolve/arbitrate 的 token/authority/UI 通过；round 19 已闭合 open/reopen/sweep 路由并补清单，见 §44；独立重放尚未确认。 |
+| B22 | **FAIL（待独立重放）** | open/reopen/sweep 的 dispute 子面通过；作者 round 20 已收口 `/commands`、`/rotations`、`/retrospective`、`/dashboard*`、`/preemption/appeal` 的 token/body actor 路径，见 §46；独立重放尚未确认。 |
 | U2 | **PASS（§43 独立重放）** | 混合 p0/p1/p2：100/100 行有 why、#100 在、#101 不在、showing 100 of 150；queueRows 与 queueOrder 的 100 个 id 完全一致。 |
 | U12 | §40 PASS | 五个面板的 loading/error/Retry 已由独立 jsdom 复核。 |
 | 5.3.13 | §40 PASS | 60 s cap、starving/pauseReason 已由独立 probe 复核。 |
@@ -210,7 +210,7 @@
 
 ### 影响
 
-- 独立复核为 **120 PASS / 44 FAIL / 10 N/A**；B22 仍 FAIL，U2 已 PASS，见 §43。
+- 独立复核仍为 **120 PASS / 44 FAIL / 10 N/A**；B22 仍 FAIL（作者 round 20 修复待重放），U2 已 PASS；独立依据见 §45，作者报告见 §46。
 - **必须 14 行**全部关闭前，完整发布仍是 NO-SHIP；**应该 20 行**可以带已知缺口发布，
   但必须在 release note 中列出；**明确不做 10 行**不阻塞发布。
 - C1 不再是 won't-do：它没有 `maxDeferred` 或 archive 实现，保留为 should/未建。

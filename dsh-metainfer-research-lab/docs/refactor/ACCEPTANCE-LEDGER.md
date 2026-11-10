@@ -1,6 +1,6 @@
-# 174 行验收账本（作者侧，round 19）
+# 174 行验收账本（作者侧，round 20）
 
-> 本文件是**账本**，不是新的独立复核。独立验证者以 `VERIFICATION.md` §43 为准；这里只做逐行对齐，确保每个 ID 恰好一个状态，且 residual 可加总。
+> 本文件是**账本**，不是新的独立复核。独立验证者以 `VERIFICATION.md` §45 为准；这里只做逐行对齐，确保每个 ID 恰好一个状态，且 residual 可加总。
 
 ## 汇总
 
@@ -11,7 +11,7 @@
 | N/A（未测量/不适用） | **10** |
 | 合计 | **174** |
 
-推导：§41.7 的 **119 / 45 / 10** 起点；round 19 独立重放确认 U2 通过（`120 / 44 / 10`），B22 因当时的 operator 路由缺口保留 FAIL；作者已在 round 19 修复 open/reopen/sweep 并补 §44 清单，B22 仍待独立重放。`5.2`/`5.3`/`5.3.3` 的独立 PASS 与 Q3 不改变本轮计数。**注意**：5.3.3 的 +1 只是 §40 计数口径修正，不是新关闭能力；若 §40 的 116 已包含它，这个 +1 会成为重复计数。
+推导：§41.7 的 **119 / 45 / 10** 起点；round 19 独立重放确认 U2 通过（`120 / 44 / 10`），B22 因当时的 operator 路由缺口保留 FAIL；round 20 独立重放（§45）确认 B22 的 open/reopen/sweep 已收口，但当时 `/commands`、`/rotations`、`/retrospective`、`/dashboard*`、`/preemption/appeal` 仍可在无 token 时铸造 human；作者 round 20 已统一 token-gate 并剥离 body actor，B22 仍待独立重放，计数不变。`5.2`/`5.3`/`5.3.3` 的独立 PASS 与 Q3 不改变本轮计数。**注意**：5.3.3 的 +1 只是 §40 计数口径修正，不是新关闭能力；若 §40 的 116 已包含它，这个 +1 会成为重复计数。
 
 ## 44 个 residual 的范围
 
@@ -22,7 +22,7 @@
 | 明确不做 | **10** |
 | 合计 | **44** |
 
-`必须` = 原有 12（Q3 PASS 后移除）+ B22（operator 路由未闭合）+ 5.3.2（项目内抢占）；U2 已在 round 19 独立 PASS，不再计入。`应该` = 原 19 + C1。`明确不做` = 原 11 − C1。C1 不再引用不存在的 `maxDeferred`。
+`必须` = 原有 12（Q3 PASS 后移除）+ B22（作者已收口，待独立重放）+ 5.3.2（项目内抢占）；U2 已在 round 19 独立 PASS，不再计入。`应该` = 原 19 + C1。`明确不做` = 原 11 − C1。C1 不再引用不存在的 `maxDeferred`。
 
 ## 逐行账本
 
@@ -49,7 +49,7 @@
 | B19 | PASS | — | §17 |
 | B20 | PASS | — | §18 |
 | B21 | PASS | — | §18 |
-| B22 | FAIL | 必须 | token/authority/UI 独立通过；round 19 已 token-gate open/reopen、sweep 改 scheduler-only、补完整 dispute 路由清单（§44）；独立重放待。 |
+| B22 | FAIL | 必须 | dispute 子面已独立通过；作者 round 20 已把 14 个 operator 路由统一 token-gate、剥离 body actor、去掉 destructive human fallback（§46）；独立重放待，当前仍 FAIL。 |
 | B23 | PASS | — | §38 |
 | B24 | PASS | — | §24/§25 |
 | B25 | PASS | — | §1 baseline PASS |
@@ -208,4 +208,4 @@
 - 174 个 ID 全部出现一次；无重复、无合并行。
 - PASS 120 + FAIL 44 + N/A 10 = 174。
 - FAIL 44 = 必须 14 + 应该 20 + 明确不做 10。
-- `B22` 仍是独立 FAIL（operator 路由未闭合）；`U2` 已独立 PASS；`5.2`、`5.3`、`5.3.3`、`Q3` 是独立 PASS，不是“由 B22/B23 覆盖”。
+- `B22` 仍是独立 FAIL（作者 round 20 已收口所有 operator 写路由，但独立重放尚未确认）；`U2` 已独立 PASS；`5.2`、`5.3`、`5.3.3`、`Q3` 是独立 PASS，不是“由 B22/B23 覆盖”。

@@ -94,11 +94,11 @@ check('the exported inventory covers exactly the registered dispute routes',
   JSON.stringify({ registered, declared }));
 check('every mutation route has an explicit token/refusal policy',
   DISPUTE_ROUTE_POLICY.filter((row) => row.method === 'POST').length === 5
-  && DISPUTE_ROUTE_POLICY.find((row) => row.method === 'POST' && row.path === '/disputes')?.policy === 'operator-token'
-  && DISPUTE_ROUTE_POLICY.find((row) => row.method === 'POST' && row.path === '/disputes/resolve')?.policy === 'operator-token'
-  && DISPUTE_ROUTE_POLICY.find((row) => row.method === 'POST' && row.path === '/disputes/reopen')?.policy === 'operator-token'
-  && DISPUTE_ROUTE_POLICY.find((row) => row.method === 'POST' && row.path === '/disputes/sweep')?.policy === 'refused'
-  && DISPUTE_ROUTE_POLICY.find((row) => row.method === 'POST' && row.path === '/arbitrate')?.policy === 'operator-token',
+  && DISPUTE_ROUTE_POLICY.find((row) => row.method === 'POST' && row.path.endsWith('/disputes'))?.policy === 'operator-token'
+  && DISPUTE_ROUTE_POLICY.find((row) => row.method === 'POST' && row.path.endsWith('/disputes/resolve'))?.policy === 'operator-token'
+  && DISPUTE_ROUTE_POLICY.find((row) => row.method === 'POST' && row.path.endsWith('/disputes/reopen'))?.policy === 'operator-token'
+  && DISPUTE_ROUTE_POLICY.find((row) => row.method === 'POST' && row.path.endsWith('/disputes/sweep'))?.policy === 'refused'
+  && DISPUTE_ROUTE_POLICY.find((row) => row.method === 'POST' && row.path.endsWith('/arbitrate'))?.policy === 'operator-token',
   JSON.stringify(DISPUTE_ROUTE_POLICY));
 
 // 2. Reads stay reads; they never mint a human actor.
@@ -172,7 +172,34 @@ check('the resolver cannot reopen its own resolution, even with the token',
   && findDispute(selfOpen.dispute.id)?.status === 'resolved',
   JSON.stringify({ selfResolveHttp, selfReopenHttp }));
 
-// 5. Sweep is scheduler-only: both a future and a past caller clock are refused.
+// 5. /commands is token-gated; destructive types still go through the
+// claim/appeal gate after the token is accepted. A token is not a bypass.
+const commandNoToken = await request('/commands', {
+  method: 'POST', body: { type: 'project.update', projectId, name: 'http command no token' },
+});
+check('POST /commands without a token is actor_required',
+  commandNoToken.ok === false && commandNoToken.error?.code === 'actor_required',
+  JSON.stringify(commandNoToken));
+const commandWithToken = await request('/commands', {
+  method: 'POST', token: operatorAuthority.token, body: { type: 'project.update', projectId, name: 'http command token' },
+});
+check('POST /commands with the token reaches the non-destructive command',
+  commandWithToken.ok === true && commandWithToken.data?.project?.name === 'http command token',
+  JSON.stringify(commandWithToken));
+const deleteNoToken = await request('/commands', {
+  method: 'POST', body: { type: 'project.delete', projectId, removeWorktrees: false },
+});
+const deleteWithToken = await request('/commands', {
+  method: 'POST', token: operatorAuthority.token,
+  body: { type: 'project.delete', projectId, removeWorktrees: false, actor: { kind: 'human', id: 'body-attacker' } },
+});
+check('POST /commands project.delete is token-gated and remains behind the claim gate',
+  deleteNoToken.ok === false && deleteNoToken.error?.code === 'actor_required'
+  && deleteWithToken.ok === false && deleteWithToken.error?.code === 'human_confirmation_required'
+  && Boolean(store.getProject(projectId)),
+  JSON.stringify({ deleteNoToken, deleteWithToken }));
+
+// 6. Sweep is scheduler-only: both a future and a past caller clock are refused.
 const pending = await service.openDispute(projectId, {
   type: 'stale_basis', target: { nodeId: 'root' }, evidence: [{ nodeId: 'root', field: 'revision' }],
 }, thirdExec);
@@ -192,7 +219,7 @@ check('POST /disputes/sweep refuses caller clocks (future and past) and leaves t
   && findDispute(pendingId)?.status === 'pending',
   JSON.stringify({ futureSweep, pastSweep, persisted: findDispute(pendingId)?.status }));
 
-// 6. The service's scheduler entry point uses Host time, not a passed clock.
+// 7. The service's scheduler entry point uses Host time, not a passed clock.
 const sweepService = await service.sweepDisputes(projectId, { now: Date.now() + 10 * 24 * 60 * 60_000 });
 check('the scheduler sweep ignores a caller-supplied future clock',
   sweepService.ok === true && sweepService.timedOut.length === 0 && findDispute(pendingId)?.status === 'pending',

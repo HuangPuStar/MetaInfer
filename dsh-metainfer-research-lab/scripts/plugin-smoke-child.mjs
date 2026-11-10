@@ -217,8 +217,7 @@ try {
   assert.equal(preemptionEvent, true, 'node/preempted missing from explanation');
   const appealed = await service.appealPreemption(projectId, victimId, {
     reason: 'smoke: record and review the preemption',
-    actor: { kind: 'human', id: 'smoke-operator' },
-  });
+  }, { kind: 'human', id: 'smoke-operator' });
   const appealedNode = appealed.node ?? service.getNode(projectId, victimId)?.node;
   assert.equal(appealedNode?.preemption?.appeal?.status, 'appealed');
   assert.equal(appealedNode?.preemption?.appeal?.reason, 'smoke: record and review the preemption');

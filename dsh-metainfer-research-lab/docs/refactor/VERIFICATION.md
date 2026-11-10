@@ -30,11 +30,11 @@ B27 撤销**，不再作为 B27 的排除项。
 arbiter matrix）独立通过，**B22 仍是 FAIL**：8 类 authority 元数据正确，但
 `resolveDispute` 不执行 authority 检查，专家可对全部 8 类 `apply_change`；
 5.3.13 的 long-poll/mid-sleep 通过，但只有 30s、只识别 stalled，缺
-starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准。
+starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准。
 
-> 作者第十四轮报告见 **§35**，不替代独立复核。
-> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮独立复核见 §43；当前独立总判定以 §43 为准：120 PASS / 44 FAIL / 10 未测量。**
-> **B27 narrow release possible（含真实进程 restart）**，完整发布仍 **NO-SHIP**。
+> 作者第十四轮报告见 **§35**，第二十轮报告见 **§46**，不替代独立复核。
+> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；当前独立总判定以 §45 为准：120 PASS / 44 FAIL / 10 未测量。**
+> **B27 restart continuity 仍 PASS；B22 的 dispute 子面已闭合；作者 §46 已把全部 operator 写路由统一 token-gate，独立重放待，完整发布仍 NO-SHIP。**
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
@@ -6014,3 +6014,274 @@ HTTP 端点不再读取 body，也不再调用 `sweepDisputes`；它返回命名
 ### 44.5 边界
 
 这次只把 **dispute/operator HTTP 面**收口，没有把 `/rotations`、`/retrospective`、`/commands` 等其它 human-control 路由改成 token-gated；它们不属于 dispute 路由清单，若下一轮要求“所有 operator 写路由”需要单独列清单和迁移，不能声称本清单覆盖它们。
+
+---
+
+## §45 第二十轮独立复核（HEAD `88a3ac0`，2026-11-10T23:01:44+08:00 `Asia/Shanghai`）
+
+> **边界**：独立探针在 clean worktree `/tmp/r20-head/repo/dsh-metainfer-research-lab`；
+> 作者 `dispute-route-selftest` 只作交叉检查。只改验证文档与账本，未改生产代码。
+> 真实浏览器绘制、真实 provider、自然人独立意志、双人审批仍未测量；真实 Host
+> process restart 未启动。下面“route 成功/失败”是真实 `createLabService` +
+> `registerHttpRoutes` + `Request` 路径，除 `/preemption/appeal` 使用记录型 runtime
+> 以捕获传参外，不依赖 mock 的 HTTP 语义。
+
+### 45.1 计数
+
+**120 PASS / 44 FAIL / 10 N/A = 174。** 与 §43 相比没有行状态变化：U2 仍是 PASS，
+**B22 仍是 FAIL**。因此本轮**没有得到 121/43**，也没有 43 行 residual。
+44 = **必须 14 + 应该 20 + 明确不做 10**。
+
+这轮关闭的是 B22 的 **dispute 子面**，不是 B22 整体；下一处同类缺陷已经定位到
+`POST /commands`（及其它未 token-gated 的 operator 写路由），见 45.4。
+
+### 45.2 dispute 路由重放：这一层 PASS
+
+作者的 `dispute-route-selftest` 独立执行 **11/11**；我另写 `reopen-sweep` 探针，
+不调用作者测试的断言，直接走真实 service + route：
+
+| 探针 | 结果 |
+|---|---|
+| 已 resolved 的 dispute，无 token reopen | `actor_required`；持久化仍 `resolved` |
+| 有合法 token，原 resolver 是另一个 actor | `ok:true`；持久化 `pending`，`reopenedBy.id='operator'` |
+| 同一 resolver（同一 token）重开自己的裁决 | `dispute_reopen_requires_different_actor`；仍 `resolved` |
+| HTTP sweep，无 token + future `now` | `forbidden_action`；pending 行不变 |
+| HTTP sweep，带 token + past `now` | `forbidden_action`；pending 行不变 |
+| 直接 `sweepDisputes(projectId,{now:future})` | `timedOut:[]`；pending 行不变，调用方时钟被忽略 |
+| 合法 token resolve，raiser 的 `actorKey` 与 token 相同 | `dispute_self_resolution`；持久化仍 `pending` |
+| 合法 token resolve，raiser 是另一个 `actorKey` | `ok:true`；store 内 `resolvedBy.actorKey` 存在 |
+| 非法 token / 旧 Host token / body 内嵌 token | 仍 `actor_required`，不产生 resolved 行 |
+
+token 攻击矩阵在 `88a3ac0` 也重新跑过：伪造签名、截断、旧 Host run token、body
+内嵌 token 全部返回 `actor_required`；合法 token 的 record 仍含
+`resolvedBy.actorKey`，HTTP 响应仍隐藏该字段。`/health`、`/state` 等读取路由
+不返回 token。**B22 的 dispute 子面（open/resolve/reopen/sweep/arbitrate）通过。**
+
+### 45.3 清单完整性：对 dispute 面完整，对 operator 面不完整
+
+我用假的 `ctx.connection.fetch.register` 捕获每一次注册，**把 methods 数组展开成
+method+path 对**，再和 `DISPUTE_ROUTE_POLICY` 比较：
+
+- 实际注册：**43 个 registration、48 个 method+path 对**；
+- `DISPUTE_ROUTE_POLICY`：**7 个 method+path 对**；
+- 7 个 dispute/arbitrate 对**双向完全一致**；没有 alias、没有重复 path、没有
+  路径归一化差异；
+- 全部 48 个 method+path 对中，非 GET 的有 **14 个**；其中 5 个由
+  `DISPUTE_ROUTE_POLICY` 覆盖（`POST /disputes`、`resolve`、`reopen`、`sweep`、
+  `arbitrate`），另 **9 个没有任何 route policy**。
+
+作者测试的 `routes` 是 `Map<path, fetch>`，只比较 path；因此它**不能证明 method
+variant**。我独立展开 methods 后发现 dispute 7/7 没有 method 缺口，这一点作者
+实现是对的；但同一份清单**不是所有 mutating HTTP 的 inventory**。9 个未覆盖的
+非 GET 路由是：
+
+```text
+POST /projects
+POST /rotations
+POST /retrospective
+POST /dashboard
+POST /dashboard/refresh
+POST /dashboard/chat
+POST /dashboard/layout
+POST /preemption/appeal
+POST /commands
+```
+
+另外 `GET /dashboard` 不是纯读：当 `lastChat.status='running'` 且本进程没有活动
+chat 时，它会写一条 interrupted/timeout 的 assistant 消息并提交
+`project/edited`（见 45.4）。所以“只检查非 GET”也不够。
+
+**结论**：`DISPUTE_ROUTE_POLICY` 对声明的 7 个 dispute 对是完整且自洽的；
+把它当成“所有 operator 写路由的完整清单”则不成立。B22 不能因这 7 对通过而关闭。
+
+### 45.4 作者排除的路由：同一个缺陷类仍在
+
+以下调用都**没有** `x-metainfer-operator`，都通过真实注册的 HTTP handler：
+
+| 路由/命令 | 结果 | 记录的 actor |
+|---|---|---|
+| `POST /rotations`（`branchId=root`） | `ok:true`，rotation 写入 | `rotatedBy={kind:'human',id:'human'}`；event actor `human` + Host `actorKey` |
+| `POST /retrospective` | `ok:true`，`retrospective/generated` | event actor `{kind:'human',id:'human'}` + `actorKey` |
+| `POST /commands` `node.priority` | `p2 -> p1`，`ok:true` | event actor `{kind:'human',id:'operator'}` + `actorKey` |
+| `POST /commands` `project.update` | name 改成任意值，`ok:true` | `project/edited` actor `human/operator` |
+| `POST /commands` `node.edit` | title 改成任意值，`ok:true` | `node/edited` actor `human/operator` |
+| `POST /dashboard` | spec 写入，`ok:true` | `dashboard/spec_updated` actor `human/operator` |
+| `GET /dashboard`（lastChat=running） | `ok:true`，lastChat 变成 error | `project/edited` actor `human/operator` |
+| `POST /preemption/appeal` | `ok:true` | **runtime 收到 body 里的 `actor:{kind:'human',id:'attacker-supplied'}`** |
+
+这正是一个缺陷类的两种形态：
+
+1. **无凭据铸造 human**：`/rotations` 和 `/retrospective` 的 service 仍走
+   `actorFromToolExecution(exec) ?? actorForSession({sessionId:'operator'})`；
+   `/commands` 的多数分支和 `/dashboard` 走 `commitMutations` 的默认
+   `{kind:'human',id:'operator'}`。没有 token 也能把状态变更记成人类操作。
+2. **接受调用方 actor**：`/preemption/appeal` 直接把 body 的 `actor` 传给
+   runtime（`input.actor ?? {kind:'human',id:'operator'}`）；调用方不需要 token
+   就能指定自己的身份，甚至可冒用另一个 human id。
+
+`POST /commands` 是最大的一处：它把 30 多种 type（含 `node.start`、
+`node.cancel`、`node.retry`、`node.approve`、`node.reject`、`project.delete`、
+`project.step`、`expert_hire` 等）放在同一个无认证 handler 里。`project.delete`
+最终调用 `deleteProject`，而 `deleteProject` 的 `authorizeIrreversibleTool(...,
+null)` 也会先回退到 human actor；即使 claim gate 随后拒绝，**“缺凭据”已经在
+authorization 里被当成 human**，这正是 B22 要禁止的模式。
+
+**下一处要修的不是另一个 dispute 路径，而是 `/commands`**；随后是
+`/rotations`、`/retrospective`、`/preemption/appeal`、`/dashboard*`，以及
+`POST /projects` 的创建身份。修复方向不是逐个补 if，而是：
+
+- 给每个 mutating route 一行 `{method,path,policy}`，像
+  `DISPUTE_ROUTE_POLICY` 那样由注册表反向校验；
+- human-control 路由只接受 Host 验证的 operator token，或明确要求调用方是
+  Host 内部 system actor；
+- 不接受 body `actor`、body `now`；clock 和 actor 都由 Host 生成；
+- 读路由不得暗中写（`GET /dashboard` 的 recovery 写要么走显式 POST，要么用
+  system actor 并明确记录）。
+
+### 45.5 B22 与账本
+
+- **B22：FAIL（必须）**。dispute 子面 PASS；整体 operator 面仍有
+  `/commands` 等无凭据 human 写，B22 不能标 PASS。
+- **U2：PASS**，没有回退。
+- 账本仍为 **120 PASS / 44 FAIL / 10 N/A**，`44 = 14 必须 + 20 应该 + 10
+  明确不做`。**没有 43 行 residual**；只有 B22 和 U2 同时 PASS 才会出现
+  121/43。
+- 本轮没有新增或删除 174 行中的 ID；B22 继续是 FAIL（必须），U2 继续 PASS。
+
+### 45.6 回归
+
+| 检查 | 独立结果 |
+|---|---|
+| `npm test` | EXIT 0；**804 ok / 0 FAIL**（含新增的 dispute-route 检查；§43 时为 792） |
+| `bench:scale` | **11/11**；5k facts **13,509 B < 16 KB**；100k first page <50 ms |
+| `strict-writes-selftest` | **17 ok**；成功 bypass **0** |
+| `client-smoke` | **45/45** |
+| `operator-ui-selftest` | **10/10** |
+| `plugin-smoke` | **5/5** |
+| `b27-restart-selftest` | **11/11** |
+| U14 独立 partial | `status=partial`、3 errors、`degraded=true`、`staleReason=refresh_partial` |
+| S12 | `eventlog-selftest` **7/7**；100k 首读 <50 ms |
+
+### 45.7 发布判断
+
+**B22 仍未闭合，完整发布仍 NO-SHIP。** 这不是 dispute 路由回归，而是 B22 的
+operator 面比作者 §44 清单更大：`/commands` 可以在没有 token 的情况下写
+human actor，`/preemption/appeal` 还能接受 body actor。只修 dispute 清单不能
+把 B22 标 PASS。
+
+**窄发布目前不可宣布**：`/commands` 的无凭据写是安全面，不是“应该行”的质量
+缺口；在它关闭前，release note 不能把 B22 写成已闭合。
+
+**条件式**：如果未来 B22 真正关闭（包括 `/commands` 等），账本才会变为
+**121 / 43 / 10**，residual 为 **13 必须 / 20 应该 / 10 明确不做**。届时一个
+可辩护的 narrow-release scope 应明确排除：项目内 p0 抢占（5.3.2）、deferred
+配额/自动进展（Q5）、多写 DAG/intent 边界（Q12/Q14）、无代码出口的语义 fallback
+（C5）、O1–O5/A11/A21 的完整可观测性承诺，以及 S5 的 >10k replay 验收；这些
+不能靠“narrow”一词隐式包含。当前 B22 未关闭，所以这些只是条件式说明，不是
+本轮可发布的 scope。
+
+---
+
+## §46 作者第二十轮响应：method+path 全量 policy 与 operator 面收口（round 20）
+
+> 这节是**作者报告**，不是独立复核；不改变 §45 的独立计数。B22 仍是 FAIL，
+> 直到独立验证者在新的 clean HEAD 上重放。
+
+### 46.1 一条规则覆盖 48 个 method+path 对
+
+`host/http.js` 导出 `ROUTE_POLICY`，而不是只导出 dispute 子集：
+
+- **48 个唯一 method+path 对**，与 43 次 `fetch.register` 的 methods 展开结果
+  双向完全一致；
+- **33 个 read-only GET**：不铸造 actor，不要求 token；
+- **13 个 POST + `GET /dashboard` = 14 个 operator-token 路由**；
+- **1 个 refused**：`POST /disputes/sweep`（scheduler-only，任何 token 和任何
+  body `now` 都不能调用）。
+
+注册 wrapper 在 apply 时逐对检查 policy row；新增 route 如果不在表里会直接
+注册失败，而不是默认落到无认证 handler。`DISPUTE_ROUTE_POLICY` 现在由
+`ROUTE_POLICY` 过滤得到，保留旧的 7 对审查入口，但不再是完整清单。
+
+### 46.2 凭据只有一种来源
+
+`registerHttpRoutes` 的 wrapper 在进入 handler 之前完成校验：
+
+```text
+entry = ROUTE_POLICY[method + " " + path]
+refused        -> forbidden_action，handler 不运行
+operator-token -> verify x-metainfer-operator；失败 actor_required，handler 不运行
+read-only      -> actor = null，不要求 token
+```
+
+handler 收到的 actor 参数就是 wrapper 验证后的 token actor；`/arbitrate`、
+`/disputes`、`/disputes/resolve`、`/disputes/reopen` 不再各自重新读取 header。
+`POST /preemption/appeal` 只把 wrapper actor 传给 runtime。`GET /dashboard`
+与 `POST /dashboard` 共用同一个 token policy；其 interrupted-chat 恢复写使用
+token actor；直接调用 `getDashboard(projectId)` 时使用
+`{kind:'system', id:'dashboard-watchdog'}`，不会再默认成人。
+
+HTTP JSON body 递归剥离 `actor`、`actorKey`、`actorId`；body 里的
+`actor:{kind:'human', id:'attacker-supplied'}` 既不能认证，也不会被转发。
+不存在“body actor 优先、缺省回退 human”的路径。
+
+### 46.3 破坏性服务不再铸造 human
+
+- `authorizeIrreversibleTool(projectId, action, input, exec)` 现在只接受
+  `actorFromDisputeExecution(exec)`；无 actor 时抛 `actor_required`，不再
+  `?? actorForSession({sessionId:'operator'})`。
+- `/commands` 的 `project.delete` 和 `node.cancel` 把 token actor 作为
+  `exec` 传入，并继续走 claim/appeal/human gate；token 只证明调用者是谁，
+  不能跳过 gate。非破坏性命令（如 `project.update`）也已在 token 后执行。
+- `appealPreemption(projectId, nodeId, input, exec)` 要求 actor；runtime 的
+  `appealPreemption` 同样拒绝无 actor 调用，且记录 `by` 为 service 传入的
+  token actor。
+
+### 46.4 探针
+
+新增 `scripts/operator-route-selftest.mjs`，用真实 `registerHttpRoutes` +
+记录型 service 驱动每一个 policy row：
+
+| 探针 | 结果 |
+|---|---|
+| 48 对与真实 registrations 双向一致 | PASS |
+| 每个 operator-token 路由无 token | `actor_required`，handler 调用数不变 |
+| 每个 operator-token 路由伪造 token | `actor_required`，handler 调用数不变 |
+| 每个 operator-token 路由合法 token | `ok:true`，handler 恰好一次 |
+| 每个 read-only 路由无 token | 不被 token gate 拦截 |
+| `POST /disputes/sweep` 无 token / 合法 token | 都是 `forbidden_action`，handler 不运行 |
+| body `actor` + 无 token 调用 `/preemption/appeal` | `actor_required` |
+| body `actor` + 合法 token 调用 `/preemption/appeal` | handler 第 4 参为 token actor，不是 `body-attacker` |
+
+`dispute-route-selftest` 追加真实 service 探针：`POST /commands` 无 token
+`actor_required`；合法 token 的 `project.update` 成功；合法 token 的
+`project.delete` 仍是 `human_confirmation_required`，项目仍存在。既有
+open/reopen/sweep 探针继续通过。
+
+### 46.5 回归
+
+| 检查 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**894 ok / 0 FAIL**（新增 operator-route、operator-control 与 commands 探针） |
+| `bench:scale` | **11/11** |
+| `client-smoke` | **45/45** |
+| `operator-ui-selftest` | **10/10** |
+| `dispute-route-selftest` | 全部通过（含新增 commands 探针） |
+| `operator-route-selftest` | 全部通过（48 对） |
+| `operator-control-selftest` | 5/5：dashboard/retrospective/commands/preemption actor 探针 |
+| `stage5-selftest` | 全部通过 |
+| `strict-writes-selftest` | 全部通过 |
+| `plugin-smoke` | **5/5** |
+| `b27-restart-selftest` | 全部通过 |
+| `git diff --check` | 0 |
+
+### 46.6 账本与边界
+
+账本仍为 **120 PASS / 44 FAIL / 10 N/A**；44 = **14 必须 + 20 应该 + 10
+明确不做**。U2 仍是 PASS；**B22 仍是 FAIL（待独立重放）**，不能因为我方测试
+通过就改成 PASS，也没有 121/43。
+
+本轮只证明 **HTTP operator 面**的凭据、body actor 和破坏性 gate；没有进行真实
+浏览器绘制、真实 provider、自然人独立意志、双人审批或真实 Host process
+restart 测量。独立验证者需要在新的 clean HEAD 上重放 48 对清单、token 矩阵、
+`/commands` 的 claim gate 和 `/preemption/appeal` 的 actor 记录后，才能决定
+B22 是否从 FAIL 变为 PASS。
