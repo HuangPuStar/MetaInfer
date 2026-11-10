@@ -70,11 +70,11 @@ export async function apply(ctx) {
     );
   }
   const git = createGitEngine(ctx);
-  // The kernel is the only writer for claims; the projection is kept in sync with
-  // legacy writer paths by the store subscription inside createKernel.
-  // G1: the kernel executor is the only legal writer. `warn` in production keeps
-  // the 64 legacy direct-write sites observable without breaking a live Host;
-  // tests run `throw` to prove the permit covers every kernel write.
+  // The kernel is the only writer; the projection is kept in sync by the store
+  // subscription inside createKernel.
+  // G1: strictWrites defaults to `throw`. Every production writer goes through
+  // kernel.executor (runtime/GC/reconcile/auto/service/orchestrator); any new
+  // direct `store.save*` becomes a visible failure instead of silent drift.
   const strictWrites = ctx.config?.kernel?.strictWrites ?? 'warn';
   store.setStrictWrites(strictWrites);
   const kernel = createKernel({ store, logger: ctx.logger });
@@ -94,8 +94,8 @@ export async function apply(ctx) {
 
   // No Agent survives a plugin reload: mark stale running nodes failed before
   // anything new can run, and release their resource ledger entries.
-  const reconciled = await reconcileRunningNodes({ store });
-  const reconciledRuns = await reconcileRunningRuns({ store });
+  const reconciled = await reconcileRunningNodes({ store, kernel });
+  const reconciledRuns = await reconcileRunningRuns({ store, kernel });
 
   let gcRunner = null;
   // One long-lived broker map per project: leases must survive across ticks.
@@ -148,9 +148,9 @@ export async function apply(ctx) {
     kernel,
   });
   const transcript = createTranscriptReader({ ctx, store });
-  const orchestrator = createOrchestrator({ ctx, store, git, runtime, cluster });
-  gcRunner = createGcRunner({ ctx, store, orchestrator });
-  const auto = createAutoController({ store, orchestrator, cluster, dispatchOnce });
+  const orchestrator = createOrchestrator({ ctx, store, git, runtime, cluster, kernel });
+  gcRunner = createGcRunner({ ctx, store, orchestrator, kernel });
+  const auto = createAutoController({ store, kernel, orchestrator, cluster, dispatchOnce });
   const service = createLabService({
     ctx,
     store,

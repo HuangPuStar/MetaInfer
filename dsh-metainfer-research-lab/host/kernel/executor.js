@@ -147,7 +147,13 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
       };
       written.push(await store.appendEvent(project, event.type, payload));
     }
-    // 5b. records.
+    // 5b. records. Run records are effect-only (no node working set entry).
+    for (const event of events) {
+      for (const effect of event.effects ?? []) {
+        if (effect.op === 'run.put' && effect.run) await store.saveRun(projectId, effect.run);
+        if (effect.op === 'cycle.put' && effect.cycle) await store.saveCycle(projectId, effect.cycle);
+      }
+    }
     for (const nodeId of ws.touchedNodeIds()) {
       if (ws.isDeleted(nodeId)) await store.deleteNode(projectId, nodeId);
       else await store.saveNode(projectId, ws.peekNode(nodeId));
@@ -214,6 +220,8 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
       }
       const working = structuredClone(project);
       const nodes = new Map();
+      const runs = new Map();
+      const cycles = new Map();
       const deleted = new Set();
       const target = {
         project: working,
@@ -227,6 +235,8 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
         },
         putNode(node) { deleted.delete(node.id); nodes.set(node.id, node); },
         deleteNode(nodeId) { nodes.delete(nodeId); deleted.add(nodeId); },
+        putRun(run) { runs.set(run.id, run); },
+        putCycle(cycle) { cycles.set(cycle.id, cycle); },
       };
       let redone = 0;
       let discarded = 0;
@@ -257,6 +267,8 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
       }
       for (const [nodeId, node] of nodes) if (node) await store.saveNode(projectId, node);
       for (const nodeId of deleted) await store.deleteNode(projectId, nodeId);
+      for (const run of runs.values()) await store.saveRun(projectId, run);
+      for (const cycle of cycles.values()) await store.saveCycle(projectId, cycle);
       working.counters = { ...(working.counters ?? {}), eventSeq: lastSeq };
       working.revision = lastRevision;
       await store.saveProject(working);
@@ -264,5 +276,41 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
     })();
   }
 
-  return { commit, commitLocked, recover };
+  /**
+   * Bootstrap a brand-new project through the same single-writer permit. The
+   * project row must exist before a commit can load it; this method writes the
+   * skeleton *inside the executor* and immediately commits its creation events,
+   * so `strictWrites=throw` still sees exactly one writer.
+   */
+  async function bootstrapProject(projectId, project, spec) {
+    return store.withProjectLock(projectId, () => (typeof store.withWritePermit === 'function'
+      ? store.withWritePermit(async () => {
+        const skeleton = {
+          ...project,
+          id: projectId,
+          revision: 0,
+          counters: { ...(project.counters ?? {}), eventSeq: 0 },
+          updatedAt: project.updatedAt ?? Date.now(),
+          createdAt: project.createdAt ?? Date.now(),
+        };
+        await store.saveProject(skeleton);
+        return commitLocked(projectId, spec);
+      })
+      : commitLocked(projectId, spec)));
+  }
+
+  /** Project deletion is a maintenance write; keep it on the executor too. */
+  async function deleteProject(projectId, spec = {}) {
+    return store.withProjectLock(projectId, () => (typeof store.withWritePermit === 'function'
+      ? store.withWritePermit(async () => {
+        await store.deleteProject(projectId);
+        return { ok: true, projectId, actor: normalizeActor(spec.actor ?? { kind: 'system', id: 'service' }) };
+      })
+      : (async () => {
+        await store.deleteProject(projectId);
+        return { ok: true, projectId };
+      })()));
+  }
+
+  return { commit, commitLocked, bootstrapProject, deleteProject, recover };
 }

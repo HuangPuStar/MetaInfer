@@ -68,7 +68,7 @@ function gcPrompt(project, node, termination) {
 /**
  * @param {{ctx: object, store: object, orchestrator: object}} deps
  */
-export function createGcRunner({ ctx, store, orchestrator }) {
+export function createGcRunner({ ctx, store, orchestrator, kernel }) {
   const inFlight = new Set();
   const lifetime = new AbortController();
 
@@ -94,7 +94,15 @@ export function createGcRunner({ ctx, store, orchestrator }) {
         inputSnapshot: { nodeId, termination },
         startedAt: Date.now(),
       };
-      await store.saveRun(projectId, record);
+      // WP P1.7: run records and the postmortem node update are one commit.
+      if (!kernel?.executor) throw new Error('gc requires kernel.executor');
+      const commit = (mutations, causeId) => kernel.executor.commit(projectId, {
+        actor: { kind: 'system', id: 'gc' },
+        causeId,
+        mutations,
+      });
+      const startCommit = await commit([{ op: 'run.put', run: record, eventType: 'gc/started' }], `${nodeId}-gc-${id}`);
+      if (startCommit.ok !== true) throw new Error(startCommit.message ?? 'gc start commit failed');
       let result = null;
       let failure = null;
       let activation;
@@ -141,21 +149,19 @@ export function createGcRunner({ ctx, store, orchestrator }) {
         record.output = result?.structured ?? null;
         if (!record.output) record.rawText = blocksText(result?.output);
       }
-      await store.saveRun(projectId, record);
       const current = store.getNode(projectId, nodeId);
+      const mutations = [{ op: 'run.put', run: record, eventType: 'gc/finished' }];
       if (current) {
         current.termination = { ...(current.termination ?? termination), gcRunId: id, gcPostmortem: record.output ?? null };
-        await store.saveNode(projectId, current);
-        const fresh = store.getProject(projectId);
-        if (fresh) {
-          await store.appendEvent(fresh, 'gc/finished', {
-            runId: id,
-            nodeId,
-            data: { status: record.status, recommendation: record.output?.recommendation ?? null },
-          });
-          await store.saveProject(fresh);
-        }
+        mutations.push({
+          op: 'node.put',
+          node: current,
+          eventType: 'gc/finished',
+          eventData: { runId: id, status: record.status, recommendation: record.output?.recommendation ?? null },
+        });
       }
+      const endCommit = await commit(mutations, `${nodeId}-gc-${id}`);
+      if (endCommit.ok !== true) throw new Error(endCommit.message ?? 'gc finish commit failed');
       return record;
     } catch {
       return null;

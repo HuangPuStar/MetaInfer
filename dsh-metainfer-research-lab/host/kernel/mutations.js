@@ -136,7 +136,13 @@ const reducers = {
     node.priority = normalizePriority(input.priority, { by: ctx.actor.id, at: ctx.now });
     node.timestamps = { ...(input.timestamps ?? {}), createdAt: input.timestamps?.createdAt ?? ctx.now, updatedAt: ctx.now };
     ws.putNode(node);
-    return [nodeEvent(m.eventType ?? 'node/created', node, m.eventData ?? { status }, { op: 'node.put', nodeId: id, node })];
+    const event = nodeEvent(m.eventType ?? 'node/created', node, m.eventData ?? { status }, { op: 'node.put', nodeId: id, node });
+    if (m.counters && typeof m.counters === 'object') {
+      ws.project.counters = structuredClone(m.counters);
+      ws.projectTouched = true;
+      event.effects.push({ op: 'project.merge', set: { counters: structuredClone(m.counters) } });
+    }
+    return [event];
   },
 
   /**
@@ -284,7 +290,13 @@ const reducers = {
       throw new MutationError('forbidden', 'only proposed nodes can be deleted outside system maintenance');
     }
     ws.deleteNode(nodeId);
-    return [{ type: m.eventType ?? 'node/deleted', nodeId, data: m.eventData ?? { status: node.status }, effects: [{ op: 'node.delete', nodeId }] }];
+    const effects = [{ op: 'node.delete', nodeId }];
+    if (m.counters && typeof m.counters === 'object') {
+      ws.project.counters = structuredClone(m.counters);
+      ws.projectTouched = true;
+      effects.push({ op: 'project.merge', set: { counters: structuredClone(m.counters) } });
+    }
+    return [{ type: m.eventType ?? 'node/deleted', nodeId, data: m.eventData ?? { status: node.status }, effects }];
   },
 
   'project.update'(ws, m, ctx) {
@@ -296,6 +308,34 @@ const reducers = {
     ws.project.updatedAt = ctx.now;
     ws.projectTouched = true;
     return [{ type: m.eventType ?? 'project/edited', data: m.eventData ?? { fields: Object.keys(set) }, effects: [{ op: 'project.merge', set: structuredClone(set), updatedAt: ctx.now }] }];
+  },
+
+  /** Full cycle-record write for migrated legacy orchestrator paths. */
+  'cycle.put'(ws, m) {
+    const cycle = requirePlainObject(m.cycle, 'cycle');
+    const id = requireString(cycle.id, 'cycle.id');
+    const event = {
+      type: m.eventType ?? 'cycle/saved',
+      data: m.eventData ?? { trigger: cycle.trigger ?? null },
+      effects: [{ op: 'cycle.put', cycle: { ...structuredClone(cycle), id } }],
+    };
+    if (m.counters && typeof m.counters === 'object') {
+      ws.project.counters = structuredClone(m.counters);
+      ws.projectTouched = true;
+      event.effects.push({ op: 'project.merge', set: { counters: structuredClone(m.counters) } });
+    }
+    return [event];
+  },
+
+  /** Full run-record write for migrated legacy runners (GC/reconcile/experts). */
+  'run.put'(ws, m, ctx) {
+    const run = requirePlainObject(m.run, 'run');
+    const id = requireString(run.id, 'run.id');
+    return [{
+      type: m.eventType ?? 'run/saved',
+      data: m.eventData ?? { role: run.role ?? null, status: run.status ?? null },
+      effects: [{ op: 'run.put', run: { ...structuredClone(run), id } }],
+    }];
   },
 
   /** Decision record with no state change (dispatch/decided, trigger/fired, intent/rejected ...). */
@@ -341,6 +381,12 @@ export function redoEffect(target, effect, revision) {
     }
     case 'node.delete':
       target.deleteNode(effect.nodeId);
+      return;
+    case 'run.put':
+      target.putRun?.(structuredClone(effect.run));
+      return;
+    case 'cycle.put':
+      target.putCycle?.(structuredClone(effect.cycle));
       return;
     case 'project.merge':
       Object.assign(target.project, structuredClone(effect.set ?? {}));

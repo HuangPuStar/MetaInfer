@@ -46,7 +46,7 @@ await test('the Host index builds a kernel and passes dispatchOnce to auto + ser
   assert.match(index, /createKernel\(\{ store/);
   assert.match(index, /createDispatchOnce\(\{/);
   assert.match(index, /launcher: \{ start: \(pid, nodeId, opts\) => runtime\.start\(pid, nodeId, opts\) \}/);
-  assert.match(index, /createAutoController\(\{ store, orchestrator, cluster, dispatchOnce \}\)/);
+  assert.match(index, /createAutoController\(\{ store, kernel, orchestrator, cluster, dispatchOnce \}\)/);
   assert.match(index, /dispatchOnce,\n\s+version/);
 });
 

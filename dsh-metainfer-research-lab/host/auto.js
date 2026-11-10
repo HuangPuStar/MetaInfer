@@ -15,7 +15,7 @@ function newNodeCount(nodes) {
 /**
  * @param {{ctx: object, store: object, orchestrator: object, intervalMs?: number}} deps
  */
-export function createAutoController({ store, orchestrator, cluster, dispatchOnce = null, intervalMs = 2000 }) {
+export function createAutoController({ store, kernel, orchestrator, cluster, dispatchOnce = null, intervalMs = 2000 }) {
   const states = new Map();
   const busy = new Set();
   const planners = new Map();
@@ -104,10 +104,13 @@ export function createAutoController({ store, orchestrator, cluster, dispatchOnc
   }
 
   async function saveEvent(project, type, data) {
-    await store.appendEvent(project, type, { data });
-    project.revision = (project.revision ?? 0) + 1;
-    project.updatedAt = Date.now();
-    await store.saveProject(project);
+    if (!kernel?.executor) throw new LabError('unavailable', 'auto controller requires kernel.executor', 503);
+    const result = await kernel.executor.commit(project.id, {
+      actor: { kind: 'system', id: 'auto' },
+      causeId: `${type}:${project.id}`,
+      mutations: [{ op: 'event.record', type, data }],
+    });
+    if (result.ok !== true) throw new LabError(result.code ?? 'commit_failed', result.message ?? 'auto event commit failed', 500);
   }
 
   async function pause(projectId, reason) {

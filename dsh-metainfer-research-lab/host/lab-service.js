@@ -478,6 +478,37 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return project;
   }
 
+  /**
+   * WP P1.7: every service mutation goes through the kernel. Callers that already
+   * hold the project lock (dashboard refresh/chat, copilot bookkeeping) use
+   * `commitLocked` + the write permit; everyone else uses `commit`.
+   */
+  async function commitMutations(projectId, mutations, options = {}) {
+    if (!kernel?.executor) throw new LabError('unavailable', 'lab service requires kernel.executor', 503);
+    const spec = {
+      actor: options.actor ?? { kind: 'human', id: 'operator' },
+      causeId: options.causeId ?? `service:${projectId}`,
+      mutations,
+    };
+    const result = store.isProjectLocked?.(projectId) === true
+      ? await store.withWritePermit(() => kernel.executor.commitLocked(projectId, spec))
+      : await kernel.executor.commit(projectId, spec);
+    if (result.ok !== true) {
+      throw new LabError(result.code ?? 'commit_failed', result.message ?? 'commit failed', 500);
+    }
+    return result;
+  }
+
+  /** Replace arbitrary project fields through the executor (dashboard/chat/copilot). */
+  async function commitProjectFields(projectId, set, options = {}) {
+    return commitMutations(projectId, [{
+      op: 'project.update',
+      set,
+      ...(options.eventType ? { eventType: options.eventType } : {}),
+      ...(options.eventData ? { eventData: options.eventData } : {}),
+    }], options);
+  }
+
   function requireNode(projectId, nodeId) {
     const node = typeof nodeId === 'string' ? store.getNode(projectId, nodeId) : undefined;
     if (!node) throw new LabError('node_not_found', `unknown node: ${nodeId}`, 404);
@@ -624,29 +655,36 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       };
     });
 
-    await store.saveProject(project);
-    for (const node of rootNodes) {
-      await store.saveNode(projectId, node);
-    }
-    await store.appendEvent(project, 'project/created', {
-      data: {
-        name,
-        repoPath: repo.repoRoot,
-        baseBranch,
-        baseCommit,
-        rootNodeIds: rootNodes.map((node) => node.id),
-      },
+    if (!kernel?.executor) throw new LabError('unavailable', 'lab service requires kernel.executor', 503);
+    const created = await kernel.executor.bootstrapProject(projectId, project, {
+      actor: { kind: 'human', id: 'operator' },
+      causeId: `project:${projectId}:created`,
+      mutations: [
+        {
+          op: 'event.record',
+          type: 'project/created',
+          data: {
+            name,
+            repoPath: repo.repoRoot,
+            baseBranch,
+            baseCommit,
+            rootNodeIds: rootNodes.map((node) => node.id),
+          },
+        },
+        ...rootNodes.map((node) => ({
+          op: 'node.create',
+          node,
+          eventData: { title: node.title, status: node.status, createdBy: node.createdBy, isRoot: true },
+        })),
+      ],
     });
-    for (const node of rootNodes) {
-      await store.appendEvent(project, 'node/created', {
-        nodeId: node.id,
-        data: { title: node.title, status: node.status, createdBy: node.createdBy, isRoot: true },
-      });
+    if (created.ok !== true) {
+      throw new LabError(created.code ?? 'commit_failed', created.message ?? 'project creation failed', 500);
     }
-    project.updatedAt = Date.now();
-    await store.saveProject(project);
-
-    return { project, rootNode: rootNodes[0], rootNodes, revision: project.revision };
+    const storedProject = requireProject(projectId);
+    const byId = new Map(store.listNodes(projectId).map((node) => [node.id, node]));
+    const storedRoots = rootNodes.map((node) => byId.get(node.id)).filter(Boolean);
+    return { project: storedProject, rootNode: storedRoots[0], rootNodes: storedRoots, revision: storedProject.revision };
   }
 
   /**
@@ -931,7 +969,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       await store.withProjectLock(projectId, async () => {
         const locked = requireProject(projectId);
         locked.dashboard = { ...(locked.dashboard ?? {}), lastRun: { status: 'running', startedAt, error: null } };
-        await store.saveProject(locked);
+        await commitProjectFields(projectId, { dashboard: locked.dashboard });
       });
       const errors = [];
       let updated = 0;
@@ -990,10 +1028,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           updatedAt: now,
           nextRunAt: current.spec.enabled ? now + current.spec.intervalMinutes * 60_000 : null,
         };
-        locked.updatedAt = now;
-        await store.saveProject(locked);
-        await store.appendEvent(locked, status === 'ok' ? 'dashboard/updated' : 'dashboard/partial', {
-          data: { updated, errors: errors.length, durationMs: now - startedAt },
+        await commitProjectFields(projectId, { dashboard: locked.dashboard }, {
+          eventType: status === 'ok' ? 'dashboard/updated' : 'dashboard/partial',
+          eventData: { updated, errors: errors.length, durationMs: now - startedAt },
         });
       });
       return dashboardOf(requireProject(projectId));
@@ -1022,7 +1059,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         chat: [...history, pendingMessage].slice(-60),
         lastChat: { status: 'running', startedAt: at },
       };
-      await store.saveProject(locked);
+      await commitProjectFields(projectId, { dashboard: locked.dashboard });
     });
     const task = (async () => {
       try {
@@ -1054,9 +1091,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
             updatedAt: Date.now(),
             nextRunAt: nextSpec.enabled ? Date.now() + nextSpec.intervalMinutes * 60_000 : null,
           };
-          locked.updatedAt = Date.now();
-          await store.saveProject(locked);
-          await store.appendEvent(locked, 'dashboard/chat', { data: { widgetCount: widgets.length } });
+          await commitProjectFields(projectId, { dashboard: locked.dashboard }, {
+            eventType: 'dashboard/chat',
+            eventData: { widgetCount: widgets.length },
+          });
         });
       } catch (error) {
         await store.withProjectLock(projectId, async () => {
@@ -1066,7 +1104,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
             chat: [...history, { role: 'assistant', text: `Dashboard update failed: ${error instanceof Error ? error.message : String(error)}`, at: Date.now(), error: true }].slice(-60),
             lastChat: { status: 'error', startedAt: at, endedAt: Date.now(), error: error instanceof Error ? error.message : String(error) },
           };
-          await store.saveProject(locked);
+          await commitProjectFields(projectId, { dashboard: locked.dashboard });
         });
       } finally {
         dashboardChatRuns.delete(projectId);
@@ -1082,12 +1120,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (!Array.isArray(layouts)) throw new LabError('bad_request', 'layouts must be an array', 400);
     const allowed = new Set(current.widgets.map((widget) => widget.id));
     const safe = layouts.filter((entry) => entry && typeof entry.id === 'string' && allowed.has(entry.id));
-    project.dashboard = {
-      ...(project.dashboard ?? {}),
-      widgets: applyWidgetLayouts(current.widgets, safe),
-      updatedAt: Date.now(),
-    };
-    await store.saveProject(project);
+    await commitProjectFields(projectId, {
+      dashboard: {
+        ...(project.dashboard ?? {}),
+        widgets: applyWidgetLayouts(current.widgets, safe),
+        updatedAt: Date.now(),
+      },
+    });
     return { ...dashboardOf(project), running: dashboardRuns.has(projectId) };
   }
 
@@ -1096,21 +1135,22 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     let dash = dashboardOf(project);
     if (dash.lastChat?.status === 'running' && !dashboardChatRuns.has(projectId)) {
       const message = 'Dashboard chat was interrupted or timed out. Please retry.';
-      project.dashboard = {
-        ...(project.dashboard ?? {}),
-        chat: [
-          ...dash.chat.filter((entry) => !entry?.pending),
-          { role: 'assistant', text: message, at: Date.now(), error: true },
-        ].slice(-60),
-        lastChat: {
-          ...(dash.lastChat ?? {}),
-          status: 'error',
-          endedAt: Date.now(),
-          error: message,
+      await commitProjectFields(projectId, {
+        dashboard: {
+          ...(project.dashboard ?? {}),
+          chat: [
+            ...dash.chat.filter((entry) => !entry?.pending),
+            { role: 'assistant', text: message, at: Date.now(), error: true },
+          ].slice(-60),
+          lastChat: {
+            ...(dash.lastChat ?? {}),
+            status: 'error',
+            endedAt: Date.now(),
+            error: message,
+          },
         },
-      };
-      await store.saveProject(project);
-      dash = dashboardOf(project);
+      });
+      dash = dashboardOf(requireProject(projectId));
     }
     return { projectId, ...dash, running: dashboardRuns.has(projectId), chatting: dashboardChatRuns.has(projectId) };
   }
@@ -1129,11 +1169,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       updatedAt: Date.now(),
       nextRunAt: spec.enabled ? Date.now() + spec.intervalMinutes * 60_000 : null,
     };
-    project.dashboard = next;
-    project.updatedAt = Date.now();
-    await store.saveProject(project);
-    await store.appendEvent(project, 'dashboard/spec_updated', { data: { enabled: spec.enabled, intervalMinutes: spec.intervalMinutes } });
-    return { projectId, ...dashboardOf(project), running: dashboardRuns.has(projectId), chatting: dashboardChatRuns.has(projectId) };
+    await commitProjectFields(projectId, { dashboard: next }, {
+      eventType: 'dashboard/spec_updated',
+      eventData: { enabled: spec.enabled, intervalMinutes: spec.intervalMinutes },
+    });
+    return { projectId, ...dashboardOf(requireProject(projectId)), running: dashboardRuns.has(projectId), chatting: dashboardChatRuns.has(projectId) };
   }
 
   async function tickDashboards() {
@@ -1234,12 +1274,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         changed = true;
       }
       if (!changed) return { project, revision: project.revision };
-      project.revision += 1;
-      project.updatedAt = Date.now();
-      await store.saveProject(project);
-      await store.appendEvent(project, 'project/edited', { data: { revision: project.revision } });
-      await store.saveProject(project);
-      return { project, revision: project.revision };
+      const result = await commitProjectFields(projectId, {
+        name: project.name,
+        brief: project.brief,
+        config: project.config,
+      }, { eventType: 'project/edited', eventData: { revision: (project.revision ?? 0) + 1 } });
+      return { project: requireProject(projectId), revision: result.revision };
     });
   }
 
@@ -1321,12 +1361,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       }
       if (!changed) return { node, revision: project.revision };
       node.timestamps = { ...(node.timestamps ?? {}), lastActivityAt: Date.now() };
-      project.revision += 1;
-      project.updatedAt = Date.now();
-      await store.saveNode(projectId, node);
-      await store.appendEvent(project, 'node/edited', { nodeId, data: { revision: project.revision } });
-      await store.saveProject(project);
-      return { node, revision: project.revision, priority: node.priority ?? null };
+      const result = await commitMutations(projectId, [{
+        op: 'node.put',
+        node,
+        eventType: 'node/edited',
+        eventData: { revision: (project.revision ?? 0) + 1 },
+      }], actor ? { actor } : {});
+      return { node: store.getNode(projectId, nodeId), revision: result.revision, priority: node.priority ?? null };
     });
   }
 
@@ -1531,21 +1572,15 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       const project = requireProject(projectId);
       const log = Array.isArray(project.chatLog) ? project.chatLog.slice() : [];
       log.push({ id: `chat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, ...message });
-      project.chatLog = log.slice(-80);
-      project.revision = (project.revision ?? 0) + 1;
-      project.updatedAt = Date.now();
-      await store.saveProject(project);
-      return chatMessagesOf(project);
+      await commitProjectFields(projectId, { chatLog: log.slice(-80) });
+      return chatMessagesOf(requireProject(projectId));
     });
   }
 
   async function clearProjectChat(projectId) {
     return store.withProjectLock(projectId, async () => {
       const project = requireProject(projectId);
-      project.chatLog = [];
-      project.revision = (project.revision ?? 0) + 1;
-      project.updatedAt = Date.now();
-      await store.saveProject(project);
+      await commitProjectFields(projectId, { chatLog: [] });
       return { projectId, messages: [] };
     });
   }
@@ -1716,14 +1751,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         updatedAt: Date.now(),
         private: true,
       });
-      current.copilotSessions = next;
-      current.activeCopilotSessionId = sessionId;
-      // Backward-compatible alias for older client builds / status consumers.
-      current.copilotSessionId = sessionId;
-      current.revision = (current.revision ?? 0) + 1;
-      current.updatedAt = Date.now();
-      await store.saveProject(current);
-      return copilotSummaryOf(current);
+      await commitProjectFields(projectId, {
+        copilotSessions: next,
+        activeCopilotSessionId: sessionId,
+        // Backward-compatible alias for older client builds / status consumers.
+        copilotSessionId: sessionId,
+      });
+      return copilotSummaryOf(requireProject(projectId));
     });
   }
 
@@ -1800,9 +1834,15 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       if (!keep.some((entry) => entry.id === project.copilotSessionId)) {
         project.copilotSessionId = project.activeCopilotSessionId || '';
       }
-      project.updatedAt = Date.now();
-      project.revision = (project.revision ?? 0) + 1;
-      await store.saveProject(project);
+      await commitProjectFields(projectId, {
+        copilotSessions: keep,
+        activeCopilotSessionId: keep.some((entry) => entry.id === project.activeCopilotSessionId)
+          ? project.activeCopilotSessionId
+          : (keep[0]?.id ?? ''),
+        copilotSessionId: keep.some((entry) => entry.id === project.copilotSessionId)
+          ? project.copilotSessionId
+          : (keep[0]?.id ?? ''),
+      });
     });
   }
 
@@ -2379,7 +2419,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         // Ignore missing worktree root.
       }
     }
-    await store.deleteProject(projectId);
+    const deleted = await kernel.executor.deleteProject(projectId, { actor: { kind: 'human', id: 'operator' } });
+    if (deleted.ok !== true) throw new LabError(deleted.code ?? 'commit_failed', deleted.message ?? 'delete failed', 500);
     auto?.forget?.(projectId);
     return { deleted: true, projectId, worktreesRemoved, removeWorktrees };
   }
@@ -2483,10 +2524,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       sessionId = node.anchorSessionId;
     }
     if (!ensured.reused) {
-      await store.appendEvent(project, 'worktree/ensured', {
+      await commitMutations(projectId, [{
+        op: 'event.record',
+        type: 'worktree/ensured',
         nodeId,
         data: { path: ensured.worktreePath, branch: node.git.branch },
-      });
+      }], { causeId: `worktree:${nodeId}` });
     }
     return {
       projectId,
@@ -2867,10 +2910,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (op === 'confirm') data.note = text(input?.note, 'note', { max: 1000 });
     if (input?.nodeId) data.nodeId = text(input.nodeId, 'nodeId', { max: 120 });
     if (Array.isArray(input?.evidence)) data.evidence = input.evidence.slice(0, 10);
-    const event = await store.appendEvent(project, `ledger/${op}`, { actor: { kind: 'expert', id: data.expertId }, data });
-    project.revision = (project.revision ?? 0) + 1;
-    project.updatedAt = Date.now();
-    await store.saveProject(project);
+    const result = await commitMutations(projectId, [{
+      op: 'event.record',
+      type: `ledger/${op}`,
+      data,
+    }], { actor: { kind: 'expert', id: data.expertId }, causeId: `ledger:${projectId}:${data.expertId}` });
+    const event = result.events[0];
     ledgerReader.invalidate(projectId);
     return { ok: true, projectId, event: { seq: event.seq, type: event.type }, ledger: ledgerReader.view(projectId) };
   }

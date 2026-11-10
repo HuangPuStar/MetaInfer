@@ -295,7 +295,7 @@ function cycleId() {
 /**
  * @param {{ctx: object, store: object, git: object, runtime: object}} deps
  */
-export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
+export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }) {
   /**
    * Review claims (QA Q9): one expert at a time may propose a successor for one
    * parent. The board is liveness state; durable claim events are written by
@@ -332,14 +332,36 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     return project;
   }
 
-  async function persistProject(project) {
-    project.updatedAt = Date.now();
-    await store.saveProject(project);
+  async function commitMutations(projectId, mutations, options = {}) {
+    if (!kernel?.executor) throw new LabError('unavailable', 'orchestrator requires kernel.executor', 503);
+    const spec = {
+      actor: options.actor ?? { kind: 'system', id: options.source ?? 'orchestrator' },
+      causeId: options.causeId ?? `orchestrator:${projectId}`,
+      mutations,
+    };
+    const result = store.isProjectLocked?.(projectId) === true
+      ? await store.withWritePermit(() => kernel.executor.commitLocked(projectId, spec))
+      : await kernel.executor.commit(projectId, spec);
+    if (result.ok !== true) throw new LabError(result.code ?? 'commit_failed', result.message ?? 'commit failed', 500);
+    return result;
   }
 
   async function persistEvent(project, type, payload = {}) {
-    await store.appendEvent(project, type, payload);
-    await persistProject(project);
+    return commitMutations(project.id, [{
+      op: 'event.record',
+      type,
+      ...(payload.nodeId ? { nodeId: payload.nodeId } : {}),
+      data: payload.data ?? {},
+    }], { causeId: payload.causeId ?? `${type}:${project.id}` });
+  }
+
+  async function saveRun(projectId, record, eventType = 'run/saved', eventData = undefined) {
+    return commitMutations(projectId, [{
+      op: 'run.put',
+      run: record,
+      eventType,
+      ...(eventData ? { eventData } : {}),
+    }], { causeId: `${eventType}:${record.id}` });
   }
 
   async function ensureController(project) {
@@ -411,8 +433,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       inputBytes: Buffer.byteLength(promptText, 'utf8'),
       snapshotBytes: Buffer.byteLength(JSON.stringify(inputSnapshot ?? {}), 'utf8'),
     };
-    await store.saveRun(project.id, record);
-    await persistEvent(project, `${role}/started`, { runId: id, data: { cycleId: cycle.id } });
+    await saveRun(project.id, record, `${role}/started`, { runId: id, cycleId: cycle.id });
 
     let activation;
     let result = null;
@@ -473,10 +494,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       if (record.output && typeof record.output.analysis === 'string') record.analysis = record.output.analysis;
       if (!record.output) record.rawText = blocksText(result?.output);
     }
-    await store.saveRun(project.id, record);
-    await persistEvent(project, `${role}/finished`, {
+    await saveRun(project.id, record, `${role}/finished`, {
       runId: id,
-      data: { status: record.status, error: record.error ?? null, created: record.createdNodeIds?.length ?? 0 },
+      status: record.status,
+      error: record.error ?? null,
+      created: record.createdNodeIds?.length ?? 0,
     });
     return { record, failure };
   }
@@ -586,8 +608,12 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       // Tag failure is recorded by later reconciliation; the node is still sealed.
     }
     parent.timestamps = { ...(parent.timestamps ?? {}), sealedAt: Date.now() };
-    await store.saveNode(project.id, parent);
-    await persistEvent(project, 'node/sealed', { nodeId: parent.id, data: { tag, headCommit: head } });
+    await commitMutations(project.id, [{
+      op: 'node.put',
+      node: parent,
+      eventType: 'node/sealed',
+      eventData: { tag, headCommit: head },
+    }], { causeId: `seal:${parent.id}` });
   }
 
   /** Create a `proposed` node (confirm mode): no worktree, parent stays unfrozen. */
@@ -639,17 +665,20 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       },
       timestamps: { createdAt: now, lastActivityAt: null },
     };
-    await store.saveNode(project.id, node);
-    project.counters.nextNodeSeq = (project.counters.nextNodeSeq ?? 2) + 1;
-    project.counters.nodes = (project.counters.nodes ?? 0) + 1;
-    await persistEvent(project, 'node/proposed', {
-      nodeId,
-      data: { title: node.title, parentId: parent.id, createdBy: node.createdBy, timeboxMinutes: spec.timeboxMinutes },
-    });
-    project.revision = (project.revision ?? 0) + 1;
-    project.updatedAt = now;
-    await persistProject(project);
-    return node;
+    const counters = {
+      ...project.counters,
+      nextNodeSeq: (project.counters.nextNodeSeq ?? 2) + 1,
+      nodes: (project.counters.nodes ?? 0) + 1,
+    };
+    const result = await commitMutations(project.id, [{
+      op: 'node.create',
+      node,
+      counters,
+      eventType: 'node/proposed',
+      eventData: { title: node.title, parentId: parent.id, createdBy: node.createdBy, timeboxMinutes: spec.timeboxMinutes },
+    }], { causeId: `propose:${nodeId}` });
+    if (result.ok !== true) throw new LabError(result.code ?? 'commit_failed', result.message ?? 'proposal commit failed', 500);
+    return store.getNode(project.id, nodeId);
   }
 
   /** Create a planned child from a completed parent, commit and seal the parent. */
@@ -695,25 +724,27 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       },
       timestamps: { createdAt: now, lastActivityAt: null },
     };
-    await store.saveNode(project.id, node);
-    project.counters.nextNodeSeq = (project.counters.nextNodeSeq ?? 2) + 1;
-    project.counters.nodes = (project.counters.nodes ?? 0) + 1;
-    await persistEvent(project, 'node/created', {
-      nodeId,
-      data: {
+    const counters = {
+      ...project.counters,
+      nextNodeSeq: (project.counters.nextNodeSeq ?? 2) + 1,
+      nodes: (project.counters.nodes ?? 0) + 1,
+    };
+    await commitMutations(project.id, [{
+      op: 'node.create',
+      node,
+      counters,
+      eventType: 'node/created',
+      eventData: {
         title: node.title,
         parentId: parent.id,
         createdBy: node.createdBy,
         baseCommit: head,
         timeboxMinutes: spec.timeboxMinutes,
       },
-    });
+    }], { causeId: `create:${nodeId}` });
 
     await sealParent(project, parent, head);
-    project.revision = (project.revision ?? 0) + 1;
-    project.updatedAt = now;
-    await persistProject(project);
-    return node;
+    return store.getNode(project.id, nodeId);
   }
 
   async function applyAdvisorOutput(projectId, cycle, output) {
@@ -828,7 +859,12 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
               runId: cycle.advisorRunId,
               decision: 'proposed',
             };
-            await store.saveNode(projectId, parent);
+            await commitMutations(projectId, [{
+              op: 'node.put',
+              node: parent,
+              eventType: 'node/reviewed',
+              eventData: { decision: 'proposed', runId: cycle.advisorRunId },
+            }], { causeId: `review:${parent.id}` });
           }
         } catch (error) {
           applied.rejected.push({
@@ -862,7 +898,12 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
           runId: cycle.advisorRunId,
           decision: 'none',
         };
-        await store.saveNode(projectId, node);
+        await commitMutations(projectId, [{
+          op: 'node.put',
+          node,
+          eventType: 'node/reviewed',
+          eventData: { decision: 'none', runId: cycle.advisorRunId },
+        }], { causeId: `review:${node.id}` });
       }
     });
     } finally {
@@ -908,8 +949,12 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       skipped: [],
       errors: [],
     };
-    await store.saveCycle(projectId, cycle);
-    await persistEvent(project, 'cycle/started', { cycleId: cycle.id, data: { trigger } });
+    await commitMutations(projectId, [{
+      op: 'cycle.put',
+      cycle,
+      eventType: 'cycle/started',
+      eventData: { trigger },
+    }], { causeId: `cycle:${cycle.id}:started` });
 
     // --- advisor pass -------------------------------------------------------
     project = requireProject(projectId);
@@ -971,7 +1016,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
             run.record.rejected = index === 0 ? applied.rejected : [];
             run.record.panelSize = runs.length;
           });
-          for (const run of runs) await store.saveRun(projectId, run.record);
+          for (const run of runs) await saveRun(projectId, run.record, 'run/updated', { created: run.record.createdNodeIds?.length ?? 0 });
           if (applied.rejected.length > 0) {
             cycle.skipped.push({ stage: 'advisor', reason: `${applied.rejected.length} proposal(s) rejected` });
           }
@@ -1005,7 +1050,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
           cycle.startedNodeIds.push(...applied.startedNodeIds);
           record.startedNodeIds = applied.startedNodeIds;
           record.rejected = applied.rejected;
-          await store.saveRun(projectId, record);
+          await saveRun(projectId, record, 'run/updated', { started: applied.startedNodeIds.length });
           if (applied.rejected.length > 0) {
             cycle.skipped.push({ stage: 'scheduler', reason: `${applied.rejected.length} start(s) rejected` });
           }
@@ -1018,16 +1063,18 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     // --- finish -------------------------------------------------------------
     project = requireProject(projectId);
     cycle.endedAt = Date.now();
-    await store.saveCycle(projectId, cycle);
-    project.counters.cycles = (project.counters.cycles ?? 0) + 1;
-    await persistEvent(project, 'cycle/finished', {
-      cycleId: cycle.id,
-      data: {
+    const counters = { ...project.counters, cycles: (project.counters.cycles ?? 0) + 1 };
+    await commitMutations(projectId, [{
+      op: 'cycle.put',
+      cycle,
+      counters,
+      eventType: 'cycle/finished',
+      eventData: {
         created: cycle.createdNodeIds.length,
         started: cycle.startedNodeIds.length,
         errors: cycle.errors.length,
       },
-    });
+    }], { causeId: `cycle:${cycle.id}:finished` });
     return {
       cycle,
       created: cycle.createdNodeIds,
@@ -1118,16 +1165,18 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       }
       const commit = await git.commitWorktree(project, parent, `dshex(${parent.id}): ${parent.title} (approve)`);
       parent.git.headCommit = commit.head;
-      await store.saveNode(projectId, parent);
       await sealParent(project, parent, commit.head);
       node.git.baseCommit = commit.head;
       node.status = 'planned';
       node.approvedAt = Date.now();
       delete node.proposal;
-      await store.saveNode(projectId, node);
-      project.revision = (project.revision ?? 0) + 1;
-      await persistEvent(project, 'node/approved', { nodeId, data: { parentId: parent.id, headCommit: commit.head } });
-      return { node: store.getNode(projectId, nodeId), revision: project.revision };
+      const result = await commitMutations(projectId, [{
+        op: 'node.put',
+        node,
+        eventType: 'node/approved',
+        eventData: { parentId: parent.id, headCommit: commit.head },
+      }], { causeId: `approve:${nodeId}` });
+      return { node: store.getNode(projectId, nodeId), revision: result.revision };
     });
   }
 
@@ -1139,17 +1188,21 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       if (node.status !== 'proposed') {
         throw new LabError('node_not_proposed', `node ${nodeId} is ${node.status}, expected proposed`, 409);
       }
-      await store.deleteNode(projectId, nodeId);
-      project.counters.nodes = Math.max(0, (project.counters.nodes ?? 1) - 1);
+      const counters = { ...project.counters, nodes: Math.max(0, (project.counters.nodes ?? 1) - 1) };
+      const mutations = [{
+        op: 'node.delete',
+        nodeId,
+        counters,
+        eventType: 'node/rejected',
+        eventData: { parentId: node.parentId },
+      }];
       const parent = store.getNode(projectId, node.parentId);
       if (parent && store.listNodes(projectId).every((candidate) => candidate.parentId !== parent.id)) {
-        // The parent stays an actionable leaf again, so the advisor may re-propose later.
         delete parent.review;
-        await store.saveNode(projectId, parent);
+        mutations.push({ op: 'node.put', node: parent, eventType: 'node/reopened', eventData: { reason: 'proposal rejected' } });
       }
-      project.revision = (project.revision ?? 0) + 1;
-      await persistEvent(project, 'node/rejected', { nodeId, data: { parentId: node.parentId } });
-      return { nodeId, revision: project.revision };
+      const result = await commitMutations(projectId, mutations, { causeId: `reject:${nodeId}` });
+      return { nodeId, revision: result.revision };
     });
   }
 
@@ -1206,7 +1259,12 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       for (const parent of parents) {
         const commit = await git.commitWorktree(project, parent, `dshex(${parent.id}): ${parent.title} (merge freeze)`);
         parent.git.headCommit = commit.head;
-        await store.saveNode(projectId, parent);
+        await commitMutations(projectId, [{
+          op: 'node.put',
+          node: parent,
+          eventType: 'node/frozen',
+          eventData: { headCommit: commit.head, reason: 'merge freeze' },
+        }], { causeId: `freeze:${parent.id}` });
       }
       const primary = parents[0];
       const nodeId = `n-${String(project.counters.nextNodeSeq).padStart(4, '0')}`;
@@ -1251,19 +1309,22 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
         },
         timestamps: { createdAt: Date.now(), lastActivityAt: null },
       };
-      await store.saveNode(projectId, node);
-      project.counters.nextNodeSeq = (project.counters.nextNodeSeq ?? 2) + 1;
-      project.counters.nodes = (project.counters.nodes ?? 0) + 1;
-      await persistEvent(project, 'node/created', {
-        nodeId,
-        data: { title: node.title, parentId: primary.id, parentIds: ids, kind: 'merge', timeboxMinutes },
-      });
+      const counters = {
+        ...project.counters,
+        nextNodeSeq: (project.counters.nextNodeSeq ?? 2) + 1,
+        nodes: (project.counters.nodes ?? 0) + 1,
+      };
+      const result = await commitMutations(projectId, [{
+        op: 'node.create',
+        node,
+        counters,
+        eventType: 'node/created',
+        eventData: { title: node.title, parentId: primary.id, parentIds: ids, kind: 'merge', timeboxMinutes },
+      }], { causeId: `merge:${nodeId}` });
       for (const parent of parents) {
         await sealParent(project, parent, parent.git.headCommit);
       }
-      project.revision = (project.revision ?? 0) + 1;
-      await persistProject(project);
-      return { node: store.getNode(projectId, nodeId), revision: project.revision };
+      return { node: store.getNode(projectId, nodeId), revision: result.revision };
     });
   }
 
@@ -1305,7 +1366,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
           record.stopReason = 'cancelled';
           record.endedAt = Date.now();
           record.error = 'cancelled because auto mode was stopped';
-          await store.saveRun(projectId, record);
+          await saveRun(projectId, record, 'run/cancelled', { status: record.status });
         }
       } catch {
         // run record best-effort
