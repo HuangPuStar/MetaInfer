@@ -103,6 +103,10 @@ check('runtime cancel wrote a caused event', store.listEvents('p', 0).some((even
 
 const stats = store.writeStats();
 check('only the deliberate bypasses were rejected', stats.unpermitted === 3 && stats.byOp.saveProject === 1 && stats.byOp.deleteProject === 1 && stats.byOp.deleteEventRecord === 1, JSON.stringify(stats));
+// The executor path must still delete, because it holds the write permit.
+const deleted = await service.deleteProject('p');
+check('executor-mediated project deletion succeeds under throw', deleted.deleted === true && store.getProject('p') === undefined, JSON.stringify(deleted));
+check('permitted deletion did not count as a bypass', store.writeStats().unpermitted === 3, JSON.stringify(store.writeStats()));
 
 console.log(failed === 0 ? '\nstrict-writes-selftest: all checks passed' : `\nstrict-writes-selftest: ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
