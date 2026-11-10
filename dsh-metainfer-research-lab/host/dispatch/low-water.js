@@ -19,10 +19,11 @@
  */
 
 const DEFAULTS = Object.freeze({
-  planLatencyMs: 265_000,
+  // QA values: trigger with ~5 min of runnable work left, then debounce 60 s.
+  planLatencyMs: 300_000,
   safetyFactor: 1.0,
-  minRemainingMs: 60_000,
-  debounceMs: 120_000,
+  minRemainingMs: 300_000,
+  debounceMs: 60_000,
   minGapMs: 30_000,
 });
 

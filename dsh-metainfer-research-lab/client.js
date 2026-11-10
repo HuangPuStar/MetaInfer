@@ -7029,7 +7029,7 @@ window.__ModuleLoader__.load({
           { id: 'initialPrompt', path: 'initialPrompt', type: 'textarea', label: t('wizard.initialPrompt'), help: t('intake.help.initialPrompt'), required: true, group: 'research', rows: 4, default: '' },
           { id: 'resourcePools', path: 'config.resourcePools', type: 'pools', label: t('wizard.pools'), help: t('intake.help.pools'), required: true, group: 'limits', default: { gpu: 1 } },
           { id: 'maxRunningNodes', path: 'config.maxRunningNodes', type: 'number', label: t('wizard.maxRunningNodes'), help: '', required: false, group: 'limits', min: 1, max: 64, default: 4 },
-          { id: 'maxNodes', path: 'config.maxNodes', type: 'number', label: t('wizard.maxNodes'), help: '', required: false, group: 'limits', min: 1, max: 1000, default: 60 },
+          { id: 'maxNodes', path: 'config.maxNodes', type: 'number', label: t('wizard.maxNodes'), help: '', required: false, group: 'limits', min: 1, max: 20000, default: 60 },
           { id: 'nodeTimeoutMinutes', path: 'config.nodeTimeoutMinutes', type: 'number', label: t('wizard.nodeTimeoutMinutes'), help: t('intake.help.timeout'), required: false, group: 'timeouts', min: 1, max: 1440, default: 10 },
           { id: 'maxNodeTimeoutMinutes', path: 'config.maxNodeTimeoutMinutes', type: 'number', label: t('wizard.maxNodeTimeoutMinutes'), help: '', required: false, group: 'timeouts', min: 1, max: 1440, default: 240 },
         ],

@@ -17,8 +17,18 @@ import { ExecutionLog } from './execution-log.js';
 import { DEFAULT_DASHBOARD_SPEC, DASHBOARD_CHAT_SCHEMA, WIDGET_DATA_RESULT_SCHEMA, sanitizeDashboardSpec, normalizeWidgets, normalizeWidgetData, applyWidgetLayouts, buildWidgetPrompt, buildDashboardChatPrompt } from './dashboard.js';
 import { newProjectId, newSessionId } from './store.js';
 import { clampNodeTitle } from './titles.js';
+import { buildStatusFacts } from './observability/status.js';
+import { computeProjectMetrics, createMetricsCollector } from './observability/metrics.js';
+import { createExplainer } from './observability/explain.js';
+import { queryDag, dagGet } from './context/dag.js';
+import { createExplorationBudget } from './context/limits.js';
+import { createLedgerReader } from './context/ledger.js';
+import { normalizePriority } from './kernel/priority.js';
+import { rejection, toActionable } from './kernel/errors.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
+// A state index row never carries a full prompt; the inspector loads the node.
+const STATE_PROMPT_CHARS = 600;
 // Upper bound on independent root nodes created together with a project.
 const MAX_ROOT_NODES = 8;
 
@@ -140,7 +150,7 @@ function normalizeConfig(raw, base = undefined) {
       ? (previous.resourcePools ?? {})
       : normalizeResourcePools(input.resourcePools),
     maxRunningNodes: integer(input.maxRunningNodes, 'config.maxRunningNodes', previous.maxRunningNodes ?? 4, 1, 64),
-    maxNodes: integer(input.maxNodes, 'config.maxNodes', previous.maxNodes ?? 60, 1, 1000),
+    maxNodes: integer(input.maxNodes, 'config.maxNodes', previous.maxNodes ?? 60, 1, 20_000),
     // Cluster queue priority (higher starts sooner when several projects contend for one GPU).
     clusterPriority: integer(input.clusterPriority, 'config.clusterPriority', previous.clusterPriority ?? 0, 0, 100),
     nodeTimeoutMinutes,
@@ -452,7 +462,14 @@ function normalizeConfig(raw, base = undefined) {
 /**
  * @param {{store: object, git: object, version?: string}} deps
  */
-export function createLabService({ ctx, store, git, runtime, transcript, orchestrator, auto, cluster, clusterAdmin, version = '0.11.0' }) {
+export function createLabService({ ctx, store, git, runtime, transcript, orchestrator, auto, cluster, clusterAdmin, kernel = null, dispatchOnce = null, version = '0.11.0' }) {
+  const metricsCollector = createMetricsCollector();
+  const explainer = createExplainer({ store });
+  const ledgerReader = createLedgerReader({ store });
+  // Exploration budgets are per DSH session, not per call: a model that keeps
+  // navigating the DAG must run out of budget inside one pass.
+  const budgets = new Map();
+  const MAX_BUDGET_SESSIONS = 128;
   function requireProject(projectId) {
     const project = typeof projectId === 'string' ? store.getProject(projectId) : undefined;
     if (!project) throw new LabError('project_not_found', `unknown project: ${projectId}`, 404);
@@ -630,7 +647,41 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { project, rootNode: rootNodes[0], rootNodes, revision: project.revision };
   }
 
-  async function getState(projectId, sinceRevision) {
+  /**
+   * `state` is an index, not an archive (S4/D16): prompts and report bodies are
+   * capped here and the full records are fetched per node on selection
+   * (`getNode`). Without this, 5,000 nodes serialize to ~80 MB.
+   */
+  function stateNode(node) {
+    const out = { ...node };
+    const prompt = typeof node.prompt === 'string' ? node.prompt : null;
+    if (prompt !== null) {
+      out.prompt = prompt.slice(0, STATE_PROMPT_CHARS);
+      out.promptChars = prompt.length;
+      out.promptComplete = prompt.length <= STATE_PROMPT_CHARS;
+    }
+    const report = node.report && typeof node.report === 'object' ? node.report : null;
+    const summary = report && typeof report.summary === 'string' ? report.summary : '';
+    const reportText = typeof node.reportText === 'string' ? node.reportText : '';
+    delete out.reportText;
+    if (report !== null) {
+      const headline = (typeof report.headline === 'string' && report.headline.trim())
+        ? report.headline.trim().slice(0, 300)
+        : summary.split('\n')[0].slice(0, 300);
+      out.report = { ...report, summary: headline, headline, summaryChars: summary.length };
+    }
+    out.reportChars = summary.length || reportText.length;
+    out.reportAvailable = Boolean(summary || reportText);
+    if (Array.isArray(node.attempts) && node.attempts.length > 0) {
+      out.attempts = node.attempts.slice(-2).map((attempt) => ({
+        ...attempt,
+        error: attempt.error === undefined || attempt.error === null ? attempt.error : String(attempt.error).slice(0, 300),
+      }));
+    }
+    return out;
+  }
+
+  async function getState(projectId, sinceRevision, options = {}) {
     const project = requireProject(projectId);
     if (sinceRevision !== undefined && sinceRevision !== null && sinceRevision !== '') {
       const parsed = Number(sinceRevision);
@@ -641,6 +692,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const rawNodes = runtime
       ? runtime.decorateNodes(projectId, store.listNodes(projectId))
       : store.listNodes(projectId);
+    const projected = options.full === true ? rawNodes : rawNodes.map(stateNode);
     const parentIds = new Set();
     for (const node of rawNodes) {
       if (node.status === 'proposed') continue;
@@ -649,7 +701,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         : (node.parentId ? [node.parentId] : []);
       for (const id of ids) parentIds.add(id);
     }
-    const nodes = rawNodes.map((node) => ({
+    const nodes = projected.map((node) => ({
       ...node,
       sealed: parentIds.has(node.id),
       isLeaf: !parentIds.has(node.id),
@@ -686,7 +738,27 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       pendingProposals: nodes.filter((node) => node.status === 'proposed').length,
       auto: auto ? auto.statusOf(projectId) : { status: 'off', pauseReason: null },
       cluster: cluster ? cluster.getStatus() : { enabled: false, mode: 'local' },
+      _indexed: options.full !== true,
     };
+  }
+
+  /** Full record for one node (inspector/agent deep read); O(1) via the store index. */
+  function getNode(projectId, nodeId) {
+    requireProject(projectId);
+    const node = store.getNode(projectId, nodeId);
+    if (!node) throw new LabError('node_not_found', `unknown node: ${nodeId}`, 404);
+    const nodes = store.listNodes(projectId);
+    const parentIds = new Set();
+    for (const candidate of nodes) {
+      for (const id of candidate.parentIds ?? (candidate.parentId ? [candidate.parentId] : [])) parentIds.add(id);
+    }
+    return { ok: true, node, sealed: parentIds.has(node.id), isLeaf: !parentIds.has(node.id) };
+  }
+
+  /** Delta read (S10): node ids changed since a revision, or `full` when unknowable. */
+  function changesSince(projectId, sinceRevision) {
+    requireProject(projectId);
+    return store.changesSince(projectId, sinceRevision);
   }
 
   const dashboardRuns = new Map();
@@ -1067,9 +1139,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return () => clearInterval(timer);
   }
 
-  async function getEvents(projectId, after = 0) {
+  async function getEvents(projectId, after = 0, options = {}) {
     requireProject(projectId);
     const parsedAfter = Number.isFinite(Number(after)) ? Math.max(0, Math.trunc(Number(after))) : 0;
+    if (options.limit !== undefined) {
+      const page = store.pageEvents(projectId, { after: parsedAfter, limit: options.limit });
+      return { events: page.events, next: store.maxEventSeq(projectId), page: { total: page.total, hasMore: page.hasMore, nextSeq: page.nextSeq }, _truncated: page.hasMore ? { shown: page.events.length, total: page.total } : null };
+    }
     const events = store.listEvents(projectId, parsedAfter);
     return { events, next: store.maxEventSeq(projectId) };
   }
@@ -1152,10 +1228,34 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return store.withProjectLock(projectId, async () => {
       const project = requireProject(projectId);
       const node = requireNode(projectId, nodeId);
-      if (node.status !== 'planned' && node.status !== 'proposed') {
+      const FIELD_EDITS = ['title', 'prompt', 'successCriteria', 'timeboxMinutes', 'needs', 'model', 'executionProfile', 'taskType'];
+      const hasFieldEdits = FIELD_EDITS.some((key) => input?.[key] !== undefined);
+      if (hasFieldEdits && node.status !== 'planned' && node.status !== 'proposed') {
         throw new LabError('node_not_editable', 'only planned or proposed nodes can be edited', 409);
       }
       let changed = false;
+      let priorityChange = null;
+      if (input?.priority !== undefined) {
+        const classes = ['p0', 'p1', 'p2', 'p3', 'deferred'];
+        if (typeof input.priority !== 'object' || input.priority === null || Array.isArray(input.priority)) {
+          throw new LabError('bad_request', 'priority must be {class, score?}', 400);
+        }
+        if (input.priority.class !== undefined && !classes.includes(input.priority.class)) {
+          throw new LabError('bad_request', `priority.class must be one of ${classes.join(', ')}`, 400);
+        }
+        const before = normalizePriority(node.priority);
+        const after = normalizePriority({
+          ...before,
+          ...(input.priority.class !== undefined ? { class: input.priority.class } : {}),
+          ...(Number.isFinite(input.priority.score) ? { score: input.priority.score } : {}),
+          by: 'operator',
+          reason: typeof input.reason === 'string' && input.reason.trim() ? input.reason.trim().slice(0, 500) : 'manual priority change',
+          at: Date.now(),
+        });
+        node.priority = after;
+        priorityChange = { before, after };
+        changed = true;
+      }
       if (input?.title !== undefined) {
         // A title is a label: clamp an over-long edit instead of rejecting it.
         node.title = clampNodeTitle(text(input.title, 'title', { required: true }));
@@ -1207,9 +1307,16 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       project.revision += 1;
       project.updatedAt = Date.now();
       await store.saveNode(projectId, node);
+      if (priorityChange !== null) {
+        await store.appendEvent(project, 'node/priority_changed', {
+          nodeId,
+          actor: { kind: 'human', id: 'operator' },
+          data: { before: priorityChange.before, after: priorityChange.after, revision: project.revision },
+        });
+      }
       await store.appendEvent(project, 'node/edited', { nodeId, data: { revision: project.revision } });
       await store.saveProject(project);
-      return { node, revision: project.revision };
+      return { node, revision: project.revision, priority: node.priority ?? null };
     });
   }
 
@@ -2488,9 +2595,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return runtime.finishMerge(projectId, nodeId, input ?? {});
   }
 
-  async function listRuns(projectId) {
+  async function listRuns(projectId, limit) {
     if (!orchestrator) throw new LabError('unavailable', 'orchestrator is not wired', 503);
-    return orchestrator.listRuns(projectId);
+    return orchestrator.listRuns(projectId, limit);
   }
 
   async function getRun(projectId, runIdValue) {
@@ -2537,7 +2644,181 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
    * @param {object} input tool arguments.
    * @returns {Promise<object>} compact result object for the tool.
    */
-  async function agentTool(input) {
+  function budgetFor(exec) {
+    const sessionId = exec?.agent?.session?.id ?? 'anonymous';
+    let entry = budgets.get(sessionId);
+    if (!entry) {
+      entry = { budget: createExplorationBudget(), lastAt: Date.now() };
+      if (budgets.size >= MAX_BUDGET_SESSIONS) {
+        const oldest = [...budgets.entries()].sort((a, b) => a[1].lastAt - b[1].lastAt)[0];
+        if (oldest) budgets.delete(oldest[0]);
+      }
+      budgets.set(sessionId, entry);
+    }
+    entry.lastAt = Date.now();
+    return entry.budget;
+  }
+
+  function projectNodes(projectId) {
+    requireProject(projectId);
+    return store.listNodes(projectId);
+  }
+
+  async function dispatchOnceAction(projectId, options = {}) {
+    if (typeof dispatchOnce !== 'function') {
+      return rejection('unavailable', 'deterministic dispatch is not wired in this Host build');
+    }
+    requireProject(projectId);
+    const round = await dispatchOnce(projectId, options);
+    metricsCollector.recordDispatch(projectId, {
+      durationMs: round.durationMs ?? 0,
+      started: round.started ?? 0,
+      skipped: round.skipped ?? [],
+      at: Date.now(),
+    });
+    return { ...round, status: await statusFacts(projectId) };
+  }
+
+  async function statusFacts(projectId) {
+    const project = requireProject(projectId);
+    let autoStatus = null;
+    try {
+      autoStatus = auto.statusOf(projectId);
+    } catch {
+      autoStatus = null;
+    }
+    return buildStatusFacts({
+      project,
+      nodes: store.listNodes(projectId),
+      auto: autoStatus,
+      cluster,
+      now: Date.now(),
+    });
+  }
+
+  async function metricsFor(projectId) {
+    const project = requireProject(projectId);
+    let autoStatus = null;
+    try {
+      autoStatus = auto.statusOf(projectId);
+    } catch {
+      autoStatus = null;
+    }
+    return computeProjectMetrics({
+      project,
+      nodes: store.listNodes(projectId),
+      runs: store.listRuns(projectId, 100),
+      cycles: store.listCycles(projectId, 100),
+      live: metricsCollector.snapshot(projectId),
+      auto: autoStatus,
+      now: Date.now(),
+    });
+  }
+
+  function explainNode(projectId, nodeId, options = {}) {
+    requireProject(projectId);
+    return explainer.explainNode(projectId, nodeId, options);
+  }
+
+  function traceExplain(projectId, nodeId, options = {}) {
+    requireProject(projectId);
+    return explainer.traceExplain(projectId, nodeId, options);
+  }
+
+  async function dagQuery(projectId, input, exec) {
+    const budget = budgetFor(exec);
+    const nodes = projectNodes(projectId);
+    const result = queryDag({
+      nodes,
+      filter: input?.filter ?? {},
+      select: input?.select,
+      limit: input?.limit,
+      cursor: input?.cursor ?? null,
+      order: input?.order,
+    });
+    const bytes = Buffer.byteLength(JSON.stringify(result), 'utf8');
+    const charge = budget.charge({ bytes });
+    if (!charge.ok) return { ok: false, error: { code: charge.code, dimension: charge.dimension, message: charge.message, nextStep: charge.nextStep } };
+    return { ...result, budget: { remaining: charge.remaining } };
+  }
+
+  async function dagGetAction(projectId, input, exec) {
+    const budget = budgetFor(exec);
+    const result = dagGet({ nodes: projectNodes(projectId), nodeIds: input?.nodeIds ?? [], select: input?.select, neighbors: input?.neighbors !== false });
+    const bytes = Buffer.byteLength(JSON.stringify(result), 'utf8');
+    const charge = budget.charge({ bytes });
+    if (!charge.ok) return { ok: false, error: { code: charge.code, dimension: charge.dimension, message: charge.message, nextStep: charge.nextStep } };
+    return { ...result, budget: { remaining: charge.remaining } };
+  }
+
+  function ledgerRead(projectId, limits) {
+    requireProject(projectId);
+    return { ok: true, projectId, ledger: ledgerReader.view(projectId, limits) };
+  }
+
+  async function ledgerUpdate(projectId, input, exec) {
+    const project = requireProject(projectId);
+    const op = input?.op;
+    const id = text(input?.id, 'id', { required: true, max: 120 });
+    const known = ['open', 'confirm', 'rule_out'];
+    if (!known.includes(op)) {
+      return rejection('bad_request', `ledger op must be one of ${known.join(', ')}`);
+    }
+    const data = { id, expertId: exec?.agent?.session?.id ?? 'operator' };
+    if (op === 'open') data.hypothesis = text(input?.hypothesis, 'hypothesis', { required: true, max: 2000 });
+    if (op === 'rule_out') data.reason = text(input?.reason, 'reason', { required: true, max: 1000 });
+    if (op === 'confirm') data.note = text(input?.note, 'note', { max: 1000 });
+    if (input?.nodeId) data.nodeId = text(input.nodeId, 'nodeId', { max: 120 });
+    if (Array.isArray(input?.evidence)) data.evidence = input.evidence.slice(0, 10);
+    const event = await store.appendEvent(project, `ledger/${op}`, { actor: { kind: 'expert', id: data.expertId }, data });
+    project.revision = (project.revision ?? 0) + 1;
+    project.updatedAt = Date.now();
+    await store.saveProject(project);
+    ledgerReader.invalidate(projectId);
+    return { ok: true, projectId, event: { seq: event.seq, type: event.type }, ledger: ledgerReader.view(projectId) };
+  }
+
+  async function setNodePriority(projectId, nodeId, input) {
+    const project = requireProject(projectId);
+    const node = requireNode(projectId, nodeId);
+    const classes = ['p0', 'p1', 'p2', 'p3', 'deferred'];
+    if (input?.class !== undefined && !classes.includes(input.class)) {
+      return rejection('bad_request', `priority.class must be one of ${classes.join(', ')}`);
+    }
+    const before = normalizePriority(node.priority);
+    const after = normalizePriority({
+      ...before,
+      ...(input?.class !== undefined ? { class: input.class } : {}),
+      ...(Number.isFinite(input?.score) ? { score: input.score } : {}),
+      by: 'operator',
+      reason: typeof input?.reason === 'string' ? input.reason.slice(0, 500) : 'manual priority change',
+      at: Date.now(),
+    });
+    node.priority = after;
+    node.timestamps = { ...(node.timestamps ?? {}), updatedAt: Date.now() };
+    await store.saveNode(projectId, node);
+    const event = await store.appendEvent(project, 'node/priority_changed', {
+      nodeId,
+      actor: { kind: 'human', id: 'operator' },
+      data: { before, after },
+    });
+    project.revision = (project.revision ?? 0) + 1;
+    project.updatedAt = Date.now();
+    await store.saveProject(project);
+    return {
+      ok: true,
+      nodeId,
+      before,
+      after,
+      event: { seq: event.seq, type: event.type },
+      effect: after.class === 'p0'
+        ? 'The next dispatch tick will consider this node first.'
+        : 'The node keeps its place; runnable ordering updates on the next tick.',
+      nextToStart: (await statusFacts(projectId)).nextToStart.slice(0, 3),
+    };
+  }
+
+  async function agentTool(input, exec = null) {
     const action = input?.action;
     if (action === 'projects') return { projects: await listProjects() };
     if (action === 'status') {
@@ -2592,7 +2873,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         revision: result.revision,
       };
     }
-    if (action === 'state') return getState(input?.projectId);
+    if (action === 'state') return getState(input?.projectId, input?.sinceRevision, { full: input?.full === true });
+    if (action === 'changes_since') return changesSince(input?.projectId, input?.sinceRevision);
+    if (action === 'get_node') return getNode(input?.projectId, input?.nodeId);
     if (action === 'update_project') return updateProject(input?.projectId, input ?? {});
     if (action === 'update_node') return updateNode(input?.projectId, input?.nodeId, input ?? {});
     if (action === 'cluster') return getCluster(input?.projectId);
@@ -2644,7 +2927,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'auto_stop') return autoStop(input?.projectId);
     if (action === 'auto_resume') return autoResume(input?.projectId);
     if (action === 'auto_status') return autoStatus(input?.projectId);
-    if (action === 'runs') return listRuns(input?.projectId);
+    if (action === 'runs') return listRuns(input?.projectId, input?.limit);
+    if (action === 'runs_page') { requireProject(input?.projectId); return store.pageRuns(input?.projectId, { limit: input?.limit, cursor: input?.cursor }); }
     if (action === 'run') return getRun(input?.projectId, input?.runId);
     if (action === 'chat') return projectChat(input?.projectId, input?.text);
     if (action === 'clear_chat') return clearProjectChat(input?.projectId);
@@ -2656,6 +2940,16 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'intake_message') return messageIntake(input?.intakeId, input?.text);
     if (action === 'intake_confirm') return confirmIntake(input?.intakeId, { start: input?.start === true });
     if (action === 'intake_discard') return discardIntake(input?.intakeId);
+    if (action === 'status_facts') return statusFacts(input?.projectId);
+    if (action === 'dispatch_once') return dispatchOnceAction(input?.projectId, { maxStarts: input?.limit });
+    if (action === 'metrics') return metricsFor(input?.projectId);
+    if (action === 'explain_node') return explainNode(input?.projectId, input?.nodeId, { window: input?.window });
+    if (action === 'trace_explain') return traceExplain(input?.projectId, input?.nodeId, { window: input?.window });
+    if (action === 'dag_query') return dagQuery(input?.projectId, input, exec);
+    if (action === 'dag_get') return dagGetAction(input?.projectId, input, exec);
+    if (action === 'ledger_read') return ledgerRead(input?.projectId, input?.limits);
+    if (action === 'ledger_update') return ledgerUpdate(input?.projectId, input, exec);
+    if (action === 'set_priority') return setNodePriority(input?.projectId, input?.nodeId, input);
     throw new LabError('unknown_command', `unknown metainfer_lab action: ${String(action)}`, 400);
   }
 
@@ -2678,6 +2972,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     validateRepo,
     createProject,
     getState,
+    getNode,
+    changesSince,
     getEvents,
     getReplay,
     updateProject,
@@ -2731,5 +3027,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     listRuns,
     getRun,
     agentTool,
+    statusFacts,
+    metricsFor,
+    dispatchOnce: dispatchOnceAction,
+    explainNode,
+    traceExplain,
+    dagQuery,
+    dagGet: dagGetAction,
+    ledgerRead,
+    ledgerUpdate,
+    setNodePriority,
+    metricsCollector,
+    toActionable,
   };
 }

@@ -1,12 +1,48 @@
 /**
- * Global agent tool exposing the lab operations (same service the UI calls).
- * This is intentionally one small dispatcher: `metainfer_lab`.
+ * The `metainfer_lab` agent tool (fix for docs/issues/0001-agent-tool-scope-drift).
+ *
+ * DSH tool schemas are static and global, so the action enum cannot be narrowed
+ * per preset. The allowlist is therefore enforced here and in the service: the
+ * actor is derived from the DSH session (`exec.agent.session.header.meta.
+ * agentPreset`), never from model arguments, and a disallowed action returns
+ * `forbidden_action` with an actionable next step instead of silently exposing
+ * the full surface to a worker.
  */
+import { actorFromToolExecution, authorizeAction } from './kernel/policy.js';
+import { rejection, toActionable } from './kernel/errors.js';
 const ACTION_ENUM = [
+  'dag_map',
+  'dag_query',
+  'dag_walk',
+  'dag_get',
+  'dag_diff',
+  'ledger_read',
+  'ledger_update',
+  'intent_submit',
+  'intent_list',
+  'claim_review',
+  'release_review',
+  'review_claims',
+  'experts_list',
+  'expert_upsert',
+  'curator_scan',
+  'curator_nominate',
+  'status_facts',
+  'metrics',
+  'explain_node',
+  'trace_explain',
+  'changes_since',
+  'nodes_page',
+  'events_page',
+  'runs_page',
+  'set_priority',
+  'dispatch_once',
+  'health',
   'projects',
   'status',
   'create_project',
   'state',
+  'get_node',
   'update_project',
   'update_node',
   'start_node',
@@ -110,6 +146,23 @@ export function registerAgentTool(ctx, service) {
         dashboardSpec: { type: 'object', additionalProperties: true, description: 'for dashboard_update: {title,prompt,mode,script,intervalMinutes,enabled}' },
         layouts: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'for dashboard_layout: [{id,x,y,w,h}]' },
         intakeId: { type: 'string', description: 'for intake_read/intake_patch/intake_ready: the new-project intake draft id' },
+        filter: { type: 'object', additionalProperties: true, description: 'for dag_query: {status, subtreeOf, depth:{min,max}, since, text, parentId}' },
+        select: { type: 'array', items: { type: 'string' }, description: 'for dag_query/dag_get: node fields to return (default compact)' },
+        limit: { type: 'number', description: 'for dag_query/nodes_page/events_page/runs_page: page size (bounded by the Host)' },
+        cursor: { type: 'string', description: 'opaque cursor from a previous page; do not invent one' },
+        order: { type: 'string', enum: ['created', 'recent', 'priority'], description: 'for dag_query: stable ordering' },
+        nodeIds: { type: 'array', items: { type: 'string' }, description: 'for dag_get: node ids (max 50)' },
+        neighbors: { type: 'boolean', description: 'for dag_get: include direct parents/children (default true)' },
+        op: { type: 'string', enum: ['open', 'confirm', 'rule_out'], description: 'for ledger_update' },
+        hypothesis: { type: 'string', description: 'for ledger_update op=open' },
+        evidence: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'evidence pointers {kind,ref,note?}; never log bodies' },
+        reason: { type: 'string', description: 'for ledger_update op=rule_out or set_priority' },
+        note: { type: 'string', description: 'for ledger_update op=confirm' },
+        priority: { type: 'object', additionalProperties: true, description: 'for set_priority: {class, score?}' },
+        class: { type: 'string', enum: ['p0', 'p1', 'p2', 'p3', 'deferred'], description: 'for set_priority' },
+        score: { type: 'number', description: 'for set_priority: tie-breaker score' },
+        sinceRevision: { type: 'number', description: 'for changes_since: return only records changed after this revision' },
+        window: { type: 'number', description: 'for explain_node/trace_explain: event window size (bounded by the Host)' },
         values: { type: 'object', additionalProperties: true, description: 'for intake_patch: {fieldId: value} patch' },
         schema: { type: 'object', additionalProperties: true, description: 'for intake_start: the new-project form schema (fields with id/path/type/default/required)' },
         start: { type: 'boolean', description: 'for intake_confirm: start the root node after creating the project' },
@@ -130,20 +183,18 @@ export function registerAgentTool(ctx, service) {
       },
     },
     timeoutMs: 300_000,
-    async execute(args) {
+    async execute(args, exec) {
+      const action = args?.action;
+      const actor = actorFromToolExecution(exec);
+      const verdict = authorizeAction(actor, action);
+      if (!verdict.ok) {
+        return { result: JSON.stringify(rejection(verdict.code, verdict.message, { allowed: verdict.allowed, preset: actor.preset })) };
+      }
       try {
-        const data = await service.agentTool(args ?? {});
+        const data = await service.agentTool(args ?? {}, exec);
         return { result: JSON.stringify(data) };
       } catch (error) {
-        return {
-          result: JSON.stringify({
-            ok: false,
-            error: {
-              code: typeof error?.code === 'string' ? error.code : 'error',
-              message: error instanceof Error ? error.message : String(error),
-            },
-          }),
-        };
+        return { result: JSON.stringify(toActionable(error, { action })) };
       }
     },
   });

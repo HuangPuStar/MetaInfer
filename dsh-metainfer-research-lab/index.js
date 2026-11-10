@@ -24,6 +24,9 @@ import { reconcileRunningNodes, reconcileRunningRuns } from './host/reconcile.js
 import { createGcRunner } from './host/gc.js';
 import { createAutoController } from './host/auto.js';
 import { createClusterAdmin } from './host/cluster.js';
+import { createKernel } from './host/kernel/instance.js';
+import { createDispatchOnce } from './host/dispatch/dispatch-once.js';
+import { createLocalPoolBroker, createClusterBroker } from './host/dispatch/brokers.js';
 
 export const name = 'metainfer-research-lab';
 export const inject = [
@@ -67,6 +70,10 @@ export async function apply(ctx) {
     );
   }
   const git = createGitEngine(ctx);
+  // The kernel is the only writer for claims; the projection is kept in sync with
+  // legacy writer paths by the store subscription inside createKernel.
+  const kernel = createKernel({ store, logger: ctx.logger });
+  for (const project of store.listProjects()) kernel.load(project.id);
 
   // Lightweight cluster coordinator (optional, enabled by
   // ~/.dsh/metainfer-research-lab/cluster.json). Absent => local mode unchanged.
@@ -86,19 +93,58 @@ export async function apply(ctx) {
   const reconciledRuns = await reconcileRunningRuns({ store });
 
   let gcRunner = null;
+  // One long-lived broker map per project: leases must survive across ticks.
+  const brokerMaps = new Map();
+  function brokersFor(projectId) {
+    let map = brokerMaps.get(projectId);
+    if (map) return map;
+    map = new Map();
+    map.set('local-pool', createLocalPoolBroker({
+      limits: () => {
+        const project = store.getProject(projectId);
+        return {
+          maxRunningNodes: project?.config?.maxRunningNodes ?? Infinity,
+          resourcePools: project?.config?.resourcePools ?? {},
+        };
+      },
+    }));
+    if (cluster?.enabled === true) map.set('cluster', createClusterBroker({ cluster }));
+    brokerMaps.set(projectId, map);
+    return map;
+  }
+
+  function dispatchOnce(projectId, options = {}) {
+    const project = store.getProject(projectId);
+    if (!project) return Promise.resolve({ started: 0, startedNodeIds: [], skipped: [{ status: 'project_not_found' }], durationMs: 0 });
+    kernel.load(projectId);
+    const brokers = brokersFor(projectId);
+    for (const broker of brokers.values()) broker.releaseOrphans?.(store.listNodes(projectId));
+    const dispatcher = createDispatchOnce({
+      projectId,
+      executor: kernel.executor,
+      projection: kernel.projection,
+      brokers,
+      launcher: { start: (pid, nodeId, opts) => runtime.start(pid, nodeId, opts) },
+      maxStarts: options.maxStarts ?? 8,
+    });
+    return dispatcher.run({ maxStarts: options.maxStarts });
+  }
+
   const runtime = createRuntime({
     ctx,
     store,
     git,
     onTerminated: (projectId, nodeId, termination) => {
       gcRunner?.run(projectId, nodeId, termination).catch(() => {});
+      // Backfill immediately instead of waiting for the next 2 s tick.
+      dispatchOnce(projectId, { maxStarts: 4 }).catch(() => {});
     },
     cluster,
   });
   const transcript = createTranscriptReader({ ctx, store });
   const orchestrator = createOrchestrator({ ctx, store, git, runtime, cluster });
   gcRunner = createGcRunner({ ctx, store, orchestrator });
-  const auto = createAutoController({ store, orchestrator, cluster });
+  const auto = createAutoController({ store, orchestrator, cluster, dispatchOnce });
   const service = createLabService({
     ctx,
     store,
@@ -109,6 +155,8 @@ export async function apply(ctx) {
     auto,
     cluster,
     clusterAdmin,
+    kernel,
+    dispatchOnce,
     version: '0.11.0',
   });
 
@@ -173,6 +221,11 @@ export async function apply(ctx) {
   ctx.effect(
     () => () => runtime.dispose(),
     'metainfer-research-lab: runtime',
+  );
+
+  ctx.effect(
+    () => () => kernel.dispose(),
+    'metainfer-research-lab: kernel projection',
   );
 
   ctx.effect(

@@ -19,9 +19,10 @@ const DEFAULT_TOKEN_ESTIMATE = (bytes) => Math.ceil(bytes / 3.5);
  * @param {(bytes: number) => number} [options.tokenEstimate]
  */
 export function createExplorationBudget({
-  maxQueries = 40,
-  maxQueryTokens = 60_000,
-  wallClockMs = 10 * 60 * 1000,
+  // Adjudicated QA values (2026-11-10): a pass is cheap but bounded.
+  maxQueries = 4,
+  maxQueryTokens = 20_000,
+  wallClockMs = 4 * 60 * 1000,
   clock = Date.now,
   tokenEstimate = DEFAULT_TOKEN_ESTIMATE,
 } = {}) {

@@ -1166,6 +1166,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       if (node.status !== 'planned') {
         throw new LabError('node_not_startable', `node ${nodeId} is ${node.status}, expected planned`, 409);
       }
+      // The dispatcher commits `node.claim` before launching; the runtime adopts
+      // the start and must not leave a stale claim on a running node.
+      delete node.claim;
       if (cluster?.enabled && gpuNeed > 0) {
         const running = store.listNodes(projectId).filter((candidate) => candidate.status === 'running');
         if (running.length >= project.config.maxRunningNodes) {

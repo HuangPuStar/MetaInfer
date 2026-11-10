@@ -111,6 +111,26 @@ export function createProjection({ store, strict = false, clock = Date.now }) {
     }
   }
 
+  /**
+   * Mirror a write made outside the executor (legacy runtime/service writes).
+   * The store calls this for every saveNode; without it the projection would
+   * serve stale statuses to the dispatcher.
+   */
+  function syncNode(projectId, node) {
+    const index = projects.get(projectId);
+    if (!index) return;
+    const previous = index.byId.get(node.id);
+    if (previous) unindex(index, previous);
+    indexNode(index, node);
+  }
+
+  function removeNode(projectId, nodeId) {
+    const index = projects.get(projectId);
+    if (!index) return;
+    const previous = index.byId.get(nodeId);
+    if (previous) unindex(index, previous);
+  }
+
   function getNode(projectId, nodeId) {
     return indexFor(projectId).byId.get(nodeId);
   }
@@ -181,6 +201,8 @@ export function createProjection({ store, strict = false, clock = Date.now }) {
     unload,
     applyCommit,
     getNode,
+    syncNode,
+    removeNode,
     listNodes,
     listByStatus,
     countByStatus,

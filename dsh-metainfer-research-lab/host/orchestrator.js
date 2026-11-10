@@ -1267,11 +1267,13 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     });
   }
 
-  function listRuns(projectId) {
+  function listRuns(projectId, limit = 50) {
     requireProject(projectId);
+    const size = Math.max(1, Math.min(500, Number.isFinite(limit) ? limit : 50));
     return {
-      runs: store.listRuns(projectId, 50),
-      cycles: store.listCycles(projectId, 50),
+      runs: store.listRuns(projectId, size),
+      cycles: store.listCycles(projectId, size),
+      _truncated: null,
     };
   }
 

@@ -21,10 +21,10 @@ function harness({ remainingMs = 0, queueDepth = 0, now = 0, ...options } = {}) 
     getRemainingMs: () => state.remainingMs,
     getQueueDepth: () => state.queueDepth,
     clock: () => state.now,
-    planLatencyMs: 265_000,
-    debounceMs: 120_000,
+    planLatencyMs: 300_000,
+    debounceMs: 60_000,
     minGapMs: 30_000,
-    minRemainingMs: 60_000,
+    minRemainingMs: 300_000,
     ...options,
   });
   return { planner, state };
@@ -37,7 +37,7 @@ test('does not trigger while the queue is above the watermark', () => {
   const decision = planner.evaluate();
   assert.equal(decision.trigger, false);
   assert.equal(decision.reason, 'above_watermark');
-  assert.equal(decision.thresholdMs, 265_000);
+  assert.equal(decision.thresholdMs, 300_000);
 });
 
 test('triggers when remaining work is below planner latency', () => {
@@ -60,9 +60,9 @@ test('a burst of terminations inside the debounce window fires once', () => {
   const second = planner.evaluate();
   assert.equal(second.trigger, false);
   assert.equal(second.reason, 'debounced');
-  state.now += 60_000;
-  assert.equal(planner.evaluate().trigger, false, 'still inside debounce');
-  state.now += 60_000;
+  state.now += 30_000;
+  assert.equal(planner.evaluate().trigger, false, 'still inside the 60 s debounce');
+  state.now += 30_000;
   assert.equal(planner.evaluate().trigger, true, 'debounce expired and work is still low');
 });
 
@@ -110,8 +110,8 @@ test('the watermark adapts to planner latency and safety factor', () => {
   const config = planningConfigOf({ config: { planning: { planLatencyMs: 600_000, safetyFactor: 1.5 } } });
   assert.equal(config.planLatencyMs, 600_000);
   assert.equal(config.safetyFactor, 1.5);
-  assert.equal(planningConfigOf({}).planLatencyMs, 265_000);
-  assert.equal(planningConfigOf({ config: { planning: { debounceMs: -1 } } }).debounceMs, 120_000);
+  assert.equal(planningConfigOf({}).planLatencyMs, 300_000);
+  assert.equal(planningConfigOf({ config: { planning: { debounceMs: -1 } } }).debounceMs, 60_000);
 });
 
 test('state() exposes the last decision for the metrics surface', () => {

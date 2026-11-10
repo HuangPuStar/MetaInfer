@@ -207,3 +207,157 @@ export function childrenIndex(nodes) {
   }
   return map;
 }
+
+/**
+ * Group nodes for a coarse map (dag_map). Bounded: each bucket lists at most
+ * `sample` ids and reports the full count, so a 5,000-node DAG returns a map,
+ * not a dump.
+ * @param {object} input
+ * @param {object[]} input.nodes
+ * @param {'status'|'depth'|'owner'|'parent'} [input.by]
+ * @param {number} [input.sample]
+ */
+export function mapDag({ nodes, by = 'status', sample = 5 }) {
+  const groups = new Map();
+  let depth = null;
+  if (by === 'depth') {
+    depth = new Map();
+    const visiting = new Set();
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const depthOf = (node) => {
+      if (depth.has(node.id)) return depth.get(node.id);
+      if (visiting.has(node.id)) return 0;
+      visiting.add(node.id);
+      const parents = parentsOf(node).filter((id) => byId.has(id));
+      const value = parents.length === 0 ? 0 : 1 + Math.max(...parents.map((id) => depthOf(byId.get(id))));
+      visiting.delete(node.id);
+      depth.set(node.id, value);
+      return value;
+    };
+    for (const node of nodes) depthOf(node);
+  }
+  for (const node of nodes) {
+    const key = by === 'status' ? node.status
+      : by === 'depth' ? String(depth.get(node.id) ?? 0)
+        : by === 'owner' ? (node.createdBy ?? node.source?.expertId ?? 'unknown')
+          : (parentsOf(node)[0] ?? 'root');
+    if (!groups.has(key)) groups.set(key, { key, count: 0, sample: [], statuses: {} });
+    const group = groups.get(key);
+    group.count += 1;
+    group.statuses[node.status] = (group.statuses[node.status] ?? 0) + 1;
+    if (group.sample.length < sample) group.sample.push(node.id);
+  }
+  const sorted = [...groups.values()].sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  return {
+    ok: true,
+    by,
+    groups: sorted,
+    total: nodes.length,
+    _truncated: null,
+  };
+}
+
+/**
+ * Bounded walk (dag_walk): BFS from one node, up or down, with an explicit
+ * node cap. Returns nodes and the edges traversed.
+ * @param {object} input
+ * @param {object[]} input.nodes
+ * @param {string} input.from
+ * @param {'down'|'up'} [input.direction]
+ * @param {number} [input.depth]
+ * @param {number} [input.limit]
+ */
+export function walkDag({ nodes, from, direction = 'down', depth = 3, limit = 100 }) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  if (!byId.has(from)) return { ok: false, code: 'node_not_found', message: `node ${from} does not exist` };
+  const children = childrenIndex(nodes);
+  const parents = new Map();
+  for (const node of nodes) parents.set(node.id, parentsOf(node));
+  const maxDepth = Math.max(1, Math.min(20, Number.isFinite(depth) ? depth : 3));
+  const maxNodes = Math.max(1, Math.min(MAX_QUERY_LIMIT, Number.isFinite(limit) ? limit : 100));
+  const seen = new Set([from]);
+  const edges = [];
+  let frontier = [from];
+  let level = 0;
+  let truncated = false;
+  while (frontier.length > 0 && level < maxDepth && seen.size < maxNodes) {
+    const next = [];
+    for (const id of frontier) {
+      const neighbors = direction === 'up' ? (parents.get(id) ?? []) : (children.get(id) ?? []);
+      for (const neighbor of neighbors) {
+        if (!byId.has(neighbor)) continue;
+        edges.push({ from: direction === 'up' ? neighbor : id, to: direction === 'up' ? id : neighbor });
+        if (seen.has(neighbor)) continue;
+        if (seen.size >= maxNodes) { truncated = true; break; }
+        seen.add(neighbor);
+        next.push(neighbor);
+      }
+      if (truncated) break;
+    }
+    frontier = next;
+    level += 1;
+  }
+  if (frontier.length > 0) truncated = true;
+  const rows = [...seen].map((id) => projectRow(byId.get(id)));
+  return { ok: true, from, direction, depth: maxDepth, nodes: rows, edges, truncated: truncated ? { shown: rows.length, total: null } : null };
+}
+
+/**
+ * Diff two node snapshots (dag_diff / changes_since). Pure; the caller supplies
+ * the previous snapshot and the current nodes.
+ * @param {{byId: Map<string, object>, revision?: number}} before
+ * @param {object[]} afterNodes
+ * @param {number} [revision]
+ */
+export function diffSnapshots(before, afterNodes, revision = null) {
+  const after = new Map(afterNodes.map((node) => [node.id, node]));
+  const added = [];
+  const removed = [];
+  const changed = [];
+  for (const [id, node] of after) {
+    const previous = before?.byId?.get(id);
+    if (!previous) { added.push(id); continue; }
+    const fields = [];
+    if (previous.status !== node.status) fields.push('status');
+    if ((previous.rev ?? 0) !== (node.rev ?? 0)) fields.push('rev');
+    if (JSON.stringify(previous.priority?.class) !== JSON.stringify(node.priority?.class)) fields.push('priority');
+    if (JSON.stringify(previous.lease?.leaseId) !== JSON.stringify(node.lease?.leaseId)) fields.push('lease');
+    if (fields.length > 0) changed.push({ nodeId: id, fields, status: node.status, rev: node.rev ?? 0 });
+  }
+  for (const id of before?.byId?.keys?.() ?? []) {
+    if (!after.has(id)) removed.push(id);
+  }
+  return {
+    ok: true,
+    fromRevision: before?.revision ?? null,
+    toRevision: revision,
+    added,
+    removed,
+    changed,
+    counts: { added: added.length, removed: removed.length, changed: changed.length },
+  };
+}
+
+/**
+ * Keep one bounded snapshot per project for delta queries. In-memory only:
+ * a cold start returns the full node set as `added`, which is a valid delta.
+ */
+export function createDiffCache({ maxProjects = 16, clock = Date.now } = {}) {
+  const cache = new Map();
+  function diff(projectId, nodes, revision) {
+    const before = cache.get(projectId) ?? null;
+    const result = diffSnapshots(before, nodes, revision);
+    const byId = new Map(nodes.map((node) => [node.id, {
+      id: node.id,
+      status: node.status,
+      rev: node.rev ?? 0,
+      priority: node.priority ?? null,
+      lease: node.lease ? { leaseId: node.lease.leaseId } : null,
+    }]));
+    cache.delete(projectId);
+    if (cache.size >= maxProjects) cache.delete(cache.keys().next().value);
+    cache.set(projectId, { byId, revision, at: clock() });
+    return { ...result, coldStart: before === null };
+  }
+  return { diff, reset: (projectId) => cache.delete(projectId) };
+}

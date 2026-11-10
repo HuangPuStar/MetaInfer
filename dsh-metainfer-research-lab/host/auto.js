@@ -15,7 +15,7 @@ function newNodeCount(nodes) {
 /**
  * @param {{ctx: object, store: object, orchestrator: object, intervalMs?: number}} deps
  */
-export function createAutoController({ store, orchestrator, cluster, intervalMs = 2000 }) {
+export function createAutoController({ store, orchestrator, cluster, dispatchOnce = null, intervalMs = 2000 }) {
   const states = new Map();
   const busy = new Set();
   const planners = new Map();
@@ -250,6 +250,30 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
     const summary = runnableSummary(nodes, { now: Date.now() });
     const planner = plannerOf(project);
     const trigger = planner.evaluate({ remainingMs: summary.remainingMs, queueDepth: summary.runnable });
+
+    // Deterministic fast path (B3/B10): fill free slots without a model call.
+    // Only when it actually starts something do we skip the planning cycle;
+    // otherwise the cycle still runs so a waiting expert can be consulted.
+    if (typeof dispatchOnce === 'function' && !busy.has(projectId)) {
+      try {
+        const round = await dispatchOnce(projectId, { maxStarts: 4 });
+        if (round?.started > 0) {
+          busy.add(projectId);
+          try {
+            state.dispatchStarted = (state.dispatchStarted ?? 0) + round.started;
+            state.lastDispatchAt = Date.now();
+            state.lastCycleAt = Date.now();
+            state.idleStreak = 0;
+          } finally {
+            busy.delete(projectId);
+          }
+          return undefined;
+        }
+        if (round) state.lastDispatch = { started: round.started, skipped: round.skipped?.length ?? 0, durationMs: round.durationMs ?? null, at: Date.now() };
+      } catch {
+        // Dispatch is best-effort on the tick; the cycle below still runs.
+      }
+    }
     // Unreviewed completed leaves are always worth planning for; queue depth is
     // paced by the low-water trigger so a long-running batch is not replanned
     // every tick.

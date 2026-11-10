@@ -76,6 +76,21 @@ export function createLocalPoolBroker({ limits, clock = Date.now }) {
       const known = leases.get(lease?.leaseId);
       return Boolean(known && known.projectId === projectId && known.nodeId === nodeId);
     },
+    /**
+     * Release leases whose node is no longer running. The runtime does not know
+     * about the broker, so the dispatcher sweeps orphans on every round instead
+     * of leaking a slot when a node completes/cancels between two rounds.
+     */
+    releaseOrphans(nodes) {
+      const live = new Set(nodes.filter((node) => node.status === 'running').map((node) => node.id));
+      const released = [];
+      for (const [leaseId, lease] of leases) {
+        if (live.has(lease.nodeId)) continue;
+        leases.delete(leaseId);
+        released.push(leaseId);
+      }
+      return released;
+    },
     /** Boot reconciliation: re-register the leases of nodes that are still running. */
     adopt(lease) {
       leases.set(lease.leaseId, { ...lease, broker: 'local-pool' });

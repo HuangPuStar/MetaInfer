@@ -121,12 +121,27 @@ export function registerHttpRoutes(ctx, service) {
     const params = query(request);
     const projectId = params.get('projectId');
     const revision = params.get('revision');
-    return ok(await service.getState(projectId, revision));
+    return ok(await service.getState(projectId, revision, { full: params.get('full') === '1' }));
+  });
+
+  route(`${PREFIX}/node`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(await service.getNode(params.get('projectId'), params.get('nodeId')));
+  });
+
+  route(`${PREFIX}/changes`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(service.changesSince(params.get('projectId'), params.get('revision') ?? 0));
   });
 
   route(`${PREFIX}/events`, ['GET'], async (request) => {
     const params = query(request);
-    return ok(await service.getEvents(params.get('projectId'), params.get('after') ?? 0));
+    const limit = params.get('limit');
+    return ok(await service.getEvents(
+      params.get('projectId'),
+      params.get('after') ?? 0,
+      limit === null ? {} : { limit: Number(limit) },
+    ));
   });
 
   route(`${PREFIX}/cluster/config`, ['GET'], async () => ok(await service.getClusterConfig()));
@@ -161,6 +176,8 @@ export function registerHttpRoutes(ctx, service) {
     const projectId = params.get('projectId');
     const runIdValue = params.get('runId');
     if (runIdValue) return ok(await service.getRun(projectId, runIdValue));
+    const limit = Number(params.get('limit'));
+    if (Number.isFinite(limit)) return ok(await service.listRuns(projectId, limit));
     return ok(await service.listRuns(projectId));
   });
 
