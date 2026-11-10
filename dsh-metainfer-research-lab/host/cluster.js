@@ -922,7 +922,7 @@ export function createCoordinator({ config, stateFile }) {
     }
     state.queue.push({ ...entryBase, machineId, enqueuedAt: Date.now() });
     void persist();
-    return { status: 'queued', position: queuePosition(entry.requestId), queueDepth: state.queue.length };
+    return { status: 'queued', position: queuePosition(request.requestId), queueDepth: state.queue.length };
   }
 
   function renew(request) {

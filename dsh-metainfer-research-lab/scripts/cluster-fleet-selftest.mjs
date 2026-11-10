@@ -141,6 +141,27 @@ async function main() {
     const pools = (await api('/v1/status', null, 'GET')).payload.data.pools.gpu;
     assert.equal(pools.free, 4);
     console.log('PASS  all fleet devices are free after release');
+
+    // Regression: a local request on a full machine must queue, not throw
+    // (acquire() referenced an undefined `entry` on this path -> HTTP 500).
+    const localRequest = (requestId) => api('/v1/acquire', {
+      clusterId: 'fleet-selftest',
+      requestId,
+      holderId: 'holder-3',
+      projectId: 'p3',
+      nodeId: requestId,
+      amount: 2,
+      machineId: 'gpu-a',
+      placement: 'local',
+      ttlMs: 60_000,
+    });
+    const fills = await localRequest('local-fill');
+    assert.equal(fills.payload.data.status, 'granted');
+    const waits = await localRequest('local-wait');
+    assert.equal(waits.status, 200);
+    assert.equal(waits.payload.data.status, 'queued');
+    assert.equal(waits.payload.data.position, 1);
+    console.log('PASS  local request on a full machine queues with a position');
   } finally {
     coordinator.close();
   }

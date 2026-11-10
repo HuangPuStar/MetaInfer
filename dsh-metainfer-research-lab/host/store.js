@@ -20,7 +20,11 @@ import { z } from 'zod';
 
 export const DOMAIN_NAME = 'metainfer_research_lab';
 export const DOMAIN_VERSION = 1;
-export const EVENT_RETENTION = 5000;
+/**
+ * Events are never deleted: the event log is the system's audit trail and the
+ * source for replaying any revision (see docs/07-async-refactor-plan.md, G2).
+ * Cold-segment archiving replaces deletion in a later phase (WP P1.2).
+ */
 
 /** Passthrough schema for M1: records are authored and checked by this plugin. */
 const PERMISSIVE = z.any();
@@ -167,9 +171,17 @@ export async function openStore(ctx) {
       ...payload,
     };
     await tables.events.put(eventStorageKey(project.id, seq), event);
-    const oldest = seq - EVENT_RETENTION;
-    if (oldest > 0) await tables.events.delete(eventStorageKey(project.id, oldest)).catch(() => {});
     return event;
+  }
+
+  /**
+   * Crash recovery only (kernel/executor.js `recover`): remove an event written
+   * by a commit that was never acknowledged. Acknowledged events are never deleted.
+   */
+  async function deleteEventRecord(projectId, seq) {
+    const acknowledged = getProject(projectId)?.counters?.eventSeq ?? 0;
+    if (seq <= acknowledged) throw new Error(`refusing to delete acknowledged event ${projectId}#${seq}`);
+    await tables.events.delete(eventStorageKey(projectId, seq));
   }
 
   /** @returns {Array<object>} events with seq > after, ascending. */
@@ -234,6 +246,7 @@ export async function openStore(ctx) {
     deleteNode,
     deleteProject,
     appendEvent,
+    deleteEventRecord,
     listEvents,
     maxEventSeq,
     saveRun,
