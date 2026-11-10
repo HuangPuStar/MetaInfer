@@ -19,6 +19,6 @@
 
 ## 范围
 
-- 本说明只记录 C14 的运维边界；43 个 residual 行的分类、状态和 174 行账本见 [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) 与 [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)。U2 已独立 PASS；B22 已在 round 21 独立 PASS（§46.7）：48 个 method+path 全量 policy、14 个 token 路由 absent/forged 拒绝、body actor 递归剥离、`/commands` 破坏性 gate 保持。归因观察（非阻断）：部分非破坏性写使用 inline operator actorKey，不改变 token gate 结论，详见 §46.7.5。
-- 完整发布仍为 **NO-SHIP**，因为 **13 个“必须”行**（B22 已关闭；5.3.2、Q5、Q12、Q14、A11、A21、C5、O1–O5、S5 等仍未全部关闭）尚未收口；U2/B22 已 PASS。
+- 本说明只记录 C14 的运维边界；residual 行的分类、状态和 174 行账本见 [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) 与 [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)。作者关闭后账面为 **154 PASS / 10 FAIL / 10 N/A**（待独立重放）；剩余 10 全部为明确不做。U2 已独立 PASS；B22 已在 round 21 独立 PASS（§46.7）：48 个 method+path 全量 policy、14 个 token 路由 absent/forged 拒绝、body actor 递归剥离、`/commands` 破坏性 gate 保持。归因观察（非阻断）：部分非破坏性写使用 inline operator actorKey，不改变 token gate 结论，详见 §46.7.5。
+- 13 个“必须”和 20 个“应该”行已由作者按 §47 逐行关闭（Q5/Q12/Q14/C5/5.3.2/O1–O5/A11/A21/S5），等待独立重放；B22/U2 已独立 PASS。**完整发布仍为 NO-SHIP**，但残余只剩 10 个明确不做；5.4.2 是只读 retention 计划（不自动删会话），5.4.6 已按 K 表逐项 triage（open K 项仍标 tracked）。
 - B22 的 operator 路由 **凭据/破坏性 gate** 已完整；但 §46.7.5 记录的 inline actorKey 归因差异仍应作为后续代码质量项，不能写成“所有写路径都保留 token actorKey”。

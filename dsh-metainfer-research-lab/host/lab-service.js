@@ -492,6 +492,14 @@ function normalizeConfig(raw, base = undefined) {
   );
   config.scheduling = scheduling;
 
+  // 5.4.2: retention is an explicit policy, not an implicit log rotation. The
+  // plan is read-only; deleting/archiving sessions remains an operator action.
+  const retention = { ...(previous.retention ?? {}) };
+  retention.sessionDays = integer(input.retention?.sessionDays, 'config.retention.sessionDays', retention.sessionDays ?? 90, 1, 3650);
+  retention.coldAfterDays = integer(input.retention?.coldAfterDays, 'config.retention.coldAfterDays', retention.coldAfterDays ?? 7, 1, 3650);
+  retention.transcriptDays = integer(input.retention?.transcriptDays, 'config.retention.transcriptDays', retention.transcriptDays ?? 180, 1, 3650);
+  config.retention = retention;
+
   // Ensure every project has the full default shape even when created before M4.
   config.advisor = config.advisor ?? { maxProposalsPerPass: 3, maxProposalsPerReviewer: 2, ancestorDepth: 2, acceptMode: 'auto', maxPendingProposals: 20, timeoutSeconds: 180, reviewers: [] };
   config.auto = config.auto ?? { maxCycles: 50, maxWallClockMs: 6 * 60 * 60 * 1000, idleCycleLimit: 3, debounceMs: 1500, cooldownMs: 5000, maxTokens: 0, maxCostUsd: 0 };
@@ -3767,6 +3775,43 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { ok: true, projectId, created: [] };
   }
 
+  /**
+   * 5.4.2: one read model for session/transcript/event retention. It classifies
+   * Copilot sessions into hot/cold/prune and reports the event segments already
+   * cold-archived by the store. It is deliberately a plan: the Host never
+   * deletes a session behind the operator's back.
+   */
+  async function retentionPlan(projectId, { now = Date.now() } = {}) {
+    const project = requireProject(projectId);
+    const policy = {
+      sessionDays: Number(project.config?.retention?.sessionDays ?? 90),
+      coldAfterDays: Number(project.config?.retention?.coldAfterDays ?? 7),
+      transcriptDays: Number(project.config?.retention?.transcriptDays ?? 180),
+      hotEvents: Number(project.config?.storage?.hotEvents ?? store.hotEvents ?? 0),
+    };
+    const sessions = copilotEntriesOf(project).map((entry) => {
+      const ageMs = Math.max(0, now - Number(entry.updatedAt || entry.createdAt || now));
+      const ageDays = Math.floor(ageMs / 86_400_000);
+      const action = ageDays >= policy.sessionDays ? 'prune' : ageDays >= policy.coldAfterDays ? 'cold' : 'hot';
+      return { id: entry.id, title: entry.title, ageDays, updatedAt: entry.updatedAt || null, action };
+    });
+    const segments = typeof store.listEventSegments === 'function' ? await store.listEventSegments(projectId) : [];
+    return publicView({
+      ok: true,
+      projectId,
+      now,
+      policy,
+      sessions,
+      summary: {
+        hot: sessions.filter((row) => row.action === 'hot').length,
+        cold: sessions.filter((row) => row.action === 'cold').length,
+        prune: sessions.filter((row) => row.action === 'prune').length,
+      },
+      events: { segments: segments.length, hotEvents: Math.max(0, store.maxEventSeq(projectId) - segments.reduce((sum, row) => sum + Number(row.count ?? row.events ?? 0), 0)) },
+      destructive: false,
+    });
+  }
+
   /** Called by the dispatch tick, so rotation does not depend on a human click. */
   async function rotateDueExperts(projectId, { now = Date.now() } = {}) {
     const status = rotationStatus(projectId);
@@ -5263,6 +5308,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'curator_outcome') return recordCuratorOutcome(input);
     if (action === 'curator_reset') return resetCurator();
     if (action === 'intent_withdraw') return withdrawIntent(input?.projectId, input?.intentId, input, exec);
+    if (action === 'retention_plan') return retentionPlan(input?.projectId, input);
     throw new LabError('unknown_command', `unknown metainfer_lab action: ${String(action)}`, 400);
   }
 
@@ -5315,6 +5361,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     rotateDueExperts,
     archiveDeferred,
     autoJoinCompleted,
+    retentionPlan,
     nominateDuplicates,
     recordCuratorOutcome,
     changesSince,

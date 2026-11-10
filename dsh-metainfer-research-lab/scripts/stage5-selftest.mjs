@@ -110,6 +110,27 @@ check('5.3.5: an expired invite is inactive but its lifecycle remains auditable'
   expiredLifecycle?.temporary === true && expiredLifecycle?.expired === true && expiredLifecycle?.active === false,
   JSON.stringify(expiredLifecycle));
 
+const projectForRetention = store.getProject(projectId);
+await kernel.executor.commit(projectId, {
+  actor: { kind: 'system', id: 'test' },
+  mutations: [{ op: 'project.update', set: {
+    copilotSessions: [
+      { id: 'hot-session', title: 'hot', createdAt: Date.now(), updatedAt: Date.now(), private: true },
+      { id: 'cold-session', title: 'cold', createdAt: Date.now() - 10 * 86_400_000, updatedAt: Date.now() - 10 * 86_400_000, private: true },
+      { id: 'prune-session', title: 'prune', createdAt: Date.now() - 200 * 86_400_000, updatedAt: Date.now() - 200 * 86_400_000, private: true },
+    ],
+    config: { ...projectForRetention.config, retention: { sessionDays: 90, coldAfterDays: 7, transcriptDays: 180 } },
+  } }],
+});
+const retention = await service.retentionPlan(projectId);
+check('5.4.2: retention plan classifies hot/cold/prune without deleting sessions',
+  retention.ok === true && retention.destructive === false
+  && retention.sessions.find((row) => row.id === 'hot-session')?.action === 'hot'
+  && retention.sessions.find((row) => row.id === 'cold-session')?.action === 'cold'
+  && retention.sessions.find((row) => row.id === 'prune-session')?.action === 'prune'
+  && retention.summary.hot === 1 && retention.summary.cold === 1 && retention.summary.prune === 1,
+  JSON.stringify({ summary: retention.summary, sessions: retention.sessions, policy: retention.policy }));
+
 const opened = await service.openDispute(projectId, {
   type: 'resource_quantity',
   target: { nodeId: 'branch-a', action: 'resize' },

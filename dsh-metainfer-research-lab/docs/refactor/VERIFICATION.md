@@ -6306,3 +6306,75 @@ B22 是否从 FAIL 变为 PASS。
 **46.7.6 回归**：`npm test` **894 ok / 0 FAIL**；`bench:scale` **11/11**，5k facts **13,509 B**，100k 首读 0.52 ms；strict-writes **17 ok，成功 bypass 0**；client-smoke **45/45**；operator-ui **10/10**；plugin-smoke **5/5**；b27-restart **11/11**；U14 `partial`（3 errors、degraded、staleReason=refresh_partial）；S12 eventlog **7/7**；`git diff --check` 0。
 
 **46.7.7 判定**：**B22 PASS**。账本变为 **121 PASS / 43 FAIL / 10 N/A**，residual **13 必须 / 20 应该 / 10 明确不做 = 43**；U2 PASS。完整发布仍 **NO-SHIP**，因为 13 个必须行（不含 B22）未全部关闭；窄发布仍不可宣布，必须明确排除 5.3.2、Q5、Q12/Q14、C5、O1–O5/A11/A21、S5 等条件式范围。
+
+## 47. 作者关闭 13 必须 + 19 应该（HEAD `f704031`+docs，待独立重放）
+
+> 本节是**作者探针**，不是独立复核。B22 仍以 §46.7 的独立重放为准；本节不改变“完整发布 NO-SHIP 的独立结论”，只说明作者已把剩余可执行项逐行关闭并留下可重放的命令。
+
+### 47.1 计数
+
+账本从 **121 PASS / 43 FAIL / 10 N/A** 变为 **154 / 10 / 10**：
+
+- 13 个必须：Q5、Q12、Q14、C5、5.3.2、O1、O2、O3、O4、O5、A11、A21、S5；
+- 20 个应该：B13、B18、C1、C6、Q4、Q9、Q10、Q11、Q13、5.3.4、5.3.5、5.3.7、5.3.8、5.3.9、5.3.11、5.3.12、O6、O12、5.4.2、5.4.6；
+- 剩余 FAIL 10 = 全部明确不做。
+
+`5.3.2` 不是新代码：§36.2.1/§38 已有 `reserved-slots-selftest` 11/11；本轮把它从过期 FAIL 重新对齐为 PASS。`Q9`/`Q10`/`Q11`/`Q13` 同样已有生产 call site 和测试，本轮只做证据对齐，没有重复造模块。
+
+### 47.2 逐行探针
+
+| 行 | 生产 call site / 变更 | 真实探针输出 |
+|---|---|---|
+| Q5 | `auto.js` 用 `isDeferredNode` 分离热预算；`maxDeferred` breaker | `auto-wip-selftest` 8/8：deferred 不占 maxNodes；独立配额 pause 且 `autoState.pauseReason` 持久化 |
+| Q12 | `intent.detectIntentConflicts`；`getState.intents` 带 writer/claims/conflicts；`/intents` 带 boundary | `claims-selftest` 同目标冲突；`surface-bounds-selftest` `/state` 与 `/intents` 契约 |
+| Q14 | `claims.js` 7 谓词、5 级不可逆、`citationErrorRate` | `claims-selftest` 全通过（含 appeal/gate/citation tier） |
+| C5 | `semanticFallback` + `INTENT_ACTIONS`；intent 记录携带 executor/route | `claims-selftest` 未知动作 → `human_review`/`human:operator_decision`，不可逆动作 → `human:claim_gate` |
+| 5.3.2 | `reserved-slots` 现有项目内 p0 抢占 | `reserved-slots-selftest` 11/11 |
+| O1/A11 | `metrics.js` role/cycle p50/p90/p99 + failRate | `observability-selftest` 10/10；`surface-bounds-selftest` `/metrics` byRole 契约 |
+| O2 | advisor payload p50/p90 bytes/tokens + token guard | `context-selftest` 13/13；100-node payload <12 KB（2 KB 余量） |
+| O3 | dispatch queueWait/decisions 有界 ring | `observability-selftest` queue-wait p50/p99 与 ring 上限 |
+| O4/O5 | `runnableSummary` 统一 queue/counts | `observability-selftest` + `surface-bounds-selftest`；queue runnable/claimed/held/deferred |
+| A21 | `/metrics` queue/dispatch/byRole 契约 | `surface-bounds-selftest` |
+| S5 | `getReplay` 走 `pageEvents`，无 spread | `replay-scale-selftest`：10,500 events/nodes，100 行页 **29,735 B / 11.5 ms**，<1 MB/<2000 ms |
+| B13/5.3.9 | `host/experts/triggers.js` 六码；observer snapshot 返回 `triggers` | `experts-selftest` 六码全部命中且有 detail |
+| B18 | `structuredVariant`/`dedupeSignature`/`variantConflict` | `experts-selftest`：同 hypothesis 不同 variant 不被召回为重复 |
+| C1 | `node.archive` + `deferredTtlDays` + 调度 tick 扫描；`maxDeferred` 排除 archived | `priority-selftest` 归档旧 deferred 且保留节点；`auto-wip-selftest` 配额 |
+| C6 | 7 谓词逐项探针 | `claims-selftest`：7/7（100% ≥ 90% floor） |
+| Q4 | `expertLifecycleOf` + `budgetUsage` + drain/handover | `stage5-selftest`：identity/status/metrics/budget 同一行；drain/orphan 既有探针 |
+| Q9 | `dag_map`/`dag_walk`/`dag_diff` 生产 dispatch | `tool-surface-selftest` 分组/遍历/diff/字节预算 |
+| Q10/Q11 | deterministic recall + curator 只提名；false-close breaker | `experts-selftest` 与 `stage5-selftest` |
+| Q13 | 8 类争议、prediction error、rotation、timeout default | `stage5-selftest` |
+| 5.3.4 | `usageBySourceOf` GPU-seconds 账本 | `priority-selftest` human/advisor 权重与 GPU-seconds |
+| 5.3.5 | `inviteExpert` + temporary/expiresAt；过期不可招募 | `stage5-selftest` 三探针 |
+| 5.3.7 | `autoJoinCompleted` 在调度 tick 自动建 merge，去重 | `stage5-selftest` 两探针 |
+| 5.3.8 | `advisorTimeoutMs` 默认 240s（高于实测 180s p90），30..1800 | `stage5-selftest` 默认/下限/上限 |
+| 5.3.11 | curator intent TTL / `intent/expired` | `experts-selftest` |
+| 5.3.12 | `scheduling.rotationDays` 默认 14、1..365 | `stage5-selftest` |
+| O6 | `auto.js` 将 autoState 随事件持久化；重启读回 | `auto-wip-selftest` 写入与读回 streak/lastPause/pauseCounts |
+| O12 | dashboard `gpu`/`cost`/`narrative` 结构化 facts | `dashboard-selftest` |
+| 5.4.2 | `retentionPlan` + `retention.*` 配置；hot/cold/prune 只读计划 | `stage5-selftest`：hot/cold/prune 三类与 `destructive:false` |
+| 5.4.6 | `K-DEFECT-TRIAGE.md` 18 个 K 编号逐项 disposition | 文档 triage：fixed/tracked/accepted 逐项，open 项不冒充已修 |
+
+### 47.3 关闭边界
+
+`5.4.2` 的验收对象是“运维策略/冷存计划”，已由 `retentionPlan` 和 `retention.*` 配置完成；它是只读计划，**没有**自动删除会话。`5.4.6` 的验收对象是“逐项 triage”，已由 `K-DEFECT-TRIAGE.md` 完成；K3/K4/K8/K17/K18 等 open 项仍明确标为 tracked，不能被写成已修。发布说明必须继续列出这些 open K 项。
+
+### 47.4 回归（HEAD `f704031`）
+
+| 检查 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**927 ok / 0 FAIL** |
+| `bench:scale` | 11/11 |
+| `client-smoke` | 45/45 |
+| `operator-ui-selftest` | 全通过 |
+| `operator-route-selftest` | 48 route pairs 全通过 |
+| `dispute-route-selftest` | 全通过 |
+| `plugin-smoke` | 5/5 |
+| `b27-restart-selftest` | 全通过 |
+| `strict-writes-selftest` | 全通过 |
+
+### 47.5 边界
+
+- 没有真实 Host process restart、真实 provider/browser 测量或 `~/.dsh/storages/*` 写入。
+- B22 的 PASS 仍来自 §46.7 独立重放，不是本节作者探针。
+- `5.3.7` 的自动 join 仍以 `finish_merge` 为冲突兜底；本轮只证明“父节点全完成时自动创建 merge、去重、限一批”，没有宣称自动解决 git 冲突。
