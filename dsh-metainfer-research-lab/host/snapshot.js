@@ -16,15 +16,6 @@ function truncate(value, limit) {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
-function reportSummary(node) {
-  if (!node.report) return node.reportText ? truncate(node.reportText, MAX_REPORT) : '';
-  const report = node.report;
-  const metrics = Array.isArray(report.metrics)
-    ? report.metrics.slice(0, 6).map((metric) => `${metric.name}=${metric.value}${metric.unit ? ` ${metric.unit}` : ''}`).join(', ')
-    : '';
-  return truncate([report.summary, metrics ? `metrics: ${metrics}` : ''].filter(Boolean).join(' | '), MAX_REPORT);
-}
-
 function childrenIndex(nodes) {
   const map = new Map();
   for (const node of nodes) {
