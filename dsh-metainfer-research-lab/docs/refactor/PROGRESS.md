@@ -30,6 +30,7 @@
 | `5f2ec13` | P8.2(B26,U4/U9/O8) 报告 summary 源头上限 500 + Host 派生 headline；`persistNode` 每条事件带 `causeId`；UI 原因链面板 |
 | `317543c` | P9.1(S6,U11) 新增 `policy`/`tool-surface`/`priority`/`trace`/`snapshot-size`/`i18n-parity` 验收脚本；`bench:scale`；全部接入 `npm test` |
 | `f67348f` | P9.3(S11,B15,O8,T1–T4) 四个假测试先红后绿；planned cancel/merge/GC 全部带 cause；dag 6 KB/24 KB 上限 + revision + 真 `sinceRevision`；`/state` 分页、transcript/replay/MCP 有界 |
+| `4431441` | P9.3b(B15) `dag_walk` 截断元数据报告最终序列化字节数（`used`=24,494） |
 
 ## 状态
 
