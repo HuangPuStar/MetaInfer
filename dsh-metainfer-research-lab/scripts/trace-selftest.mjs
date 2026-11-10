@@ -149,7 +149,13 @@ check('summary is bounded at the source', report.summary.length === REPORT_LIMIT
 check('headline is derived and bounded', report.headline.length === REPORT_LIMITS.headline, String(report.headline.length));
 check('list items are bounded', report.changes[0].length <= REPORT_LIMITS.listItemChars);
 check('empty summary yields null report', normalizeNodeReport({ summary: '   ' }) === null);
-check('NODE_REPORT_SCHEMA bounds summary', /summary: \{ type: 'string', minLength: 1, maxLength: 500 \}/.test(runtimeSource));
+// The 500-char bound lives in normalizeNodeReport, not in the JSON schema: the
+// DSH structured-output subset rejects minLength/maxLength, so putting them in
+// the schema made every start_node fail with UNSUPPORTED_SCHEMA.
+check('NODE_REPORT_SCHEMA does not use unsupported length keywords',
+  !/minLength|maxLength/.test(runtimeSource.replace(/\/\/.*$/gm, '')));
+check('normalizeNodeReport clamps the summary at the write boundary',
+  /normalizeNodeReport/.test(runtimeSource) && /500/.test(runtimeSource));
 const promptsSource = readFileSync(path.join(ROOT, 'host/prompts.js'), 'utf8');
 check('worker prompt states the summary limit', /500 characters/.test(promptsSource) && /headline/.test(promptsSource));
 
