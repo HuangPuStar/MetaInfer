@@ -124,7 +124,8 @@ export function registerHttpRoutes(ctx, service) {
     const limit = Number(params.get('limit'));
     const cursor = params.get('cursor');
     return ok(await service.getState(projectId, revision, {
-      full: params.get('full') === '1',
+      // HTTP never returns unslim full records: `full` would bypass the byte
+      // budget S11 relies on. Internal callers still use the service directly.
       // Every HTTP list is bounded; the client follows `nextCursor`.
       limit: Number.isFinite(limit) && limit > 0 ? Math.min(5000, Math.trunc(limit)) : 1000,
       cursor: cursor || null,

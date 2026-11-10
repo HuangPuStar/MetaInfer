@@ -123,14 +123,16 @@
 
 ## 未决（下一轮开工前需要确认）
 
-1. **意图日志的写入口**：`node.create` 的意图应该由 advisor 工具直接提交，还是由
-   `proposeNode` 服务统一生成？前者简单，后者能保证 basis 一致。
-2. **拒绝提案的理由**：`rejectProposal` 现在静默删除；理由要进下一轮 advisor 上下文，
-   需要改快照 schema（`rejectedProposals` 字段）。是否值得在本轮做？
-3. **`experts_list` / `expert_upsert` / `curator_*` 的实现**：已从枚举移除（A9），不再产生
-   "工具存在但永远报错"；Stage 4 实现时三处一起加回。
-4. **i18n 全量迁移**：`client.js` 两张内联表已键集相等（`i18n-parity.mjs` 守住），但文案
-   仍在代码里；`locale/*.json` 目前只有 meta。是否一次性迁移到 locale 文件？
+1. ~~意图日志写入口~~：已定为由 `createProposed` / `setNodePriority` / dispatch envelope
+   在同一个 executor commit 内生成 intent，保证 basis 与动作同 revision；工具也可
+   `intent_submit` 追加专家判断。
+2. **拒绝提案的理由**：`rejectProposal` 仍静默删除；理由进下一轮 advisor 上下文需要改
+   快照 schema（`rejectedProposals`）。本轮不做。
+3. ~~`experts_list` / `curator_*`~~：Stage 4 已实现 `expert_list` / `expert_recall` /
+   `curator_nominate` / `curator_outcome`；`experts_list`/`expert_upsert`/`curator_scan`
+   这些旧名仍保持移除。
+4. ~~i18n 全量迁移~~：`locale/{en,zh}.json` 已含 1,338 键；客户端内联表由
+   `npm run locale:sync` 生成，`locale-selftest` 做结构 parity。
 5. **5 MB `getState` 预算**来自本轮审计，不是原设计条目；若未来 20,000 节点项目成为常态，
    需要把预算改成"每节点 ≤ 0.9 KB"并按规模线性化。
 

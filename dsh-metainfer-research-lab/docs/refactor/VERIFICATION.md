@@ -558,3 +558,21 @@ chain，所以测试绿而 O8 仍红。real reconcile 是最有力的反例：�
 **否。** 四个假测试已真 RED→GREEN，`A16` 窄验收关闭；但 `B15` 仍可超 6 KB 且
 `used` 不准确、`O8` 的 reconcile/GC/merge 直写 chain=0、`S11` 的 replay 客户端丢 3,001
 节点且 `/events` 无默认上限；另引入 replay 回归。整体仍是 100 行 FAIL，不能上生产。
+
+## 16. 第三轮修复复核（2026-11-10）
+
+| §15 剩余项 | 修复 | 复现/回归证据 |
+|---|---|---|
+| replay 客户端只取一页，丢 3,001/5,001 | `client.js` 的 `fetchReplayAll` 跟随 `nextNodeCursor`/`nextSeq`，按 id 合并 nodes/edges/events；`openReplay` 改用它 | `replay-client-selftest.mjs`：3,001 节点、2,500 事件、4+ 次请求，节点/事件无缺失无重复，末页 `_truncated=null` |
+| B15 `dag_map` 6,150 B、`used` 早于 envelope | `mapDag` 接受 `envelope`（projectId/revision）并在最终对象上稳定计算 `used`；fit 后再次按最终字节裁剪 | `tool-surface-selftest`：5,000 个变长 owner 最终 ≤6,144 B，`used === 序列化字节` |
+| B15 `dag_walk` 24,585 B、total 只报 200 | 同样纳入 envelope；`truncated.total=reachable`，`shown` 与 reason 区分 bytes/limit；稳定 `used` 后裁剪 | 同一测试：最终 ≤24,576 B、`used` 精确、total=4,999/5,000、reason=bytes |
+| diff `since` 落在中间返回旧快照 | 只接受精确 revision 的快照，否则 `diff_unavailable`；缓存加全局节点预算，删除项目时 `reset` | `tool-surface-selftest` 直接构造 rev 1/2 后查 rev 3 → `diff_unavailable`；`reset` 后仍不可用 |
+| O8 reconcile/GC/merge 只有事件 cause | `node.put` 写 `causeId/lastCauseId`；`intent.put` 同时指向目标节点 | `trace-selftest` 用真实 `reconcileRunningNodes`、`createGcRunner.run`、merge-prep `node.put`，三者 `/explain` chain > 0 |
+| `/events` 无默认上限 | HTTP 默认 1,000，仍支持 after 分页 | `surface-bounds-selftest`：1,200 事件首屏 1,000 且 hasMore，下一页 seq 前进 |
+| `/runs` 无 cursor | `store.pageRuns` + `service.listRunsPage`，HTTP 接受 cursor | 同一测试：3 runs、limit=1 两页不同 id |
+| MCP list status 后过滤、total 全量 | 先按 status 过滤再切片，`total`/`_truncated.nodes.total` 为过滤后数量 | 同一测试通过真实 `McpServer` 注册的 `metainfer_list_nodes.handler` 断言 10/2,500 |
+| `getNode` 仍全量 `listNodes` | store 维护 `children` 索引 + `hasChildren`；`getNode` 直接查询 | 同一测试 `metainfer_get_node` 返回 isLeaf，且不再调用 `listNodes` |
+| HTTP `full=1` 绕过 slim 字节预算 | HTTP 路由不再转发 `full`，强制 slim + 1,000/页 | `surface-bounds-selftest`：`full=1` 仍 `_indexed=true`、<2 MB |
+
+**结论**：§15 的 FAIL 路径均已关闭；`npm test` 28 个文件、418 checks 全绿（2026-11-10）。
+仍 `未测量` 的只有浏览器绘制/FPS；仍 `未完成` 的见 IMPLEMENTATION §9。

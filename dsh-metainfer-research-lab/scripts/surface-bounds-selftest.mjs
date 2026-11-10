@@ -98,6 +98,9 @@ async function get(path, query = '') {
 }
 
 const first = await get('state', `projectId=${projectId}`);
+const forcedFull = await get('state', `projectId=${projectId}&limit=1000&full=1`);
+const forcedFullBytes = Buffer.byteLength(JSON.stringify(forcedFull), 'utf8');
+check('state ignores full=1 and stays slim/bounded', forcedFull.nodes.length === 1000 && forcedFullBytes < 2 * 1024 * 1024 && forcedFull._indexed === true, `${forcedFullBytes} B indexed=${forcedFull._indexed}`);
 check('state first page is bounded to 1,000 nodes', first.nodes.length === 1000 && first._truncated?.nodes?.total === 2501, JSON.stringify(first._truncated));
 const firstBytes = Buffer.byteLength(JSON.stringify(first), 'utf8');
 check('state first page is under 2 MB', firstBytes < 2 * 1024 * 1024, `${firstBytes} B`);
