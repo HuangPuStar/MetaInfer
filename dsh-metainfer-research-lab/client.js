@@ -979,10 +979,18 @@ window.__ModuleLoader__.load({
       "ws.execution.profileHint": "不同 profile 可对应不同本地 Agent runtime / 模型级别；运行中的节点不可修改。",
       "ws.execution.running": "运行中",
       "ws.execution.title": "执行轨迹",
+      "ws.experts.actionError": "专家操作失败",
       "ws.experts.backgroundNote": "这些是后台专家运行（顾问/评审/调度/GC），不是 worker 节点。",
       "ws.experts.chipHint": "后台专家运行状态（点击查看详细运行）",
       "ws.experts.chipIdle": "专家组 · 空闲",
       "ws.experts.chipRunning": "专家组 · {count} 运行中",
+      "ws.experts.drain": "开始交接",
+      "ws.experts.drainHint": "交接只会停止招募新工作，不会终止正在运行的节点；运行结束后才能退休。未完成节点会交还人工。",
+      "ws.experts.draining": "{id} 已进入交接；运行中的节点会继续。",
+      "ws.experts.fire": "退休",
+      "ws.experts.fired": "{id} 已退休，未完成节点已交还人工。",
+      "ws.experts.hire": "聘用",
+      "ws.experts.hired": "已聘用 {id}",
       "ws.experts.library": "专家库",
       "ws.experts.library.empty": "暂无专家",
       "ws.experts.library.error": "读取专家库失败",
@@ -992,6 +1000,11 @@ window.__ModuleLoader__.load({
       "ws.experts.library.noExecute": "只提议，不执行",
       "ws.experts.library.proposes": "可提议：{actions}",
       "ws.experts.library.refresh": "刷新专家库",
+      "ws.experts.lifecycle": "生命周期",
+      "ws.experts.lifecycle.active": "在岗",
+      "ws.experts.lifecycle.catalog": "未聘用",
+      "ws.experts.lifecycle.draining": "交接中",
+      "ws.experts.lifecycle.retired": "已退休",
       "ws.experts.live": "运行中",
       "ws.experts.liveHint": "运行中的专家轨迹可在 DSH 原生视图中实时查看。",
       "ws.experts.noSession": "该运行没有可打开的会话",
@@ -2340,10 +2353,18 @@ window.__ModuleLoader__.load({
       "ws.execution.profileHint": "Profiles can target different local agent runtimes or model tiers; a running node cannot be changed.",
       "ws.execution.running": "Running",
       "ws.execution.title": "Execution trace",
+      "ws.experts.actionError": "Expert action failed",
       "ws.experts.backgroundNote": "These are background expert runs (advisor/reviewer/scheduler/GC), not worker nodes.",
       "ws.experts.chipHint": "Background expert runs (click for details)",
       "ws.experts.chipIdle": "Expert group · idle",
       "ws.experts.chipRunning": "Expert group · {count} running",
+      "ws.experts.drain": "Start drain",
+      "ws.experts.drainHint": "Draining stops new work but never kills running nodes; retire only after those nodes finish. Unfinished ownership is handed back to the human.",
+      "ws.experts.draining": "{id} is draining; running nodes keep going.",
+      "ws.experts.fire": "Retire",
+      "ws.experts.fired": "{id} is retired; unfinished nodes were handed back to the human.",
+      "ws.experts.hire": "Hire",
+      "ws.experts.hired": "Hired {id}",
       "ws.experts.library": "Expert library",
       "ws.experts.library.empty": "No experts",
       "ws.experts.library.error": "Could not load the expert library",
@@ -2353,6 +2374,11 @@ window.__ModuleLoader__.load({
       "ws.experts.library.noExecute": "Proposes only, never executes",
       "ws.experts.library.proposes": "May propose: {actions}",
       "ws.experts.library.refresh": "Refresh expert library",
+      "ws.experts.lifecycle": "Lifecycle",
+      "ws.experts.lifecycle.active": "Active",
+      "ws.experts.lifecycle.catalog": "Available",
+      "ws.experts.lifecycle.draining": "Draining",
+      "ws.experts.lifecycle.retired": "Retired",
       "ws.experts.live": "running",
       "ws.experts.liveHint": "Live expert trajectories can be watched in the native DSH view.",
       "ws.experts.noSession": "This run has no session to open",
@@ -3092,6 +3118,11 @@ window.__ModuleLoader__.load({
       '.rl-expert-library { display: flex; flex-direction: column; gap: 8px; }',
       '.rl-expert-library-row { border: 1px solid var(--dsw-alias-border-secondary); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }',
       '.rl-expert-library-main { display: flex; flex-direction: column; gap: 2px; }',
+      '.rl-expert-lifecycle-actions { display: flex; gap: 6px; flex-wrap: wrap; }',
+      '.rl-chip-lifecycle-catalog { opacity: 0.75; }',
+      '.rl-chip-lifecycle-active { color: var(--dsw-alias-label-primary); }',
+      '.rl-chip-lifecycle-draining { color: var(--dsw-alias-label-secondary); }',
+      '.rl-chip-lifecycle-retired { opacity: 0.55; }',
       '.rl-expert-library-id { font-size: 12px; }',
       '.rl-run-row-wrap { display: flex; align-items: stretch; gap: 6px; }',
       '.rl-run-row-wrap > .rl-run-row { flex: 1 1 auto; min-width: 0; }',
@@ -14118,6 +14149,9 @@ window.__ModuleLoader__.load({
       const [saving, setSaving] = React.useState(false);
       const [error, setError] = React.useState('');
       const [expertLibrary, setExpertLibrary] = React.useState({ loading: true, error: '', data: null });
+      const [expertAction, setExpertAction] = React.useState('');
+      const [expertError, setExpertError] = React.useState('');
+      const [expertMessage, setExpertMessage] = React.useState('');
       const loadExpertLibrary = async () => {
         setExpertLibrary((previous) => ({ ...previous, loading: true, error: '' }));
         try {
@@ -14126,6 +14160,23 @@ window.__ModuleLoader__.load({
         } catch (loadError) {
           if (isAbortError(loadError)) return;
           setExpertLibrary({ loading: false, error: t('ws.experts.library.error'), data: null });
+        }
+      };
+      const runExpertAction = async (type, expertId) => {
+        if (expertAction !== '') return;
+        setExpertAction(type + ':' + expertId);
+        setExpertError('');
+        setExpertMessage('');
+        try {
+          await api.command({ type, projectId, expertId }, undefined, t);
+          await loadExpertLibrary();
+          setExpertMessage(t(type === 'expert_hire' ? 'ws.experts.hired' : type === 'expert_drain' ? 'ws.experts.draining' : 'ws.experts.fired', { id: expertId }));
+        } catch (actionError) {
+          if (!isAbortError(actionError)) {
+            setExpertError(describeError(actionError, t) || t('ws.experts.actionError'));
+          }
+        } finally {
+          setExpertAction('');
         }
       };
       React.useEffect(() => {
@@ -14925,7 +14976,10 @@ window.__ModuleLoader__.load({
                 }),
               ),
               h('p', { className: 'rl-hint' }, t('ws.experts.library.hint')),
+              h('p', { className: 'rl-hint' }, t('ws.experts.drainHint')),
               expertLibrary.error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, expertLibrary.error) : null,
+              expertError !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, expertError) : null,
+              expertMessage !== '' ? h('p', { className: 'rl-hint' }, expertMessage) : null,
               expertLibrary.data === null
                 ? h('p', { className: 'rl-hint' }, expertLibrary.loading ? t('ws.experts.library.loading') : t('ws.experts.library.empty'))
                 : asArray(expertLibrary.data.experts).length === 0
@@ -14952,6 +15006,35 @@ window.__ModuleLoader__.load({
                               completed: expert.metrics?.completed ?? 0,
                             })),
                             h('span', { className: 'rl-chip' }, t('ws.experts.library.noExecute')),
+                            h('span', { className: 'rl-chip rl-chip-lifecycle rl-chip-lifecycle-' + (expert.lifecycle?.status ?? 'catalog') }, t('ws.experts.lifecycle.' + (expert.lifecycle?.status ?? 'catalog'))),
+                          ),
+                          h(
+                            'div',
+                            { className: 'rl-expert-lifecycle-actions' },
+                            (expert.lifecycle?.status ?? 'catalog') === 'catalog' || expert.lifecycle?.status === 'retired'
+                              ? h(LabButton, {
+                                  label: expertAction === 'expert_hire:' + expert.id ? '…' : t('ws.experts.hire'),
+                                  variant: 'ghost',
+                                  disabled: expertAction !== '',
+                                  onClick: () => void runExpertAction('expert_hire', expert.id),
+                                })
+                              : null,
+                            expert.lifecycle?.status === 'active'
+                              ? h(LabButton, {
+                                  label: expertAction === 'expert_drain:' + expert.id ? '…' : t('ws.experts.drain'),
+                                  variant: 'ghost',
+                                  disabled: expertAction !== '',
+                                  onClick: () => void runExpertAction('expert_drain', expert.id),
+                                })
+                              : null,
+                            expert.lifecycle?.status === 'draining'
+                              ? h(LabButton, {
+                                  label: expertAction === 'expert_fire:' + expert.id ? '…' : t('ws.experts.fire'),
+                                  variant: 'ghost',
+                                  disabled: expertAction !== '',
+                                  onClick: () => void runExpertAction('expert_fire', expert.id),
+                                })
+                              : null,
                           ),
                         )),
                     ),

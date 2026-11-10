@@ -3010,6 +3010,48 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   const curator = createCurator({ clock: () => Date.now() });
 
+  const EXPERT_LIFECYCLE_STATUSES = Object.freeze(['active', 'draining', 'retired']);
+
+  function expertRosterOf(project) {
+    const raw = project?.config?.experts;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((row) => row && typeof row === 'object' && typeof row.expertId === 'string')
+      .map((row) => structuredClone(row));
+  }
+
+  function expertRosterRow(project, expertId) {
+    return expertRosterOf(project).find((row) => row.expertId === expertId) ?? null;
+  }
+
+  function expertLifecycleOf(project, expertId) {
+    const row = expertRosterRow(project, expertId);
+    if (!row) return { status: 'catalog', active: false };
+    const lifecycle = {
+      status: EXPERT_LIFECYCLE_STATUSES.includes(row.status) ? row.status : 'retired',
+      active: row.status === 'active',
+      hiredAt: row.hiredAt ?? null,
+      hiredBy: row.hiredBy ?? null,
+      drainedAt: row.drainedAt ?? null,
+      retiredAt: row.retiredAt ?? null,
+    };
+    return lifecycle;
+  }
+
+  /** An empty roster means the catalog is available; a non-empty roster is the source of truth. */
+  function recruitabilityOf(project) {
+    const roster = expertRosterOf(project);
+    if (roster.length === 0) return listExpertDescriptors();
+    const active = new Set(roster.filter((row) => row.status === 'active').map((row) => row.expertId));
+    return listExpertDescriptors().filter((descriptor) => active.has(descriptor.id));
+  }
+
+  function assertOperator(actor, action) {
+    if (actor?.kind === 'expert') {
+      throw new LabError('forbidden_expert_action', `experts may not ${action}; the Host owns the roster`, 403);
+    }
+  }
+
   /** Expert descriptors plus Host-computed performance metrics (Stage 4.1). */
   function listExperts(projectId) {
     const project = requireProject(projectId);
@@ -3021,6 +3063,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       revision: project.revision,
       experts: listExpertDescriptors().map((descriptor) => ({
         ...descriptor,
+        lifecycle: expertLifecycleOf(project, descriptor.id),
         metrics: computeExpertMetrics({ expertId: descriptor.id, nodes, runs }),
       })),
       curator: curator.status(),
@@ -3029,8 +3072,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   /** Deterministic expert recall for a task (Stage 4.2 production call site). */
   function recallExpertFor(projectId, task, { limit = 3 } = {}) {
-    requireProject(projectId);
-    const descriptors = listExpertDescriptors();
+    const project = requireProject(projectId);
+    const descriptors = recruitabilityOf(project);
     const recall = recallExperts(descriptors, typeof task === 'string' ? task : '', { limit });
     const nodes = store.listNodes(projectId);
     const runs = store.listRuns(projectId);
@@ -3041,10 +3084,145 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       experts: recall.experts.map((row) => ({
         ...row,
         descriptor: getExpertDescriptor(row.id),
+        lifecycle: expertLifecycleOf(project, row.id),
         metrics: computeExpertMetrics({ expertId: row.id, nodes, runs }),
       })),
       total: recall.total,
       _truncated: recall.total > recall.experts.length ? { shown: recall.experts.length, total: recall.total } : null,
+    };
+  }
+
+  /** Hire one catalog expert into the project roster. */
+  async function hireExpert(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const actor = actorFromToolExecution(exec);
+    const expertId = text(input.expertId, 'expertId', { required: true, max: 120 });
+    if (actor.kind === 'expert' && (actor.id === expertId || actor.preset === expertId)) {
+      throw new LabError('self_hire_forbidden', 'an expert cannot hire itself', 403);
+    }
+    assertOperator(actor, 'hire experts');
+    const descriptor = getExpertDescriptor(expertId);
+    if (!descriptor) throw new LabError('expert_not_found', `unknown expert: ${expertId}`, 404);
+    if (descriptor.mayExecute.length > 0) {
+      throw new LabError('expert_may_execute', 'an executing expert cannot be hired into the advisory roster', 409);
+    }
+    const roster = expertRosterOf(project);
+    const existing = roster.find((row) => row.expertId === expertId);
+    if (existing && (existing.status === 'active' || existing.status === 'draining')) {
+      throw new LabError('expert_already_hired', `expert is already ${existing.status}: ${expertId}`, 409);
+    }
+    if (roster.length >= 8) throw new LabError('expert_roster_full', 'the expert roster is full (8)', 409);
+    const provider = text(input.provider, 'provider', { max: 120 }) || descriptor.model.provider;
+    const model = text(input.model, 'model', { max: 200 }) || descriptor.model.model;
+    const lens = text(input.lens, 'lens', { max: 120 }) || '';
+    const now = Date.now();
+    const entry = {
+      expertId,
+      status: 'active',
+      provider,
+      model,
+      ...(lens ? { lens } : {}),
+      hiredAt: now,
+      hiredBy: actor.id,
+      ...(existing?.history ? { history: existing.history } : {}),
+    };
+    const previous = existing
+      ? { ...existing, status: 'retired', retiredAt: existing.retiredAt ?? now, history: [...(existing.history ?? []), { event: 'rehired', at: now }] }
+      : null;
+    const next = previous
+      ? roster.map((row) => row.expertId === expertId ? { ...entry, history: previous.history } : row)
+      : [...roster, entry];
+    await commitProjectFields(projectId, {
+      config: { ...project.config, experts: next },
+    }, {
+      actor,
+      eventType: 'expert/hired',
+      eventData: { expertId, provider, model, lens },
+      causeId: `expert:${projectId}:${expertId}:hired`,
+    });
+    return {
+      ok: true,
+      projectId,
+      expert: { ...descriptor, lifecycle: expertLifecycleOf(requireProject(projectId), expertId) },
+    };
+  }
+
+  /** Start draining: never cancels a running node, and never pretends it is a fire. */
+  async function drainExpert(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const actor = actorFromToolExecution(exec);
+    assertOperator(actor, 'drain experts');
+    const expertId = text(input.expertId, 'expertId', { required: true, max: 120 });
+    const row = expertRosterRow(project, expertId);
+    if (!row) throw new LabError('expert_not_hired', `expert is not on the roster: ${expertId}`, 409);
+    if (row.status === 'retired') throw new LabError('expert_retired', `expert is retired: ${expertId}`, 409);
+    if (row.status !== 'active') throw new LabError('expert_not_active', `expert is already ${row.status}: ${expertId}`, 409);
+    const running = store.listNodes(projectId).filter((node) => node.createdBy === expertId && node.status === 'running');
+    const now = Date.now();
+    const next = expertRosterOf(project).map((candidate) => candidate.expertId === expertId
+      ? { ...candidate, status: 'draining', drainedAt: now, drainingBy: actor.id, runningPreserved: running.length }
+      : candidate);
+    await commitProjectFields(projectId, {
+      config: { ...project.config, experts: next },
+    }, {
+      actor,
+      eventType: 'expert/draining',
+      eventData: { expertId, runningPreserved: running.length },
+      causeId: `expert:${projectId}:${expertId}:draining`,
+    });
+    return {
+      ok: true,
+      projectId,
+      expert: { id: expertId, lifecycle: expertLifecycleOf(requireProject(projectId), expertId) },
+      runningPreserved: running.map((node) => node.id),
+    };
+  }
+
+  /**
+   * Retire a drained expert. Running nodes must finish first (drain is not a
+   * kill), and every unfinished node is handed back to the human owner.
+   */
+  async function fireExpert(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const actor = actorFromToolExecution(exec);
+    assertOperator(actor, 'fire experts');
+    const expertId = text(input.expertId, 'expertId', { required: true, max: 120 });
+    const row = expertRosterRow(project, expertId);
+    if (!row) throw new LabError('expert_not_hired', `expert is not on the roster: ${expertId}`, 409);
+    if (row.status === 'retired') throw new LabError('expert_retired', `expert is retired: ${expertId}`, 409);
+    if (row.status !== 'draining') throw new LabError('expert_must_drain', 'drain the expert before firing it', 409);
+    const nodes = store.listNodes(projectId);
+    const running = nodes.filter((node) => node.createdBy === expertId && node.status === 'running');
+    if (running.length > 0) {
+      throw new LabError('expert_busy', `expert still owns ${running.length} running node(s); drain preserves them`, 409);
+    }
+    const now = Date.now();
+    const orphans = nodes.filter((node) => node.createdBy === expertId && !['completed', 'cancelled'].includes(node.status));
+    const next = expertRosterOf(project).map((candidate) => candidate.expertId === expertId
+      ? { ...candidate, status: 'retired', retiredAt: now, retiredBy: actor.id, handoverTo: 'human' }
+      : candidate);
+    const mutations = [{
+      op: 'project.update',
+      set: { config: { ...project.config, experts: next } },
+      eventType: 'expert/retired',
+      eventData: { expertId, reassigned: orphans.length, handoverTo: 'human' },
+    }];
+    for (const node of orphans) {
+      mutations.push({
+        op: 'node.update',
+        nodeId: node.id,
+        set: { createdBy: 'human', orphanedFrom: expertId },
+      });
+    }
+    await commitMutations(projectId, mutations, {
+      actor,
+      causeId: `expert:${projectId}:${expertId}:retired`,
+    });
+    return {
+      ok: true,
+      projectId,
+      expert: { id: expertId, lifecycle: expertLifecycleOf(requireProject(projectId), expertId) },
+      reassigned: orphans.map((node) => node.id),
     };
   }
 
@@ -3478,6 +3656,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'intent_list') return listIntents(input?.projectId, { limit: input?.limit, kind: input?.kind ?? null });
     if (action === 'expert_list') return listExperts(input?.projectId);
     if (action === 'expert_recall') return recallExpertFor(input?.projectId, input?.task ?? input?.text ?? '', { limit: input?.limit });
+    if (action === 'expert_hire') return hireExpert(input?.projectId, input, exec);
+    if (action === 'expert_drain') return drainExpert(input?.projectId, input, exec);
+    if (action === 'expert_fire') return fireExpert(input?.projectId, input, exec);
     if (action === 'curator_nominate') return nominateDuplicates(input?.projectId, input, exec);
     if (action === 'curator_outcome') return recordCuratorOutcome(input);
     if (action === 'curator_reset') return resetCurator();
@@ -3513,6 +3694,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     resetCurator,
     listExperts,
     recallExpertFor,
+    hireExpert,
+    drainExpert,
+    fireExpert,
     nominateDuplicates,
     recordCuratorOutcome,
     changesSince,

@@ -1361,6 +1361,19 @@
     "dashboard.sourceAgent": "Agent",
     "dashboard.sourceHost": "Host",
     "dashboard.stale": "Stale · {age}",
-    "dashboard.staleRevision": "Project changed since the last refresh"
+    "dashboard.staleRevision": "Project changed since the last refresh",
+    "ws.experts.lifecycle": "Lifecycle",
+    "ws.experts.lifecycle.catalog": "Available",
+    "ws.experts.lifecycle.active": "Active",
+    "ws.experts.lifecycle.draining": "Draining",
+    "ws.experts.lifecycle.retired": "Retired",
+    "ws.experts.hire": "Hire",
+    "ws.experts.drain": "Start drain",
+    "ws.experts.fire": "Retire",
+    "ws.experts.drainHint": "Draining stops new work but never kills running nodes; retire only after those nodes finish. Unfinished ownership is handed back to the human.",
+    "ws.experts.actionError": "Expert action failed",
+    "ws.experts.hired": "Hired {id}",
+    "ws.experts.draining": "{id} is draining; running nodes keep going.",
+    "ws.experts.fired": "{id} is retired; unfinished nodes were handed back to the human."
   }
 }

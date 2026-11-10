@@ -147,6 +147,12 @@ await test('expert library UI reads the Host catalog, not a hardcoded list', () 
   assert.ok(source.includes("t('ws.experts.library"), 'expert library strings are localized');
   assert.ok(source.includes("className: 'rl-expert-library'"), 'expert library section is rendered');
 });
+await test('expert library exposes hire/drain/retire lifecycle actions', () => {
+  assert.ok(source.includes("runExpertAction('expert_hire'"), 'hire action is wired');
+  assert.ok(source.includes("runExpertAction('expert_drain'"), 'drain action is wired');
+  assert.ok(source.includes("runExpertAction('expert_fire'"), 'retire action is wired');
+  assert.ok(source.includes("t('ws.experts.drainHint')"), 'drain-not-kill safety copy is shown');
+});
 
 await test('dashboard separates Host facts from agent commentary', () => {
   assert.ok(source.includes("className: 'rl-dash-facts'"), 'Host facts strip is rendered');

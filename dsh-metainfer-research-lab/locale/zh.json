@@ -1361,6 +1361,19 @@
     "dashboard.sourceAgent": "Agent",
     "dashboard.sourceHost": "Host",
     "dashboard.stale": "已过期 · {age}",
-    "dashboard.staleRevision": "上次刷新后项目已变化"
+    "dashboard.staleRevision": "上次刷新后项目已变化",
+    "ws.experts.lifecycle": "生命周期",
+    "ws.experts.lifecycle.catalog": "未聘用",
+    "ws.experts.lifecycle.active": "在岗",
+    "ws.experts.lifecycle.draining": "交接中",
+    "ws.experts.lifecycle.retired": "已退休",
+    "ws.experts.hire": "聘用",
+    "ws.experts.drain": "开始交接",
+    "ws.experts.fire": "退休",
+    "ws.experts.drainHint": "交接只会停止招募新工作，不会终止正在运行的节点；运行结束后才能退休。未完成节点会交还人工。",
+    "ws.experts.actionError": "专家操作失败",
+    "ws.experts.hired": "已聘用 {id}",
+    "ws.experts.draining": "{id} 已进入交接；运行中的节点会继续。",
+    "ws.experts.fired": "{id} 已退休，未完成节点已交还人工。"
   }
 }

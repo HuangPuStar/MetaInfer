@@ -91,6 +91,9 @@ export const ACTION_CATALOG = Object.freeze({
   dashboard_refresh: 'control',
   dashboard_chat: 'control',
   dashboard_layout: 'control',
+  expert_hire: 'control',
+  expert_drain: 'control',
+  expert_fire: 'control',
   // destructive / cross-project
   delete_project: 'danger',
   cluster_config_update: 'danger',
