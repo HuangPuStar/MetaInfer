@@ -14,6 +14,7 @@ import { newSessionId } from './store.js';
 import { advisorCandidates, buildAdvisorSnapshot, buildSchedulerSnapshot, promptHash } from './snapshot.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
 import { clampNodeTitle, isBlank } from './titles.js';
+import { createReviewClaimBoard } from './dispatch/review-claims.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 
@@ -290,6 +291,12 @@ function cycleId() {
  * @param {{ctx: object, store: object, git: object, runtime: object}} deps
  */
 export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
+  /**
+   * Review claims (QA Q9): one expert at a time may propose a successor for one
+   * parent. The board is liveness state; durable claim events are written by
+   * the intent log once the expert runtime lands.
+   */
+  const reviewClaims = createReviewClaimBoard();
   const controllerHandles = new Map();
   const controllerLocks = new Map();
   const roleActivations = new Map(); // sessionId -> { activation, projectId, record }
@@ -703,6 +710,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       return applied;
     }
     const proposals = Array.isArray(output.proposals) ? output.proposals : [];
+    const expertId = `advisor:${cycle.advisorRunId ?? cycle.id}`;
     const preProject = requireProject(projectId);
     const advisorModels = new Map();
     if (preProject.config.routing?.advisorMaySelectModels === true) {
@@ -728,6 +736,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
         }
       }
     }
+    try {
     await store.withProjectLock(projectId, async () => {
       // Candidate parents are frozen for this pass: creating the first child seals
       // the parent, but later proposals from the same advisor answer may still
@@ -757,6 +766,22 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
             parentId: proposal?.parentId ?? null,
             title: proposal?.title ?? null,
             reason: check.reason,
+          });
+          continue;
+        }
+        const claim = reviewClaims.claim({
+          projectId,
+          nodeId: check.parent.id,
+          expertId,
+          intent: 'propose',
+          title: proposal?.title ?? '',
+        });
+        if (!claim.ok) {
+          applied.rejected.push({
+            parentId: proposal?.parentId ?? null,
+            title: proposal?.title ?? null,
+            reason: claim.message,
+            code: claim.code,
           });
           continue;
         }
@@ -819,6 +844,9 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
         await store.saveNode(projectId, node);
       }
     });
+    } finally {
+      reviewClaims.releaseAll(projectId, expertId);
+    }
     return applied;
   }
 
@@ -1287,6 +1315,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     getRun,
     ensureController,
     cancelProjectRuns,
+    reviewClaims,
     dispose,
   };
 }
