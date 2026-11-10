@@ -135,8 +135,8 @@
 | U8 批准 / 拒绝提案 | 完成（批准/拒绝入口在 UI）/ 未完成（拒绝理由进入下轮上下文） | `orchestrator.rejectProposal` 仍不收理由 | 原因：需要改 advisor 快照 schema，单独提交 |
 | U9 解释一个节点 | 完成 | 同 U4；UI `ExplainPanel`（HTTP `/explain`）| `trace-selftest.mjs`（HTTP、fetchExplain、面板三态静态+功能） |
 | U10 错误可执行（code + nextStep） | 完成 | `errors.js` `NEXT_STEPS`/`toActionable`；`agent-tool` 统一转换；`client.js` 渲染 message | `wiring-selftest.mjs`（`forbidden_action` 含 nextStep） |
-| U11 i18n 键平滑（两表键相等、占位符一致） | 完成 | `client.js` 内联 zh/en 字典键集相等、无重复；`locale/en.json`/`zh.json` 嵌套键相等 | `i18n-parity.mjs`（键、重复、占位符、locale 结构） |
-| U11b 全量文案迁移到 `locale/*.json` | 未完成 | 文案仍在 `client.js` 内联字典 | 原因：迁移是纯文案搬运，不影响行为；parity 脚本已防止单边键 |
+| U11 i18n 键平滑（两表键相等、占位符一致） | 完成 | `locale/en.json`/`zh.json` 均为 1,338 键；`scripts/locale-sync.mjs` 从客户端字典生成，`locale-selftest.mjs` 按 key set 与每键占位符做结构比较（不比较译文） | `locale-selftest.mjs`（key set/placeholder/非空/t() 覆盖） |
+| U11b 全量文案迁移到 `locale/*.json` | 完成（生成式镜像） | 1,338 条文案在 `locale/*.json`；客户端内联表由 `locale:sync` 生成，`locale-selftest` 断言两者逐键相等，漂移即红 | `locale-selftest.mjs`、`npm run locale:sync` |
 | U12 空/加载/错误三态 | 完成（Host facts/rail/canvas/inspector）/ 未完成（队列、专家库面板尚不存在） | `client.js` `HostFactsCard`（loading/empty/error/retry） | 手工 + `ui-selftest.mjs` |
 | U13 agent 数据 vs Host 数据可区分 | 完成（Host facts 卡 `HOST` 徽标、monospace）；未完成（dashboard widget 仍无来源徽标） | `client.js` `.rl-host-facts` | 手工 |
 | U14 仪表盘静默过期 | 未完成 | — | 原因：属 dashboard 子系统，不在本轮热路径 |
@@ -146,10 +146,10 @@
 
 | 条目 | 状态 | 原因 |
 |---|---|---|
-| B17/B18 专家描述符 + 标签 | 未完成 | 草稿无调用方，删除；需与 preset 插件化一起落地 |
-| 相似度召回（Jaccard/top-K） | 未完成 | 同上；§DESIGN §Q10 的纯函数设计已验证过，未接线 |
-| B19 curator 只提名 + 误杀熔断 | 未完成 | 依赖意图日志与相似度召回 |
-| B24/B27 evidence 指针与权限分级 | 未完成 | 依赖 claim 原子化 |
+| B17/B18 专家描述符 + 标签 | 完成 | `host/experts/registry.js` 八个字段（persona/model/tools/triggers/mayPropose/mayExecute/budget/schema）+ `computeExpertMetrics`；`expert_list`/`expert_recall` 真实工具入口 | `experts-selftest.mjs`（字段契约、metrics、确定性召回、生产 action） |
+| 相似度召回（Jaccard/top-K） | 完成 | `host/experts/similarity.js` 纯函数穷举候选对；merge 多父节点排除；`recallExperts` 用于任务→专家 | `experts-selftest.mjs`（同输入同输出、已知重复对、merge 排除） |
+| B19 curator 只提名 + 误杀熔断 | 完成 | `host/experts/curator.js` 单轮 ≤5、10 分钟免疫、pending claim/review 排除、`curator_cannot_execute`、`falseCloseRate > 20%` 断路；`curator_nominate` 写 `curate` intent | `experts-selftest.mjs`（提名/执行拒绝/熔断/生产 action） |
+| B24/B27 evidence 指针与权限分级 | 部分完成 | 意图 claim 必带 action，描述符 `mayExecute: []`，curator 不能执行；7 谓词 claim 校验与 citationErrorRate 门控仍 `未完成` | `intent-selftest.mjs`、`experts-selftest.mjs` |
 | `experts_list` / `expert_upsert` / `curator_*` 工具 | 完成（移除） | 未实现前不向模型广告：已从 `ACTION_ENUM` 与 `ACTION_CATALOG` 删除；`intent_*` 同理 | `policy-selftest.mjs`、`tool-surface-selftest.mjs`（三表一致，不残留名字） |
 | G3 只存 id/摘要 | 完成 | `lab-service` state 瘦身、`reportText` 删除、`_truncated` |
 | G4 专家只能提议 | 完成 | 能力表 `lab-worker`/`lab-advisor` 无写权限 action |
@@ -157,16 +157,12 @@
 ## 9. 覆盖统计
 
 - 条目总数：**90**
-- 完成：**71**；未完成：**14**；拆分条目（完成 X / 未完成 Y）：**5**
-- 未完成原因集中在：legacy 写点迁移（64 处）、冷段归档、意图日志/专家/curator（Stage 3–5）、
-  `locale/*.json` 全量迁移、dashboard 子系统、无浏览器导致的 UI 绘制测量。
-- `npm test` 覆盖 24 个文件：`runnable 11`、`advisor-merge 7`、`kernel 15`、`strict-writes 6`、
-  `gang-planner 14`、`dispatch 7`、`dispatch-once 6`、`low-water 8`、`review-claims 9`、
-  `context 11`、`observability 6`、`wiring 7`、`policy`（逐 preset 矩阵 + 去重）、`tool-surface`
-  （11 个 action + dag 6 KB/24 KB 上限 + `sinceRevision`）、`surface-bounds`（state/transcript/
-  replay/MCP 分页）、`priority`（`priority_frozen` 三路径 + 真实 actor）、`trace`（真实 planned
-  cancel + merge/GC cause + explain 三态）、`snapshot-size`（2,000 节点 <12 KB）、`i18n-parity`
-  （含未加引号键）、`scale 10`、`ui 7`、`migrate-domain 11`、`cluster-fleet`、`placement`。
+- 完成：**76**；未完成：**10**；拆分条目（完成 X / 未完成 Y）：**6**
+- 未完成原因集中在：冷段归档、dashboard 子系统、7 谓词 claim 校验/citationErrorRate、
+  无浏览器导致的 UI 绘制测量，以及部分 Stage 5 组织化能力。
+- `npm test` 覆盖 **28** 个文件（418 checks）：新增 `strict-writes`（executor 覆盖 + 默认 throw）、
+  `replay-client`（真实 HTTP 分页跟随）、`intent`（claim/basis/explain）、`experts`（描述符/
+  召回/curator）、`locale`（结构 parity），并去掉了重复执行。
 
 ## 10. 验收脚本（2026-11-10 复核后新增）
 
@@ -177,6 +173,6 @@
 | 优先级只走 executor、终态拒绝 | `scripts/priority-selftest.mjs` | 是 |
 | causeId 端到端 + UI explain | `scripts/trace-selftest.mjs` | 是 |
 | advisor 快照 12 KB 回归 | `scripts/snapshot-size-selftest.mjs` | 是 |
-| zh/en 与 locale 结构 parity（含未加引号键） | `scripts/i18n-parity.mjs` | 是 |
+| zh/en 与 locale 结构 parity | `scripts/locale-selftest.mjs` | 是 |
 | `/state`、transcript、replay、MCP 列表有界 | `scripts/surface-bounds-selftest.mjs` | 是 |
 | 5,000 节点预算基准 | `npm run bench:scale`（同 `scale-selftest.mjs`） | 是（同文件） |

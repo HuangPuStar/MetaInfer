@@ -138,3 +138,21 @@
    launcher 调用；`runtime.start` 的真实实验启动不计入。
 6. **`kernel.strictWrites` 生产默认 `warn`**：不阻断线上 Host，但计数进 `health.writes`；
    测试用 `throw` 证明 executor 许可覆盖全部 kernel 写。
+
+## 2026-11-10 第三轮验收修复 + Stage 3/4
+
+| WP | 状态 | 提交 | 证据 |
+|---|---|---|---|
+| 写路径统一 | done | `6c7bb68` | `runtime/gc/reconcile/auto/orchestrator/lab-service` 全部经 `kernel.executor.commit`；`strict-writes-selftest` 静态扫描 + 真实写入探针 |
+| 严格写默认 | done | `7a26956` | `strictWrites` 默认 `throw`；故意 `store.saveProject` 返回 `unpermitted_write`，stats 恰好 1 次 |
+| `/replay` 客户端分页 | done | `50c8d80` | `replay-client-selftest`：3,001 节点 / 2,500 事件、4+ 次 `nodeCursor` 请求、无重复无静默截断 |
+| B15 最终字节 | done | `50c8d80` | 5,000 owner `dag_map` 最终 ≤6,144 B；`dag_walk` ≤24,576 B；`bytes.used` 与序列化结果逐字节相等；walk total=4,999/5,000 |
+| O8 节点指针 | done | `50c8d80` | 真实 `reconcileRunningNodes`、GC runner、merge-prep `node.put` 均使 `/explain` chain > 0 |
+| S11 边界 | done | `50c8d80` | `/events` 默认 1,000；`/runs` cursor；MCP status 过滤 total=2,500；`getNode` O(1) 子索引 |
+| Stage 3 意图日志 | done | `66d9ffe` | dispatch/priority/proposal 自动写 intent；`intent_submit`/`intent_list` 广告=handler=policy；claim 缺失/越界 basis/未知 kind 拒绝；目标节点可 explain |
+| Stage 4 专家/curator | done | `66d9ffe` | 8 字段描述符、绩效指标、纯函数召回、curator ≤5 提名 + `curator_cannot_execute` + 20% 误杀熔断；`expert_list`/`expert_recall`/`curator_nominate` 生产入口 |
+| locale 全量 | done（生成式镜像） | `791db98` | 1,338 键；`locale-selftest` 结构 key set + 占位符 parity；`npm run locale:sync` 生成 |
+| 测试入口去重 | done | 未单独提交（随 `791db98`） | 28 个文件、418 checks；移除重复 `strict-writes`/`replay-client` 与旧文本 parity |
+
+**仍开着**：冷段事件归档、dashboard 静默过期/来源徽标、7 谓词 claim 校验与
+`citationErrorRate` 门控、浏览器绘制/FPS 实测、Stage 5 组织化能力。
