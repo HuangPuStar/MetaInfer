@@ -3111,7 +3111,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (existing && (existing.status === 'active' || existing.status === 'draining')) {
       throw new LabError('expert_already_hired', `expert is already ${existing.status}: ${expertId}`, 409);
     }
-    if (roster.length >= 8) throw new LabError('expert_roster_full', 'the expert roster is full (8)', 409);
+    if (!existing && roster.length >= 8) throw new LabError('expert_roster_full', 'the expert roster is full (8)', 409);
     const provider = text(input.provider, 'provider', { max: 120 }) || descriptor.model.provider;
     const model = text(input.model, 'model', { max: 200 }) || descriptor.model.model;
     const lens = text(input.lens, 'lens', { max: 120 }) || '';
@@ -3124,13 +3124,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       ...(lens ? { lens } : {}),
       hiredAt: now,
       hiredBy: actor.id,
-      ...(existing?.history ? { history: existing.history } : {}),
+      ...(existing?.history ? { history: [...existing.history, { event: 'rehired', at: now }] } : {}),
     };
-    const previous = existing
-      ? { ...existing, status: 'retired', retiredAt: existing.retiredAt ?? now, history: [...(existing.history ?? []), { event: 'rehired', at: now }] }
-      : null;
-    const next = previous
-      ? roster.map((row) => row.expertId === expertId ? { ...entry, history: previous.history } : row)
+    const next = existing
+      ? roster.map((row) => row.expertId === expertId ? entry : row)
       : [...roster, entry];
     await commitProjectFields(projectId, {
       config: { ...project.config, experts: next },
