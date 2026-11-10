@@ -25,7 +25,9 @@ import { DEFAULT_MERGE_PROMPT, DEFAULT_WORKER_PREFIX, WORKER_RULES } from './pro
 export const NODE_REPORT_SCHEMA = {
   type: 'object',
   properties: {
-    summary: { type: 'string' },
+    // Source limit (B26/D16): the report is durable, so bound the summary at
+    // write time. Detail belongs in changes/metrics/reproduce, not one blob.
+    summary: { type: 'string', minLength: 1, maxLength: 500 },
     changes: { type: 'array', items: { type: 'string' } },
     metrics: {
       type: 'array',
@@ -50,6 +52,54 @@ export const NODE_REPORT_SCHEMA = {
   additionalProperties: false,
 };
 
+
+/** Report field bounds: durable records must not grow without a source limit. */
+export const REPORT_LIMITS = Object.freeze({
+  summary: 500,
+  headline: 300,
+  listItems: 200,
+  listItemChars: 2_000,
+});
+
+/**
+ * Normalise a structured report before it is persisted.
+ *
+ * The JSON schema rejects an over-long summary, but remote/external execution
+ * drivers do not go through DSH's structured-output validator, so the Host
+ * enforces the same bound here. `headline` is derived by the Host (never by the
+ * model) and is the only field the state index keeps.
+ */
+export function normalizeNodeReport(report) {
+  if (report === null || typeof report !== 'object' || Array.isArray(report)) return null;
+  const summary = typeof report.summary === 'string' ? report.summary.trim().slice(0, REPORT_LIMITS.summary) : '';
+  if (!summary) return null;
+  const clampList = (value) => (Array.isArray(value)
+    ? value
+      .filter((item) => typeof item === 'string' && item.trim())
+      .slice(0, REPORT_LIMITS.listItems)
+      .map((item) => item.trim().slice(0, REPORT_LIMITS.listItemChars))
+    : []);
+  const metrics = Array.isArray(report.metrics)
+    ? report.metrics
+      .filter((item) => item && typeof item === 'object' && typeof item.name === 'string')
+      .slice(0, REPORT_LIMITS.listItems)
+      .map((item) => ({ name: String(item.name).slice(0, 120), value: String(item.value ?? '').slice(0, 200), unit: String(item.unit ?? '').slice(0, 40) }))
+    : [];
+  const headline = typeof report.headline === 'string' && report.headline.trim()
+    ? report.headline.trim().slice(0, REPORT_LIMITS.headline)
+    : summary.slice(0, REPORT_LIMITS.headline);
+  return {
+    summary,
+    headline,
+    changes: clampList(report.changes),
+    metrics,
+    reproduce: clampList(report.reproduce),
+    success: report.success === true,
+    blockers: clampList(report.blockers),
+    next: clampList(report.next),
+    risks: clampList(report.risks),
+  };
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -413,9 +463,24 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
   }
 
   async function persistNode(project, node, eventType, payload = {}) {
+    // Cause pointer (A1/O8): every runtime transition records *what* caused it.
+    // A start/resume gets a fresh activation cause; later transitions keep it so
+    // `explain_node` can answer "why is this node in this state" without reading
+    // the whole event log.
+    const activation = eventType === 'node/started' || eventType === 'node/resumed' || eventType === 'node/retried';
+    const activationCause = `${node.id}-a${node.currentAttempt ?? node.attempt ?? 1}`;
+    const causeId = payload.causeId ?? (activation ? activationCause : (node.causeId ?? node.lastCauseId ?? null));
+    if (causeId) {
+      if (activation) node.causeId = causeId;
+      else node.lastCauseId = causeId;
+    }
     bump(project);
     await store.saveNode(project.id, node);
-    await store.appendEvent(project, eventType, { nodeId: node.id, ...payload });
+    await store.appendEvent(project, eventType, {
+      nodeId: node.id,
+      ...(causeId ? { causeId } : {}),
+      ...payload,
+    });
     await store.saveProject(project);
     return project.revision;
   }
@@ -831,7 +896,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       node.cleanup = await cleanupNodeRuntime(node);
       const commit = await git.commitWorktree(project, node, `dshex(${node.id}): ${node.title}`);
       node.git.headCommit = commit.head;
-      node.report = result?.structured && typeof result.structured === 'object' ? result.structured : null;
+      node.report = normalizeNodeReport(result?.structured);
       node.reportText = blocksText(result?.output) || node.reportText || '';
       if (entry.external) {
         node.executionThreadId = result?.threadId ?? node.executionThreadId;
@@ -1793,7 +1858,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       headCommit: result.head,
     };
     node.status = 'completed';
-    node.report = {
+    node.report = normalizeNodeReport({
       summary: typeof payload.summary === 'string' && payload.summary.trim()
         ? payload.summary.trim()
         : `Merge of ${node.parentIds.join(' + ')} completed by the user`,
@@ -1803,7 +1868,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       reproduce: [],
       next: [],
       risks: [],
-    };
+    });
     node.reportText = typeof payload.message === 'string' && payload.message.trim()
       ? payload.message.trim().slice(0, 8000)
       : (node.lastReport ?? '');

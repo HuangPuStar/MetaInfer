@@ -139,6 +139,14 @@ export function registerHttpRoutes(ctx, service) {
     return ok(await service.getNode(params.get('projectId'), params.get('nodeId')));
   });
 
+  route(`${PREFIX}/explain`, ['GET'], async (request) => {
+    const params = query(request);
+    const window = params.get('window');
+    return ok(service.explainNode(params.get('projectId'), params.get('nodeId'), {
+      window: window !== null && Number.isFinite(Number(window)) ? Number(window) : undefined,
+    }));
+  });
+
   route(`${PREFIX}/changes`, ['GET'], async (request) => {
     const params = query(request);
     return ok(service.changesSince(params.get('projectId'), params.get('revision') ?? 0));

@@ -27,7 +27,10 @@ export const WORKER_RULES = `- You execute exactly one experiment node and then 
 - Do NOT delegate to sub-agents. Do NOT ask the user questions.
 - Operations that need approval are rejected automatically; record them in blockers.
 - Respect the time budget: when the deadline fires the lab kills this run deterministically.
-- Finish by calling structured_output exactly once with the report schema.`;
+- Finish by calling structured_output exactly once with the report schema.
+- The report \`summary\` field must be at most 500 characters. Put evidence, numbers
+  and narrative detail in \`changes\` / \`metrics\` / \`reproduce\`; a longer summary
+  is rejected by the Host. The Host derives the 300-character headline, not you.`;
 
 export const PROMPT_PLACEHOLDERS = [
   '{{project.name}}',

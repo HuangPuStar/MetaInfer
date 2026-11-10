@@ -45,6 +45,7 @@ window.__ModuleLoader__.load({
       facts: 'api/metainfer-research-lab/status',
       metrics: 'api/metainfer-research-lab/metrics',
       node: 'api/metainfer-research-lab/node',
+      explain: 'api/metainfer-research-lab/explain',
       filesDownload: 'api/metainfer-research-lab/files/download',
     };
 
@@ -162,6 +163,10 @@ window.__ModuleLoader__.load({
 
     // #region dictionaries — `zh` is the key-set source of truth; `en` mirrors it.
     const zh = {
+      'title': 'MetaInfer Research Lab',
+      'subtitle': '把研究实验组织成一张活的 DAG：每个节点拥有独立的 git worktree 与 subagent。',
+      'badge': '研究实验室',
+      'panel': 'MetaInfer Research Lab',
       panel: '科研实验台',
       'trajectory.panel': '轨迹与技能',
       'trajectory.open': '轨迹与技能',
@@ -566,6 +571,16 @@ window.__ModuleLoader__.load({
       'ws.facts.next': '下一个启动：{id}（{why}）',
       'ws.facts.none': '当前没有可启动的节点',
       'ws.facts.failure': '最近失败：{id} · {error}',
+      'ws.explain.title': '为什么（原因链）',
+      'ws.explain.show': '解释这个节点',
+      'ws.explain.hide': '收起',
+      'ws.explain.loading': '读取原因链…',
+      'ws.explain.empty': '还没有可解释的事件',
+      'ws.explain.error': '读取原因链失败',
+      'ws.explain.retry': '重试',
+      'ws.explain.cause': '因果链',
+      'ws.explain.events': '最近事件',
+      'ws.explain.older': '早于事件窗口',
       'ws.action.cancelling': '正在取消…',
       'ws.action.failed': '操作失败',
       'ws.action.openTranscript': '查看对话',
@@ -1296,15 +1311,7 @@ window.__ModuleLoader__.load({
       'ws.execution.driver': '驱动',
       'ws.execution.model': '模型',
       'ws.execution.noEvents': '等待 Agent 产生事件…',
-      'dashboard.title': 'Dashboard',
-      'dashboard.toggle': 'Open or close the dashboard',
-      'replay.title': 'DAG growth replay',
-      'replay.short': 'Replay',
-      'replay.toggle': 'Open or close DAG growth replay',
-      'replay.play': 'Play replay',
-      'replay.pause': 'Pause replay',
-      'replay.loading': 'Loading history…',
-      'replay.close': 'Exit replay',
+      'dashboard.title': '仪表盘',
       'dashboard.toggle': '打开或关闭 Dashboard',
       'replay.title': 'DAG 生长回放',
       'replay.short': '回放',
@@ -1413,7 +1420,6 @@ window.__ModuleLoader__.load({
       'ws.copilot.pending': 'Copilot 正在分析整个项目…',
       'ws.copilot.error': '发送失败',
       'ws.copilot.loadError': '对话加载失败',
-      'ws.copilot.retry': '重试',
       'ws.copilot.busy': 'Copilot 正在处理上一轮消息，请稍候。',
       'ws.copilot.timeout': 'Copilot 本轮超时，请重试。',
       'ws.copilot.user': '你',
@@ -1425,7 +1431,6 @@ window.__ModuleLoader__.load({
       'ws.copilot.newSession': '＋ 新会话',
       'ws.copilot.noSessions': '还没有私密会话',
       'ws.copilot.loading': '正在准备原生 Copilot 会话…',
-      'ws.copilot.loadError': '原生 Copilot 会话不可用',
       'ws.copilot.embedUnavailable': '当前运行时不支持嵌入原生会话，请在 DSH 原生窗口中打开。',
       'ws.copilot.embedFailed': '嵌入原生会话渲染失败',
       'ws.copilot.openNative': '在 DSH 原生窗口打开',
@@ -1509,6 +1514,10 @@ window.__ModuleLoader__.load({
     };
 
     const en = {
+      'title': 'MetaInfer Research Lab',
+      'subtitle': 'Organise research as a living DAG: every node owns its git worktree and subagent.',
+      'badge': 'Research Lab',
+      'panel': 'MetaInfer Research Lab',
       panel: 'Research Lab',
       'trajectory.panel': 'Trajectories & Skills',
       'trajectory.open': 'Trajectories & Skills',
@@ -1898,12 +1907,17 @@ window.__ModuleLoader__.load({
       'ws.priority.lower': '↓ Lower priority',
       'ws.priority.current': 'Priority {class}',
       'ws.priority.deferred': 'deferred (variant)',
-      'ws.rail.loadMore': '加载更多（还有 {count} 个）',
-      'ws.canvas.window': '视口内 {shown}/{total} 个节点',
-      'ws.canvas.windowHint': '平移/缩放查看其余节点；渲染上限 {limit}',
       'ws.rail.loadMore': 'Load more ({count} remaining)',
       'ws.canvas.window': 'showing {shown}/{total} nodes in view',
       'ws.canvas.windowHint': 'pan/zoom for the rest; render cap {limit}',
+      'dashboard.toggle': 'Open or close the dashboard',
+      'replay.title': 'DAG growth replay',
+      'replay.short': 'Replay',
+      'replay.toggle': 'Open or close DAG growth replay',
+      'replay.play': 'Play replay',
+      'replay.pause': 'Pause replay',
+      'replay.loading': 'Loading history…',
+      'replay.close': 'Exit replay',
       'ws.facts.badge': 'HOST',
       'ws.facts.title': 'Host-computed status',
       'ws.facts.loading': 'loading…',
@@ -1916,6 +1930,16 @@ window.__ModuleLoader__.load({
       'ws.facts.next': 'Next: {id} ({why})',
       'ws.facts.none': 'Nothing runnable right now',
       'ws.facts.failure': 'Last failure: {id} · {error}',
+      'ws.explain.title': 'Why (cause chain)',
+      'ws.explain.show': 'Explain this node',
+      'ws.explain.hide': 'Hide',
+      'ws.explain.loading': 'reading cause chain…',
+      'ws.explain.empty': 'No events to explain yet',
+      'ws.explain.error': 'Failed to read cause chain',
+      'ws.explain.retry': 'Retry',
+      'ws.explain.cause': 'Cause chain',
+      'ws.explain.events': 'Recent events',
+      'ws.explain.older': 'older than the event window',
       'ws.action.cancelling': 'Cancelling…',
       'ws.action.failed': 'Action failed',
       'ws.action.openTranscript': 'View conversation',
@@ -2747,7 +2771,6 @@ window.__ModuleLoader__.load({
       'ws.copilot.pending': 'Copilot is analyzing the whole project…',
       'ws.copilot.error': 'Send failed',
       'ws.copilot.loadError': 'Could not load the conversation',
-      'ws.copilot.retry': 'Retry',
       'ws.copilot.busy': 'Copilot is still working on the previous turn; please wait.',
       'ws.copilot.timeout': 'Copilot timed out on this turn; please retry.',
       'ws.copilot.user': 'You',
@@ -2759,7 +2782,6 @@ window.__ModuleLoader__.load({
       'ws.copilot.newSession': '＋ New session',
       'ws.copilot.noSessions': 'No private session yet',
       'ws.copilot.loading': 'Preparing the native Copilot session…',
-      'ws.copilot.loadError': 'The native Copilot session is unavailable',
       'ws.copilot.embedUnavailable': 'This runtime cannot embed a native session; open it in a DSH native window instead.',
       'ws.copilot.embedFailed': 'Rendering the embedded native session failed',
       'ws.copilot.openNative': 'Open in DSH native window',
@@ -3057,6 +3079,10 @@ window.__ModuleLoader__.load({
       '.rl-dot-cancelled { background: var(--dsw-alias-state-idle-primary); }',
       '@keyframes rl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }',
       '.rl-canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--dsw-alias-bg-base); cursor: grab; touch-action: none; }',
+      '.rl-explain-list { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }',
+      '.rl-explain-subtitle { margin: 8px 0 0; font-size: 12px; opacity: 0.8; }',
+      '.rl-explain-kind { font-weight: 600; margin-right: 6px; }',
+      '.rl-explain-time, .rl-explain-detail { margin-right: 6px; opacity: 0.85; }',
       '.rl-host-facts { position: absolute; top: 10px; left: 10px; z-index: 3; display: flex; flex-direction: column; gap: 4px; max-width: min(520px, calc(100% - 20px)); padding: 8px 10px; border: 0.5px solid var(--dsw-alias-border-l2); border-left: 2px solid var(--dsw-alias-state-success-primary); border-radius: 8px; background: var(--dsw-alias-bg-elevated); box-shadow: 0 2px 10px rgba(0,0,0,0.08); cursor: default; }',
       '.rl-host-facts-head { display: flex; align-items: center; gap: 6px; }',
       '.rl-host-badge { flex: 0 0 auto; padding: 0 5px; border-radius: 4px; background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-base); font-family: var(--dsw-font-mono, monospace); font-size: 9.5px; letter-spacing: 0.08em; }',
@@ -3595,6 +3621,9 @@ window.__ModuleLoader__.load({
       },
       fetchNode(projectId, nodeId, signal, t) {
         return requestJson(ROUTES.node + '?projectId=' + encodeURIComponent(projectId) + '&nodeId=' + encodeURIComponent(nodeId), { signal }, t);
+      },
+      fetchExplain(projectId, nodeId, signal, t) {
+        return requestJson(ROUTES.explain + '?projectId=' + encodeURIComponent(projectId) + '&nodeId=' + encodeURIComponent(nodeId), { signal }, t);
       },
       fetchChanges(projectId, revision, signal, t) {
         return requestJson('api/metainfer-research-lab/changes?projectId=' + encodeURIComponent(projectId) + '&revision=' + encodeURIComponent(String(revision)), { signal }, t);
@@ -10824,6 +10853,107 @@ window.__ModuleLoader__.load({
      * Right inspector: prompt + success criteria and timebox editors (planned
      * nodes only), plus read-only Git/timestamp readback.
      */
+    // Explainability (U4/U9/O8): the reason chain for one node, fetched on
+    // demand so opening an inspector does not cost an extra request per node.
+    function ExplainPanel({ projectId, nodeId, t }) {
+      const [open, setOpen] = React.useState(false);
+      const [state, setState] = React.useState({ status: 'idle', data: null, error: '' });
+      const load = React.useCallback(async () => {
+        setState({ status: 'loading', data: null, error: '' });
+        try {
+          const result = await api.fetchExplain(projectId, nodeId);
+          if (result === null || typeof result !== 'object' || result.ok === false) {
+            throw new Error(result !== null && typeof result === 'object' && typeof result.message === 'string' ? result.message : t('ws.explain.error'));
+          }
+          setState({ status: 'ready', data: result, error: '' });
+        } catch (error) {
+          setState({ status: 'error', data: null, error: error instanceof Error ? error.message : String(error) });
+        }
+      }, [projectId, nodeId, t]);
+      React.useEffect(() => {
+        setOpen(false);
+        setState({ status: 'idle', data: null, error: '' });
+      }, [nodeId]);
+      const chain = state.data !== null && Array.isArray(state.data.causeChain) ? state.data.causeChain : [];
+      const events = state.data !== null && Array.isArray(state.data.events) ? state.data.events : [];
+      return h(
+        'div',
+        { className: 'rl-section rl-explain' },
+        h('h3', { className: 'rl-section-title' }, t('ws.explain.title')),
+        h(LabButton, {
+          label: open ? t('ws.explain.hide') : t('ws.explain.show'),
+          variant: 'ghost',
+          onClick: () => {
+            if (open) {
+              setOpen(false);
+              return;
+            }
+            setOpen(true);
+            if (state.status === 'idle' || state.status === 'error') load();
+          },
+        }),
+        open
+          ? h(
+              'div',
+              { className: 'rl-explain-body' },
+              state.status === 'loading' ? h('p', { className: 'rl-hint' }, t('ws.explain.loading')) : null,
+              state.status === 'error'
+                ? h(
+                    'div',
+                    null,
+                    h('p', { className: 'rl-error-text', role: 'alert' }, t('ws.explain.error') + ': ' + state.error),
+                    h(LabButton, { label: t('ws.explain.retry'), onClick: load }),
+                  )
+                : null,
+              state.status === 'ready' && chain.length === 0 && events.length === 0
+                ? h('p', { className: 'rl-hint' }, t('ws.explain.empty'))
+                : null,
+              chain.length > 0
+                ? h(
+                    'div',
+                    null,
+                    h('h4', { className: 'rl-explain-subtitle' }, t('ws.explain.cause')),
+                    h(
+                      'ol',
+                      { className: 'rl-explain-list' },
+                      chain.map((entry, index) => h(
+                        'li',
+                        { key: 'cause-' + index },
+                        h('span', { className: 'rl-explain-kind' }, atOrDash(entry, t)),
+                        h('span', { className: 'rl-explain-detail' }, firstString(entry.summary) || t('ws.explain.empty')),
+                      )),
+                    ),
+                  )
+                : null,
+              events.length > 0
+                ? h(
+                    'div',
+                    null,
+                    h('h4', { className: 'rl-explain-subtitle' }, t('ws.explain.events')),
+                    h(
+                      'ul',
+                      { className: 'rl-explain-list' },
+                      events.slice(-10).reverse().map((event) => h(
+                        'li',
+                        { key: 'ev-' + String(event.seq) },
+                        h('span', { className: 'rl-explain-kind' }, firstString(event.type) || ''),
+                        h('span', { className: 'rl-explain-time' }, formatDateTime(event.at, t)),
+                        h('span', { className: 'rl-explain-detail' }, firstString(event.detail) || ''),
+                      )),
+                    ),
+                  )
+                : null,
+            )
+          : null,
+      );
+    }
+
+    function atOrDash(entry, t) {
+      if (entry === null || typeof entry !== 'object') return t('ws.explain.older');
+      const at = finiteNumber(entry.at);
+      return at === null ? t('ws.explain.older') : formatDateTime(at, t);
+    }
+
     function NodeInspector({ project, nodes, node, now, busyKey, onSave, onAction, onOpenSession, onOpenFiles, onContinue, onSuccessor, onProposalAction, onOpenRun, onRetryRequest, onOpenMergeCreate, onFinishMerge, onEscalate, modelOptions, modelProviders, clusterEnabled, t }) {
       const nodeKey = node === null ? '' : nodeIdOf(node);
       const [promptDraft, setPromptDraft] = React.useState('');
@@ -11344,6 +11474,8 @@ window.__ModuleLoader__.load({
                 : h('p', { className: 'rl-text-prewrap' }, reportText),
             )
           : null,
+
+        h(ExplainPanel, { key: 'explain-' + nodeKeyId, projectId: projectIdOf(project), nodeId: nodeKeyId, t }),
 
         termination !== null
           ? h(
