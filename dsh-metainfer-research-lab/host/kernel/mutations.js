@@ -163,6 +163,11 @@ const reducers = {
     node.id = id;
     node.rev = existing.rev ?? 0;
     node.timestamps = { ...(node.timestamps ?? {}), updatedAt: ctx.now };
+    // O8: the event cause is not enough — explain starts from the node pointer.
+    if (ctx.causeId) {
+      node.lastCauseId = ctx.causeId;
+      if (!node.causeId) node.causeId = ctx.causeId;
+    }
     ws.putNode(node);
     return [nodeEvent(m.eventType ?? 'node/edited', node, m.eventData ?? {}, { op: 'node.put', nodeId: id, node })];
   },

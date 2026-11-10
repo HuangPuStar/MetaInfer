@@ -221,7 +221,19 @@ export function childrenIndex(nodes) {
  * @param {'status'|'depth'|'owner'|'parent'} [input.by]
  * @param {number} [input.sample]
  */
-export function mapDag({ nodes, by = 'status', sample = 5, maxBytes = DAG_MAP_MAX_BYTES }) {
+function stabilizeByteCount(holder, measure) {
+  let used = 0;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    holder.used = used;
+    const size = Buffer.byteLength(JSON.stringify(measure()));
+    if (size === used) return size;
+    used = size;
+  }
+  holder.used = used;
+  return used;
+}
+
+export function mapDag({ nodes, by = 'status', sample = 5, maxBytes = DAG_MAP_MAX_BYTES, envelope = null }) {
   const groups = new Map();
   let depth = null;
   if (by === 'depth') {
@@ -254,6 +266,7 @@ export function mapDag({ nodes, by = 'status', sample = 5, maxBytes = DAG_MAP_MA
   const sorted = [...groups.values()].sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
   const build = (kept, truncated) => ({
     ok: true,
+    ...(envelope && typeof envelope === 'object' ? envelope : {}),
     by,
     groups: kept,
     total: nodes.length,
@@ -275,7 +288,15 @@ export function mapDag({ nodes, by = 'status', sample = 5, maxBytes = DAG_MAP_MA
       : null;
     result = build(kept, truncated);
   }
-  if (truncated) truncated.bytes.used = Buffer.byteLength(JSON.stringify(result));
+  if (truncated) {
+    stabilizeByteCount(truncated.bytes, () => result);
+    while (Buffer.byteLength(JSON.stringify(result)) > maxBytes && kept.length > 0) {
+      kept = kept.slice(0, -1);
+      truncated = { groups: { shown: kept.length, total: sorted.length }, bytes: { max: maxBytes, used: 0 } };
+      result = build(kept, truncated);
+      stabilizeByteCount(truncated.bytes, () => result);
+    }
+  }
   return result;
 }
 
@@ -314,7 +335,7 @@ function fitPrefix(items, maxBytes, build) {
  * @param {number} [input.depth]
  * @param {number} [input.limit]
  */
-export function walkDag({ nodes, from, direction = 'down', depth = 3, limit = MAX_QUERY_LIMIT, maxBytes = DAG_WALK_MAX_BYTES }) {
+export function walkDag({ nodes, from, direction = 'down', depth = 3, limit = MAX_QUERY_LIMIT, maxBytes = DAG_WALK_MAX_BYTES, envelope = null }) {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   if (!byId.has(from)) return { ok: false, code: 'node_not_found', message: `node ${from} does not exist` };
   const children = childrenIndex(nodes);
@@ -326,8 +347,12 @@ export function walkDag({ nodes, from, direction = 'down', depth = 3, limit = MA
   const edges = [];
   let frontier = [from];
   let level = 0;
-  let truncated = false;
-  while (frontier.length > 0 && level < maxDepth && seen.size < maxNodes) {
+  let capped = false;
+  // `limit` bounds the returned page, not reachability: `truncated.total` must
+  // report the real subtree size, not the page cap. Discovery itself is capped
+  // so a pathological DAG cannot make one query unbounded.
+  const discoveryCap = Math.min(20000, Math.max(maxNodes, byId.size));
+  while (frontier.length > 0 && level < maxDepth) {
     const next = [];
     for (const id of frontier) {
       const neighbors = direction === 'up' ? (parents.get(id) ?? []) : (children.get(id) ?? []);
@@ -335,32 +360,45 @@ export function walkDag({ nodes, from, direction = 'down', depth = 3, limit = MA
         if (!byId.has(neighbor)) continue;
         edges.push({ from: direction === 'up' ? neighbor : id, to: direction === 'up' ? id : neighbor });
         if (seen.has(neighbor)) continue;
-        if (seen.size >= maxNodes) { truncated = true; break; }
+        if (seen.size >= discoveryCap) { capped = true; break; }
         seen.add(neighbor);
         next.push(neighbor);
       }
-      if (truncated) break;
+      if (capped) break;
     }
     frontier = next;
     level += 1;
   }
-  if (frontier.length > 0) truncated = true;
+  if (frontier.length > 0) capped = true;
   const rows = [...seen].map((id) => projectRow(byId.get(id)));
+  const reachable = Math.max(0, rows.length - 1);
+  const boundedRows = rows.slice(0, maxNodes);
   const build = (kept) => {
     const ids = new Set(kept.map((row) => row.id));
+    const shown = kept.length;
+    const pageLimited = shown < boundedRows.length;
+    const limitHit = boundedRows.length < rows.length;
     return {
       ok: true,
+      ...(envelope && typeof envelope === 'object' ? envelope : {}),
       from,
       direction,
       depth: maxDepth,
       nodes: kept,
       edges: edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)),
-      truncated: (truncated || kept.length < rows.length)
-        ? { shown: kept.length, total: kept.length < rows.length ? rows.length : null, discovered: rows.length, reason: kept.length < rows.length ? 'bytes' : 'limit' }
+      truncated: (pageLimited || limitHit || capped)
+        ? {
+            shown,
+            total: reachable,
+            discovered: rows.length,
+            reachable,
+            reason: pageLimited ? 'bytes' : 'limit',
+            ...(capped ? { discoveryCapped: true } : {}),
+          }
         : null,
     };
   };
-  const fit = fitPrefix(rows, maxBytes, build);
+  const fit = fitPrefix(boundedRows, maxBytes, build);
   let kept = fit.kept;
   let result = build(kept);
   while (kept.length > 0 && Buffer.byteLength(JSON.stringify(result)) > maxBytes) {
@@ -369,7 +407,13 @@ export function walkDag({ nodes, from, direction = 'down', depth = 3, limit = MA
   }
   if (result.truncated) {
     result.truncated.bytes = { max: maxBytes, used: 0 };
-    result.truncated.bytes.used = Buffer.byteLength(JSON.stringify(result));
+    stabilizeByteCount(result.truncated.bytes, () => result);
+    while (Buffer.byteLength(JSON.stringify(result)) > maxBytes && kept.length > 0) {
+      kept = kept.slice(0, -1);
+      result = build(kept);
+      result.truncated.bytes = { max: maxBytes, used: 0 };
+      stabilizeByteCount(result.truncated.bytes, () => result);
+    }
   }
   return result;
 }
@@ -416,7 +460,7 @@ export function diffSnapshots(before, afterNodes, revision = null) {
  * A cold or too-old cursor returns a defined `diff_unavailable` error rather
  * than silently claiming everything was added.
  */
-export function createDiffCache({ maxProjects = 16, clock = Date.now } = {}) {
+export function createDiffCache({ maxProjects = 16, maxCachedNodes = 100_000, clock = Date.now } = {}) {
   const cache = new Map();
   function snapshotOf(nodes, revision) {
     return {
@@ -449,9 +493,9 @@ export function createDiffCache({ maxProjects = 16, clock = Date.now } = {}) {
       // as `added`, which is a complete and honest delta.
       before = { revision: 0, byId: new Map() };
     } else if (since !== null) {
-      for (const snapshot of entry.history) {
-        if (snapshot.revision <= since && (before === null || snapshot.revision > before.revision)) before = snapshot;
-      }
+      // Only an exact snapshot can honestly answer `since`: returning an older
+      // revision would over-report the delta while claiming the caller's cursor.
+      before = entry.history.find((snapshot) => snapshot.revision === since) ?? null;
       if (before === null) {
         return {
           ok: false,
@@ -469,6 +513,25 @@ export function createDiffCache({ maxProjects = 16, clock = Date.now } = {}) {
     const snapshot = snapshotOf(nodes, revision);
     entry.history.push(snapshot);
     if (entry.history.length > DIFF_HISTORY) entry.history.splice(0, entry.history.length - DIFF_HISTORY);
+    // Global memory budget: evict the oldest snapshots across projects rather
+    // than letting 16x32 full byId maps stay resident forever.
+    let cachedNodes = 0;
+    for (const candidate of cache.values()) {
+      for (const item of candidate.history) cachedNodes += item.byId.size;
+    }
+    cachedNodes += snapshot.byId.size;
+    while (cachedNodes > maxCachedNodes) {
+      let oldestProject = null;
+      for (const [id, candidate] of cache) {
+        if (candidate.history.length === 0) continue;
+        if (oldestProject === null || candidate.history[0].revision < cache.get(oldestProject).history[0].revision) oldestProject = id;
+      }
+      if (oldestProject === null) break;
+      const candidate = cache.get(oldestProject);
+      const removed = candidate.history.shift();
+      cachedNodes -= removed.byId.size;
+      if (candidate.history.length === 0) cache.delete(oldestProject);
+    }
     cache.delete(projectId);
     if (cache.size >= maxProjects) cache.delete(cache.keys().next().value);
     cache.set(projectId, entry);

@@ -776,19 +776,20 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   function listNodesPage(projectId, { limit = 100, cursor = null, status = null } = {}) {
     const project = requireProject(projectId);
     const size = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.trunc(limit))) : 100;
-    const page = store.listNodes(projectId, { limit: size, cursor: typeof cursor === 'string' && cursor ? cursor : null });
-    const nodes = status ? page.filter((node) => node.status === status) : page;
-    const nextCursor = page.length === size ? page[page.length - 1]?.id ?? null : null;
+    const all = status ? store.listNodes(projectId).filter((node) => node.status === status) : store.listNodes(projectId);
+    const start = typeof cursor === 'string' && cursor ? Math.max(0, all.findIndex((node) => node.id === cursor) + 1) : 0;
+    const nodes = all.slice(start, start + size);
+    const nextCursor = start + size < all.length ? nodes[nodes.length - 1]?.id ?? null : null;
     return {
       ok: true,
       projectId,
       revision: project.revision,
       nodes,
       count: nodes.length,
-      total: store.countNodes(projectId),
+      total: all.length,
       nextCursor,
       hasMore: nextCursor !== null,
-      _truncated: nextCursor !== null ? { nodes: { shown: nodes.length, total: store.countNodes(projectId) } } : null,
+      _truncated: nextCursor !== null ? { nodes: { shown: nodes.length, total: all.length } } : null,
     };
   }
 
@@ -797,12 +798,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     requireProject(projectId);
     const node = store.getNode(projectId, nodeId);
     if (!node) throw new LabError('node_not_found', `unknown node: ${nodeId}`, 404);
-    const nodes = store.listNodes(projectId);
-    const parentIds = new Set();
-    for (const candidate of nodes) {
-      for (const id of candidate.parentIds ?? (candidate.parentId ? [candidate.parentId] : [])) parentIds.add(id);
-    }
-    return { ok: true, node, sealed: parentIds.has(node.id), isLeaf: !parentIds.has(node.id) };
+    const hasChildren = store.hasChildren(projectId, node.id);
+    return { ok: true, node, sealed: hasChildren, isLeaf: !hasChildren };
   }
 
   /** Delta read (S10): node ids changed since a revision, or `full` when unknowable. */
@@ -1206,7 +1203,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const nodeLimit = Number.isFinite(options.nodeLimit) ? Math.max(1, Math.min(5000, Math.trunc(options.nodeLimit))) : 2000;
     const eventLimit = Number.isFinite(options.limit) ? Math.max(1, Math.min(5000, Math.trunc(options.limit))) : 2000;
     const afterSeq = Number.isFinite(options.afterSeq) ? Math.max(0, Math.trunc(options.afterSeq)) : 0;
-    const state = await getState(projectId, undefined, { limit: nodeLimit });
+    const nodeCursor = typeof options.nodeCursor === 'string' && options.nodeCursor ? options.nodeCursor : null;
+    const state = await getState(projectId, undefined, { limit: nodeLimit, cursor: nodeCursor });
     const allEvents = store.listEvents(projectId, afterSeq);
     const events = allEvents.slice(0, eventLimit);
     const nextSeq = events.length > 0 ? events[events.length - 1].seq : afterSeq;
@@ -2421,6 +2419,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }
     const deleted = await kernel.executor.deleteProject(projectId, { actor: { kind: 'human', id: 'operator' } });
     if (deleted.ok !== true) throw new LabError(deleted.code ?? 'commit_failed', deleted.message ?? 'delete failed', 500);
+    diffCache.reset(projectId);
     auto?.forget?.(projectId);
     return { deleted: true, projectId, worktreesRemoved, removeWorktrees };
   }
@@ -2665,6 +2664,18 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return orchestrator.listRuns(projectId, limit);
   }
 
+  function listRunsPage(projectId, { limit = 50, cursor = null } = {}) {
+    requireProject(projectId);
+    const page = store.pageRuns(projectId, { limit, cursor });
+    return {
+      ok: true,
+      projectId,
+      ...page,
+      hasMore: page.nextCursor !== null,
+      _truncated: page.nextCursor !== null ? { runs: { shown: page.runs.length, total: page.total } } : null,
+    };
+  }
+
   async function getRun(projectId, runIdValue) {
     if (!orchestrator) throw new LabError('unavailable', 'orchestrator is not wired', 503);
     return orchestrator.getRun(projectId, runIdValue);
@@ -2824,16 +2835,18 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     requireProject(projectId);
     const by = ['status', 'depth', 'owner', 'parent'].includes(input?.by) ? input.by : 'status';
     const sample = Number.isFinite(input?.sample) ? Math.max(1, Math.min(20, input.sample)) : 5;
-    return { ...mapDag({ nodes: projectNodes(projectId), by, sample }), projectId, revision: projectRevision(projectId) };
+    const revision = projectRevision(projectId);
+    return mapDag({ nodes: projectNodes(projectId), by, sample, envelope: { projectId, revision } });
   }
 
   function dagWalkAction(projectId, input) {
     requireProject(projectId);
     const from = text(input?.from, 'from', { required: true, max: 120 });
     const nodes = projectNodes(projectId);
-    const result = walkDag({ nodes, from, direction: input?.direction === 'up' ? 'up' : 'down', depth: input?.depth, limit: input?.limit });
+    const revision = projectRevision(projectId);
+    const result = walkDag({ nodes, from, direction: input?.direction === 'up' ? 'up' : 'down', depth: input?.depth, limit: input?.limit, envelope: { projectId, revision } });
     if (result.ok !== true) return rejection(result.code ?? 'node_not_found', result.message ?? `node ${from} does not exist`);
-    return { ...result, projectId, revision: projectRevision(projectId) };
+    return result;
   }
 
   function dagDiffAction(projectId, input) {
@@ -3193,6 +3206,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     autoResume,
     autoStatus,
     listRuns,
+    listRunsPage,
     getRun,
     agentTool,
     statusFacts,

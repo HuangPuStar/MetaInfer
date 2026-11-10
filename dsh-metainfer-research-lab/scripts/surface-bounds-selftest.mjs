@@ -10,6 +10,7 @@ import { createLabService } from '../host/lab-service.js';
 import { createTranscriptReader } from '../host/transcript.js';
 import { registerHttpRoutes } from '../host/http.js';
 import { registerAgentTool } from '../host/agent-tool.js';
+import { createServer as createMcpServer } from '../host/mcp.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 const PREFIX = '/api/metainfer-research-lab';
@@ -44,9 +45,12 @@ for (let index = 0; index < 2500; index += 1) {
   });
 }
 // Enough durable events to prove replay is capped independently of nodes.
-for (let index = 0; index < 300; index += 1) {
+for (let index = 0; index < 1200; index += 1) {
   const project = store.getProject(projectId);
   await store.appendEvent(project, 'node/created', { nodeId: `n-${index % 2500}`, data: { index } });
+}
+for (let index = 0; index < 3; index += 1) {
+  await store.saveRun(projectId, { id: `run-${index}`, projectId, role: 'advisor', status: 'completed', startedAt: index, endedAt: index + 1 });
 }
 
 const transcriptEvents = Array.from({ length: 500 }, (_, index) => ({
@@ -112,17 +116,34 @@ check('transcript cursor advances without duplicates', transcriptNext.rows.lengt
 // --- HTTP /replay: nodes and events are capped ------------------------------
 const replay = await get('replay', `projectId=${projectId}&limit=100&nodeLimit=500`);
 check('replay bounds nodes', replay.nodes.length === 500 && replay._truncated?.nodes?.total === 2501, `${replay.nodes.length}`);
-check('replay bounds events', replay.events.length === 100 && replay._truncated?.events?.total === 300, `${replay.events.length}`);
+check('replay bounds events', replay.events.length === 100 && replay._truncated?.events?.total === 1200, `${replay.events.length}`);
 check('replay carries a cursor', replay.nextSeq > 0 && replay.nextNodeCursor !== null, `${replay.nextSeq}/${replay.nextNodeCursor}`);
 const replayBytes = Buffer.byteLength(JSON.stringify(replay), 'utf8');
 check('replay response stays under 1 MB', replayBytes < 1024 * 1024, `${replayBytes} B`);
 
-// --- MCP list path (same service method the tool calls) --------------------
-const mcpPage = service.listNodesPage(projectId, { limit: 10 });
+// --- HTTP /events default + /runs cursor -----------------------------------
+const eventsDefault = await get('events', `projectId=${projectId}`);
+check('events default page is bounded', eventsDefault.events.length === 1000 && eventsDefault.page?.hasMore === true, `${eventsDefault.events.length}`);
+const eventsNext = await get('events', `projectId=${projectId}&after=${eventsDefault.page.nextSeq}`);
+check('events cursor advances', eventsNext.events[0]?.seq > eventsDefault.events.at(-1)?.seq, `${eventsNext.events[0]?.seq}`);
+const runsPage = await get('runs', `projectId=${projectId}&limit=1`);
+check('runs page is bounded with a cursor', runsPage.runs.length === 1 && runsPage.total === 3 && runsPage.nextCursor !== null, JSON.stringify({ count: runsPage.runs.length, total: runsPage.total, cursor: runsPage.nextCursor }));
+const runsNext = await get('runs', `projectId=${projectId}&limit=1&cursor=${encodeURIComponent(runsPage.nextCursor)}`);
+check('runs cursor advances', runsNext.runs[0]?.id !== runsPage.runs[0]?.id, `${runsNext.runs[0]?.id}`);
+
+// --- MCP tool handlers (registered through the real McpServer) --------------
+const mcpServer = createMcpServer(service);
+const mcpTools = mcpServer._registeredTools;
+const callMcp = async (name, args) => {
+  const result = await mcpTools[name].handler(args, {});
+  return result?.structuredContent ?? JSON.parse(result?.content?.[0]?.text ?? '{}');
+};
+const mcpPage = await callMcp('metainfer_list_nodes', { projectId, status: 'planned', limit: 10 });
 check('mcp list_nodes page is bounded', mcpPage.nodes.length === 10 && mcpPage.nextCursor !== null, `${mcpPage.nodes.length}`);
-const mcpNext = service.listNodesPage(projectId, { limit: 10, cursor: mcpPage.nextCursor });
+check('mcp list_nodes total reflects the status filter', mcpPage.total === 2500 && mcpPage._truncated?.nodes?.total === 2500, JSON.stringify({ total: mcpPage.total, trunc: mcpPage._truncated }));
+const mcpNext = await callMcp('metainfer_list_nodes', { projectId, status: 'planned', limit: 10, cursor: mcpPage.nextCursor });
 check('mcp list_nodes cursor works', mcpNext.nodes.length === 10 && mcpNext.nodes[0].id !== mcpPage.nodes[0].id, `${mcpNext.nodes[0]?.id}`);
-const mcpNode = service.getNode(projectId, 't-node');
+const mcpNode = await callMcp('metainfer_get_node', { projectId, nodeId: 't-node' });
 check('mcp get_node is a direct lookup', mcpNode.node?.id === 't-node' && mcpNode.isLeaf === true, `${mcpNode.node?.id}`);
 
 // --- Agent tool wrapper uses the same limits -------------------------------

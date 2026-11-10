@@ -13,6 +13,8 @@ import { createKernel } from '../host/kernel/instance.js';
 import { createExplainer } from '../host/observability/explain.js';
 import { createRuntime } from '../host/runtime.js';
 import { normalizeNodeReport, REPORT_LIMITS } from '../host/runtime.js';
+import { reconcileRunningNodes } from '../host/reconcile.js';
+import { createGcRunner } from '../host/gc.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -38,6 +40,7 @@ await store.saveProject({
   revision: 0,
   counters: { eventSeq: 0 },
   config: { maxRunningNodes: 2, resourcePools: { gpu: 2 }, maxNodes: 100 },
+  repo: { path: ROOT },
   updatedAt: 0,
   createdAt: 0,
 });
@@ -89,12 +92,47 @@ check('planned cancel emits an event', cancelled.length === 1, JSON.stringify(ca
 check('planned cancel event has a causeId', typeof cancelled[0]?.causeId === 'string' && cancelled[0].causeId.length > 0, JSON.stringify(cancelled[0]?.causeId ?? null));
 const cancelledExplain = explainer.explainNode('p', 'n2');
 check('planned cancel is explainable', cancelledExplain.ok === true && cancelledExplain.causeChain.length > 0, JSON.stringify(cancelledExplain.causeChain));
-// Non-runtime writers (merge prep, GC, reconcile, dashboard) must not emit
-// causeless events either; the store stamps a stable fallback.
-const gcEvent = await store.appendEvent(store.getProject('p'), 'gc/finished', { data: { reclaimed: 1 } });
-check('gc event has a causeId', typeof gcEvent.causeId === 'string' && gcEvent.causeId.length > 0, JSON.stringify(gcEvent.causeId));
-const mergeEvent = await store.appendEvent(store.getProject('p'), 'merge/prepared', { nodeId: 'n2', data: {} });
-check('merge prep event has a causeId', typeof mergeEvent.causeId === 'string' && mergeEvent.causeId.length > 0, JSON.stringify(mergeEvent.causeId));
+// 2b. Real reconcile path: a legacy running node (no cause pointer) must gain a
+// node-level cause, not only an event-level fallback.
+await store.saveNode('p', { id: 'legacy', title: 'legacy running', status: 'running', timestamps: { createdAt: 3 } });
+await reconcileRunningNodes({ store, kernel });
+const legacy = store.getNode('p', 'legacy');
+check('reconcile stamps the node cause pointer', typeof legacy.causeId === 'string' && legacy.causeId.length > 0, JSON.stringify({ causeId: legacy.causeId, lastCauseId: legacy.lastCauseId }));
+const legacyExplain = explainer.explainNode('p', 'legacy');
+check('reconcile node is explainable', legacyExplain.ok === true && legacyExplain.causeChain.length > 0, JSON.stringify(legacyExplain.causeChain));
+
+// 2c. Real GC runner: postmortem node update and gc/finished event share a commit.
+const gcCtx = {
+  subagents: {
+    async startActivation() {
+      return {
+        result: Promise.resolve({
+          stopReason: 'completed',
+          structured: { cause: 'timeout', leftovers: [], cleanupRequested: false, recommendation: 'retry', summary: 'timed out' },
+        }),
+        dispose: async () => {},
+      };
+    },
+  },
+};
+const gcOrchestrator = { ensureController: async () => ({}) };
+const gcRunner = createGcRunner({ ctx: gcCtx, store, orchestrator: gcOrchestrator, kernel });
+await executor.commit('p', { actor: human, mutations: [{ op: 'node.create', node: { id: 'gc-node', title: 'gc me', status: 'running', timestamps: { createdAt: 4 } } }] });
+const gcRecord = await gcRunner.run('p', 'gc-node', { kind: 'timeout' });
+const gcCurrent = store.getNode('p', 'gc-node');
+check('gc runner completed', gcRecord?.status === 'completed', JSON.stringify({ status: gcRecord?.status, error: gcRecord?.error }));
+check('gc stamps the node cause pointer', typeof gcCurrent.causeId === 'string' && gcCurrent.causeId.length > 0, JSON.stringify({ causeId: gcCurrent.causeId, lastCauseId: gcCurrent.lastCauseId }));
+const gcExplain = explainer.explainNode('p', 'gc-node');
+check('gc node is explainable', gcExplain.ok === true && gcExplain.causeChain.length > 0, JSON.stringify(gcExplain.causeChain));
+
+// 2d. Merge preparation travels through node.put, so the node pointer follows.
+await executor.commit('p', {
+  actor: human,
+  causeId: 'merge-prep:p:n2',
+  mutations: [{ op: 'node.put', node: { ...store.getNode('p', 'n2'), merge: { state: 'prepared' } }, eventType: 'node/merge_prepared', eventData: { state: 'prepared' } }],
+});
+const mergeExplain = explainer.explainNode('p', 'n2');
+check('merge prep node is explainable', mergeExplain.ok === true && mergeExplain.causeChain.length > 0, JSON.stringify(mergeExplain.causeChain));
 const runtimeSource = readFileSync(path.join(ROOT, 'host/runtime.js'), 'utf8');
 
 // 3. UI + HTTP explain path.

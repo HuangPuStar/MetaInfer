@@ -165,7 +165,7 @@ export function registerHttpRoutes(ctx, service) {
     return ok(await service.getEvents(
       params.get('projectId'),
       params.get('after') ?? 0,
-      limit === null ? {} : { limit: Number(limit) },
+      { limit: limit === null ? 1000 : Number(limit) },
     ));
   });
 
@@ -202,8 +202,11 @@ export function registerHttpRoutes(ctx, service) {
     const runIdValue = params.get('runId');
     if (runIdValue) return ok(await service.getRun(projectId, runIdValue));
     const limit = Number(params.get('limit'));
-    if (Number.isFinite(limit)) return ok(await service.listRuns(projectId, limit));
-    return ok(await service.listRuns(projectId));
+    const cursor = params.get('cursor');
+    return ok(await service.listRunsPage(projectId, {
+      limit: Number.isFinite(limit) && limit > 0 ? Math.min(500, Math.trunc(limit)) : 50,
+      cursor: typeof cursor === 'string' && cursor ? cursor : null,
+    }));
   });
 
   route(`${PREFIX}/transcript`, ['GET'], async (request) => {
@@ -243,10 +246,12 @@ export function registerHttpRoutes(ctx, service) {
     const limit = Number(params.get('limit'));
     const nodeLimit = Number(params.get('nodeLimit'));
     const afterSeq = Number(params.get('afterSeq'));
+    const nodeCursor = params.get('nodeCursor');
     return ok(await service.getReplay(params.get('projectId'), {
       limit: Number.isFinite(limit) && limit > 0 ? Math.min(5000, Math.trunc(limit)) : 2000,
       nodeLimit: Number.isFinite(nodeLimit) && nodeLimit > 0 ? Math.min(5000, Math.trunc(nodeLimit)) : 2000,
       afterSeq: Number.isFinite(afterSeq) ? Math.max(0, Math.trunc(afterSeq)) : 0,
+      nodeCursor: typeof nodeCursor === 'string' && nodeCursor ? nodeCursor : null,
     }));
   });
 

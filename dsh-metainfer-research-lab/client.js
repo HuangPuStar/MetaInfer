@@ -3586,6 +3586,77 @@ window.__ModuleLoader__.load({
       return flat;
     }
 
+    /**
+     * Replay is a bounded API: its first page caps nodes/events, so a client
+     * that fetches once silently drops the tail. Follow `nextNodeCursor` and
+     * `nextSeq` until both streams are exhausted, then merge by identity.
+     */
+    async function fetchReplayAll(projectId, signal, t, options = {}) {
+      const nodeLimit = Number.isFinite(options.nodeLimit) ? Math.max(1, Math.min(5000, Math.trunc(options.nodeLimit))) : 2000;
+      const eventLimit = Number.isFinite(options.limit) ? Math.max(1, Math.min(5000, Math.trunc(options.limit))) : 2000;
+      const maxPages = Number.isFinite(options.maxPages) ? Math.max(1, Math.trunc(options.maxPages)) : 50;
+      const nodes = new Map();
+      const edges = new Map();
+      const events = new Map();
+      let cursor = null;
+      let afterSeq = 0;
+      let revision = 0;
+      let project = null;
+      let startAt = Infinity;
+      let endAt = -Infinity;
+      let pages = 0;
+      let lastEventCount = 0;
+      let truncated = null;
+      while (pages < maxPages) {
+        let url = ROUTES.replay + '?projectId=' + encodeURIComponent(projectId)
+          + '&limit=' + encodeURIComponent(String(eventLimit))
+          + '&nodeLimit=' + encodeURIComponent(String(nodeLimit))
+          + '&afterSeq=' + encodeURIComponent(String(afterSeq));
+        if (cursor) url += '&nodeCursor=' + encodeURIComponent(cursor);
+        const data = await requestJson(url, { signal }, t);
+        pages += 1;
+        project = data?.project ?? project;
+        revision = Math.max(revision, Number(data?.revision) || 0);
+        const pageStart = Number(data?.startAt);
+        const pageEnd = Number(data?.endAt);
+        if (Number.isFinite(pageStart)) startAt = Math.min(startAt, pageStart);
+        if (Number.isFinite(pageEnd)) endAt = Math.max(endAt, pageEnd);
+        for (const node of Array.isArray(data?.nodes) ? data.nodes : []) {
+          if (node && typeof node.id === 'string') nodes.set(node.id, node);
+        }
+        for (const edge of Array.isArray(data?.edges) ? data.edges : []) {
+          if (!edge || typeof edge.from !== 'string' || typeof edge.to !== 'string') continue;
+          edges.set(edge.from + '\u0000' + edge.to, edge);
+        }
+        const pageEvents = Array.isArray(data?.events) ? data.events : [];
+        lastEventCount = pageEvents.length;
+        for (const event of pageEvents) {
+          if (event && Number.isFinite(Number(event.seq))) events.set(Number(event.seq), event);
+        }
+        const nextSeq = Number(data?.nextSeq);
+        if (Number.isFinite(nextSeq)) afterSeq = Math.max(afterSeq, nextSeq);
+        const nextCursor = typeof data?.nextNodeCursor === 'string' && data.nextNodeCursor ? data.nextNodeCursor : null;
+        cursor = nextCursor;
+        const nodesDone = nextCursor === null;
+        const eventsDone = pageEvents.length < eventLimit;
+        if (nodesDone && eventsDone) break;
+        if (pages === maxPages) truncated = { pages: maxPages, nodes: nextCursor !== null, events: !eventsDone };
+      }
+      return {
+        projectId,
+        project,
+        startAt: Number.isFinite(startAt) ? startAt : 0,
+        endAt: Number.isFinite(endAt) ? endAt : 0,
+        nodes: [...nodes.values()],
+        edges: [...edges.values()],
+        events: [...events.values()].sort((a, b) => Number(a.seq) - Number(b.seq)),
+        revision,
+        nextSeq: afterSeq,
+        nextNodeCursor: cursor,
+        _truncated: truncated,
+      };
+    }
+
     /** Typed Host calls; query strings are always URL-encoded. */
     const api = {
       health(signal, t) {
@@ -3682,6 +3753,9 @@ window.__ModuleLoader__.load({
       },
       fetchReplay(projectId, signal, t) {
         return requestJson(ROUTES.replay + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
+      },
+      fetchReplayAll(projectId, signal, t, options) {
+        return fetchReplayAll(projectId, signal, t, options);
       },
       fetchDashboard(projectId, signal, t) {
         return requestJson(ROUTES.dashboard + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
@@ -9271,7 +9345,7 @@ window.__ModuleLoader__.load({
         setReplayLoading(true);
         setReplayError('');
         try {
-          const data = await api.fetchReplay(projectId, undefined, t);
+          const data = await api.fetchReplayAll(projectId, undefined, t);
           setReplayData(data);
           setReplayAt(Number(data.endAt) || Date.now());
         } catch (error) {

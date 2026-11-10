@@ -10,6 +10,7 @@ import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
 import { createReviewClaimBoard } from '../host/dispatch/review-claims.js';
 import { registerAgentTool } from '../host/agent-tool.js';
+import { createDiffCache } from '../host/context/dag.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -77,6 +78,16 @@ const sinceDiff = await call('dag_diff', { sinceRevision: since });
 check('dag_diff honours sinceRevision', sinceDiff.ok === true && sinceDiff.fromRevision === since && sinceDiff.added.length === 1 && sinceDiff.added[0] === 'n3', JSON.stringify(sinceDiff));
 const unavailable = await call('dag_diff', { sinceRevision: 999 });
 check('dag_diff refuses an unknown sinceRevision', unavailable.ok === false && unavailable.code === 'diff_unavailable', JSON.stringify(unavailable));
+// A cursor between two snapshots must not fall back to the older one: the
+// caller would get a delta labelled with a revision it did not ask for.
+const cache = createDiffCache({ maxCachedNodes: 100 });
+cache.diff('x', [{ id: 'a', status: 'planned', rev: 1 }], 1);
+cache.diff('x', [{ id: 'a', status: 'planned', rev: 1 }, { id: 'b', status: 'planned', rev: 2 }], 2);
+const gap = cache.diff('x', [{ id: 'a', status: 'planned', rev: 1 }, { id: 'b', status: 'planned', rev: 2 }], 3, 3);
+check('dag_diff rejects a cursor with no exact snapshot', gap.ok === false && gap.code === 'diff_unavailable', JSON.stringify(gap));
+cache.reset('x');
+const afterReset = cache.diff('x', [{ id: 'a', status: 'planned', rev: 1 }], 4, 2);
+check('diff cache reset drops history', afterReset.ok === false && afterReset.code === 'diff_unavailable', JSON.stringify(afterReset));
 
 // Byte budgets: 5,000 distinct owners used to produce 372,846 B for dag_map.
 await store.saveProject({ id: 'big', revision: 0, counters: { eventSeq: 0 }, config: { maxRunningNodes: 2, resourcePools: {}, maxNodes: 20000 }, updatedAt: 0, createdAt: 0 });
@@ -87,7 +98,7 @@ for (let index = 0; index < 5000; index += 1) {
     id: index === 0 ? 'root' : `n-${index}`,
     title: LONG,
     status: 'planned',
-    createdBy: `owner-${index}`,
+    createdBy: 'o'.repeat(1 + ((index * 7 + 19 * 13) % 120)) + index,
     ...(index === 0 ? {} : { parentId: 'root', parentIds: ['root'] }),
     timestamps: { createdAt: index },
   });
@@ -95,11 +106,14 @@ for (let index = 0; index < 5000; index += 1) {
 const bigMap = JSON.parse((await toolCtx.tool.execute({ action: 'dag_map', projectId: 'big', by: 'owner' }, exec)).result);
 const bigMapBytes = Buffer.byteLength(JSON.stringify(bigMap), 'utf8');
 check('dag_map stays under its 6 KB budget', bigMapBytes <= 6 * 1024, `${bigMapBytes} B`);
+check('dag_map reports final serialized bytes', bigMap._truncated?.bytes?.used === bigMapBytes, `${bigMap._truncated?.bytes?.used} vs ${bigMapBytes}`);
 check('dag_map reports group truncation', bigMap._truncated?.groups?.total === 5000 && bigMap._truncated.groups.shown < 5000, JSON.stringify(bigMap._truncated));
 const bigWalk = JSON.parse((await toolCtx.tool.execute({ action: 'dag_walk', projectId: 'big', from: 'root', depth: 2 }, exec)).result);
 const bigWalkBytes = Buffer.byteLength(JSON.stringify(bigWalk), 'utf8');
 check('dag_walk stays under its 24 KB budget', bigWalkBytes <= 24 * 1024, `${bigWalkBytes} B`);
+check('dag_walk reports final serialized bytes', bigWalk.truncated?.bytes?.used === bigWalkBytes, `${bigWalk.truncated?.bytes?.used} vs ${bigWalkBytes}`);
 check('dag_walk reports byte truncation', bigWalk.truncated?.reason === 'bytes' && bigWalk.truncated.shown < 201, JSON.stringify(bigWalk.truncated));
+check('dag_walk total is the real subtree size', bigWalk.truncated?.total === 4999 && bigWalk.truncated?.discovered === 5000, JSON.stringify(bigWalk.truncated));
 const nodesPage = await call('nodes_page', { limit: 1 });
 check('nodes_page returns a cursor page', nodesPage.ok === true && nodesPage.nodes.length === 1 && nodesPage.total === 3, JSON.stringify(nodesPage));
 const secondPage = await call('nodes_page', { limit: 1, cursor: nodesPage.nextCursor });

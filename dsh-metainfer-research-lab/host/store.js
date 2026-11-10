@@ -175,9 +175,31 @@ export async function openStore(ctx) {
       events: [],
       runs: [],
       cycles: [],
+      children: new Map(),
       changes: [],
       changeOverflowAt: null,
     };
+  }
+
+  function parentIdsOf(node) {
+    if (Array.isArray(node?.parentIds) && node.parentIds.length > 0) return node.parentIds;
+    return node?.parentId ? [node.parentId] : [];
+  }
+
+  function linkParents(entry, node) {
+    for (const parent of parentIdsOf(node)) {
+      if (!entry.children.has(parent)) entry.children.set(parent, new Set());
+      entry.children.get(parent).add(node.id);
+    }
+  }
+
+  function unlinkParents(entry, node) {
+    for (const parent of parentIdsOf(node)) {
+      const set = entry.children.get(parent);
+      if (!set) continue;
+      set.delete(node.id);
+      if (set.size === 0) entry.children.delete(parent);
+    }
   }
 
   function nodeCompare(a, b) {
@@ -210,6 +232,13 @@ export async function openStore(ctx) {
     }
     for (const entry of indexes.values()) {
       entry.nodeOrder = [...entry.nodes.values()].sort(nodeCompare);
+      entry.children = new Map();
+      for (const node of entry.nodes.values()) {
+        for (const parent of parentIdsOf(node)) {
+          if (!entry.children.has(parent)) entry.children.set(parent, new Set());
+          entry.children.get(parent).add(node.id);
+        }
+      }
     }
     for (const [key, value] of tables.events.entries()) {
       const projectId = key.split('__')[0];
@@ -324,6 +353,11 @@ export async function openStore(ctx) {
     return indexFor(projectId).nodes.size;
   }
 
+  /** True when another node names `nodeId` as parent; O(1) via the child index. */
+  function hasChildren(projectId, nodeId) {
+    return (indexFor(projectId).children.get(nodeId)?.size ?? 0) > 0;
+  }
+
   /** Subscribe to every node write, including legacy writers outside the kernel. */
   function subscribeNodes(listener) {
     if (typeof listener !== 'function') throw new TypeError('subscribeNodes: listener must be a function');
@@ -342,7 +376,9 @@ export async function openStore(ctx) {
     const entry = indexFor(projectId);
     const key = nodeStorageKey(projectId, node.id);
     const previous = entry.nodes.get(node.id);
+    if (previous) unlinkParents(entry, previous);
     entry.nodes.set(node.id, node);
+    linkParents(entry, node);
     if (previous) {
       const at = entry.nodeOrder.findIndex((candidate) => candidate.id === node.id);
       if (at >= 0) entry.nodeOrder.splice(at, 1);
@@ -356,6 +392,8 @@ export async function openStore(ctx) {
   function deleteNode(projectId, nodeId) {
     guardWrite('deleteNode');
     const entry = indexFor(projectId);
+    const previous = entry.nodes.get(nodeId);
+    if (previous) unlinkParents(entry, previous);
     entry.nodes.delete(nodeId);
     const at = entry.nodeOrder.findIndex((candidate) => candidate.id === nodeId);
     if (at >= 0) entry.nodeOrder.splice(at, 1);
@@ -562,6 +600,7 @@ export async function openStore(ctx) {
     getNode,
     listNodes,
     countNodes,
+    hasChildren,
     saveNode,
     subscribeNodes,
     deleteNode,

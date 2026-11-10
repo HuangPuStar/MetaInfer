@@ -8,19 +8,19 @@
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **63** |
-| FAIL | **101** |
+| PASS | **64** |
+| FAIL | **100** |
 | 未测量 | **10** |
 | 合计 | **174** |
 
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：第二轮（`750fc31`）关闭了越权、优先级写路径和报告源头上限；但 `dag_*` 的返回契约、
-运行路径 causeId、`/state` 等读出口仍未达标，Stage 3–5 仍缺，因此**今天仍不能上生产**。
+**一句话**：第三轮（`d0364c4`）让四个假测试真正 RED→GREEN，并补了多数边界；但 `dag_map` 仍会超 6 KB、
+O8 的 GC/reconcile 直写仍解释为空、S11 的 replay 客户端仍丢节点，因此**今天仍不能上生产**。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
-> **第二轮**（`750fc31`）的复核、行级变更与最新总数见 **§14**。总判定以 §14 为准。
+> **第二轮**（`750fc31`）见 **§14**；**第三轮**（`d0364c4`）的复核、RED 证据与最新总数见 **§15**。总判定以 §15 为准。
 
 ### 0.1 判定口径
 
@@ -421,3 +421,140 @@ EXIT=0（10/10）；context 11/11、wiring 7/7、ui 7/7、observability 6/6、sc
 **否。** 越权、优先级、报告上限已真关闭；但 `B15` 的 `dag_map` 372 KB / 无 revision、`O8` 的 planned
 cancel 无 causeId、`S11` 的 `/state` 等出口仍无界，且 101 行仍 FAIL；只能继续作为 `refactor/v2`
 的开发分支。
+
+---
+
+## 15. 第三轮复核（HEAD `d0364c4`，4 个新提交）
+
+> 复核对象：`f67348f`、`c293a92`、`4431441`、`d0364c4`。工作树在复核前干净。
+> 方法仍是“先跑测试，再用真实 service/Host 路径探针”；对四个“先红后绿”的声明，另在
+> `/tmp/r3-*` 的 HEAD 副本里**手动重植缺陷**，确认强化后的测试确实会红。
+
+### 15.1 最新总数与 delta
+
+| 判定 | 第二轮 | 第三轮 | 变化 |
+|---|---|---|---|
+| PASS | 63 | **64** | +1 |
+| FAIL | 101 | **100** | −1 |
+| 未测量 | 10 | **10** | 0 |
+| 合计 | 174 | **174** | — |
+
+**FAIL → PASS（1 行）**：`A16`。**仍 FAIL 的上一轮点名行**：`B15`、`O8`、`S11`。
+`A16` 的窄验收（真实 runtime planned cancel + `trace_explain` 相位）已过；但 `O8` 的
+GC/reconcile/merge 直写仍解释为空，二者不矛盾。
+
+**回归**：`npm test` 24 个 selftest 全绿（EXIT=0，344 个 `ok`）；`npm run bench:scale`
+EXIT=0（10/10）；auth/priority/report 三个旧 PASS 行仍成立。**新回归**：`replay` 的
+服务端默认 2,000 节点/事件，客户端仍只请求一次、不跟 `nextNodeCursor`，5,001 节点的回放
+从“全量”退化为“前 2,000”；这是 S11 修复引入的回归，见 15.5。
+
+### 15.2 行级变更
+
+| ID | 第二轮 | 第三轮 | 证据 | 备注 |
+|---|---|---|---|---|
+| A16 | FAIL | **PASS** | `scripts/trace-selftest.mjs` 改用 `createKernel` + 真实 `runtime.cancel()`；planned cancel 现在 `causeId=node/cancelled:cancel:a1`，`explain_node` chain=1；`trace_explain` 的 start/outcome 相位与 causeId 均有断言。RED 复现见 15.2.1 | 只覆盖计划取消与显式 cause 的正常路径；GC/reconcile 直写的缺口归 O8 |
+| B15 | FAIL | **FAIL** | 5,000 个不同 owner、变长 key 的真实 `dag_map` 响应 **6,150 B > 6,144 B**，`_truncated.bytes.used` 只写 6,117；`dag_walk` 的 `bytes.used` 也比最终响应小 38 B（24,386 vs 24,424）；直接 `walkDag` 的 5,000 子节点形状得到 24,585 B > 24,576 | 作者测试只覆盖一种固定形状；见 15.3 |
+| O8 | FAIL | **FAIL** | HTTP `/explain`：planned cancel chain=1；但真实 `reconcileRunningNodes` 的 legacy running 节点 event cause=`reconcile:legacy`，`node.causeId/lastCauseId` 均为 null，`causeChain=0`；直接 merge/GC 事件同样 chain=0 | store fallback 只给事件补 cause，不建立 node→cause 指针；见 15.4 |
+| S11 | FAIL | **FAIL** | `/state` 5,001 节点分 6 页、无丢节点；`/transcript` 500 行分 11 页；但 `/replay` 默认只回 2,000/5,001 节点和 2,000/5,000 事件，`client.js:3683` 仍只调一次、`client.js:9274` 不跟 `nextNodeCursor`；`/events` 无 limit 时仍返回全部 5,000 | 服务端多数已分页；客户端 replay 和 `/events` 默认值仍未关；见 15.5 |
+
+#### 15.2.1 四个“先红后绿”证据（独立重植）
+
+在 `/tmp/r3-{trace,tool,i18n,priority}`（HEAD `d0364c4` 的 git archive 副本，node_modules 软链）中，
+基线均 EXIT=0；然后各重植一个缺陷：
+
+| 测试 | 重植的缺陷 | RED 输出 | 结论 |
+|---|---|---|---|
+| `trace-selftest` | `host/runtime.js` 的 `causeId` 去掉 `actionCause` 回退（恢复“非激活事件无 cause”） | EXIT=1；`FAIL planned cancel is explainable — []` | 真会红；不是静态 grep |
+| `tool-surface-selftest` | `authorizeAction` 的 `unknown_action` 改成 `unknown_command` | EXIT=1；6 个 removed action 全部 `FAIL ... unknown_action — {"ok":false,"code":"unknown_command"}` | 真会红；精确 code 被守住 |
+| `i18n-parity` | 在 zh 词典插入重复的 `'panel': '重复'` | EXIT=1；`FAIL client dictionaries have no duplicate keys (zh) — panel` | 真会红；现在解析未加引号键并比较 resolved map |
+| `priority-selftest` | `setNodePriority` 把 `commitActor` 硬编码回 `{kind:'human',id:'operator'}` | EXIT=1；`FAIL priority event is attributed to the calling session — {"kind":"human","id":"operator"}`，kind 行也红 | 真会红；actor 归属被守住 |
+
+四个测试的基线在副本里均为绿，重植后均为红；因此“RED evidence”不是作者的口头声明。
+
+### 15.3 B15：预算与元数据仍不成立
+
+1. `dag_map`：真实工具包装器、5,000 个不同 `createdBy`、变长 key（`'o'.repeat(1 + ((i*7+19*13)%120)) + i`）：
+   **6,150 B**，超 `6*1024=6,144`；`_truncated.groups={shown:83,total:5000}` 正确，但
+   `_truncated.bytes.used=6,117`，不是最终序列化字节。原因是 `mapDag` 在加 `projectId`/`revision`
+   之前计算 `used`、也只按内部 envelope 裁剪。
+2. `dag_walk`：5,000 个子节点、长 id/title 的形状下，服务响应 24,424 B（本次未超），但
+   `truncated.bytes.used=24,386`，比最终响应小 38 B；直接调用 `walkDag` 的同一类形状可到
+   **24,585 B > 24,576**。`truncated.total` 写的是 200（`discovered` 上限），不是真实可达总数
+   5,000；`shown=57,total=200,discovered=200,reason='bytes'` 的“total”会误导。
+3. 作者 `tool-surface-selftest` 的预算用例固定为 `owner-${i}`、`title:'x'.repeat(300)`，通过；
+   换一种合法 owner 长度分布就红。测试没有覆盖 envelope 加上 `projectId`/`revision` 的最终字节。
+4. `dag_map/walk/diff/get/query` 现在都带 `revision`（`probe2`：diff revision=4；`probe1`：
+   map/walk revision=123），这点已修。
+5. `dag_diff` 的真 `sinceRevision` 对**精确快照**有效：第一次 diff→R1，新增节点后
+   `since=R1` 只回 `n2`；`since=999`（ahead）→`diff_unavailable`。但 `since=3` 而历史只有
+   R1/R2 时，代码退到 R2 并把 `fromRevision=2` 返回，同时 `sinceRevision=3`；这不是
+   `diff_unavailable`，调用方会收到一个“从 2 开始”的 delta 却以为从 3 开始（多报，不会少报）。
+   `DIFF_HISTORY=16` 的缓存没有 dedupe/reset；32 个项目 × 16 份全量 byId 快照，5,000 节点时
+   是数十万到百万级对象的常驻内存，且 `reset` 没有调用方。
+
+### 15.4 O8：只有 planned cancel 的链真正闭合
+
+HTTP `/explain` 实测（`probe6`）：
+
+| 路径 | event.causeId | node.causeId/lastCauseId | causeChain |
+|---|---|---|---|
+| planned cancel（真实 `runtime.cancel`） | `node/cancelled:cancel:a1` | 有 | **1** |
+| legacy running → `reconcileRunningNodes` | `reconcile:legacy` | **null / null** | **0** |
+| 直接 `node/merge_prepared`（无 node cause） | `node/merge_prepared:p:2` | **null / null** | **0** |
+| 直接 `gc/finished`（无 node cause） | `gc/finished:p:3` | **null / null** | **0** |
+
+`host/store.js` 的 fallback 只保证**事件行**有 `causeId`，它不知道 node 的 cause 指针；
+`explain.js` 仍从 `node.causeId ?? node.lastCauseId` 起走，故直写事件无法被解释。作者的
+`trace-selftest` 对 GC/merge 只断言 `event.causeId`（见 `trace-selftest.mjs` 的
+`gc event has a causeId` / `merge prep event has a causeId`），没有断言 `explain_node` 的
+chain，所以测试绿而 O8 仍红。real reconcile 是最有力的反例：它是 Host 启动路径，不是人造调用。
+
+### 15.5 S11：服务端多数已分页，客户端 replay 仍丢节点
+
+`probe7`（5,001 节点、5,000 事件、500 transcript 行）：
+
+| 面 | 结果 | 判定 |
+|---|---|---|
+| `/state` 默认 | 6 页，unique=5,001，last `nextCursor=null`，edges=4,999 | **bounded，客户端 `fetchStateAll` 会跟页** |
+| `/transcript?limit=50` | 11 页（含最后空页），unique=500 | **bounded，cursor 可续** |
+| `/replay` 默认 | nodes=2,000/5,001，events=2,000/5,000，`nextNodeCursor=n-1999`，`nextSeq=2000` | **服务端 bounded；客户端只调一次，丢 3,001 节点/3,000 事件** |
+| `/events` 无 limit | 5,000 条一次返回，`page=null` | **无默认上限，S11 仍 FAIL** |
+| MCP `list_nodes`（status=completed, limit=10） | 501 页，匹配 1,667 个；无丢节点 | bounded；但 `total=5,001` 是全部节点，`_truncated` 的 shown/total 不代表筛选结果 |
+| MCP `get_node` | 单节点直接返回 | bounded |
+
+`client.js:3683` 的 `fetchReplay` 不传 `limit`/`nodeLimit`，`client.js:9274` 只调用一次，
+从未消费 `nextNodeCursor`；5,001 节点的回放面板只显示前 2,000，且边也只来自这一页。
+这是 S11 修复引入的**回归**（此前 replay 返回全量，虽然无界）。`/state` 的客户端
+`fetchStateAll` 有 `pages < 20` 的硬上限，超过 20,000 节点会静默截断并返回
+`_truncated:null`；5,000 场景下 6 页，未触发。
+
+### 15.6 新半接线 / 测试盲点
+
+1. **`surface-bounds-selftest` 已接入 `npm test`，但不是全链路**：它直接调
+   `service.listNodesPage` 而不是真实 MCP transport；只测 replay 服务端，不测
+   `client.js` 的 replay 翻页；不测 `/events` 默认值；不测 20 页客户端上限。因此它绿，
+   但 15.5 的 replay 回归仍存在。
+2. **`dag_map` 的 6 KB 测试是固定形状**：`tool-surface-selftest` 只用一个 owner 分布；
+   变长 key 即超（6,150 B）。测试把 `bytes.used` 当作最终字节，实际 `used` 早于
+   `projectId`/`revision` 注入。
+3. **`dag_walk` 的 `bytes.used` 不是最终字节**：`dag.js` 在加 `truncated.bytes`
+   字段后没有再裁剪一次；`used` 与最终响应差 38 B，最坏形状直接超过 24,576。
+4. **diff history cache 是内存放大器**：每个项目 16 份全量 `byId` 快照，32 个项目；
+   没有 `reset` 调用方，没有按节点数/字节数的预算；`since` 落在两个快照之间时返回较老
+   快照而非 `diff_unavailable`。
+5. **explain fallback 只补事件、不补 node 指针**：store 的 `appendEvent` fallback 让
+   `event.causeId` 非空，但 `explain_node` 的起点仍是 node；GC/reconcile/merge 直写
+   在无 node cause 时 chain=0。
+6. **MCP `list_nodes` 的 status 过滤是后过滤**：limit=10 时扫描 501 页才找完 1,667 个
+   completed 节点；`total` 仍是全部节点。没有丢节点，但不是“按 status 分页”，且每页
+   `count` 可能远小于 limit。
+7. **`getState` 的 `full=1` 仍可放大响应**：HTTP 仍强制 1,000 节点/页，但 `full`
+   会返回未 slim 的节点；S11 的字节上限只测默认 slim 页。
+8. **`get_node` 是“直接查找”但 `getNode` 仍 `store.listNodes(projectId)` 全量遍历**
+   来计算 sealed/isLeaf；5,000 节点可用，但不是 O(1)，与测试描述“direct lookup”不符。
+
+### 15.7 第三轮上生产结论
+
+**否。** 四个假测试已真 RED→GREEN，`A16` 窄验收关闭；但 `B15` 仍可超 6 KB 且
+`used` 不准确、`O8` 的 reconcile/GC/merge 直写 chain=0、`S11` 的 replay 客户端丢 3,001
+节点且 `/events` 无默认上限；另引入 replay 回归。整体仍是 100 行 FAIL，不能上生产。

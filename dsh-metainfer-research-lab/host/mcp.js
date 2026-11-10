@@ -37,7 +37,7 @@ const nodeId = z.string().min(1).max(128);
 const runId = z.string().min(1).max(128);
 const sessionId = z.string().min(1).max(128);
 
-function createServer(service) {
+export function createServer(service) {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
