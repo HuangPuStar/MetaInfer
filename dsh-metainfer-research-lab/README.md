@@ -107,6 +107,7 @@ Codex 使用本机 Codex 原生登录/配置，不通过 DSH 模型 API。首次
 
 | 文档 | 内容 | 适合谁 |
 |---|---|---|
+| [docs/00-system-map.md](docs/00-system-map.md) | **一页纸系统地图**：7 层分层、Agent 在哪几层、三个入口一个门面、四个必踩的坑、核对脚本 | **新会话/新 Agent 先读这个** |
 | [docs/01-architecture.md](docs/01-architecture.md) | 目标、不变量、总体架构、数据模型、节点状态机、Git 版本绑定、存储/并发/安全 | 想理解「系统为什么这样设计」 |
 | [docs/02-agents-orchestration.md](docs/02-agents-orchestration.md) | 三类 Agent（worker/advisor/scheduler）、提示词、结构化输出、手动/自动挡编排、预算与失败处理 | 想改提示词或编排策略 |
 | [docs/03-ui-spec.md](docs/03-ui-spec.md) | 界面信息架构、DAG 画布、节点检查器、对话抽屉、模式开关/Step、空状态、视觉规范 | 想做前端/交互 |

@@ -2,6 +2,12 @@
 
 These rules are binding for every coding agent working in this repository.
 
+## 先读架构入口
+
+改动 `dsh-metainfer-research-lab/` 之前，先读 [`docs/00-system-map.md`](dsh-metainfer-research-lab/docs/00-system-map.md)：
+它给出分层、Agent 在哪几层、三个入口一个门面、以及四个已知的坑（全局工具注册、anchor 空壳、
+重试重置 session、Host 负责 commit）。文档与代码冲突时以代码为准，并在 `docs/issues/` 记一条。
+
 ## No one-off product patches
 
 Never add project-specific, environment-specific, or request-specific code to product code merely to satisfy one immediate request. In particular, do not ship any of the following:
