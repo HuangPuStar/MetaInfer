@@ -10481,10 +10481,10 @@ window.__ModuleLoader__.load({
                   h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.running', { count: facts.counts.running })),
                   h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.queued', { count: facts.counts.planned })),
                   h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.failed', { count: facts.counts.failed })),
-                  next !== null
+                  next != null
                     ? h('span', { className: 'rl-host-facts-next' }, t('ws.facts.next', { id: next.nodeId, why: next.why?.message ?? next.why?.code ?? '' }))
                     : h('span', { className: 'rl-host-facts-hint' }, t('ws.facts.none')),
-                  failure !== null
+                  failure != null
                     ? h('span', { className: 'rl-host-facts-failure' }, t('ws.facts.failure', { id: failure?.nodeId, error: (failure?.error ?? '').slice(0, 120) }))
                     : null,
                 ),
