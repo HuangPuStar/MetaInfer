@@ -5,6 +5,8 @@
  */
 import { LabError } from './git-engine.js';
 import { runnableQueue, runnableSummary } from './kernel/runnable.js';
+import { createLowWaterPlanner, planningConfigOf } from './dispatch/low-water.js';
+import { anyFits, capacityOf } from './kernel/capacity.js';
 
 function newNodeCount(nodes) {
   return nodes.length;
@@ -16,7 +18,27 @@ function newNodeCount(nodes) {
 export function createAutoController({ store, orchestrator, cluster, intervalMs = 2000 }) {
   const states = new Map();
   const busy = new Set();
+  const planners = new Map();
   let timer = null;
+
+  /**
+   * Planner trigger per project (QA Q7): plan when the remaining runnable work
+   * drops below the measured planner latency, not when the queue is already
+   * empty. The planner is rebuilt when its config changes.
+   */
+  function plannerOf(project) {
+    const config = planningConfigOf(project);
+    const key = JSON.stringify(config);
+    const cached = planners.get(project.id);
+    if (cached && cached.key === key) return cached.planner;
+    const planner = createLowWaterPlanner({
+      getRemainingMs: () => runnableSummary(store.listNodes(project.id), { now: Date.now() }).remainingMs,
+      getQueueDepth: () => runnableSummary(store.listNodes(project.id), { now: Date.now() }).runnable,
+      ...config,
+    });
+    planners.set(project.id, { key, planner });
+    return planner;
+  }
 
   function projectOf(projectId) {
     const project = store.getProject(projectId);
@@ -159,43 +181,6 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
     if (state.status === 'running') void tickOne(projectId);
   }
 
-  function capacityFor(project, nodes, cluster) {
-    const running = nodes.filter((node) => node.status === 'running');
-    const held = {};
-    for (const node of running) {
-      for (const [key, amount] of Object.entries(node.resourcesHeld ?? {})) {
-        held[key] = (held[key] ?? 0) + amount;
-      }
-    }
-    const free = {};
-    for (const [key, total] of Object.entries(project.config.resourcePools ?? {})) {
-      free[key] = Math.max(0, total - (held[key] ?? 0));
-    }
-    let canStart = running.length < (project.config.maxRunningNodes ?? 4);
-    if (cluster?.enabled === true) {
-      const status = cluster.getStatus?.() ?? {};
-      const gpuFree = Number(status.pools?.gpu?.free);
-      if (Number.isFinite(gpuFree)) free.gpu = gpuFree;
-      const quota = Math.max(0, Number(project.config.resourcePools?.gpu ?? 0));
-      if (quota > 0) {
-        const heldGpu = running.reduce(
-          (sum, node) => sum + Math.max(0, Number(node.resourcesHeld?.gpu ?? 0)),
-          0,
-        );
-        if (heldGpu >= quota) canStart = false;
-        free.gpu = Math.min(free.gpu ?? quota, Math.max(0, quota - heldGpu));
-      }
-    }
-    return { runningCount: running.length, canStart, free };
-  }
-
-  function plannedFits(project, planned, capacity) {
-    return planned.some((node) => {
-      if (!capacity.canStart) return false;
-      return Object.entries(node.needs ?? {}).every(([key, amount]) => (capacity.free[key] ?? 0) >= amount);
-    });
-  }
-
   function actionableLeaves(project, nodes) {
     const children = new Set();
     for (const node of nodes) {
@@ -257,20 +242,29 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
       }
     }
 
-    const capacity = capacityFor(project, nodes, cluster);
-    const canRunPlanned = runnable.length > 0 && plannedFits(project, runnable, capacity);
+    const capacity = capacityOf(project, nodes, cluster);
+    const summary = runnableSummary(nodes, { now: Date.now() });
+    const planner = plannerOf(project);
+    const trigger = planner.evaluate({ remainingMs: summary.remainingMs, queueDepth: summary.runnable });
+    // Unreviewed completed leaves are always worth planning for; queue depth is
+    // paced by the low-water trigger so a long-running batch is not replanned
+    // every tick.
+    const shouldPlan = actionables.length > 0 || trigger.trigger;
 
-    if (actionables.length === 0 && !canRunPlanned) {
+    if (!shouldPlan) {
       if (proposed.length > 0) return waiting(projectId, 'awaitingConfirmation');
-      if (running.length === 0) return pause(projectId, 'idle');
-      return undefined; // wait for a running node to finish / capacity to free
+      if (runnable.length > 0 && !anyFits(runnable, capacity)) return waiting(projectId, 'capacityFull');
+      if (running.length === 0 && runnable.length === 0) return pause(projectId, 'idle');
+      return undefined; // queue is healthy: let dispatchOnce keep the slots full
     }
 
     busy.add(projectId);
+    planner.beginPlanning();
     try {
-      const result = await orchestrator.step(projectId, 'auto');
+      const result = await orchestrator.step(projectId, trigger.trigger ? 'low_water' : 'auto');
       state.cycles += 1;
       state.lastCycleAt = Date.now();
+      planner.endPlanning({ created: result.created.length, started: result.started.length });
       const progress = result.created.length + result.started.length;
       state.idleStreak = progress === 0 ? state.idleStreak + 1 : 0;
       state.errorStreak = result.errors.length > 0 ? state.errorStreak + 1 : 0;
@@ -284,6 +278,7 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
       if (state.errorStreak >= 3) return pause(projectId, 'errors');
       return undefined;
     } catch (error) {
+      planner.endPlanning({});
       if (error instanceof LabError && error.code === 'cycle_busy') return undefined;
       state.errorStreak += 1;
       if (state.errorStreak >= 3) await pause(projectId, 'errors');
@@ -312,12 +307,14 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
   function forget(projectId) {
     states.delete(projectId);
     busy.delete(projectId);
+    planners.delete(projectId);
   }
 
   function dispose() {
     if (timer) clearInterval(timer);
     timer = null;
     busy.clear();
+    planners.clear();
   }
 
   return {
