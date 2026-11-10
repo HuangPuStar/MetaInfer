@@ -9277,7 +9277,7 @@ window.__ModuleLoader__.load({
           });
           return;
         }
-        void runProposalAction(request.kind === 'reject' ? 'node.reject' : 'node.approve', request?.nodeId);
+        void runProposalAction(request?.kind === 'reject' ? 'node.reject' : 'node.approve', request?.nodeId);
       }, [confirmRequest, reload, runNodeCommand, runProposalAction]);
       const cancelConfirm = React.useCallback(() => setConfirmRequest(null), []);
 
@@ -9740,14 +9740,14 @@ window.__ModuleLoader__.load({
                 ? t('ws.confirm.approveTitle')
                 : confirmRequest.kind === 'reject'
                   ? t('ws.confirm.rejectTitle')
-                  : (confirmRequest.kind === 'retry' && nodes.some((node) => nodeIdOf(node) === confirmRequest?.nodeId && nodeStatusOf(node) === 'cancelled'))
+                  : (confirmRequest?.kind === 'retry' && nodes.some((node) => nodeIdOf(node) === confirmRequest?.nodeId && nodeStatusOf(node) === 'cancelled'))
                     ? t('ws.retry.cancelledConfirmTitle')
                     : t('ws.retry.confirmTitle'),
               body: confirmRequest.kind === 'approve'
                 ? t('ws.confirm.approveBody')
                 : confirmRequest.kind === 'reject'
                   ? t('ws.confirm.rejectBody')
-                  : (confirmRequest.kind === 'retry' && nodes.some((node) => nodeIdOf(node) === confirmRequest?.nodeId && nodeStatusOf(node) === 'cancelled'))
+                  : (confirmRequest?.kind === 'retry' && nodes.some((node) => nodeIdOf(node) === confirmRequest?.nodeId && nodeStatusOf(node) === 'cancelled'))
                     ? t('ws.retry.cancelledConfirmBody')
                     : t('ws.retry.confirmBody'),
               confirmLabel: confirmRequest.kind === 'approve'
@@ -10485,7 +10485,7 @@ window.__ModuleLoader__.load({
                     ? h('span', { className: 'rl-host-facts-next' }, t('ws.facts.next', { id: next.nodeId, why: next.why?.message ?? next.why?.code ?? '' }))
                     : h('span', { className: 'rl-host-facts-hint' }, t('ws.facts.none')),
                   failure !== null
-                    ? h('span', { className: 'rl-host-facts-failure' }, t('ws.facts.failure', { id: failure.nodeId, error: (failure.error ?? '').slice(0, 120) }))
+                    ? h('span', { className: 'rl-host-facts-failure' }, t('ws.facts.failure', { id: failure?.nodeId, error: (failure?.error ?? '').slice(0, 120) }))
                     : null,
                 ),
       );
