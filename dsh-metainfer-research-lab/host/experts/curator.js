@@ -45,6 +45,14 @@ export function createCurator({
       const createdAt = node.timestamps?.createdAt ?? 0;
       return createdAt > 0 && now - createdAt < minAgeMs;
     }).map((node) => node.id));
+    // B20 reverse constraint: a node with a child younger than the immunity
+    // window is alive even when the node itself is old.
+    for (const child of nodes) {
+      const createdAt = child.timestamps?.createdAt ?? 0;
+      if (createdAt <= 0 || now - createdAt >= minAgeMs) continue;
+      if (typeof child.parentId === 'string') recent.add(child.parentId);
+      for (const parentId of Array.isArray(child.parentIds) ? child.parentIds : []) recent.add(parentId);
+    }
     const recall = recallCandidates(nodes, { threshold, limit: maxNominations * 4, excludeIds: [...blocked, ...recent] });
     const nominations = recall.pairs.slice(0, maxNominations).map((pair, index) => ({
       nominationId: `nom-${now}-${index + 1}`,

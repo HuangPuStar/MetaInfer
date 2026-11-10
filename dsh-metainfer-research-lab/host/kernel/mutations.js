@@ -157,9 +157,9 @@ const reducers = {
         intent.withdrawReason = `child ${id} created under ${parentIds.join(',')}`;
         changed = true;
         events.push({
-          type: 'intent/withdrawn',
+          type: 'nomination/withdrawn',
           nodeId: intent.target?.nodeId,
-          data: { intentId: intent.id, reason: intent.withdrawReason },
+          data: { intentId: intent.id, nominationId: intent.id, reason: 'child_created', childId: id },
           effects: [{ op: 'project.merge', set: { intents: structuredClone(ws.project.intents) } }],
         });
       }
@@ -343,6 +343,19 @@ const reducers = {
     const intent = requirePlainObject(m.intent, 'intent');
     const id = requireString(intent.id, 'intent.id');
     const current = Array.isArray(ws.project.intents) ? ws.project.intents : [];
+    const expired = [];
+    for (const candidate of current) {
+      if (candidate.status !== 'pending' || !Number.isFinite(candidate.expiresAt) || candidate.expiresAt > ctx.now) continue;
+      candidate.status = 'expired';
+      candidate.expiredAt = ctx.now;
+      expired.push({
+        type: 'intent/expired',
+        ...(candidate.target?.nodeId ? { nodeId: candidate.target.nodeId } : {}),
+        data: { intentId: candidate.id, expiresAt: candidate.expiresAt },
+        effects: [{ op: 'project.merge', set: { intents: structuredClone(current) } }],
+      });
+    }
+    if (expired.length > 0) ws.projectTouched = true;
     const next = [...current, { ...structuredClone(intent), id }].slice(-500);
     ws.project.intents = next;
     ws.projectTouched = true;
@@ -357,7 +370,7 @@ const reducers = {
         effects.push({ op: 'node.merge', nodeId: node.id, set: { lastCauseId: node.lastCauseId, ...(node.causeId ? { causeId: node.causeId } : {}) }, unset: [], updatedAt: node.timestamps?.updatedAt ?? ctx.now });
       }
     }
-    return [{
+    return [...expired, {
       type: 'intent/submitted',
       ...(intent.target?.nodeId ? { nodeId: intent.target.nodeId } : {}),
       data: {
@@ -377,6 +390,7 @@ const reducers = {
     const current = Array.isArray(ws.project.intents) ? ws.project.intents : [];
     const index = current.findIndex((intent) => intent.id === intentId);
     if (index < 0) throw new MutationError('intent_not_found', `unknown intent ${intentId}`);
+    if (current[index].status === 'expired') throw new MutationError('intent_expired', `intent ${intentId} has expired`);
     if (current[index].status === 'withdrawn') return [];
     current[index] = {
       ...current[index],
@@ -423,9 +437,9 @@ const reducers = {
         intent.withdrawReason = `child ${id} created under ${parentIds.join(',')}`;
         changed = true;
         events.push({
-          type: 'intent/withdrawn',
+          type: 'nomination/withdrawn',
           nodeId: intent.target?.nodeId,
-          data: { intentId: intent.id, reason: intent.withdrawReason },
+          data: { intentId: intent.id, nominationId: intent.id, reason: 'child_created', childId: id },
           effects: [{ op: 'project.merge', set: { intents: structuredClone(ws.project.intents) } }],
         });
       }

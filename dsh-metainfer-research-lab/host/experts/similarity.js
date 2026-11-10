@@ -105,7 +105,10 @@ export function recallCandidates(nodes = [], { threshold = 0.3, limit = 20, excl
   for (let i = 0; i < eligible.length; i += 1) {
     for (let j = i + 1; j < eligible.length; j += 1) {
       const evidence = similarityEvidence(eligible[i], eligible[j]);
-      if (evidence.score < threshold) continue;
+      // A single strong structural predicate is a candidate even if the weighted
+      // score is below θ: B17 is recall (or), not a linear score threshold.
+      const strong = evidence.reasons.some((reason) => reason !== 'tagOverlap');
+      if (!strong && evidence.score < threshold) continue;
       pairs.push({
         a: eligible[i].id,
         b: eligible[j].id,

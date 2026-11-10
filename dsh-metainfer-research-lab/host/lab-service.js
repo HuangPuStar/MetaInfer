@@ -3035,6 +3035,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (basis > project.revision) return rejection('basis_ahead', `basis ${basis} is newer than project revision ${project.revision}`);
     const conflict = (Array.isArray(project.intents) ? project.intents : []).find((candidate) => (
       candidate.status === 'pending'
+      && (!Number.isFinite(candidate.expiresAt) || candidate.expiresAt > Date.now())
       && candidate.target?.nodeId
       && candidate.target.nodeId === target?.nodeId
       && Number.isFinite(candidate.basis)

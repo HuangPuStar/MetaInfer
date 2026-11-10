@@ -75,6 +75,14 @@ const immunity = immunityCurator.nominate({
   ],
 });
 check('ten-minute immunity excludes young nodes from nominations', immunity.nominations.length === 1 && immunity.nominations[0].nodeId === 'old-a' && immunity.nominations[0].duplicateOf === 'old-b', JSON.stringify(immunity));
+const reverseImmunity = immunityCurator.nominate({
+  nodes: [
+    { ...oldPair, id: 'parent-old', timestamps: { createdAt: immunityNow - 30 * 60_000 } },
+    { ...oldPair, id: 'parent-twin', timestamps: { createdAt: immunityNow - 30 * 60_000 } },
+    { id: 'young-child', title: 'different child', parentId: 'parent-old', timestamps: { createdAt: immunityNow - 2 * 60_000 } },
+  ],
+});
+check('a node with a fresh child is immune for ten minutes', reverseImmunity.nominations.every((row) => row.nodeId !== 'parent-old' && row.duplicateOf !== 'parent-old'), JSON.stringify(reverseImmunity));
 
 const expertRecall = recallExperts(descriptors, 'duplicate candidate review', { limit: 2 });
 check('expert recall is bounded and scored', expertRecall.experts.length === 2 && expertRecall.experts.every((row) => row.score >= 0), JSON.stringify(expertRecall));
@@ -139,12 +147,22 @@ await kernel.executor.commit(projectId, {
 });
 const withdrawnByChild = (store.getProject(projectId).intents ?? []).find((intent) => intent.id === parentIntent.intent.id);
 check('child creation auto-withdraws the parent nomination', withdrawnByChild?.status === 'withdrawn' && /child/.test(withdrawnByChild.withdrawReason ?? ''), JSON.stringify(withdrawnByChild));
+const withdrawalEvent = store.listEvents(projectId, 0).find((event) => event.type === 'nomination/withdrawn' && event.data?.intentId === parentIntent.intent.id);
+check('child creation writes nomination/withdrawn{reason:child_created}', withdrawalEvent?.data?.reason === 'child_created' && withdrawalEvent?.data?.childId === 'child-of-d1', JSON.stringify(withdrawalEvent?.data));
 const withdrawTarget = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'd1', claim: { action: 'observe' } }, curatorExec);
 const withdrawn = await call({ action: 'intent_withdraw', projectId, intentId: withdrawTarget.intent.id }, curatorExec);
 check('intent_withdraw marks the record withdrawn', withdrawn.ok === true && withdrawn.intent?.status === 'withdrawn', JSON.stringify(withdrawn));
 const newer = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'd1', claim: { action: 'newer' } }, curatorExec);
 const stale = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'd1', claim: { action: 'stale' }, basis: 0 }, curatorExec);
 check('stale-basis conflict is resolved with a defined code', stale.ok === false && stale.error?.code === 'stale_basis' && stale.error?.conflictingIntentId === newer.intent.id, JSON.stringify(stale));
+// TTL is enforced by the next intent write, not only displayed by list.
+await kernel.executor.commit(projectId, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{ op: 'intent.put', intent: { id: 'expired-intent', kind: 'note', status: 'pending', expiresAt: 1, basis: 0, actor: { kind: 'expert', id: 'lab-curator' }, claim: { action: 'old' }, target: { nodeId: 'd1' } } }],
+});
+const afterExpiry = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'd1', claim: { action: 'after-expiry' } }, curatorExec);
+const expiredRecord = (store.getProject(projectId).intents ?? []).find((intent) => intent.id === 'expired-intent');
+check('intent TTL is enforced with intent/expired', expiredRecord?.status === 'expired' && store.listEvents(projectId, 0).some((event) => event.type === 'intent/expired' && event.data?.intentId === 'expired-intent'), JSON.stringify(expiredRecord));
 const reset = await call({ action: 'curator_reset' }, humanExec);
 check('curator_reset re-arms the breaker', reset.ok === true && reset.circuitOpen === false, JSON.stringify(reset));
 check('expert actions are in the catalog', ACTION_CATALOG.expert_recall === 'read' && ACTION_CATALOG.curator_nominate === 'write');
