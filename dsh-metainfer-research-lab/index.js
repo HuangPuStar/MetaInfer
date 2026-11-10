@@ -75,7 +75,7 @@ export async function apply(ctx) {
   // G1: strictWrites defaults to `throw`. Every production writer goes through
   // kernel.executor (runtime/GC/reconcile/auto/service/orchestrator); any new
   // direct `store.save*` becomes a visible failure instead of silent drift.
-  const strictWrites = ctx.config?.kernel?.strictWrites ?? 'warn';
+  const strictWrites = ctx.config?.kernel?.strictWrites ?? 'throw';
   store.setStrictWrites(strictWrites);
   const kernel = createKernel({ store, logger: ctx.logger });
   for (const project of store.listProjects()) kernel.load(project.id);
