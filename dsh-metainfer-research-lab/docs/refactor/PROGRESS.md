@@ -37,7 +37,7 @@
 | WP | 状态 | 提交 | 偏差 / 说明 |
 |---|---|---|---|
 | P1.1 Priority 元组 | done | `a1f00d6` | 纯函数 + `fairOrder`；`fairOrder` 在 5k 节点改为 O(n×limit) 选择，去掉每次 splice |
-| P1.2 journal / 冷段归档 | doing | `a1f00d6` | 事件只追加不删；冷段归档（checksum + 只读段）**未完成**，见 IMPLEMENTATION.md |
+| P1.2 journal / 冷段归档 | done | `1b2b83f` | hot 默认 50,000、10,000 条连续段；只读 zstd 段 + `.sha256`，透明合并读；`eventlog-selftest` 覆盖重启续写与坏 checksum |
 | P1.3 Executor | done | `a1f00d6` | 幂等表进程内 Map；cause 指针随 mutation 写入（`node.causeId`/`lastCauseId`） |
 | P1.4 Projection | done | `a1f00d6` | 启动 `load()` + `store.subscribeNodes` 兜底同步 legacy 写者 |
 | P1.5 EventBus | done | `a1f00d6` | 已接 executor 与投影 |
@@ -50,31 +50,29 @@
 | P2.2 Policy 能力表 | done | `cc792d9` `218fe32` | handler 层 `forbidden_action`；未列出的 preset 默认只读（`DEFAULT_PRESET_ACTIONS`），不再回落到全量；schema enum 仍全局（见 OPEN-QUESTIONS.md） |
 | P8.1 preset 默认拒绝 | done | `218fe32` | `lab-chat`/`lab-merge`/`lab-dashboard` 显式策略；`lab-rogue` 仅 15 个只读 action；逐 preset 测试 |
 | P8.2 优先级单写者 | done | `218fe32` | `setNodePriority`/`updateNode` 走 `kernel.executor.commit`；planned/proposed 之外返回 `priority_frozen`；kernel mutation 二次校验 |
-| P8.3 工具面一致 | done | `218fe32` | `dag_map/walk/diff`、`nodes_page/events_page`、`claim_review/release_review/review_claims`、`health` 可调用；`get_node`/`dashboard_get` 入目录；未实现的 `intent_*`/`experts_*`/`curator_*` 从枚举移除 |
+| P8.3 工具面一致 | done | `218fe32` | `dag_map/walk/diff`、`nodes_page/events_page`、`claim_review/release_review/review_claims`、`health` 可调用；`get_node`/`dashboard_get` 入目录；`intent_*`/`expert_*`/`curator_*` 均已实现并三表一致 |
 | P9.3 工具契约与出口 | done | `f67348f` | `dag_map` 6 KB / `dag_walk` 24 KB 硬上限；`dag_*` 带 `revision`；`dag_diff` 使用 `sinceRevision`；`/state` 1,000 节点分页；transcript/replay/MCP 列表有界 |
 | P9.4 cause 全覆盖 | done | `f67348f` | planned cancel 用真实 runtime 探针；store 为 merge/GC/reconcile 等非激活写补稳定 `causeId`；`explain_node` 回退 `lastCauseId` |
 | P9.5 测试真实性 | done | `f67348f` | trace 用真实事件、tool-surface 断言精确 `unknown_action`、i18n 解析未加引号键、priority 断言真实 actor |
 | P2.3 低水位 | done | `0170092` | 5 min 剩余 / 60 s debounce / 30 s minGap |
 | P3.6 接入 Dispatcher | done | `cc792d9` | `index.js` 构造 kernel/broker 映射；auto tick 与 `onTerminated` 都调 |
 | P3 dag_map/walk/diff | done | `218fe32` | 已接 `agentTool`；`tool-surface-selftest.mjs` 驱动真实调用 |
-| P3 意图日志 | todo | — | 设计见 DESIGN-CHECKLIST B21；模块草稿已删除，未提交（无调用方） |
-| P4.x 专家运行时 | todo | — | descriptors/similarity 草稿已删除，未提交（无调用方） |
-| P5–P7 curator / 争议 / 竞争 | todo | — | 建议在 P3 指标可见后再做 |
+| P3 意图日志 | done | `9bdd581` | `basis:{projectRevision,snapshotAgeMs,nodesSeen}` 对象；TTL/撤回/同目标陈旧冲突；dispatch/priority/proposal 生产写入 |
+| P4.x 专家运行时 | done | `66d9ffe`/`652a545` | 描述符、绩效指标、相似度/curator、hire/drain/fire roster；专家仍只能提议 |
+| P5–P7 curator / 争议 / 竞争 | doing | `66d9ffe` | curator 提名/熔断已接；Stage 5 组织化与竞争策略仍未完成 |
 | A 可用性 | done | `76300ce` `f7036d4` | `explain_node`、Host facts 卡片（loading/empty/error）、优先级干预、可操作错误码 |
 | B 可观测性 | done | `76300ce` | cycle 延迟、advisor 输入字节/占比、dispatch p95、队列深度、角色失败率、stall |
-| S 规模与卡顿 | done | `f7036d4` `cd18309` | 5k 基准与 UI 预算见 IMPLEMENTATION.md「规模与卡顿」；浏览器帧率标记为未测量 |
-| G1 单一写者 | doing | `68ddffc` | 守卫与许可已上线；legacy 写点迁移未完成 |
+| S 规模与卡顿 | done | `f7036d4` `cd18309` | 5k 基准与 UI 预算见 IMPLEMENTATION.md「规模与卡顿」；本机无 Chromium/Playwright，浏览器绘制关闭为不适用 |
+| G1 单一写者 | done | `68ddffc`/`137b293` | 守卫与许可覆盖删除路径；legacy 直写仍有统计，但生产写路径已收口 |
 | G2 事件永不删除 | done | `a1f00d6` | `deleteEventRecord` 仅用于 recover 丢弃未确认尾部 |
 
 ## 未完成项（进入下一轮）
 
-1. **P3 意图日志**：草稿（TTL、basis 过期、幂等合并、父节点 sealed 拒绝）已在工作区验证过，
-   但因没有生产调用方被删除；重做时按 `OPEN-QUESTIONS.md` 的裁决接进 `node.create`。
-2. **P4 专家注册表 / 相似度 / curator**：草稿已删除；`experts_*`/`curator_*`/`intent_*` 已从工具
-   枚举移除，不再向模型广告未实现能力（`policy-selftest.mjs` 防回归）；实现后再加回。
-3. **P1.2 冷段归档**：事件永不删除的目标已达成，"归档到只读段 + checksum"未做。
-4. **P1.7 legacy 写点迁移**：64 处，`strictWrites=warn` 下可见；逐个迁到 executor 是下一阶段。
-5. **浏览器绘制/FPS**：无浏览器环境，UI 只测 view-model（`ui-selftest.mjs`）。
+1. **P1.7 legacy 写点迁移**：仍有直写统计；生产写路径已走 executor，但逐个清理历史写点属于后续工作。
+2. **`maxPlannedInFlight` / 预留槽 / 抢占**：会改变线上吞吐，需先有观测基线。
+3. **Stage 5 组织化能力**：多专家竞争/争议/组织级预算仍是 doing。
+4. **覆盖率哨兵 / schema 级 per-preset 收窄 / O12 文本审计**：设计条目仍未完成。
+5. **浏览器绘制/FPS**：本机无 Chromium/Playwright，已关闭为不可测；不再作为待办反复计数。
 
 ## 2026-11-10 独立复核修复（回应 VERIFICATION.md）
 
@@ -172,3 +170,16 @@
 
 **测试**：`npm test` 27 个文件、436 checks 全绿。仍开着：冷段归档、dashboard 静默过期/来源徽标、
 7 谓词 claim 校验与 `citationErrorRate`、浏览器绘制/FPS、Stage 5 组织化能力。
+
+## 2026-11-10 第五轮验收修复（B21 / B27 / 冷段 / dashboard / 4.5）
+
+| WP | 状态 | 提交 | 证据 |
+|---|---|---|---|
+| B21 结构化 basis | done | `9bdd581` | `kernel/intent.js` `intentBasis` 只接受 `{projectRevision,snapshotAgeMs,nodesSeen}` 三字段；标量/缺字段拒绝；`submitIntent` 只用 `basis.projectRevision` 做同目标冲突，`snapshotAgeMs`/`nodesSeen` 是证据；dispatch/priority/proposal 全部写对象 |
+| B27 7 谓词 + citationErrorRate | done | `a455c1a` | `kernel/claims.js` 逐原子验证 nodeExists/statusIs/parentOf/metricIs/textContains/countWhere/reviewedBy；每次提交按 failed/total 更新 `claimStats`；`claim_invalid` 返回 failures；不可逆动作无证据/错误率 ≥5% 拒绝；`claims-selftest` 27 checks |
+| P1.2/S12 冷段归档 | done | `1b2b83f` | `kernel/eventlog.js` zstd 段 + `.sha256` 原子写、只追加；`store.archiveEvents` 只移出最老连续段；`listEvents`/`pageEvents` 合并 cold+hot；hot 3 / segment 2 的真实重启测试无缺口；坏 checksum 硬失败 |
+| U13/U14 dashboard 归属与过期 | done | `1daa988` | `dashboardView` 生成独立 `hostFacts`（revision/counts/resources）与 `commentary`；widget `dataSource: host|agent`、chat `source: human|agent`；stale 徽标带 age，revision drift 立即 stale；测试证明 agent prose 不进入 hostFacts |
+| 4.5 hire/drain/fire | done | `652a545` | `project.config.experts` roster；hire 拒绝 expert/self；drain 保留 running 节点、只停止招募；fire 要求先 drain、running 未清返回 `expert_busy`，未完成节点 `createdBy` 交还 human；UI 按状态显示 Hire/Drain/Retire |
+| 浏览器绘制 | 不适用（关闭） | — | 本机 `playwright`/`puppeteer`/`chromium`/`firefox` 均不存在，GUI URL 返回 401；无法测量首屏/交互帧。按用户裁决记一次，不再列为待办 |
+
+**测试**：`npm test` 31 个文件、495 checks 全绿；`npm run bench:scale` 10/10。

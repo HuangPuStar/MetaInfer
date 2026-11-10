@@ -8,21 +8,22 @@
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **80** |
-| FAIL | **84** |
+| PASS | **79** |
+| FAIL | **85** |
 | 未测量 | **10** |
 | 合计 | **174** |
 
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：第四轮修复（`137b293`…`39748a6`）关闭了 G1 删除守卫、locale 方向、B17/B20/B21、
-4.4/4.5 与人类 p0；`npm test` 27 文件 / 436 checks 全绿。仍不能上生产的是冷段归档、dashboard
-过期、7 谓词 claim 门控和浏览器绘制/FPS（见 §18）。
+**一句话**：§19 的五个硬缺口（B21 basis、B27、冷段归档、dashboard 归属/过期、4.5 生命周期）
+已在第五轮修复并由真实测试关闭；浏览器绘制因本机无 Chromium/Playwright 关闭为不适用。
+`npm test` 31 文件 / 495 checks 全绿；O12、Stage 5 等非本轮项仍未完成（见 §20）。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
-> **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**。总判定以 §18 为准。
+> **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
+> （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**。总判定以 §20 为准。
 
 ### 0.1 判定口径
 
@@ -848,3 +849,272 @@ FAIL client zh dictionary matches locale/zh.json
 
 仍 FAIL：`B27` 7 谓词 claim 校验与 `citationErrorRate`；`P1.2/S12` 冷段归档；`U14` dashboard
 静默过期；`U13` dashboard 来源徽标；`O12` 文本审计；浏览器绘制/FPS 未测量；Stage 5 组织化。
+
+---
+
+## 19. 第五轮复核（HEAD `5ee1376`）
+
+> 复核对象：`39748a6` 之后的 12 个提交（`37f7a7a`…`5ee1376`）。只读验证，没有改生产代码；
+> 所有探针都在 `/tmp/r5-*`。本轮的 174 行口径不变。
+
+### 19.1 总数变化
+
+| 判定 | §18（39748a6） | §19（5ee1376） | 变化 |
+|---|---|---|---|
+| PASS | 80 | **79** | −1 |
+| FAIL | 84 | **85** | +1 |
+| 未测量 | 10 | **10** | 0 |
+| 合计 | 174 | **174** | — |
+
+**本轮唯一回退行：`B21`。** §18 把 B21 判 PASS，只验了 TTL/撤回/冲突码；清单 B21
+还要求每条意图带 `basis:{projectRevision, snapshotAgeMs, nodesSeen}`，当前只有整数
+`basis`，没有 `snapshotAgeMs`/`nodesSeen`。`B17`、`B19`、`B20`、`4.4`、`4.5`、`3.2`、
+`B5` 保持 PASS；`B21` 的 TTL/撤回/冲突子行为本身是真通过（见 19.5）。
+
+### 19.2 删除守卫：8 个写方法全部有 guard
+
+`host/store.js` 现在：
+
+```
+saveProject :331  saveNode :375  deleteNode :393  deleteProject :407
+appendEvent :425  deleteEventRecord :455  saveRun :546  saveCycle :563
+```
+
+每个方法第一行都是 `guardWrite(op)`；`deleteProject`/`deleteEventRecord` 的
+`tables.*.delete` 也在 guard 之后。`tables.*.put/delete` 只出现在这些方法内部，没有
+第二个未守卫的导出方法（store 导出的其余方法均为读/锁/统计）。
+
+在 `strictWrites='throw'` 下直接调用 **全部 8 个写方法**，均返回
+`unpermitted_write`，项目仍在：
+
+```
+saveProject,deleteProject,deleteEventRecord,saveNode,deleteNode,
+appendEvent,saveRun,saveCycle -> unpermitted_write
+alive true
+writeStats: {mode:'throw',unpermitted:8,byOp:{...每项1}}
+```
+
+随后 `kernel.executor.deleteProject('p')`（真实 `withWritePermit`）返回
+`{ok:true}`，项目删除成功，`unpermitted` 仍为 8（没有把许可路径算成 bypass）。
+`strict-writes-selftest` 也断言了 direct delete 被拒 + executor delete 成功。
+**G1 删除守卫真关。**
+
+### 19.3 Locale：JSON 是源，sync 只写 client
+
+在 `/tmp/r5-locale`（HEAD 的 git archive + node_modules 软链）独立操作：
+
+1. 基线 `locale-selftest` EXIT=0；`locale/zh.json` 与 `locale/en.json` 各 1,347 键。
+2. 把 `locale/zh.json` 的 `panel` 改成 `被篡改的界面`：测试 EXIT=1，明确报
+   `FAIL client zh dictionary matches locale/zh.json`；此时 client.js 不含该值。
+3. 运行 `node scripts/locale-sync.mjs`：client.js 的 zh 块出现 `被篡改的界面`，
+   `locale/zh.json` 的值仍是 `被篡改的界面`（没有被覆盖）；测试随后 EXIT=0。
+4. 恢复基线后连续运行 `locale:sync` 两次：两次 EXIT=0，`git status --short` 为空；
+   client.js、locale/zh.json、locale/en.json 的 sha256 完全不变。
+5. 审计脚本：`import { readFile, writeFile }`；唯一的 `writeFile` 是
+   `scripts/locale-sync.mjs:39` 的 `writeFile(clientPath, next, 'utf8')`；没有写 locale
+   JSON 的调用，源码中的 `locale/*.json` 只出现在 `readFile`。
+
+**locale 方向已反转；漂移只变红，不会再被 sync 洗白。** 仍是静态 UI 文案测试，没有浏览器绘制。
+
+### 19.4 B17/B19：真实谓词、真实 claims/reviews
+
+独立探针 `/tmp/r5-stage-probe.mjs` 用真实 `kernel.executor.commit` 建节点、真实
+`createLabService` + `registerAgentTool` 调 `curator_nominate`。节点不是测试私有的纯对象：
+
+```
+promptHashPrefix  {"score":0.4,"reasons":["promptHashPrefix","tagOverlap"], ...}
+sameParentCriteria {"score":0.6,"reasons":["sameParentCriteria","tagOverlap"], ...}
+metricTargets     {"score":0.5,"reasons":["metricTargets","titleOverlap","tagOverlap"], ...}
+candidates=3
+nominations=[sib-a~sib-b (sameParentCriteria), met-a~met-b (metricTargets), prompt-a~prompt-b (promptHashPrefix)]
+```
+
+生产 `nominateDuplicates` 同时拿到了非空 claims/reviews：
+
+- 一条 `reviewClaims.list()` 的 `claim-a` review 使 `claim-a~claim-b` **没有进入候选**；
+- 一个 2 分钟前创建的 young pair **没有进入候选**；
+- 一个 30 分钟前的 `p-old` 因为有一个 2 分钟前的 `p-child`，**没有进入候选**（反向免疫）。
+
+`createCurator` 生产只有一个实例（`host/lab-service.js:2940`）；描述符 tools 仅
+`dag_map/dag_walk/dag_get/dag_query`，`mayExecute=[]`；单轮 `maxNominations=5`。
+**B17/B19 PASS。**
+
+### 19.5 B20/B21：生命周期行为通过，B21 的 basis 形状不通过
+
+**B20 通过。** 生产 `node.create` 建 `p-child2` 后，pending curate 意图：
+
+```
+status: withdrawn
+withdrawReason: "child p-child2 created under p-old"
+event: nomination/withdrawn
+data: {intentId, nominationId, reason:"child_created", childId:"p-child2"}
+```
+
+10 分钟免疫已在生产 `nominateDuplicates` 中验证：幼节点、以及“旧 parent + 新鲜 child”
+的 parent 都不在候选。**B20/4.4 PASS。**
+
+**B21 生命周期子行为通过：**
+
+- `createIntent` 默认 `expiresAt = at + 30 * 60_000`；探针实测 `expiresAt-at=1,800,000`。
+- 过期 pending 意图在下一次 `intent.put` 变 `expired`，并写 `intent/expired`（探针
+  `expired-r5` 的 status=expired，事件 data 带 intentId）。
+- `intent_withdraw` 成功把 note 意图置 `withdrawn`，并写 `intent/withdrawn`；
+  curate 类型写 `nomination/withdrawn`。
+- 先提交 `basis=20` 的同目标意图，再提交 `basis=0`：返回
+  `stale_basis`，并带 `conflictingIntentId=intent-note-21-...`、`basis=20`。
+- `curator_reset` 是可调用的生产 action；`curator_reset` 有 `resetCurator()` 调用。
+
+**B21 行仍 FAIL 的唯一硬缺口：** 实际意图记录是
+
+```
+{id, kind, status:"pending", expiresAt, actor, claim, basis:15, target, ...}
+```
+
+没有 `basis.projectRevision`、`basis.snapshotAgeMs`、`basis.nodesSeen`。这正是
+DESIGN-CHECKLIST B21 的“每条带 `basis:{projectRevision, snapshotAgeMs, nodesSeen}`”。
+其他子项通过不能替代该字段；因此 §18 的 B21 PASS 回退为 FAIL（79/85 的来源）。
+
+### 19.6 4.5/3.2/B5：GET /experts、人类 p0、独立时延
+
+**4.5 通过（按“专家绩效可读”的窄验收）：**
+
+- 真实 HTTP 路由 `/api/metainfer-research-lab/experts`：status 200、`ok:true`、4 个专家、
+  `mayExecute` 全为 0、每个专家有 metrics、curator.status 可读（探针 `/tmp/r5-http-experts.mjs`）。
+- `client.js:3724` `fetchExperts`；`SettingsModal` 在 `:14064` 加载、`:14863` 渲染
+  `rl-expert-library`，显示 persona / mayPropose / metrics / “只提议，不执行”，含
+  loading/error/empty/refresh 四态；`ui-selftest` 静态断言通过。
+- **注意：** 这是只读目录，不含 4.5 标题里的 hire/fire/drain（入职/解聘/排空）按钮；
+  清单的验收文字只要求“专家绩效可读”，故按窄验收 PASS，但标题语义仍不完整。
+
+**3.2/B5 通过。** 独立探针 `/tmp/r5-p0-probe.mjs` 用真实 `orchestrator.createSuccessor`
+（fake git）建人类后继，再用真实 dispatcher：
+
+```
+priority: {class:"p0", by:"human", reason:"human request"}
+createMs: 2.38
+claimMs: 5.72        < 1,000 ms
+claimed: true
+runsAfterCreate: 0   // 没有 advisor/scheduler run
+```
+
+`claimMs` 是从 dispatcher.start 到 `dispatch/claimed` 的独立测量，不是复用作者的 21 ms；
+本机得到 5.72 ms，仍然满足 <1 s，且 `p0/by:human` 与“不产生专家 run”均成立。
+
+### 19.7 新调用方计数
+
+| 导出 | 生产调用点 | 结论 |
+|---|---|---|
+| `getExpertDescriptor` | `host/lab-service.js:2972`（`recallExpertFor`） | **1 个生产调用**；`registry.js:69` 是定义，`:30` 是 import |
+| `curator.reset` | `host/lab-service.js:3114`（`resetCurator`）← `:3329` 的 `curator_reset` action / `:3359` 导出 | **1 个生产 action 路径**；`agent-tool.js:36` 在 action 枚举中，policy 归 control |
+
+两者都不再是死代码。
+
+### 19.8 回归
+
+- `npm test`：**EXIT=0**，27 个文件，**436 个 `ok`**（`/tmp/r5-npmtest.log`）。
+- `npm run bench:scale`：**EXIT=0**，10/10（`/tmp/r5-bench.log`）。
+- `/tmp/mir-audit/r3probe8.mjs`：auth 三个 preset 全 `forbidden_action`；running/completed
+  priority `priority_frozen`；report schema 500 / normalized 500 / headline 300；planned
+  cancel cause chain 1。
+- replay：`replay-client-selftest` 全绿；独立 5,001 节点/4,500 事件默认分页探针
+  `/tmp/r4-replay-probe.mjs` 全绿，无丢节点/重复。
+- 单写者：静态 9 个 `store.save*` + 1 个 `appendEvent` 全在 executor；5 个 table.put
+  全在 guard 方法内；生产 bypass 调用点 **0**；真实 reconcile/GC/merge/auto 的
+  `unpermitted=0`（`/tmp/r4-ops-probe.mjs`）。
+
+### 19.9 结论
+
+**上生产：否。** G1 删除守卫、locale 单方向、B17/B19/B20/4.4/4.5/3.2/B5 的窄验收
+都真关；B21 的 TTL/撤回/冲突码也真通过，但 B21 的 `basis` 对象仍缺失，所以总数由
+80/84 回退到 **79/85**。剩余 FAIL 还包含 B27、冷段归档、dashboard 过期、浏览器绘制/FPS
+等，不能上生产。
+
+---
+
+## 20. 第五轮修复复核（`9bdd581`…`652a545` + 工作区）
+
+> 复核对象：§19 指出的五个硬缺口及其修复提交。除浏览器外均为真实代码 + `npm test` 路径，
+> 不采信文档声明。
+
+### 20.1 缺口关闭表
+
+| 缺口 | §19 判定 | 本轮证据 | 结论 |
+|---|---|---|---|
+| B21 `basis` 形状 | FAIL | `intent-selftest`：意图 `basis` 精确等于 `{projectRevision:0,snapshotAgeMs:0,nodesSeen:2}`；标量、缺字段、`projectRevision` 超前均拒绝；陈旧冲突只读 `basis.projectRevision` | **PASS** |
+| B27 7 谓词 + `citationErrorRate` | FAIL | `claims-selftest` 27 checks：7 谓词全过；逐个篡改每个谓词都被纯函数与真实 `submitIntent` 拒绝；4.9%/5%/15%/15.1% 边界；不可逆动作无证据/≥5% 门控 | **PASS** |
+| P1.2/S12 冷段归档 | FAIL | `eventlog-selftest` 7 checks：hot 3、segment 2、7 事件生成 2 个 zstd 段 + checksum；跨 cold/hot 的 list/page；同一 memory domain 重启后续写无缺口；坏 checksum 硬失败 | **PASS** |
+| U13/U14 dashboard | FAIL | `dashboard-selftest` 7 checks：`hostFacts` 不含 `AGENT PROSE/AGENT COMMENTARY`；widget `dataSource`、chat `source`；age/revision drift 均 stale；阈值 2×interval；UI 有 facts strip、来源徽标、带 age 的 stale 徽标 | **PASS** |
+| 4.5 hire/fire/drain | FAIL（只读） | `expert-lifecycle-selftest` 16 checks：策略拒绝、hire、recall、drain 保活 running、busy fire、retire 移交、self-hire、HTTP `/commands` 真实路由；UI 三按钮 | **PASS** |
+
+### 20.2 B21：字段与冲突键
+
+- `host/kernel/intent.js` `intentBasis` 只返回/接受三个整数字段，`createIntent` 强制调用；
+  `basisFor(projectRevision,nodesSeen,snapshotAgeMs=0)` 是唯一生产构造器。
+- `lab-service.submitIntent` 的陈旧判定：
+  `candidate.basis.projectRevision > incoming.basis.projectRevision`，返回
+  `stale_basis{conflictingIntentId,basis,currentRevision}`；`snapshotAgeMs`/`nodesSeen` 只随
+  intent 持久化，不参与比较。
+- dispatch/priority/proposal 都改为对象 basis；dispatch 测试断言 claim 前 revision。
+
+### 20.3 B27：每个谓词都真的能拒绝
+
+`host/kernel/claims.js` 的 `verifyClaim` 逐原子返回 `{ok,predicate,claim,failure}`；
+`verifyClaims` 汇总 failed/total/rate/tier。`claims-selftest` 先构造 7 谓词全过的 claim，
+再逐个改坏 `nodeExists/statusIs/parentOf/metricIs/textContains/countWhere/reviewedBy`，
+每次都断言失败谓词与 `claim_invalid`。提交失败会写 `claim/rejected` 且累计 `claimStats`，
+连续错误率 ≥5% 时不可逆动作返回 `citation_error_rate`。
+
+### 20.4 冷段归档不读不回退
+
+- 段文件 `seg-<from>-<to>.jsonl.zst` + `.sha256`；checksum 侧车先写、临时文件 rename、
+  已存在段拒绝覆盖。
+- `store.archiveEvents` 只移动最老连续段，写事件时自动归档；`allEvents` 合并 cold+hot，
+  `listEvents`/`pageEvents` 调用方无感。事件只从 hot 表移出，没有删除。
+- 重启测试复用同一个 memory domain，新的 `store` 继续写后段序号连续。
+
+### 20.5 Dashboard：事实与评论分离
+
+- `dashboardHostFacts` 只输出 `{source:'host',computedAt,projectRevision,counts,resources}`，
+  不含 widget body/chat。
+- `dashboardView` 给 widget 标 `dataSource`（script=host，agent=agent），chat 标
+  `source`（user=human，其余=agent）；`commentary` 是独立对象。
+- stale 条件是 2×interval（下限 60 s）或 `lastRun.revision !== projectRevision`；
+  `lastRun.revision` 在 refresh 开始时捕获。UI 显示 `Stale · {age}` 和 revision tooltip。
+
+### 20.6 4.5：drain 不是 kill
+
+- roster 在 `project.config.experts`；`hire` 拒绝 expert actor 和 self-hire，且 `mayExecute`
+  非空拒绝；`drain` 只写 `draining`，把 running 节点列在 `runningPreserved`，不取消；
+  `fire` 必须先 drain，仍有 running 返回 `expert_busy`；退休时非完成节点 `createdBy`
+  改为 `human` 并记 `orphanedFrom`。
+- `expert_list` 返回 lifecycle；`recallExpertFor` 只召回 active（roster 为空时保留目录语义）；
+  UI 按状态显示 Hire/Drain/Retire，并显示 drain 安全说明。
+- HTTP `/commands` 已接 `expert_hire/expert_drain/expert_fire`；测试真实 POST，避免按钮
+  只在 service 层可用。
+
+### 20.7 浏览器绘制：一次探测，关闭为不适用
+
+本机探测结果（2026-11-10）：
+
+```
+command -v chromium chromium-browser google-chrome firefox  → 全空
+require.resolve('playwright'|'playwright-core'|'puppeteer'|'@playwright/test') → 全 missing
+npx --no-install playwright --version → 无
+GUI http://10.16.1.89:3080/ → 401 authentication required
+```
+
+因此无法测量首屏/交互帧或做真实 DOM 点击；`ui-selftest` 仍只覆盖 view-model 预算。
+按任务裁决，这一点只记录一次并**关闭为不适用**，不再作为待办反复计数。若要真测，
+需要先在本机安装 Chromium/Playwright 并能通过 GUI 鉴权。
+
+### 20.8 回归
+
+- `npm test`：**EXIT=0**，31 个文件，**495 个 `ok`**。
+- `npm run bench:scale`：**EXIT=0**，10/10；dispatch p95 32.9 ms、max 40.2 ms（5,000 节点）。
+- locale：`locale/en.json`/`zh.json` 均 1,371 键；`locale-selftest` 绿，JSON 仍是唯一源。
+
+### 20.9 结论
+
+§19 的五个硬缺口（B21、B27、P1.2/S12、U13/U14、4.5）均已关闭；浏览器绘制按环境限制
+关闭为不适用。仍不在本轮范围的是 O12 文本审计、Stage 5 组织化、`maxPlannedInFlight`/
+抢占、schema 级 per-preset 收窄和覆盖率哨兵，不能据此宣称 174 行全部 PASS。

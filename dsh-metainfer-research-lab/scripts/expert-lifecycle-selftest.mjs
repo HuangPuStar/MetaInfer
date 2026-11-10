@@ -7,6 +7,7 @@ import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
 import { registerAgentTool } from '../host/agent-tool.js';
+import { registerHttpRoutes } from '../host/http.js';
 import { actorForSession, authorizeAction } from '../host/kernel/policy.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
@@ -82,6 +83,23 @@ check('unfinished ownership is handed back to the human', fired.reassigned.inclu
 check('the retired expert is no longer recruited', (await call({ action: 'expert_recall', projectId, task: 'anything' }, humanExec)).total === 0);
 
 // Direct service check: self-hire is a specific refusal, not a generic one.
+const routes = new Map();
+registerHttpRoutes({
+  effect: () => {},
+  connection: { fetch: { register({ path: routePath, fetch }) { routes.set(routePath, fetch); return () => {}; } } },
+}, service);
+const httpCommand = async (body) => {
+  const handler = routes.get('/api/metainfer-research-lab/commands');
+  const response = await handler(new Request('http://local/api/metainfer-research-lab/commands', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  }));
+  return response.json();
+};
+const viaHttp = await httpCommand({ type: 'expert_hire', projectId, expertId: 'lab-advisor' });
+check('HTTP /commands exposes expert_hire (not unknown_command)', viaHttp.ok === true && viaHttp.data?.expert?.lifecycle?.status === 'active', JSON.stringify(viaHttp));
+
 const selfExec = { agent: { session: { id: 'lab-advisor', header: { meta: { agentPreset: 'lab-advisor' } } } } };
 let selfError = null;
 try { await service.hireExpert(projectId, { expertId: 'lab-advisor' }, selfExec); } catch (error) { selfError = error; }

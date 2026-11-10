@@ -391,6 +391,15 @@ export function registerHttpRoutes(ctx, service) {
     if (type === 'auto.resume') {
       return ok(await service.autoResume(body.projectId));
     }
+    if (type === 'expert_hire') {
+      return ok(await service.hireExpert(body.projectId, body));
+    }
+    if (type === 'expert_drain') {
+      return ok(await service.drainExpert(body.projectId, body));
+    }
+    if (type === 'expert_fire') {
+      return ok(await service.fireExpert(body.projectId, body));
+    }
     const error = new Error(`unknown command: ${String(type)}`);
     error.code = 'unknown_command';
     throw error;

@@ -5,7 +5,7 @@
 > 每条要么给出**文件 · 函数 · 测试**，要么写 `未完成` + 原因。状态只有「完成 / 未完成」，
 > 没有「部分完成」——部分完成的条目拆成两条。
 >
-> 分支：`refactor/v2`。测试入口：`npm test`（27 个自测文件，见文末）。
+> 分支：`refactor/v2`。测试入口：`npm test`（31 个自测文件，见文末）。
 
 ## 1. 内核与写路径（B3/B5/B21/G1/G2，P1）
 
@@ -20,7 +20,7 @@
 | G1 只有 kernel 执行器写记录 | 完成 | `store.js` `guardWrite` 覆盖 save/append/delete（含 `deleteProject`、`deleteEventRecord`）；`withWritePermit`（ALS）；`executor.js` `commit`/`recover`/`deleteProject` 持有许可；`strictWrites` 默认 `throw` | `strict-writes-selftest.mjs`（静态扫描；throw 下服务/取消成功；直接 save/deleteProject/deleteEventRecord 均 `unpermitted_write` 且数据不变） |
 | P1.4 启动时 `projection.load` + legacy 写兜底 | 完成 | `host/kernel/instance.js` 订阅 `store.subscribeNodes` → `projection.syncNode/removeNode` | `wiring-selftest.mjs`（legacy write 到达 dispatcher 视图） |
 | P1.5 event bus | 完成 | `host/kernel/bus.js`；`executor.js` 提交后 publish | `kernel-selftest.mjs` |
-| P1.2 冷段归档（只读段 + checksum） | 未完成 | — | 原因：先保证单写者与读预算；事件已不删除，归档只影响磁盘，未威胁正确性 |
+| P1.2 冷段归档（只读段 + checksum） | 完成 | `host/kernel/eventlog.js` `createEventArchive`（zstd JSONL 段 `seg-<from>-<to>.jsonl.zst` + `.sha256`，原子写、只追加）；`host/store.js` `archiveEvents` 把最老连续段移出 hot 表，`listEvents`/`pageEvents` 经 `allEvents` 透明合并 cold+hot | `eventlog-selftest.mjs`（7 事件/hot 3 段 2；跨段 list/page；重启同 domain 继续归档无缺口；坏 checksum 硬失败） |
 
 ## 2. 调度与启动（B3/B6/B8/Q7/Q9）
 
@@ -64,7 +64,7 @@
 | 分页工具 `nodes_page` / `events_page` | 完成 | `lab-service.nodesPageAction/eventsPageAction`（cursor/after + `hasMore`） | `tool-surface-selftest.mjs`（第二页 cursor） |
 | claim 工具 `claim_review`/`release_review`/`review_claims` | 完成 | `lab-service` 调用 `orchestrator.reviewClaims`（服务端 actor 作 expertId） | `tool-surface-selftest.mjs` |
 | Q6 探索预算 4 查询 / 20k token / 240 s | 完成 | `host/context/limits.js` 默认值；`lab-service` 每会话预算 | `context-selftest.mjs` |
-| B21 意图日志（TTL/basis/幂等合并） | 完成 | `kernel/intent.js`（`status:pending`、30 min `expiresAt`）；`kernel/mutations.js` `intent.put` 自动 `intent/expired`、`intent.withdraw`；`lab-service.submitIntent`（同目标旧 basis → `stale_basis`）、`withdrawIntent`、`listIntents`（过期标记）；dispatch/priority/proposal 同提交写 intent | `intent-selftest.mjs`；`experts-selftest.mjs`（TTL、withdraw、stale conflict） |
+| B21 意图日志（TTL/basis/幂等合并） | 完成 | `kernel/intent.js` `intentBasis`/`basisFor`（`basis:{projectRevision,snapshotAgeMs,nodesSeen}` 三字段，对象缺失/标量/越界拒绝）；`lab-service.submitIntent` 仅用 `basis.projectRevision` 做同目标陈旧冲突（返回 `stale_basis` + conflictingIntentId），`snapshotAgeMs`/`nodesSeen` 仅作证据；dispatch/priority/proposal 全部写结构化 basis | `intent-selftest.mjs`（三字段精确、标量/缺字段/超前 revision 拒绝）；`dispatch-selftest.mjs`（dispatch intent basis） |
 | B24 evidence 指针强制 | 完成 | 意图 `claim.action` 必填；curator evidence 带 `nodeId`/`ref`；描述符 `mayExecute: []` | `intent-selftest.mjs`、`experts-selftest.mjs` |
 | 覆盖哨兵 `coverage` | 未完成 | — | 同上 |
 
@@ -96,11 +96,11 @@
 | S5 replay 全量 | 完成 | `getReplay` 分页 nodes/events，返回 `nextSeq`/`nextNodeCursor`/`_truncated` | `surface-bounds-selftest.mjs`（500 节点/100 事件） |
 | S6 advisor 快照 | 完成 | `host/snapshot.js`（2 层祖先、focus 截断）；`orchestrator` 记录 `snapshotBytes` | 同上（3.5 KB / 26 ms） |
 | S7 scheduler 候选选择 | 完成 | `snapshot.js` 用 `projection.runnable` + `fairOrder(limit)` | `dispatch-selftest.mjs` |
-| S8 UI 首屏渲染 | 完成（视口窗口化）/ 未完成（浏览器帧率） | `client.js` `computeViewportWindow`（≤300 卡、边只连可见点） | `ui-selftest.mjs` 8/8（含专家库读取 Host 目录） |
+| S8 UI 首屏渲染 | 完成（视口窗口化预算）；浏览器绘制不适用 | `client.js` `computeViewportWindow`（≤300 卡、边只连可见点） | `ui-selftest.mjs` 11/11（含专家库读取 Host 目录）；本机无 Chromium/Playwright，见 VERIFICATION §20.7，不再列为待办 |
 | S9 UI 事件风暴 | 完成 | `client.js` `applyChangeDelta` + `api.fetchChanges` | 同上（合并/拒收两例） |
 | S10 增量读 | 完成 | `store.changesSince` + `/changes` | `scale-selftest.mjs` |
 | S11 分页覆盖 | 完成 | `http.js` `/state`（默认 1,000）、`/transcript`（首 200 行）、`/replay`（2,000/2,000）；MCP `list_nodes` 100 行游标、`get_node` 直取；`nodes_page`/`events_page`/`runs_page` | `surface-bounds-selftest.mjs`、`tool-surface-selftest.mjs` |
-| S12 事件增长 / 冷段 | 未完成 | — | 原因：同 P1.2 |
+| S12 事件增长 / 冷段 | 完成 | 同 P1.2：hot 窗口默认 50,000，超出后按 10,000 条连续段归档；归档段只读、带 checksum、永不删除；读路径对调用方透明 | `eventlog-selftest.mjs`（热/冷合并读、分页、重启续写、checksum 失败） |
 | S13 规模回归测试 | 完成 | `scripts/scale-selftest.mjs`（5,000 节点） | 本文件 |
 | S14 `maxNodes` 硬上限 | 完成 | `lab-service.updateProject` 1..20,000；`client.js` 向导 max 20,000 | 手工核对（无单测） |
 
@@ -135,11 +135,11 @@
 | U8 批准 / 拒绝提案 | 完成（批准/拒绝入口在 UI）/ 未完成（拒绝理由进入下轮上下文） | `orchestrator.rejectProposal` 仍不收理由 | 原因：需要改 advisor 快照 schema，单独提交 |
 | U9 解释一个节点 | 完成 | 同 U4；UI `ExplainPanel`（HTTP `/explain`）| `trace-selftest.mjs`（HTTP、fetchExplain、面板三态静态+功能） |
 | U10 错误可执行（code + nextStep） | 完成 | `errors.js` `NEXT_STEPS`/`toActionable`；`agent-tool` 统一转换；`client.js` 渲染 message | `wiring-selftest.mjs`（`forbidden_action` 含 nextStep） |
-| U11 i18n 键平滑（两表键相等、占位符一致） | 完成 | `locale/en.json`/`zh.json` 均为 1,347 键；JSON 是唯一源，`scripts/locale-sync.mjs` 只生成客户端字典块，`locale-selftest.mjs` 按 key set 与每键占位符比较 | `locale-selftest.mjs`（key set/placeholder/非空/t() 覆盖；改坏客户端字典时 RED） |
-| U11b 全量文案迁移到 `locale/*.json` | 完成 | 1,347 条文案在 `locale/*.json`；JSON → 客户端单向生成；漂移测试只报错、不回写 JSON；`locale:sync` 永不改 JSON | `locale-selftest.mjs`（客户端改一个值即 RED）、`npm run locale:sync` |
+| U11 i18n 键平滑（两表键相等、占位符一致） | 完成 | `locale/en.json`/`zh.json` 均为 1,371 键；JSON 是唯一源，`scripts/locale-sync.mjs` 只生成客户端字典块，`locale-selftest.mjs` 按 key set 与每键占位符比较 | `locale-selftest.mjs`（key set/placeholder/非空/t() 覆盖；改坏客户端字典时 RED） |
+| U11b 全量文案迁移到 `locale/*.json` | 完成 | 1,371 条文案在 `locale/*.json`；JSON → 客户端单向生成；漂移测试只报错、不回写 JSON；`locale:sync` 永不改 JSON | `locale-selftest.mjs`（客户端改一个值即 RED）、`npm run locale:sync` |
 | U12 空/加载/错误三态 | 完成（Host facts/rail/canvas/inspector/专家库）/ 未完成（队列面板） | `client.js` `HostFactsCard`（loading/empty/error/retry）；`SettingsModal` 专家库 loading/error/empty + 刷新 | 手工 + `ui-selftest.mjs`/`surface-bounds-selftest.mjs` |
-| U13 agent 数据 vs Host 数据可区分 | 完成（Host facts 卡 `HOST` 徽标、monospace）；未完成（dashboard widget 仍无来源徽标） | `client.js` `.rl-host-facts` | 手工 |
-| U14 仪表盘静默过期 | 未完成 | — | 原因：属 dashboard 子系统，不在本轮热路径 |
+| U13 agent 数据 vs Host 数据可区分 | 完成 | `lab-service.dashboardHostFacts`（唯一 Host 事实：revision/counts/resources/computedAt）；`dashboardView` 给每个 widget 标 `dataSource: host\|agent`、chat 标 `source: human\|agent`；`client.js` `.rl-dash-facts` + `.rl-dw-source` 徽标；agent 文本只出现在 commentary/widget body，不进入 hostFacts | `dashboard-selftest.mjs`（hostFacts 不含 agent prose、chat source、widget source） |
+| U14 仪表盘静默过期 | 完成 | `lab-service.dashboardView` 计算 `commentary.ageMs/stale/staleReason`（2×interval，最小 60 s）；revision drift 立即 stale；`client.js` `.rl-dash-badge-stale` 显示 “Stale · {age}”，tooltip 区分 revision_changed | `dashboard-selftest.mjs`（age、revision drift、阈值） |
 | 选中节点加载全量 prompt/report | 完成 | `client.js` `api.fetchNode` + `fullNode`（state 只留索引） | `scale-selftest.mjs`（全量 prompt 仍可取） |
 
 ## 8. Stage 3–5 专家与清理
@@ -152,7 +152,8 @@
 | B19 curator 只提名 + 误杀熔断 | 完成 | `host/experts/curator.js` 单轮 ≤5、10 分钟免疫（自身年龄 + 有幼子的 parent）、pending claim/review 排除、`curator_cannot_execute`、`falseCloseRate > 20%` 断路；服务把真实 dispatch/review claim 传入，`curator_nominate` 写 `curate` intent；`curator_reset` 有生产 action | `experts-selftest.mjs`（免疫边界、claim 排除、提名/执行拒绝/熔断/reset） |
 | B20 建子节点自动撤回 defer 提名 | 完成 | `kernel/mutations.js` `node.create`：同提交把针对 parent 的 pending curate nomination 置 `withdrawn` 并发 `nomination/withdrawn{reason:child_created}`；curator 反向免疫有幼子的 parent | `experts-selftest.mjs`（真实 executor 建 child 后 parent nomination withdrawn） |
 | B24 evidence 指针与权限分级 | 完成 | 意图 claim 必带 action；描述符 `mayExecute: []`；curator 不能执行 | `intent-selftest.mjs`、`experts-selftest.mjs` |
-| B27 7 谓词 claim 校验 + `citationErrorRate` 门控 | 未完成 | — | 原因：需要人工标注集定义 7 谓词，本轮未伪造精度/召回 |
+| 4.5 专家 hire/fire/drain | 完成 | `lab-service.hireExpert/drainExpert/fireExpert`：roster 存 `project.config.experts`；hire 拒绝 expert actor/self；drain 只置 `draining` 并保留 running；fire 要求先 drain、仍 running 返回 `expert_busy`、把未完成节点 `createdBy` 交还 human；`recallExpertFor` 只招 active；`expert_list` 返回 lifecycle；设置弹窗按状态显示 Hire/Drain/Retire | `expert-lifecycle-selftest.mjs`（15 checks：策略拒绝、hire、recall、drain 保活、busy fire、retire 移交、self-hire）；`ui-selftest.mjs` |
+| B27 7 谓词 claim 校验 + `citationErrorRate` 门控 | 完成 | `host/kernel/claims.js` `CLAIM_PREDICATES`（nodeExists/statusIs/parentOf/metricIs/textContains/countWhere/reviewedBy）逐原子验证；`verifyClaims` 返回 total/failed/rate/tier；`lab-service.submitIntent` 对 claim.evidence 先验后提交，失败写 `claim/rejected` + stats 并返回 `claim_invalid`；`IRREVERSIBLE_ACTIONS` 无证据拒绝、rate ≥5% `citation_error_rate` | `claims-selftest.mjs`（7 谓词全通过；每个谓词单独篡改均被纯函数与 submitIntent 拒绝；tier 边界 4.9/5/15/15.1%；不可逆门控） |
 | `experts_list` / `expert_upsert` / `curator_scan` 旧名 | 完成（移除） | 旧名保持从 `ACTION_ENUM`/`ACTION_CATALOG` 删除；`expert_list`/`expert_recall`/`intent_*`/`curator_nominate`/`curator_outcome`/`curator_reset` 是三表一致的实现 | `policy-selftest.mjs`、`tool-surface-selftest.mjs`（三表一致，不残留旧名） |
 | G3 只存 id/摘要 | 完成 | `lab-service` state 瘦身、`reportText` 删除、`_truncated` |
 | G4 专家只能提议 | 完成 | 能力表 `lab-worker`/`lab-advisor` 无写权限 action |
@@ -160,12 +161,13 @@
 ## 9. 覆盖统计
 
 - 条目总数：**93**
-- 完成：**81**；未完成：**8**；拆分条目（完成 X / 未完成 Y）：**4**
-- 未完成原因集中在：冷段归档、dashboard 子系统、7 谓词 claim 校验/citationErrorRate、
-  无浏览器导致的 UI 绘制测量，以及部分 Stage 5 组织化能力。
-- `npm test` 覆盖 **27** 个文件（436 checks）：`strict-writes`（executor 覆盖 + 默认 throw + 删除守卫）、
-  `replay-client`（真实 HTTP 分页跟随）、`intent`（claim/basis/explain）、`experts`（描述符/
-  三谓词召回/curator/生命周期）、`locale`（JSON 源 + 结构 parity），无重复执行。
+- 完成：**85**；未完成：**4**（`maxPlannedInFlight`/抢占、schema 收窄、覆盖率哨兵、O12 文本审计）；拆分条目：**2**（U8、U12）
+- 未完成原因集中在：`maxPlannedInFlight`/抢占、Stage 5 组织化能力、覆盖率哨兵；
+  浏览器绘制在本机不可测（无 Chromium/Playwright），已关闭为不适用，不再列为待办。
+- `npm test` 覆盖 **31** 个文件（**495** checks）：`strict-writes`（executor 覆盖 + 默认 throw + 删除守卫）、
+  `replay-client`（真实 HTTP 分页跟随）、`intent`（结构化 basis/claim）、`claims`（7 谓词/
+  citationErrorRate）、`eventlog`（冷段/checksum/重启）、`dashboard`（Host facts/stale）、
+  `experts`（描述符/三谓词召回/curator/生命周期）、`locale`（JSON 源 + 结构 parity），无重复执行。
 
 ## 10. 验收脚本（2026-11-10 复核后新增）
 
