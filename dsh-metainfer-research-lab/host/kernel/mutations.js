@@ -400,10 +400,11 @@ const reducers = {
       withdrawReason: typeof m.reason === 'string' ? m.reason.slice(0, 500) : 'withdrawn',
     };
     ws.projectTouched = true;
+    const nomination = current[index].kind === 'curate';
     return [{
-      type: 'intent/withdrawn',
+      type: nomination ? 'nomination/withdrawn' : 'intent/withdrawn',
       ...(current[index].target?.nodeId ? { nodeId: current[index].target.nodeId } : {}),
-      data: { intentId, reason: current[index].withdrawReason },
+      data: { intentId, ...(nomination ? { nominationId: intentId } : {}), reason: current[index].withdrawReason },
       effects: [{ op: 'project.merge', set: { intents: structuredClone(ws.project.intents) } }],
     }];
   },
