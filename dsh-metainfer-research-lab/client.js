@@ -3835,7 +3835,7 @@ window.__ModuleLoader__.load({
       fetchObserver(projectId, signal, t) {
         return requestJson(ROUTES.observer + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
       },
-      waitForEvents(projectId, signal, t, after = null, timeoutMs = 25000) {
+      waitForEvents(projectId, signal, t, after = null, timeoutMs = 60000) {
         let path = ROUTES.eventsWait + '?projectId=' + encodeURIComponent(projectId) + '&timeoutMs=' + encodeURIComponent(String(timeoutMs));
         if (after !== null && after !== undefined) path += '&after=' + encodeURIComponent(String(after));
         return requestJson(path, { signal }, t);
@@ -16064,8 +16064,9 @@ window.__ModuleLoader__.load({
     }
 
     function DispatchQueuePanel({ projectId, t }) {
-      const [snapshot, setSnapshot] = React.useState({ loading: true, state: null, facts: null, metrics: null, error: '' });
+      const [snapshot, setSnapshot] = React.useState({ loading: true, state: null, facts: null, metrics: null, budgets: null, error: '', failed: {} });
       const load = React.useCallback(async (signal) => {
+        setSnapshot((previous) => ({ ...previous, loading: previous.state === null && previous.facts === null, error: '' }));
         const results = await Promise.allSettled([
           api.fetchStateAll(projectId, undefined, signal, t),
           api.fetchFacts(projectId, signal, t),
@@ -16077,9 +16078,15 @@ window.__ModuleLoader__.load({
         const facts = results[1].status === 'fulfilled' ? results[1].value : null;
         const metrics = results[2].status === 'fulfilled' ? results[2].value : null;
         const budgets = results[3].status === 'fulfilled' ? results[3].value : null;
+        const failed = {
+          state: results[0].status === 'rejected',
+          facts: results[1].status === 'rejected',
+          metrics: results[2].status === 'rejected',
+          budgets: results[3].status === 'rejected',
+        };
         const rejected = results.filter((row) => row.status === 'rejected');
-        const error = rejected.length === results.length ? describeError(rejected[0].reason, t) : '';
-        setSnapshot({ loading: false, state, facts, metrics, budgets, error });
+        const error = rejected.length > 0 ? describeError(rejected[0].reason, t) : '';
+        setSnapshot({ loading: false, state, facts, metrics, budgets, failed, error });
       }, [projectId, t]);
       React.useEffect(() => {
         const controller = new AbortController();
@@ -16092,7 +16099,6 @@ window.__ModuleLoader__.load({
         void tick();
         return () => { controller.abort(); if (timer !== null) clearTimeout(timer); };
       }, [load]);
-      if (snapshot.loading) return h('p', { className: 'rl-hint' }, t('common.loading'));
       const nodes = asArray(asObject(snapshot.state).nodes);
       const running = nodes.filter((node) => node?.status === 'running');
       const queued = nodes.filter((node) => node?.status === 'planned' || node?.status === 'proposed' || node?.status === 'deferred');
@@ -16100,17 +16106,25 @@ window.__ModuleLoader__.load({
       const metrics = asObject(snapshot.metrics);
       const facts = asObject(snapshot.facts);
       const summary = asObject(facts.summary);
+      const failed = asObject(snapshot.failed);
+      const head = h('div', { className: 'rl-card-head' },
+        h('h3', { className: 'rl-card-title' }, 'Dispatch & queue'),
+        h('span', { className: 'rl-card-meta' }, failed.state
+          ? 'running — · queued — · blocked —'
+          : `${running.length} running · ${queued.length} queued · ${blocked.length} blocked`),
+        h(LabButton, { label: 'Retry', variant: 'ghost', disabled: snapshot.loading, onClick: () => { const controller = new AbortController(); void load(controller.signal); } }));
+      if (snapshot.loading) return h('section', { className: 'rl-card', 'data-testid': 'obs-dispatch-queue' }, head, h('p', { className: 'rl-hint' }, t('common.loading')));
       return h(
         'section',
         { className: 'rl-card', 'data-testid': 'obs-dispatch-queue' },
-        h('div', { className: 'rl-card-head' },
-          h('h3', { className: 'rl-card-title' }, 'Dispatch & queue'),
-          h('span', { className: 'rl-card-meta' }, `${running.length} running · ${queued.length} queued · ${blocked.length} blocked`)),
+        head,
         snapshot.error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, snapshot.error) : null,
         h('div', { className: 'rl-hint' },
           `revision ${numberOr(asObject(snapshot.state).revision, 0)} · runnable ${numberOr(summary.runnable, queued.length)} · claimed ${numberOr(summary.claimed, 0)} · held ${numberOr(summary.held, 0)}`),
         h('h4', { className: 'rl-card-title' }, 'Running'),
-        running.length === 0
+        failed.state
+          ? h('p', { className: 'rl-hint' }, 'Running nodes are unavailable until /state succeeds.')
+          : running.length === 0
           ? h('p', { className: 'rl-hint' }, 'No node is running.')
           : running.map((node) => {
               const elapsedMs = Number.isFinite(Number(node?.timestamps?.startedAt)) ? Math.max(0, Date.now() - Number(node.timestamps.startedAt)) : null;
@@ -16127,12 +16141,19 @@ window.__ModuleLoader__.load({
                   + (node?.timestamps?.startedAt ? ' · started ' + formatDateTime(node.timestamps.startedAt, t) : '')));
             }),
         h('h4', { className: 'rl-card-title' }, 'Waiting / blocked'),
-        queued.length === 0
+        failed.state
+          ? h('p', { className: 'rl-hint' }, 'Queue positions are unavailable until /state succeeds.')
+          : queued.length === 0
           ? h('p', { className: 'rl-hint' }, 'The executable queue is empty.')
           : queued.slice(0, 100).map((node) => {
               const queue = asArray(facts.nextToStart);
-              const position = queue.findIndex((row) => (row?.nodeId ?? row?.id) === node?.id) + 1;
-              const reason = firstString(asObject(node?.resourceWait).reason)
+              const queueOrder = asArray(facts.queueOrder);
+              const nextRow = queue.find((row) => (row?.nodeId ?? row?.id) === node?.id);
+              const position = (nextRow ? queue.findIndex((row) => row === nextRow) : queueOrder.indexOf(node?.id)) + 1;
+              const why = asObject(nextRow?.why);
+              const whyText = firstString(why.message) || firstString(why.code);
+              const reason = whyText
+                || firstString(asObject(node?.resourceWait).reason)
                 || firstString(asObject(node?.claim).status)
                 || (node?.deferUntil ? 'deferred until ' + formatDateTime(node.deferUntil, t) : '');
               return h('div', { key: node?.id, className: 'rl-log-row' },
@@ -16142,9 +16163,13 @@ window.__ModuleLoader__.load({
                 h('span', null, firstString(node?.title) + (reason ? ' · ' + reason : '') + (node?.resourceWait ? ' · resource wait' : '')));
             }),
         h('h4', { className: 'rl-card-title' }, 'Dispatch metrics'),
-        h('div', { className: 'rl-hint' }, observerMetricRows(metrics).map((row) => `${row.key}=${String(row.value)}`).join(' · ') || 'No metrics payload.'),
+        failed.metrics || snapshot.error !== ''
+          ? h('p', { className: 'rl-hint' }, 'Metrics are unavailable until /metrics succeeds.')
+          : h('div', { className: 'rl-hint' }, observerMetricRows(metrics).map((row) => `${row.key}=${String(row.value)}`).join(' · ') || 'No metrics payload.'),
         h('h4', { className: 'rl-card-title' }, 'Per-class budgets'),
-        asArray(asObject(snapshot.budgets).classes).length === 0
+        failed.budgets || snapshot.error !== ''
+          ? h('p', { className: 'rl-hint' }, 'Class budgets are unavailable until /budgets succeeds.')
+          : asArray(asObject(snapshot.budgets).classes).length === 0
           ? h('p', { className: 'rl-hint' }, 'No class-budget report payload.')
           : asArray(asObject(snapshot.budgets).classes).map((row) => h('div', { key: row?.class, className: 'rl-log-row' },
               h('span', { className: 'rl-mono' }, firstString(row?.class) || 'p2'),
@@ -16238,38 +16263,50 @@ window.__ModuleLoader__.load({
     }
 
     function ClaimEvidencePanel({ projectId, t }) {
-      const [snapshot, setSnapshot] = React.useState({ loading: true, state: null, intents: [], error: '' });
+      const [snapshot, setSnapshot] = React.useState({ loading: true, state: null, intents: [], error: '', failed: {} });
       const [selected, setSelected] = React.useState(null);
+      const loadEvidence = React.useCallback(async (signal) => {
+        setSnapshot((previous) => ({ ...previous, loading: previous.state === null, error: '' }));
+        const results = await Promise.allSettled([
+          api.fetchStateAll(projectId, undefined, signal, t),
+          api.fetchIntents(projectId, signal, t, 200),
+        ]);
+        if (signal?.aborted) return;
+        const state = results[0].status === 'fulfilled' ? results[0].value : null;
+        const intents = results[1].status === 'fulfilled' ? asArray(asObject(results[1].value).intents) : [];
+        const failed = { state: results[0].status === 'rejected', intents: results[1].status === 'rejected' };
+        const rejected = results.filter((row) => row.status === 'rejected');
+        setSnapshot({
+          loading: false, state, intents,
+          error: rejected.length > 0 ? describeError(rejected[0].reason, t) : '',
+          failed,
+        });
+      }, [projectId, t]);
       React.useEffect(() => {
         const controller = new AbortController();
-        Promise.allSettled([
-          api.fetchStateAll(projectId, undefined, controller.signal, t),
-          api.fetchIntents(projectId, controller.signal, t, 200),
-        ]).then((results) => {
-          if (controller.signal.aborted) return;
-          const state = results[0].status === 'fulfilled' ? results[0].value : null;
-          const intents = results[1].status === 'fulfilled' ? asArray(asObject(results[1].value).intents) : [];
-          const rejected = results.filter((row) => row.status === 'rejected');
-          setSnapshot({
-            loading: false, state, intents,
-            error: rejected.length === results.length ? describeError(rejected[0].reason, t) : '',
-          });
-        });
+        void loadEvidence(controller.signal);
         return () => controller.abort();
-      }, [projectId, t]);
-      if (snapshot.loading) return h('p', { className: 'rl-hint' }, t('common.loading'));
+      }, [loadEvidence]);
       const nodes = asArray(asObject(snapshot.state).nodes);
       const claimed = nodes.filter((node) => node?.claim || node?.preemption || asObject(node?.priority).class === 'p0');
       const actions = snapshot.intents.filter((intent) => intent?.claim || intent?.actor || intent?.resolvedBy);
+      const failed = asObject(snapshot.failed);
+      const head = h('div', { className: 'rl-card-head' },
+        h('h3', { className: 'rl-card-title' }, 'Claims & evidence'),
+        h('span', { className: 'rl-card-meta' }, failed.state || snapshot.error !== ''
+          ? 'claim counts unavailable'
+          : `${claimed.length} node claims · ${actions.length} intents`),
+        h(LabButton, { label: 'Retry', variant: 'ghost', disabled: snapshot.loading, onClick: () => { const controller = new AbortController(); void loadEvidence(controller.signal); } }));
+      if (snapshot.loading) return h('section', { className: 'rl-card', 'data-testid': 'obs-claim-evidence' }, head, h('p', { className: 'rl-hint' }, t('common.loading')));
       return h(
         'section',
         { className: 'rl-card', 'data-testid': 'obs-claim-evidence' },
-        h('div', { className: 'rl-card-head' },
-          h('h3', { className: 'rl-card-title' }, 'Claims & evidence'),
-          h('span', { className: 'rl-card-meta' }, `${claimed.length} node claims · ${actions.length} intents`)),
+        head,
         snapshot.error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, snapshot.error) : null,
         h('h4', { className: 'rl-card-title' }, 'Node claims'),
-        claimed.length === 0
+        failed.state || snapshot.error !== ''
+          ? h('p', { className: 'rl-hint' }, 'Node claims are unavailable until /state succeeds.')
+          : claimed.length === 0
           ? h('p', { className: 'rl-hint' }, 'No dispatch claim, preemption, or p0 priority is recorded.')
           : claimed.slice(0, 100).map((node) => h('button', {
               key: node?.id, type: 'button', className: 'rl-log-row-btn',
@@ -16282,7 +16319,9 @@ window.__ModuleLoader__.load({
                 + (node?.preemption ? 'preempted for ' + firstString(node.preemption.forNodeId) + ' · appeal ' + firstString(asObject(node.preemption.appeal).status) : '')
                 + (node?.priority?.class === 'p0' ? ' p0 priority' : '')))),
         h('h4', { className: 'rl-card-title' }, 'Intent claims / evidence'),
-        actions.length === 0
+        failed.intents || snapshot.error !== ''
+          ? h('p', { className: 'rl-hint' }, 'Intent claims are unavailable until /intents succeeds.')
+          : actions.length === 0
           ? h('p', { className: 'rl-hint' }, 'No judgement intents have been recorded.')
           : actions.slice().reverse().slice(0, 100).map((intent) => h('button', {
               key: intent?.id, type: 'button', className: 'rl-log-row-btn',
@@ -16307,17 +16346,22 @@ window.__ModuleLoader__.load({
       const [action, setAction] = React.useState('');
       const [message, setMessage] = React.useState('');
       const loadExperts = React.useCallback(async (signal) => {
-        const data = await api.fetchExperts(projectId, signal, t);
-        if (signal?.aborted) return;
-        setSnapshot({ loading: false, experts: asArray(asObject(data).experts), curator: asObject(data).curator ?? null, error: '' });
+        setSnapshot((previous) => ({ ...previous, loading: previous.experts.length === 0 && previous.curator === null, error: '' }));
+        try {
+          const data = await api.fetchExperts(projectId, signal, t);
+          if (signal?.aborted) return;
+          setSnapshot({ loading: false, experts: asArray(asObject(data).experts), curator: asObject(data).curator ?? null, error: '' });
+        } catch (reason) {
+          if (!signal?.aborted && !isAbortError(reason)) {
+            setSnapshot((previous) => ({ ...previous, loading: false, experts: previous.experts, curator: previous.curator, error: describeError(reason, t) }));
+          }
+        }
       }, [projectId, t]);
       React.useEffect(() => {
         const controller = new AbortController();
-        void loadExperts(controller.signal).catch((reason) => {
-          if (!controller.signal.aborted && !isAbortError(reason)) setSnapshot({ loading: false, experts: [], curator: null, error: describeError(reason, t) });
-        });
+        void loadExperts(controller.signal);
         return () => controller.abort();
-      }, [loadExperts, t]);
+      }, [loadExperts]);
       const runAction = async (type, expertId) => {
         if (action !== '') return;
         setAction(type + ':' + expertId);
@@ -16332,18 +16376,22 @@ window.__ModuleLoader__.load({
           setAction('');
         }
       };
-      if (snapshot.loading) return h('p', { className: 'rl-hint' }, t('common.loading'));
       const curator = asObject(snapshot.curator);
+      const head = h('div', { className: 'rl-card-head' },
+        h('h3', { className: 'rl-card-title' }, 'Expert library'),
+        h('span', { className: 'rl-card-meta' }, snapshot.error !== '' ? 'expert count unavailable' : `${snapshot.experts.length} experts`),
+        h(LabButton, { label: 'Retry', variant: 'ghost', disabled: snapshot.loading, onClick: () => { const controller = new AbortController(); void loadExperts(controller.signal); } }));
+      if (snapshot.loading) return h('section', { className: 'rl-card', 'data-testid': 'obs-expert-library' }, head, h('p', { className: 'rl-hint' }, t('common.loading')));
       return h(
         'section',
         { className: 'rl-card', 'data-testid': 'obs-expert-library' },
-        h('div', { className: 'rl-card-head' },
-          h('h3', { className: 'rl-card-title' }, 'Expert library'),
-          h('span', { className: 'rl-card-meta' }, `${snapshot.experts.length} experts`)),
+        head,
         snapshot.error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, snapshot.error) : null,
         message !== '' ? h('p', { className: 'rl-hint', role: 'status' }, message) : null,
         h('p', { className: 'rl-hint' }, 'Curator: ' + (firstString(curator.status) || (curator.open === true ? 'open' : 'unknown'))),
-        snapshot.experts.length === 0
+        snapshot.error !== ''
+          ? null
+          : snapshot.experts.length === 0
           ? h('p', { className: 'rl-hint' }, 'The Host returned no expert descriptors.')
           : snapshot.experts.map((expert) => {
               const lifecycle = asObject(expert?.lifecycle);
@@ -16371,28 +16419,31 @@ window.__ModuleLoader__.load({
     }
 
     function DisputeTablePanel({ projectId, t }) {
-      const [snapshot, setSnapshot] = React.useState({ loading: true, rows: [], classes: {}, error: '', busy: '' });
+      const [snapshot, setSnapshot] = React.useState({ loading: true, rows: [], classes: {}, error: '', busy: '', failed: {} });
       const load = React.useCallback(async (signal) => {
-        const [data, classesData] = await Promise.all([
+        setSnapshot((previous) => ({ ...previous, loading: previous.rows.length === 0, error: '' }));
+        const [rowsResult, classesResult] = await Promise.allSettled([
           api.fetchDisputes(projectId, signal, t),
-          api.fetchDisputeClasses(projectId, signal, t).catch(() => ({ classes: {} })),
+          api.fetchDisputeClasses(projectId, signal, t),
         ]);
         if (signal?.aborted) return;
+        const failed = { rows: rowsResult.status === 'rejected', classes: classesResult.status === 'rejected' };
+        const rejected = [rowsResult, classesResult].filter((row) => row.status === 'rejected');
         setSnapshot((previous) => ({
           ...previous,
           loading: false,
-          rows: asArray(asObject(data).disputes),
-          classes: asObject(asObject(classesData).classes),
-          error: '',
+          rows: rowsResult.status === 'fulfilled' ? asArray(asObject(rowsResult.value).disputes) : previous.rows,
+          classes: classesResult.status === 'fulfilled' ? asObject(asObject(classesResult.value).classes) : previous.classes,
+          error: rejected.length > 0 ? describeError(rejected[0].reason, t) : '',
+          busy: '',
+          failed,
         }));
       }, [projectId, t]);
       React.useEffect(() => {
         const controller = new AbortController();
-        void load(controller.signal).catch((reason) => {
-          if (!controller.signal.aborted && !isAbortError(reason)) setSnapshot({ loading: false, rows: [], classes: {}, error: describeError(reason, t), busy: '' });
-        });
+        void load(controller.signal);
         return () => controller.abort();
-      }, [load, t]);
+      }, [load]);
       const resolve = async (row, resolution) => {
         if (!row?.id || snapshot.busy) return;
         setSnapshot((previous) => ({ ...previous, busy: row.id, error: '' }));
@@ -16408,18 +16459,27 @@ window.__ModuleLoader__.load({
           setSnapshot((previous) => ({ ...previous, busy: '', error: describeError(reason, t) }));
         }
       };
-      if (snapshot.loading) return h('p', { className: 'rl-hint' }, t('common.loading'));
       const resolved = snapshot.rows.filter((row) => row?.status === 'resolved');
       const pending = snapshot.rows.filter((row) => row?.status === 'pending');
+      const failed = asObject(snapshot.failed);
+      const head = h('div', { className: 'rl-card-head' },
+        h('h3', { className: 'rl-card-title' }, 'Dispute table'),
+        h('span', { className: 'rl-card-meta' }, snapshot.error !== ''
+          ? 'dispute counts unavailable'
+          : `${snapshot.rows.length} disputes · ${pending.length} pending · ${resolved.length} resolved`),
+        h(LabButton, { label: 'Retry', variant: 'ghost', disabled: snapshot.loading, onClick: () => { const controller = new AbortController(); void load(controller.signal); } }));
+      if (snapshot.loading) return h('section', { className: 'rl-card', 'data-testid': 'obs-dispute-table' }, head, h('p', { className: 'rl-hint' }, t('common.loading')));
       return h(
         'section',
         { className: 'rl-card', 'data-testid': 'obs-dispute-table' },
-        h('div', { className: 'rl-card-head' },
-          h('h3', { className: 'rl-card-title' }, 'Dispute table'),
-          h('span', { className: 'rl-card-meta' }, `${snapshot.rows.length} disputes · ${pending.length} pending · ${resolved.length} resolved`)),
+        head,
         snapshot.error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, snapshot.error) : null,
-        h('p', { className: 'rl-hint' }, 'Eight classes: ' + Object.keys(snapshot.classes).join(', ') + ' · default action keep_current'),
-        snapshot.rows.length === 0
+        failed.classes
+          ? h('p', { className: 'rl-hint' }, 'Class map unavailable until /disputes/classes succeeds.')
+          : h('p', { className: 'rl-hint' }, 'Eight classes: ' + Object.keys(snapshot.classes).join(', ') + ' · default action keep_current'),
+        failed.rows || snapshot.error !== ''
+          ? null
+          : snapshot.rows.length === 0
           ? h('p', { className: 'rl-hint' }, 'No appeal or dispute has been opened.')
           : snapshot.rows.slice().reverse().map((row) => h('div', { key: row?.id, className: 'rl-log-row' },
               h('span', { className: 'rl-mono' }, firstString(row?.status) || 'pending'),
@@ -16569,7 +16629,7 @@ window.__ModuleLoader__.load({
           let cursor = Number(asObject(snapshot.observer).cursor) || 0;
           while (!cancelled) {
             try {
-              const page = asObject(await api.waitForEvents(projectId, controller.signal, t, cursor, 25_000));
+              const page = asObject(await api.waitForEvents(projectId, controller.signal, t, cursor, 60_000));
               if (cancelled) return;
               cursor = Number(page.cursor ?? page.next ?? cursor) || cursor;
               setSnapshot((previous) => ({
@@ -16594,6 +16654,8 @@ window.__ModuleLoader__.load({
       const observer = asObject(snapshot.observer);
       const running = asArray(observer.running);
       const stalled = asArray(observer.stalled);
+      const starving = asArray(observer.starving);
+      const pauseReason = firstString(observer.pauseReason);
       return h(
         'section',
         { className: 'rl-card', 'data-testid': 'obs-observer' },
@@ -16605,9 +16667,9 @@ window.__ModuleLoader__.load({
             onClick: () => setSnapshot((previous) => ({ ...previous, live: !previous.live, error: '' })),
           })),
         snapshot.error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, snapshot.error) : null,
-        h('p', { className: 'rl-hint' }, `cursor ${numberOr(observer.cursor, 0)} · ${running.length} running · ${stalled.length} stalled · ${asArray(observer.openDisputes).length} open disputes`),
+        h('p', { className: 'rl-hint' }, `cursor ${numberOr(observer.cursor, 0)} · ${running.length} running · ${stalled.length} stalled · ${starving.length} starving · ${asArray(observer.openDisputes).length} open disputes` + (pauseReason ? ` · paused: ${pauseReason}` : '')),
         observer.escalation
-          ? h('p', { className: 'rl-hint', role: 'alert' }, `Escalation ${firstString(asObject(observer.escalation).code) || 'stalled'}: ${asArray(asObject(observer.escalation).nodes).map((row) => firstString(row?.nodeId)).join(', ')}`)
+          ? h('p', { className: 'rl-hint', role: 'alert' }, `Escalation ${firstString(asObject(observer.escalation).code) || 'stalled'}: ${asArray(asObject(observer.escalation).nodes).map((row) => firstString(row?.nodeId)).join(', ')}` + (firstString(asObject(observer.escalation).pauseReason) ? ` · pauseReason ${firstString(asObject(observer.escalation).pauseReason)}` : ''))
           : null,
         stalled.length === 0
           ? h('p', { className: 'rl-hint' }, 'No stalled running node.')
@@ -16615,6 +16677,12 @@ window.__ModuleLoader__.load({
               h('span', { className: 'rl-mono' }, 'stalled'),
               h('span', { className: 'rl-mono' }, firstString(row?.nodeId) || 'node'),
               h('span', null, `idle ${Math.round(numberOr(row?.idleMs, 0) / 1000)}s`))),
+        starving.length === 0
+          ? h('p', { className: 'rl-hint' }, 'No starving queued node.')
+          : starving.map((row) => h('div', { key: row?.nodeId, className: 'rl-log-row' },
+              h('span', { className: 'rl-mono' }, 'starving'),
+              h('span', { className: 'rl-mono' }, firstString(row?.nodeId) || 'node'),
+              h('span', null, `waiting ${Math.round(numberOr(row?.waitingMs, 0) / 1000)}s`))),
         h('h4', { className: 'rl-card-title' }, 'Live events'),
         snapshot.events.length === 0
           ? h('p', { className: 'rl-hint' }, snapshot.live ? 'Waiting for the next event…' : 'Start a live watch to long-poll the event cursor.')

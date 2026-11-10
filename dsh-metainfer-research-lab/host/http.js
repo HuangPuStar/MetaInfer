@@ -215,7 +215,10 @@ export function registerHttpRoutes(ctx, service) {
 
   route(`${PREFIX}/disputes/resolve`, ['POST'], async (request) => {
     const body = await readJsonBody(request);
-    return okResult(await service.resolveDispute(body.projectId, body.disputeId, body, null));
+    // Same limited-write gate as the `arbitrate` tool. This route is called by
+    // the trusted operator UI (no preset); routing through `arbitrate` keeps a
+    // future actor-bearing caller from bypassing the eight-class authority map.
+    return okResult(await service.arbitrate(body.projectId, body, null));
   });
 
   route(`${PREFIX}/disputes/reopen`, ['POST'], async (request) => {

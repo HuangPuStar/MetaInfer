@@ -8,51 +8,50 @@
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **107** |
-| FAIL | **57** |
+| PASS | **114** |
+| FAIL | **50** |
 | 未测量 | **10**（其中浏览器 2 行 = 不适用） |
 | 合计 | **174** |
 
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：第十四轮独立复核（HEAD `1f3e20e`，§34）确认 opaque `actorKey`
-解决了 §32 的显示名 normalisation 问题：29/29 Unicode/格式字符变体在**同一
-registration key** 下全部 `human_confirmation_required`；同一 session 改名
-`h1`→`ｈ１` 后真实 `delete_project`/`cancel_node` 都被拒绝；namespace
-`alice@home.com`/`alice@work.com` 可用两个不同 key 正向确认；mixed keyed/unkeyed
-fail closed；load-time migration 跨 restart 稳定且可重放。
+**一句话**：第十六轮独立复核（clean worktree HEAD `8582b4f`，§38）确认
+**B27 的 restart-continuity 成立**：独立启动的第二个 Node 进程重新加载同一
+file-backed domain，按 Host session id 恢复 human/expert/confirmer/advisor 四个
+key；未知/伪造 key 仍 fail-closed；第二个进程内完成一个真实申诉 resolve 并执行
+`delete_project`；第三个进程再次恢复并删除第二个项目；facade 没有写入
+`actorKeys` 的方法，`changesSince` 不含 key。因此 §36 的 **“restart 排除”从
+B27 撤销**，不再作为 B27 的排除项。
 
-但 **B27 仍未闭**，根因从“display canonicalisation”变成了 **key 的来源与
-保密性**：`actorForSession` 接受 caller 提供的 `session.actorKey` /
-`header.meta.actorKey`（任意非空字符串，例如 `x`），并在 session 上 pin 住；
-`intent_list` 又公开返回 `resolvedBy.actorKey`。因此一个 `h1` session 可以把
-另一个 actor 的 key 放进 meta，或读取已公开的 h2 key 后重放，随后真实
-`delete_project`/`cancel_node` 仍然执行。两个 session 注册同一 key 会折叠成
-同一 actor，且没有唯一性/来源校验。display 名的 Unicode 绕过没有了，但
-**key 本身不是不可伪造的 registration 凭证**。
+能力 Wave 1–3 的 5 个被点名行中，`1.3`、U1、U3 独立通过；U2 仍只给前 5 个
+队列位置且不显示 `facts.why`，U12 仍在部分端点失败时显示假空态且多数新面板
+没有 Retry。四个部分面中，B23（expected/rotation）和 5.3.14（limited-write /
+arbiter matrix）独立通过，**B22 仍是 FAIL**：8 类 authority 元数据正确，但
+`resolveDispute` 不执行 authority 检查，专家可对全部 8 类 `apply_change`；
+5.3.13 的 long-poll/mid-sleep 通过，但只有 30s、只识别 stalled，缺
+starving/pauseReason。独立计数为 **114 PASS / 50 FAIL / 10 未测量**。
 
-因此独立计数仍是 **107 PASS / 57 FAIL / 10 未测量**：1 个阻断（B27）、56 个
-能力未建、0 个只差文档。作者 §33 的 676 checks / 111 claims 覆盖了 Unicode
-共享 key、session pin、namespace、migration，但没有覆盖 caller 注入/回放 key。
-浏览器绘制仍 N/A。
-
-> 作者针对 §32 的第十三轮整改见 **§33**，不替代独立复核。
-> 独立总判定以 **§34** 为准：**107 PASS / 57 FAIL / 10 未测量（NO-SHIP）**。
+> 作者第十四轮报告见 **§35**，不替代独立复核。
+> 独立总判定以 **§38** 为准：**114 PASS / 50 FAIL / 10 未测量**；
+> **B27 narrow release possible（含真实进程 restart）**，完整发布仍 **NO-SHIP**。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
-> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**；第十一轮作者 scope/CAS 整改见 **§30**，第十二轮独立复核（`e85b213`）见 **§30.6**；第十二轮作者 handler/canonical/CAS 整改见 **§31**，第十三轮独立复核（`4a209bc`）见 **§32**；第十三轮作者 `actorKey` 整改见 **§33**，第十四轮独立复核（`1f3e20e`）见 **§34**。
-> 独立总判定以 **§34** 为准；§20/§22/§24/§26/§28/§29/§30/§31/§33 是作者报告，不能代替独立复核。§22 曾声称关闭
+> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**；第十一轮作者 scope/CAS 整改见 **§30**，第十二轮独立复核（`e85b213`）见 **§30.6**；第十二轮作者 handler/canonical/CAS 整改见 **§31**，第十三轮独立复核（`4a209bc`）见 **§32**；第十三轮作者 `actorKey` 整改见 **§33**，第十四轮独立复核（`1f3e20e`）见 **§34**；作者第十五轮 B27/能力见 **§35**，第十五轮独立复核（`ef16f34`）见 **§36**。
+> 独立总判定以 **§38** 为准；§20/§22/§24/§26/§28/§29/§30/§31/§33/§35/§37 是作者报告，不能代替独立复核。§22 曾声称关闭
 > B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了其中 B27/U14/S12/A20 四项；
 > §24 作者报告为 112 PASS / 52 FAIL，§25 复核为 103 PASS / 61 FAIL，§27 复核为
 > **107 PASS / 57 FAIL / 10 未测量**，§28.4 复核仍为 **107 / 57 / 10**，
 > §29.6 复核仍为 **107 / 57 / 10（NO-SHIP）**，
 > §30.6 复核仍为 **107 / 57 / 10（NO-SHIP）**，
 > §32 复核仍为 **107 / 57 / 10（NO-SHIP）**，
-> §34 复核仍为 **107 / 57 / 10（NO-SHIP）**。
+> §34 复核仍为 **107 / 57 / 10（NO-SHIP）**；
+> §36 第十五轮复核（`ef16f34`）为 **109 / 55 / 10**（历史：B27 仅当前进程 PASS，
+> `5.3.2` PASS）；§38 第十六轮复核（`8582b4f`）为 **114 / 50 / 10**（B27
+> 含真实进程 restart PASS；`1.3`/U1/U3/B23/5.3.14 闭合，U2/U12/B22/5.3.13 未闭）。
 
 ### 0.1 判定口径
 
@@ -4449,3 +4448,788 @@ Wave 3 新关闭 **0/56**；部分交付 **4 个面**（争议、复盘、预算
   红→绿；Wave 3 不得因“有面板”被算作关闭。
 - 独立验证者重放 §32.2/§34.3 后，才可讨论把 B27 从 FAIL 改为 PASS；独立计数
   才可能变为 **108 PASS / 56 FAIL / 10 N/A**。在那之前，NO-SHIP 不变。
+
+> 后续独立复核见 **§36**（clean `ef16f34`）：B27 当前进程内通过，5.3.2 通过；
+> 1.3/U1/U2/U3/U12 未闭；独立计数 **109 PASS / 55 FAIL / 10**。§35.7 的
+> 作者侧“未闭/108”表述保留为提交时历史，不覆盖 §36。
+
+---
+
+## §36 第十五轮独立复核（clean HEAD `ef16f34`，2026-11-10）
+
+> 复核人：独立验证者。为避免把主工作区并发出现的未提交改动算进 HEAD，本轮所有
+> B27/能力/回归探针在 **clean worktree `/tmp/r15-head`（detached HEAD
+> `ef16f34`）** 的 `dsh-metainfer-research-lab` 子目录中执行；只把主仓库的
+> `node_modules` 以 symlink 挂入，不改生产代码，不改主工作区里已有的未提交文件。
+>
+> 采样时间 `2026-11-10T21:31:51+08:00`（`Asia/Shanghai`）；浏览器时区不可用。
+> 浏览器绘制仍 N/A；provider/真实 Host restart 仍不在本轮测量范围。
+>
+> **结论：B27 在当前 Host 进程内通过 §34.3 的攻击重放；但 registry 不持久化，
+> restart 后旧 key 被剥离/拒绝，故只能给“当前进程、无 restart”的 narrow
+> release。能力 Wave 1–3 的作者 6/56 只有 `5.3.2/Q3` 一项独立通过；`1.3` 只修了
+> advisor 一侧，U1/U2/U3/U12 仍是面板壳。独立计数 109 PASS / 55 FAIL / 10 未测量。**
+
+### 36.1 B27 攻击重放（clean `ef16f34`）
+
+真实 `registerAgentTool` + `tool.execute` 路径，session 对象固定（同一个对象重复
+使用才得到同一 registration），结果如下。
+
+#### 36.1.1 注入、共享、中途换 key
+
+```json
+{
+  "arbitraryMetaActor": {"code": "caller_supplied_actor_key"},
+  "arbitraryMetaDelete": {"error": {"code": "caller_supplied_actor_key"}},
+  "arbitraryMetaProjectExists": true,
+  "sharedMetaActor": {"code": "actor_key_shared"},
+  "sharedMetaDelete": {"error": {"code": "actor_key_shared"}},
+  "sessionActorKey": {"code": "caller_supplied_actor_key"},
+  "cancelMetaDelete": {"error": {"code": "caller_supplied_actor_key"}},
+  "cancelRuntimeCalls": 0,
+  "replay": {"code": "actor_key_shared", "deleted": false, "projectExists": true},
+  "twoSessions": {"code": "actor_key_shared"},
+  "rekey": {"code": "actor_key_rebind"},
+  "rekeyToShared": {"code": "actor_key_shared"}
+}
+```
+
+- 只把 `h1` session 的 `header.meta.actorKey` 设为任意字符串：真实
+  `delete_project` 返回 `caller_supplied_actor_key`，项目仍存在。
+- 把 `h2` 已签发的 key 放进 `h1` 的 meta：返回 `actor_key_shared`，不是
+  `caller_supplied`；owner 判定优先于 caller 判定。
+- `session.actorKey` 直接注入：`caller_supplied_actor_key`。
+- 同样的注入放到真实 `cancel_node`：拒绝且 `runtimeCalls` 新增 **0**。
+- 两个 session 共享 `h2` key：`actor_key_shared`；同一 session 先正常取 key，
+  再把 meta 改成另一个 key：`actor_key_rebind`，原 key 不变；改成已属于别人的
+  key：`actor_key_shared`。
+
+#### 36.1.2 request 字段/旧记录
+
+`delete_project` 请求同时带 `actorKey`、`claim.actorKey`、`actor`、
+`resolvedBy`（全部指向 h2/key），exec 仍是 h1；请求按 h1 正常删除，字段不参与
+认证。`submitIntent` 的 actor 来自 `actorFromToolExecution`，请求里的
+`actor`/`actorKey` 被忽略：真实 note 提交带 h2 的 actor/key，落库 actor 仍是
+h1/h1key：
+
+```json
+{
+  "ok": true,
+  "actor": {"kind": "human", "id": "h1", "actorKey": "ak_host_64f839fb-..."},
+  "requestActor": {"id": "h2", "actorKey": "ak_host_b11e3c59-..."}
+}
+```
+
+`resolveAppeal` 的 `resolvedBy` 也被忽略，实际 `resolvedBy` 是 h2。
+
+forged legacy 记录（`resolvedBy.actorKey` 为未登记 key，`actor.actorKey` 为旧
+deterministic key）load 后：
+
+```json
+{
+  "before": "ak_forged_resolver_key",
+  "after": null,
+  "actorAfter": null,
+  "action": "human_confirmation_required"
+}
+```
+
+迁移剥掉所有未登记 key；irreversibility gate 要求 resolver/raiser/requester
+三方都是 `isIssuedActorKey`，所以 forged key 不是“忽略后按 h1 授权”，而是
+fail closed。legacy 无 key 记录同样退回人工确认（兼容性边界，不是绕过）。
+
+#### 36.1.3 key 读面/重放
+
+同一条已解决申诉：raw store 的 `resolvedBy.actorKey` 是
+`ak_host_9b70c4ac-...`；service 的 `getState`、`listIntents`、`getEvents`、
+`explainNode`、`traceExplain`、`listDisputes`、`listExperts`、
+`classBudgetReport`、`listRetrospectives`、`getNode`、`changesSince`、
+`statusFacts`、`metricsFor` 全部 `keyLeak=false`；agent tool 的 `state`、
+`intent_list`、`trace_explain`、`explain_node`、`status_facts` 也全部不含 key。
+
+即使把读到的 h2 key 放进 `h1` meta 重放 `delete_project`，返回
+`actor_key_shared`，`deleted=false`、项目仍存在。因此 **§34.3.3 的
+`intent_list` bearer 重放链已断**。
+
+`publicView` 在 `host/kernel/actors.js:213` 递归剥离所有名为 `actorKey` 的
+属性；`host/http.js:29/35` 的所有 JSON 成功/失败响应都经过 `publicView`，
+错误 payload 只保留 `code/message/nextStep/retryable`；`/files/download` 只返回
+文件字节，不返回 intent/actor JSON；没有 key 导出路由。`raw store` 有 key 是
+必要的 Host 内部状态，不是读面。
+
+#### 36.1.4 签发可预测性
+
+连续签发 500 个 key：
+
+```json
+{
+  "count": 500,
+  "unique": 500,
+  "uuidV4": true,
+  "first": [
+    "ak_host_aaf7e565-8557-4c7e-83cd-53bd6ca9457e",
+    "ak_host_3807976d-1c8f-4499-be28-073f127fd6d6",
+    "ak_host_b0688c77-d6f0-44a6-8668-e39fb8c650fa"
+  ]
+}
+```
+
+- 生成点是 `actors.js:139/234` 的 `randomUUID()`（`node:crypto` CSPRNG），
+  不是计数器、时间、seed 或注册 id 派生；caller 可控制注册 id，但不能控制
+  UUID。
+- 500/500 唯一，全部符合 `ak_host_<UUIDv4>`；没有观察到可预测顺序。
+- **不能把“可控制注册 id”当成“可预测 key”**：id 只决定 registry 的
+  registration token，key 仍随机。
+
+#### 36.1.5 registry 持久性/restart
+
+`actors.js:40-44` 的 registry 是**模块级内存**：
+
+```js
+const registry = new Map();
+const bySessionObject = new WeakMap();
+const byRegistrationId = new Map();
+```
+
+没有写入 `store`/domain，也没有 load-time registry 重建。用 file-backed domain
+在两个独立 Node 进程中写入/重启：
+
+```json
+{
+  "write": {"resolved": true, "registered": true, "rawKey": "ak_host_f282c815-..."},
+  "read": {
+    "loaded": true,
+    "oldKeyInLoadedProject": null,
+    "oldKeyRegistered": false,
+    "oldKeyAccepted": {"ok": false, "code": "caller_supplied_actor_key"},
+    "newKeyIsSame": false,
+    "actionCode": "human_confirmation_required",
+    "projectExists": true
+  }
+}
+```
+
+- registry **不跨 restart 持久化**：新进程 `isIssuedActorKey(oldKey)=false`；
+  `migrateProjectActorKeys` 把已解决申诉里的旧 key 剥成 `null`。
+- 旧 session 以旧 key 重新注册，`actorForSession` 会把它当 caller-supplied key
+  拒绝；新注册得到新 key，`newKeyIsSame=false`。
+- 因此 restart 后的行为是 **fail-closed（不会误授权），但也不连续**：合法的
+  历史已解决申诉退回 `human_confirmation_required`，实际 delete 被挡。
+- 这是 **narrow release 的排除项 `restart`**，不是当前进程内 key 注入绕过。
+  若发布要求跨 restart 连续性，B27 仍不能算完整通过。
+
+#### 36.1.6 跨项目 transplant
+
+用同一个 `h2` session 分别在 `r15-transplant-a` / `b` 解决 project-scoped
+delete appeal，再分别真实 delete：
+
+```json
+{
+  "sameSessionKey": "ak_host_64528c9f-dbef-40cf-90e8-cca71b7c434e",
+  "a": {"resolved": true, "delete": true},
+  "b": {"resolved": true, "delete": true}
+}
+```
+
+- key **没有 projectId 绑定**：同一个 session/key 可以在多个项目执行相同身份
+  的不可逆动作。跨 session 移植仍被 `actor_key_shared` 拒绝；meta 注入仍被
+  `caller_supplied_actor_key` 拒绝。这是“身份不按项目分区”的架构边界，不是
+  key 从读面泄露后的 bearer 重放。
+- 若产品要求“项目级 key 隔离”，需要额外的 project ACL；本轮不把 B27 的
+  actor identity 计为 project isolation。
+
+### 36.2 能力 Wave 1–3 独立复核
+
+#### 36.2.1 `5.3.2/Q3`：PASS
+
+生产调用点：`host/dispatch/reservation.js` 的 p0 reservation /
+`selectPreemptionVictim`，`host/dispatch/dispatch-once.js` 在容量满且 p0 waiting
+时提交 preempt envelope，`host/runtime.js` preempt 写 `node/preempted` +
+开放 appeal；`index.js:130-151` 的 `dispatchOnce` 从项目 config 传
+`maxRunningNodes`，`host/auto.js:286-288` 每 2s tick 调用。
+
+clean HEAD 实测：
+
+- `reserved-slots-selftest` **10/10**：selector 只选 p3→p2、p1/merge 排除、
+  >10 min 门槛；集成 p0 抢占旧 p2 并拿到释放 slot；per-class budget。
+- `plugin-smoke` **5/5**：真实进程完成节点、activity、p0 preempt + appeal。
+- 计数：`5.3.2` **PASS**。
+
+#### 36.2.2 `1.3`：FAIL（只闭 advisor，未闭 scheduler）
+
+- `host/context/payload.js:125-132` 的 advisor `runningRow` 已有
+  `lastActivityMs`；`plugin-smoke` 真实 turn-internal event 推进
+  `lastActivityAt`。
+- 但 `host/snapshot.js:185-191` 的 `buildSchedulerSnapshot.running` 仍只有
+  `id/title/needs/startedAt/elapsedMs`，没有 `lastActivityAt`/`lastActivityMs`。
+  clean HEAD 实测：
+
+```json
+{
+  "advisorRunning": [{"id":"n1","elapsedMs":240000,"lastActivityMs":30000}],
+  "schedulerRunning": [{"id":"n1","startedAt":1794317676160,"elapsedMs":240002}]
+}
+```
+
+验收要求 running 补 elapsed/lastActivity 以支持停滞判断；scheduler 是做出
+start/stop/预占判断的一侧，仍看不到 lastActivity，故 **1.3 只能算半闭，判
+FAIL**。作者 §35.2 的 evidence 只引 `plugin-smoke` 的 advisor activity，不足以
+覆盖 scheduler snapshot。
+
+#### 36.2.3 U1：FAIL（running 缺 elapsed/GPU/branch）
+
+真实 jsdom 渲染 `DispatchQueuePanel`（`client.js:16030`）得到文本：
+
+```text
+p0 n1 running node · started <time>
+```
+
+缺少 elapsed；running 行没有 `resourcesHeld.gpu`/GPU 占用；没有 branch。
+“gpu” 只出现在 queued 的 `gpu_quota` 阻塞原因里，不是 running 的 GPU 汇总。
+验收要求 running 列表同时给出 elapsed、GPU、branch；**U1 FAIL**。
+
+#### 36.2.4 U2：FAIL（没有 dispatch order）
+
+`DispatchQueuePanel` 的 waiting/blocked 行显示 class/id/title/claim 或
+`resourceWait` 原因，但没有队列位置/优先级顺序/为何排在前面的解释；渲染文本
+没有 `#1`、position、order 或 `priority/delayed` 事件。验收要求“为什么排在
+前面”的 dispatch order；**U2 FAIL**。
+
+#### 36.2.5 U3：FAIL（失败事件缺 stage/role/timeout）
+
+`EventTimelinePanel`（`client.js:16125`）把事件渲染为 seq/type/node/cause/at；
+真实事件带 `error:{stage:'dispatch',role:'worker',timeoutMs:30000}` 时，面板文本
+只有 `node/failed`，没有 stage、role、recent run 或 timeout 归因；cause chain
+只显示 `ref.type` 和 JSON。验收要求失败归因面板；**U3 FAIL**。
+
+#### 36.2.6 U12：FAIL（EventTimeline 没有 loading/retry 三态）
+
+- DispatchQueue、ClaimEvidence、ExpertLibrary 有 loading/error/empty 的路径。
+- EventTimelinePanel 初始 `events=[]`，fetch pending 时直接渲染
+  `No events yet.`；没有 `common.loading`，也没有 retry 按钮。真实 pending 渲染：
+
+```json
+{"eventLoadingText":"Event timeline0 eventsNo events yet.","eventHasLoading":false}
+```
+
+- `client-smoke` 24/24 只证明“degraded payload 不崩溃”，不证明三态；作者把
+  crash containment 当成 U12 的验收，**过度声明**。验收要求每个新面板 loading /
+  empty / error 三态（断网刷新、空项目、失败项目）；EventTimeline 至少缺
+  loading，**U12 FAIL**。
+
+#### 36.2.7 四个部分面
+
+`B22`（争议表）、`B23`（仅 retro）、`5.3.13`（仅评审面）、`5.3.14`（仅读/错误面）
+仍是作者 §35.4 自认的部分交付；本轮没有把它们算作关闭，也没有把 UI 可发现性
+当成整行 PASS。它们继续留在 56 行的 FAIL/部分桶中。
+
+### 36.3 计数与判定
+
+| 判定 | 数量 |
+|---|---|
+| PASS | **109** |
+| FAIL | **55** |
+| 未测量 | **10**（浏览器 2 行 = 不适用） |
+| 合计 | **174** |
+
+推导：
+
+- 起点仍是 §34 的 **107 PASS / 57 FAIL / 10**。
+- B27 当前进程内通过：+1 PASS / -1 FAIL → **108 / 56 / 10**。
+- `5.3.2/Q3` 独立通过：+1 PASS / -1 FAIL → **109 / 55 / 10**。
+- `1.3`、U1、U2、U3、U12 **不通过**，不加不减。
+- 作者声称的 **6/56** 能力关闭，独立只确认 **1/56**（`5.3.2`）；
+  `1.3`+U1+U2+U3+U12 共 **5 项**是“已尝试但未闭”，不是 partial 计数。
+- 作者的 4 个 partial（B22/B23/5.3.13/5.3.14）继续是 **4/56 partial、未关闭**；
+  没有被静默并入 6 个 closed。
+
+**B27 的口径必须写清**：`109` 里的 B27 只表示**当前 Host 进程内**的 key
+签发/绑定/不披露/forged fail-closed；registry 不持久化，restart 排除。若把
+restart 纳入 B27 验收，B27 回到 FAIL，计数回 **108 PASS / 56 FAIL / 10**。
+本轮不把 restart 算进 narrow release，故主计数用 109/55/10。
+
+### 36.4 回归门（clean HEAD `ef16f34`）
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；702 个 `ok` 行；locale-selftest 全通过 |
+| `npm run bench:scale` | 11/11；100k-event first page **0.52 ms**；restart first page **1.99 ms** |
+| `strict-writes-selftest` | EXIT 0；17 个 `ok`；bypass 0；permitted deletion 不计数 |
+| `client-smoke` | **24/24**（仅 crash containment，不代表 U 行验收） |
+| `plugin-smoke` | **5/5**（真实进程、activity、p0 preempt + appeal） |
+| `reserved-slots-selftest` | **10/10** |
+| U14 partial probe | EXIT 0；dashboard `lastRun.status=partial`，`failureCount=3`，partial alert 正常 |
+| S12 restart first page | firstAfterReopen **1.2 ms**；100k 事件 page1/page2=100，last=100000 |
+| `git diff --check` | 无 whitespace 错误 |
+
+说明：主工作区在验证期间出现了**非本验证产生**的未提交改动（`client.js`、
+`lab-service.js`、`policy.js`、`runtime.js` 等）；本轮没有使用这些改动，也没有
+修改/回退它们。上面所有数字都来自 clean worktree。未执行 sandbox escalation，
+未写 `~/.dsh/storages/*`，未重启 Host。
+
+### 36.5 判定与 narrow release
+
+**narrow release possible**，但只限：
+
+- B27 Host-issued actor key 的**当前进程内**身份门：caller 注入、session key
+  注入、两 session 共享、中途 rekey、读面 key 重放、forged legacy 均 fail
+  closed；真实 delete/cancel 不执行。
+- 不包含 **restart 后的 key 连续性**：registry 是内存 Map，旧 key 在 restart
+  后既不在 registry，也会被 migration 从 intent 剥掉；这是明确排除项。
+
+明确排除的 scope：
+
+- **`1.3`**：scheduler snapshot 仍无 lastActivity；
+- **`5.3.2`**：测试/计数 PASS，但按本轮 release scope 不作为 B27 narrow
+  release 的组成部分（单独签字才纳入）；
+- **Stage 3–5**：B22/B23/5.3.13/5.3.14 等仍是 partial/fail；
+- **U1/U2/U3/U12**：观测面板未达到验收；
+- **browser 2 行**：N/A；
+- **provider/restart**：未测量且 restart registry 不持久。
+
+**完整发布仍是 NO-SHIP**：109 PASS 不足 174 行；55 FAIL 中包含 56 行能力的
+未闭部分和 U 行；10 行未测量。B27 narrow release 不能写成完整发布。
+
+### 36.6 边界
+
+- 结论对 clean HEAD `ef16f34` 有效；后续修改 `actors.js`、`policy.js`、
+  `lab-service.js`、`snapshot.js`、`context/payload.js`、`client.js` 后必须重跑
+  §36.1–36.4，不能只跑 `npm test`。
+- B27 只证明 key 的来源/绑定/不披露/当前进程 fail-closed；**不证明自然人独立
+  意志**，也不替代外部身份 provider、双人审批或项目 ACL。
+- 跨项目 key 不绑定 projectId：同一 session 可对多个项目执行相同身份动作；
+  这是身份模型边界，不是本次读面重放。
+- 浏览器时区/绘制不可用；provider 真实调用、真实 Host restart 仍是未测量项。
+
+---
+
+## §37 作者第十六轮：B27 持久化与验证者点名的五个缺口
+
+> **边界**：本节是作者侧实现与探针记录，不替代 §36 独立复核。独立计数仍是
+> **109 PASS / 55 FAIL / 10 未测量**；B27 的 restart-continuity 与
+> `1.3`/U1/U2/U3/U12 是否改判，必须由验证者在当前工作树上重放后决定。
+
+### 37.1 B27：actor-key registry 进入 v2 store
+
+此前 §36 确认当前进程内的 key 注入/共享/rekey/读面重放均已 fail closed，但
+registry 是模块级 `Map`，restart 后旧 key 被剥掉，合法的已解决申诉退回
+`human_confirmation_required`。本轮把 registry 变为 **v2 store 的持久表 +
+进程内缓存**：
+
+- `host/store.js` 新增 `actorKeys` 表；每条记录包含 `key`、`sessionId`、
+  `issuedAt`、`projectId`、`registrationId`、`registrationKind`。`openStore`
+  在返回 facade 前把这些记录加载进 registry，`flushActorKeys()` 供干净退出/
+  restart 探针等待落盘。
+- `host/kernel/actors.js` 的 `configureActorKeyStore` 在启动时恢复 key；
+  `issueActorKeyForRegistration` 只对**真实 session object**按 session id
+  复用旧 key。裸 `{sessionId}` 仍是独立 registration（保留 §34 的 pin 探针：
+  `separateRegistration.actorKey !== registeredActor.actorKey`）。
+- 第一次 commit/delete 时 `bindActorKeyProject` 记录该 key 的首个项目；这是
+  **审计元数据，不是 project ACL**。跨项目身份边界未被本轮改变。
+- 未知/伪造 key 不因“磁盘上有记录”而受信：load 只接受 Host 前缀记录，且
+  `isIssuedActorKey` 仍只认 registry；migration 继续剥掉未登记 key。
+
+**真实进程 restart 探针**：`scripts/b27-restart-selftest.mjs`（11/11）用
+`scripts/lib/json-file-domain.mjs` 写一个临时文件域，父进程签发 3 个 key 后退出；
+子进程（`scripts/lib/b27-restart-child.mjs`，全新 Node 进程）加载同一文件域，
+断言 key 恢复、同 session id 同 key、unknown key 仍拒绝，然后在子进程内
+resolve 一个 delete appeal 并执行真实 `delete_project`；父进程再次打开文件域，
+断言项目已删、key 的 `projectId` 已记录。输出示例（节选）：
+
+```json
+{"restoredHuman":true,"restoredExpert":true,"restoredConfirmer":true,
+ "forged":false,"sameId":true,"resolved":true,"deleted":true,
+ "projectGone":true}
+```
+
+这把 §36.1.5 的“restart 后 fail-closed 但不连续”升级为
+**restart 后仍能连续授权，同时 unknown key 仍 fail-closed**；不证明自然人独立
+意志，也不替代 provider/双人审批。
+
+### 37.2 验证者点名的五个能力缺口
+
+| 行 | 修改 | 真实探针 |
+|---|---|---|
+| `1.3` | `host/snapshot.js` 的 `buildSchedulerSnapshot.running` 增加 `lastActivityAt`/`lastActivityMs`（值来自既有 `timestamps.lastActivityAt`，scheduler 不再只看到 startedAt） | `context-selftest` 12/12，新增断言 scheduler running 行 `lastActivityMs` ≈30s、`elapsedMs` ≥239s |
+| `U1` | `client.js` 的 Dispatch & queue running 行增加 elapsed、`resourcesHeld.gpu`（回退 needs）、`git.branch` | `client-smoke` 28/28，新增行为断言文本包含 `elapsed 60s`、`GPU 2`、`exp/run1` |
+| `U2` | 同一面板用 `/status` 的 `facts.nextToStart` 计算并渲染队列位置 `#1`；blocked 行仍显示 resource wait 原因 | 同一条 `client-smoke` 断言包含 `#1`，不是只看面板是否挂载 |
+| `U3` | Event timeline 行增加 `event.error` / `event.data.error` 的 `stage`、`role`、`timeoutMs` 归因 | `client-smoke` 断言 `stage dispatch` / `role worker` / `timeout 30000ms` |
+| `U12` | EventTimeline 增加 `loading`、显式 `Retry` 按钮和 error 状态；pending 时不再先显示 `No events yet.`，error 时也不显示空态 | `client-smoke` 30/30：pending 时断言 `common.loading`+`Retry`；失败时断言错误文本且无 `No events yet.`；点击 Retry 后断言重新取到 `#7` |
+
+### 37.3 其余能力（作者侧，待独立复核）
+
+- **B22**：8 类裁决者映射（只有 `value_priority`/`duplicate_claim` 需要模型）、
+  `keep_current` 超时默认、appeal 需新证据、escalation `reasonCode` + 每专家每
+  epoch 配额、项目每 epoch dispute 预算、dispute 计入 performance、
+  `GET /disputes`、`/disputes/classes`、`/arbitrate` 与客户端 DisputeTablePanel。
+- **B23**：`expected {metric,direction,magnitude}` 进入 advisor schema、intent、
+  orchestrator proposal 与 runtime 完成比较；缺 metric/方向偏差开
+  `retro/opened`；`host/experts/rotation.js` 的 14 天默认轮换由
+  `dispatchOnceAction` 调用，写 `expert/rotated`。
+- **5.3.13**：`observerSnapshot` / `waitForEvents`（30s long-poll）/
+  `escalateStalled`；stalled 返回 `observer_stalled` 并写一次
+  `observer/escalation`。
+- **5.3.14**：`observe` 只读、`dispute_open` 有限写、`lab-arbiter` 只
+  `observe/disputes/arbitrate` 且不能 start/cancel/delete；human-authority
+  dispute 必须人类裁决。
+- **5.3.3**：`dispatchOnce` 在 p0 已等待 >30s 且本轮未启动时写
+  `priority/delayed {nodeId, blockedBy, waitedMs, expectedRemainingMs}`；
+  `blockedBy` 依次取 class budget、`max_running_nodes`、节点 `resourceWait.reason`、
+  dispatch skip 原因。class budget 的延迟仍写入同一个 `delayed` 数组，但 p0
+  等待行使用 `reason:'p0_waiting'`。`reserved-slots-selftest` 11/11。
+- **5.3.4**：只落了 `DEFAULT_SOURCE_WEIGHTS`（human=100、advisor=10）和
+  `fairOrder` 权重探针；生产 `usageBySource` 仍未接到真实 GPU-seconds 账本，
+  **不按已关闭计数**。
+
+`stage5-selftest` 28/28；`reserved-slots-selftest` 11/11；
+`dispatch-once-selftest` 6/6；`priority-selftest` 全通过。
+
+### 37.4 计数与回归门
+
+作者侧对 56 行的可复核口径从 §35 的 6 行增为 **11 行**
+（新增 B22、B23、5.3.3、5.3.13、5.3.14）；其中独立验证者已确认的仍只有
+`5.3.2`。5.3.4/5.3.12 仍是部分，不计入。独立口径保持 **109/55/10**：
+本轮没有修改 §36 的 174 行判定，也没有把“作者探针通过”写成独立 PASS。
+
+回归门（本工作树）：
+
+- `npm test`：EXIT 0，无 `FAIL`；包含新增 `claims-selftest`、
+  `b27-restart-selftest`、`stage5-selftest`。
+- `node scripts/client-smoke.mjs`：30/30（U12 新增 error 后 Retry 重取）。
+- `npm run bench:scale`：11/11；100k-event first page 仍在预算内。
+- `node scripts/strict-writes-selftest.mjs`：all checks passed。
+- `node scripts/plugin-smoke.mjs`：5/5（真实进程、activity、p0 preempt + appeal）。
+- 未放宽预算/断言；未写 `~/.dsh/storages/*`；未重启 Host。
+
+## §38 第十六轮独立复核（clean HEAD `8582b4f`，2026-11-10）
+
+> §37 是作者第十六轮交卷时的历史记录；其中 §37.4 的 **109/55/10**、
+> “待验证者重放”等表述不再代表当前独立判定。**以本节 §38 的 114/50/10 为准。**
+
+> **边界**：本轮只做验证与文档更新，未改生产代码。主工作树
+> `/root/MetaInfer/dsh-metainfer-research-lab` 位于 `8582b4f`（parent
+> `ef16f34`）；除本文件外无改动。独立探针运行在 clean worktree
+> `/tmp/r16-head/dsh-metainfer-research-lab`，file-backed domain 在 `/tmp`；
+> `npm test` 也在该 clean worktree 执行。作者自己的 selftest/探针不作为独立证据。
+> 时间采样 `2026-11-10T21:53:12+08:00`（`Asia/Shanghai`）；浏览器时区不可用，
+> 其余未带时区的日期/时间需要用户澄清。
+
+### 38.1 B27：真实进程 restart 连续性与边界
+
+独立探针 `/tmp/r16-clean/restart-child.mjs` + `/tmp/r16-clean/file-domain.mjs`
+启动**三个独立 Node 进程**，共享同一个文件域。A 进程签发 key 并写一批
+project/appeal，退出；B 进程重新 `openStore`，恢复 key，执行 forged/shared/
+legit 路径，退出；C 进程再次重新加载，执行第二个项目。结果（原文节选）：
+
+```json
+{"mode":"write","rowsBefore":5,
+ "facadeWriteMethods":["flushActorKeys","listActorKeys"],"facadeHasPut":false,
+ "closed":true}
+{"mode":"read","loaded":true,
+ "restored":{"human":{"issued":true,"same":true},
+             "expert":{"issued":true,"same":true},
+             "confirmer":{"issued":true,"same":true},
+             "advisor":{"issued":true,"same":true}},
+ "forgedDelete":{"code":"caller_supplied_actor_key","deleted":false},
+ "forgedProjectStillExists":true,
+ "sharedDelete":{"code":"actor_key_shared","deleted":false},
+ "forgedResolve":{"code":"caller_supplied_actor_key","ok":false},
+ "resolve":{"ok":true,"code":null},
+ "delete":{"deleted":true,"code":null},"projectGone":true,
+ "changesSinceLeak":false,"changesSinceHasKeyWord":false}
+{"mode":"read2","loaded":true,
+ "restored":{"human":{"issued":true,"same":true},
+             "expert":{"issued":true,"same":true},
+             "confirmer":{"issued":true,"same":true},
+             "advisor":{"issued":true,"same":true}},
+ "resolve":{"ok":true,"code":null},"delete":{"deleted":true,"code":null},
+ "projectGone":true,"rows":5}
+```
+
+补充的 caller-write 探针（`/tmp/r16-clean/actor-write-probe.mjs`）显示 facade 的
+actor 相关方法只有 `flushActorKeys`、`listActorKeys`，**没有** `putActorKey`/
+`saveActorKey`/`set*`/`delete*`；修改 `listActorKeys()` 返回的对象后，重新读取
+仍是原 2 条（独立小探针的 `unchanged:true`；B27 文件域主探针是 5 条）。`changesSince` 输出的 `hasKeyWord:false`，
+`intent_list`/HTTP/错误路径也未出现 `actorKey`。
+
+**判定：B27 PASS，且 restart 纳入 B27 验收，§36 的 restart 排除正式撤销。**
+
+必须同时写清边界，避免把该 PASS 扩大成“自然人身份”：
+
+- restart 的 key 恢复按 **Host session id** 进行；会话对象没有重新展示 key 时，
+  用同一 Host session id 的合法会话会重新拿到该 key。这是 Host session 的
+  连续性，不是“证明调用者持有旧 key”。如果能伪造同一个 Host session id，
+  就能 rehydrate 该 key；这是 B27 的剩余信任边界，不是 unknown/forged key
+  被接受。
+- `listActorKeys()` 仍返回**原始 key**，仅作为 Host 内部 store/facade 读面，
+  未发现 HTTP 或 agent-tool 消费者；它不构成写入面，但属于内部读面暴露。
+- 仍不证明 provider/自然人独立意志，也不替代双人审批。
+
+### 38.2 五个被点名能力行
+
+#### 38.2.1 `1.3`：PASS
+
+独立构造 running 节点 `startedAt=now-240s`、`lastActivityAt=now-30s`，调用
+`buildSchedulerSnapshot`：
+
+```json
+{"running":[{"id":"run","elapsedMs":240005,
+ "lastActivityAt":1794319096100,"lastActivityMs":30005}]}
+```
+
+scheduler snapshot 的 running 行不再只有 startedAt；`lastActivity` 与 elapsed
+都来自生产快照路径。**1.3 PASS。**
+
+#### 38.2.2 U1：PASS
+
+用真实 `/state` 节点 payload（`git.branch`、`resourcesHeld.gpu`）渲染
+`DispatchQueuePanel`，running 行文本：
+
+```text
+p0 run1 running node · elapsed 60s · GPU 2 · exp/run1 · started common.none
+```
+
+elapsed 由 `timestamps.startedAt` 计算，GPU 优先取 `resourcesHeld.gpu`（回退
+`needs.gpu`），branch 取 `git.branch`。**U1 PASS。**
+
+#### 38.2.3 U2：FAIL（位置只覆盖前 5 个，且不显示 `why`）
+
+同一面板放入 1 个 running + 6 个 planned，`facts.nextToStart` 按生产上限给
+前 5 个；实际渲染：
+
+```text
+Waiting / blocked
+#1 p0 q1 queued 1
+#2 p2 q2 queued 2
+#3 p2 q3 queued 3
+#4 p2 q4 queued 4
+#5 p2 q5 queued 5
+— p2 q6 queued 6
+```
+
+第 6 个 planned 节点**没有队列位置**；同时 `facts.nextToStart[*].why` 的
+`max_running` 原因没有进入 UI，只有节点的 `resourceWait`/`claim` 才显示。
+作者的 `client-smoke` 只断言两个节点时的 `#1`，所以“行为断言”成立但覆盖不到
+这条边界。**U2 FAIL。**
+
+#### 38.2.4 U3：PASS（本轮验收范围：真实失败事件的 stage/role/timeout）
+
+用 production `runtime.js` 的 `data.error` 形状 payload 渲染
+`EventTimelinePanel`：
+
+```text
+#1 node/failed node n1 · stage run · role worker · timeout 30000ms
+```
+
+生产 `runtime.js:1013-1061` 的失败诊断写入
+`error.stage`/`error.role`/`error.timeoutMs`，
+面板同时读 `event.error` 与 `event.data.error`；这是行为可达的，不是 class
+名 grep。**U3 PASS（本行只要求失败事件的 stage/role/timeout）。**
+
+> 不把“失败节点详情里还要有 recent run/下一步”算进本行 PASS；该详情仍不完整，
+> 是后续 UI 行的工作，不是本轮点名范围。
+
+#### 38.2.5 U12：FAIL（部分失败仍是假空态，多数新面板无 Retry）
+
+EventTimeline 本身通过：pending 显示 loading + Retry、失败显示 error 且不显示
+`No events yet.`、Retry 重新取到事件。但独立对其它新面板做**部分失败**：
+
+| 面板 | 故障 | 实际 |
+|---|---|---|
+| DispatchQueue | `/state` 失败，`/status` 成功 | `0 running · 0 queued`、`No node is running.`、`The executable queue is empty.`，无 error（假空态） |
+| ClaimEvidence | `/state` 失败，`/intents` 成功 | `0 node claims · 0 intents`，无 error（假空态） |
+| ExpertLibrary | `/experts` 失败 | error 文本 + `The Host returned no expert descriptors.`，无 Retry（错误与空态并存） |
+| DisputeTable | `/disputes`/`/classes` 失败 | error 文本 + `No appeal or dispute has been opened.`，无 Retry |
+| EventTimeline | `/events` 失败 | error + Retry，无空态（通过） |
+
+作者 `client-smoke` 的 30/30 是文本/按钮行为断言（不是 class-name grep），但
+U12 只覆盖 EventTimeline；其它面板的 partial failure 未被覆盖。**U12 FAIL。**
+
+### 38.3 四个部分面与 `5.3.3`
+
+#### 38.3.1 B22：FAIL（authority 映射只有元数据，没有执行）
+
+8 类 `openDispute` 的 authority 元数据都正确：
+
+```text
+stale_basis=code, fact_conflict=code, resource_quantity=cfs,
+resource_quality=arbiter, value_priority=arbiter,
+priority_inversion=human, duplicate_claim=curator, scope_overlap=arbiter
+```
+
+但同一组记录用 **expert** 调 `resolveDispute`，8/8 全部：
+
+```json
+{"ok":true,"code":null,"resolution":"apply_change"}
+```
+
+`resolveDispute` 只做 `resolveDisputeRecord` 和 commit，没有读取
+`record.authority`；生产 `host/http.js:216` 的 `POST /disputes/resolve` 又直接
+调用 `service.resolveDispute(..., null)`，不经过 `arbitrate` 的 actor-class
+检查。因此专家可以绕过 `arbitrate`，对 code/cfs/curator/human 类都 `apply_change`。
+**B22 FAIL。**
+
+B22 的其它子项独立通过：
+
+- **quota**：同一 raiser 连续 3 次，前 2 次 ok，第 3 次
+  `escalation_quota_exceeded`。
+- **timeout**：显式 `sweepDisputes` 后 `keep_current`、`defaultApplied:true`。
+- **reopen**：无新证据 `dispute_reopen_requires_new_evidence`；有新证据回到
+  `pending`。
+
+但 **timeout/rotation/escalation 的自动调用有 wiring 缺口**：`index.js:169`
+的 auto controller 接收的是 raw `dispatchOnce`，不是
+`lab-service.dispatchOnceAction`；后者才调用 `rotateDueExperts`/`sweepDisputes`/
+`escalateStalled`。因此这些只能在显式 `dispatch_once` tool/manual 路径生效，
+不能把“2s auto tick 自动超时/轮换”当成已证明。
+
+#### 38.3.2 B23：PASS（expected 与 rotation 机制）
+
+- `submitIntent` 的 `expected` 进入 `createIntent`；orchestrator proposal 同时带
+  `expected` 与 `expectedBaseline`。
+- 完成时 `applyPredictionToNode`：方向不符/超阈值得到 `retroOpen:true`，只开
+  一个 retro ticket；第二次 apply `openRetroTicket:false`，无重复。
+- rotation：`rotationStatus` 识别 due，`rotateDueExperts` 写
+  `expertRotations`，记录 `nextExpertId` 和 `expert/rotated`。
+- 代码搜索未发现 vote/debate/multi-model majority 路径。
+
+**B23 PASS。** 剩余风险同上：自动 tick 不会调用 `rotateDueExperts`；rotation
+不是“无人值守自动轮换”，只能由显式 `dispatch_once`/manual 路径触发。
+
+#### 38.3.3 `5.3.13`：FAIL（long-poll 通过，但触发条件不完整）
+
+独立 mid-sleep 探针：先拿 cursor，再在 wait 睡眠期间写入 `probe/mid_sleep`；
+返回 `waitedMs:202`、`events:["probe/mid_sleep"]`、`timedOut:false`。timeout
+探针 `timedOut:true, waitedMs:251`。**长轮询和 mid-sleep 事件不丢，通过。**
+
+但整行要求 **每 60s 长轮询，且只在 stalls/starving/pauseReason 命中时升级**：
+`waitForEvents` 的 max timeout 是 **30_000**（默认 25_000），且
+`observerSnapshot` 只计算 `stalled`（30 分钟 idle），没有 `starving`/
+`pauseReason`，也没有对应升级条件。**5.3.13 FAIL（partial）。**
+
+#### 38.3.4 `5.3.14`：PASS（limited-write/arbiter matrix）
+
+- `observe` 返回的 key 只有
+  `ok/projectId/revision/cursor/now/stallMs/running/stalled/openDisputes/recentEvents/pendingIntents`，
+  没有 start/stop/cancel/delete handle；调用前后事件数 `eventsAfter:0`。
+- `lab-arbiter` 调 `start_node`、`delete_project` 都返回
+  `forbidden_action`，允许动作表只有 `arbitrate/observe/disputes/...` 读动作。
+- `lab-arbiter` 对 human-authority dispute 返回 `human_confirmation_required`；
+  expert 调 `arbitrate` 返回 `forbidden_action`。
+- 仲裁只写 dispute resolution，不产生 runtime start/stop。
+
+**5.3.14 PASS。** 但注意 HTTP `/arbitrate` 在 `exec=null` 时回退为 operator
+human，且 `/disputes/resolve` 不做 authority 检查；这是 B22 的 authority
+问题，不应被 5.3.14 的 limited-write 结论掩盖。
+
+#### 38.3.5 `5.3.3`：PASS
+
+独立 dispatch probe：一个 p2 先占住 `maxRunningNodes:1`，再加入 p0；10s 时
+无 delayed 事件；31s、传 production `maxRunningNodes` 时得到：
+
+```json
+{"nodeId":"urgent","class":"p0","reason":"p0_waiting",
+ "blockedBy":"max_running_nodes","waitedMs":31000,
+ "expectedRemainingMs":569000}
+```
+
+`priority/delayed` 只写一次；`expectedRemainingMs` 来自最近 running deadline。
+阈值边界是 `>= 30000`（题目写 `>30s`），31s 证据正确。**5.3.3 PASS。**
+
+### 38.4 回归门（clean `8582b4f`）
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**756 个 `ok`，0 个 `FAIL`**；所有 selftest 通过 |
+| `npm run bench:scale` | **11/11**；100k-event first page **0.38 ms**；restart first page **1.91 ms** |
+| `strict-writes-selftest` | all checks passed；**bypass 0**；permitted deletion 不计数 |
+| `client-smoke` | **30/30**（行为断言；覆盖仍如 38.2.5 所述不完整） |
+| `plugin-smoke` | **5/5**（真实进程、activity、p0 preempt + appeal） |
+| U14 partial probe | EXIT 0；dashboard `lastRun.status=partial`、`failureCount=3`、partial alert |
+| S12 | restart first page **1.91 ms**；100k 事件 page1/page2=100，last=100000 |
+
+`git diff --check` 见本轮末尾；只修改了本文件，未改生产代码，未写
+`~/.dsh/storages/*`，未重启 Host。
+
+### 38.5 计数、撤销的 restart 排除与剩余边界
+
+| 判定 | 数量 |
+|---|---|
+| PASS | **114** |
+| FAIL | **50** |
+| 未测量 | **10**（浏览器 2 行 = 不适用） |
+| 合计 | **174** |
+
+推导：
+
+- 起点仍是 §36 的 **109 PASS / 55 FAIL / 10**。
+- `1.3`、U1、U3、B23、5.3.14 独立通过：**+5 PASS / -5 FAIL** →
+  **114 / 50 / 10**。
+- U2、U12、B22、5.3.13 仍是 FAIL；B27 restart 只是把 B27 的验收范围扩大，
+  **不重复计数**（B27 已在 109 中以当前进程 PASS 计入）。
+- `5.3.2/Q3` 的 §36 PASS 保留；`5.3.4`/`5.3.12` 仍是部分，不新增 PASS。
+
+**restart 排除的处理**：§36 把 “registry 不跨 restart”作为 B27 的排除项；
+§38 的真实三进程探针通过后，**该排除从 B27 撤销**。B27 narrow release 的口径
+现在是 **“当前进程 + 真实进程 restart + unknown/forged fail-closed”**，不再是
+“仅当前进程”。
+
+**仍排除/未证明**（不因 restart 通过而消失）：
+
+1. **浏览器绘制/真实 GUI**：U 行用 jsdom 和真实 payload 渲染，没有实际浏览器
+   截图/交互；2 行浏览器项仍为 N/A。
+2. **真实 provider/真实 LLM 端到端**：B23 的 expected/rotation 用 deterministic
+   probe，不是 provider 真调用；U14 的 provider 停摆只按既有 partial 探针。
+3. **自然人独立意志/双重审批**：Host-issued key 不是自然人 attestation；同一
+   Host session id 的 rehydration 是剩余信任边界。
+4. **自动 tick 的 B22/B23 副作用**：auto 用 raw `dispatchOnce`，不是
+   `dispatchOnceAction`；自动超时/轮换未被证明，只有显式 `dispatch_once`/
+   manual 路径。
+5. **`listActorKeys()` 的内部原始 key 读面**：未发现 HTTP/tool 消费者，但它
+   不是“零读面”；B27 的“不披露”只对 intent/event/changesSince/HTTP 成立。
+6. **B22 authority / U2 / U12 / 5.3.13** 仍是实际未闭项；完整发布仍 **NO-SHIP**。
+
+---
+
+## §39 作者第十七轮：B22/U2/U12/5.3.13 修复与范围裁决
+
+> **边界**：本节是作者侧修复记录，不是独立复核。§38 的 **114 PASS / 50 FAIL /
+> 10 未测量**仍是独立计数；本节不修改 §38，也不宣称四行已被独立关闭。
+
+### 39.1 四项修复
+
+| 行 | 生产改动 | 行为探针 |
+|---|---|---|
+| B22 | `host/kernel/disputes.js` 新增 `disputeAuthorityVerdict`；`arbitrate` 与 `resolveDispute` 共用；`host/http.js` 的 `/disputes/resolve` 改走 `arbitrate`，不再直调 `resolveDispute` | `stage5-selftest`：普通 expert 对 8 类全部拒绝；`lab-arbiter` 只允许 resource_quality/value_priority/scope_overlap；curator 只允许 duplicate_claim；HTTP 路由探针断言只调用 `arbitrate` |
+| U2 | `/status` facts 增加有界 `queueOrder`（最多 100 个 id）；`DispatchQueuePanel` 用它渲染第 6 位及之后，并优先渲染 `facts.why.message/code` | `client-smoke`：1 running + 6 planned 夹具断言 `#6` 与 `maxRunningNodes=4` 原因出现 |
+| U12 | 五个面板统一 loading/error/Retry；部分失败不再显示对应空态；Retry 重新取数；ExpertLibrary/DisputeTable 不再错误+空态并存 | `client-smoke` 43/43：四个新面板各自 loading+Retry、失败无假空态、Retry 重新取数；EventTimeline 原三态保留 |
+| 5.3.13 | 长轮询上限/默认 60 s；新增 `starving`（runnable 等待 ≥10 min，基于 createdAt）、`pauseReason`；升级顺序 stalled → paused → starving；`escalateStalled` 写 `starving_node`/`driver_paused` | `stage5-selftest`：starving 节点只升级一次；paused driver 返回 `observer_paused` 并写 `driver_paused`；用假时钟把 `timeoutMs=120s` 钳到 60 s，断言 `waitedMs≈60s` |
+
+### 39.2 自动 tick 接线
+
+`index.js` 的 auto / `onTerminated` 现在调用 `service.dispatchOnce(..., {includeStatus:false})`，
+与显式 `dispatch_once` 共用 `sweepDisputes`/`rotateDueExperts`/`escalateStalled`；service 尚未
+赋值时的早期生命周期调用回退 raw `dispatchOnce`。这关闭了 §38.3.1 指出的自动副作用 wiring
+缺口，但自动超时/轮换仍只有作者探针，独立计数不变。
+
+### 39.3 范围裁决
+
+`docs/refactor/OPEN-QUESTIONS.md` 新增“能力行范围裁决”：43 个仍未关闭/未裁决的具体行分为
+**必须 13 / 应该 19 / 明确不做 11**，并单列 5.2/5.3/5.3.3 等已覆盖行与 B22/U2/U12/5.3.13
+待重放行。`明确不做`的行保留在文档中，不从清单静默消失。
+
+### 39.4 作者侧回归（工作树，未改变 §38）
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；777 个 `ok`，0 个 `FAIL`；wiring 8/8，stage5 通过 |
+| `npm run bench:scale` | 11/11 |
+| `strict-writes-selftest` | all checks passed，bypass 0 |
+| `client-smoke` | 43/43 |
+| `plugin-smoke` | 5/5 |
+| `b27-restart-selftest` | 11/11 |
+| `stage5-selftest` | all checks passed |
+| `git diff --check` | EXIT 0 |
+
+边界：未改 §38 计数；未重启 Host；未写 `~/.dsh/storages/*`；浏览器绘制仍 N/A；
+B22/U2/U12/5.3.13 仍待独立验证者按 §38 重放。完整发布仍 **NO-SHIP**。

@@ -66,6 +66,39 @@ export const DISPUTE_CLASS_MAP = Object.freeze({
   }),
 });
 
+/**
+ * Who may decide this record. The mapping is enforcement, not metadata: a
+ * model arbiter is limited to the arbiter classes, the curator to duplicate
+ * claims, and only a human actor may decide a human-authority class. `system`
+ * covers deterministic Host paths (timeout defaults and code/cfs decisions).
+ *
+ * @param {{kind?: string, preset?: string|null, id?: string}} actor
+ * @param {{type?: string, authority?: string}} record
+ * @returns {{ok: true} | {ok: false, code: string, message: string}}
+ */
+export function disputeAuthorityVerdict(actor, record) {
+  const authority = typeof record?.authority === 'string'
+    ? record.authority
+    : DISPUTE_CLASS_MAP[record?.type]?.authority;
+  if (!authority) return { ok: false, code: 'invalid_dispute_authority', message: 'dispute has no authority class' };
+  if (actor?.kind === 'human') return { ok: true };
+  if (authority === 'human') {
+    return {
+      ok: false,
+      code: 'human_confirmation_required',
+      message: 'this dispute class requires a human decision',
+    };
+  }
+  if (actor?.kind === 'system') return { ok: true };
+  if (authority === 'arbiter' && actor?.preset === 'lab-arbiter') return { ok: true };
+  if (authority === 'curator' && actor?.preset === 'lab-curator') return { ok: true };
+  return {
+    ok: false,
+    code: 'forbidden_authority',
+    message: `${authority}-authority dispute cannot be resolved by ${actor?.preset ? `preset ${actor.preset}` : 'this actor'}`,
+  };
+}
+
 /** Resolve a type name to its immutable mapping row, or throw a typed error. */
 export function disputeClassOf(type) {
   const row = DISPUTE_CLASS_MAP[type];

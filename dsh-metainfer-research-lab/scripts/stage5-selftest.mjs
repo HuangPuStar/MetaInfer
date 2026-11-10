@@ -7,6 +7,7 @@ import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
 import { authorizeAction } from '../host/kernel/policy.js';
+import { registerHttpRoutes } from '../host/http.js';
 import { createIntent } from '../host/kernel/intent.js';
 import { DISPUTE_CLASS_MAP, DISPUTE_TIMEOUT_MS } from '../host/kernel/disputes.js';
 import { applyPredictionToNode, evaluateExpected, normalizeExpected } from '../host/kernel/prediction.js';
@@ -33,9 +34,11 @@ await kernel.executor.commit(projectId, {
     { op: 'node.create', node: { id: 'branch-b', title: 'branch b', parentId: 'root', status: 'completed', createdBy: 'expert-b', expected: { metric: 'score', direction: 'up', magnitude: 1 }, expectedBaseline: 1, report: { metrics: [{ name: 'score', value: 0.1 }] }, timestamps: { createdAt: 5, completedAt: 6 } } },
   ],
 });
+let autoState = { status: 'off', pauseReason: null };
+const auto = { statusOf: () => autoState };
 const service = createLabService({
   ctx: { effect: () => {}, get: () => null, logger: { info() {}, warn() {} } },
-  store, kernel, git: null, runtime: null, transcript: null, orchestrator: null, auto: null, cluster: null, clusterAdmin: null,
+  store, kernel, git: null, runtime: null, transcript: null, orchestrator: null, auto, cluster: null, clusterAdmin: null,
 });
 const human = { agent: { session: { id: 'b22-human' } } };
 const secondHuman = { agent: { session: { id: 'b22-second-human' } } };
@@ -214,6 +217,65 @@ check('an idle running node is observable and escalates exactly once',
   && store.listEvents(projectId).filter((event) => event.type === 'observer/escalation' && event.data?.nodeId === 'stalled').length === 1,
   JSON.stringify({ stalledSnapshot: stalledSnapshot.stalled, escalated }));
 
+// 5.3.13: starvation, driver pause and the 60s long-poll cap are separate
+// escalation conditions, not aliases of the 30-minute stalled check.
+const observerProjectId = 'stage5-observer-p';
+await store.saveProject({ id: observerProjectId, revision: 0, counters: { eventSeq: 0 }, config: {}, createdAt: 0, updatedAt: 0 });
+kernel.load(observerProjectId);
+await kernel.executor.commit(observerProjectId, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{ op: 'node.create', node: { id: 'starving', title: 'starving node', status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: Date.now() - 11 * 60_000 } } }],
+});
+const starvedSnapshot = service.observerSnapshot(observerProjectId);
+check('the observer distinguishes a starving runnable node from a stalled running node',
+  starvedSnapshot.stalled.length === 0
+  && starvedSnapshot.starving.some((row) => row.nodeId === 'starving' && row.waitingMs >= 10 * 60_000)
+  && starvedSnapshot.pauseReason === null,
+  JSON.stringify({ stalled: starvedSnapshot.stalled, starving: starvedSnapshot.starving, pauseReason: starvedSnapshot.pauseReason }));
+const starvedEscalation = await service.escalateStalled(observerProjectId);
+const starvedAgain = await service.escalateStalled(observerProjectId);
+check('a starving node escalates once with a starving_node event',
+  starvedEscalation.starving.includes('starving')
+  && starvedAgain.starving.length === 0
+  && store.listEvents(observerProjectId).filter((event) => event.type === 'observer/escalation' && event.data?.code === 'starving_node' && event.data?.nodeId === 'starving').length === 1,
+  JSON.stringify({ first: starvedEscalation, second: starvedAgain }));
+
+const pausedProjectId = 'stage5-paused-p';
+await store.saveProject({ id: pausedProjectId, revision: 0, counters: { eventSeq: 0 }, config: {}, createdAt: 0, updatedAt: 0 });
+kernel.load(pausedProjectId);
+autoState = { status: 'paused', pauseReason: 'operator_pause' };
+const pausedSnapshot = service.observerSnapshot(pausedProjectId);
+const pausedWait = await service.waitForEvents(pausedProjectId, { after: 0, timeoutMs: 500, pollMs: 25 });
+const pausedEscalation = await service.escalateStalled(pausedProjectId);
+autoState = { status: 'off', pauseReason: null };
+check('a paused driver is observable and escalates pauseReason without waiting for a stall',
+  pausedSnapshot.pauseReason === 'operator_pause'
+  && pausedWait.escalation?.code === 'observer_paused'
+  && pausedWait.escalation?.pauseReason === 'operator_pause'
+  && pausedEscalation.paused.includes('operator_pause')
+  && store.listEvents(pausedProjectId).some((event) => event.type === 'observer/escalation' && event.data?.code === 'driver_paused' && event.data?.pauseReason === 'operator_pause'),
+  JSON.stringify({ snapshot: pausedSnapshot.pauseReason, wait: pausedWait.escalation, escalate: pausedEscalation }));
+
+// The 60s cap is behavioural, not a constant grep: advance the clock inside
+// waitForEvents so the test does not actually sleep for a minute.
+const capProjectId = pausedProjectId;
+const capAfter = store.maxEventSeq(capProjectId);
+const realNow = Date.now;
+const realSetTimeout = global.setTimeout;
+let fakeNow = 0;
+Date.now = () => fakeNow;
+global.setTimeout = (fn, ms) => { fakeNow += Number(ms) || 0; fn(); return 0; };
+let capWait;
+try {
+  capWait = await service.waitForEvents(capProjectId, { after: capAfter, timeoutMs: 120_000, pollMs: 25 });
+} finally {
+  Date.now = realNow;
+  global.setTimeout = realSetTimeout;
+}
+check('long-poll clamps the requested timeout to 60s, not 30s',
+  capWait.timedOut === true && capWait.waitedMs >= 59_000 && capWait.waitedMs <= 60_500,
+  JSON.stringify({ waitedMs: capWait.waitedMs, timedOut: capWait.timedOut }));
+
 const arbiterExec = { agent: { session: { id: 'b22-arbiter', header: { meta: { agentPreset: 'lab-arbiter' } } } } };
 const arbiterActor = { kind: 'expert', id: 'b22-arbiter', preset: 'lab-arbiter' };
 check('the arbiter is limited to observe + arbitrate, not runtime control',
@@ -236,6 +298,77 @@ const arbiterCannotOverrideHuman = await service.arbitrate(projectId, { disputeI
 check('an arbiter cannot override a human-authority dispute',
   humanOnly.ok === false || (arbiterCannotOverrideHuman.ok === false && arbiterCannotOverrideHuman.error?.code === 'human_confirmation_required'),
   JSON.stringify({ humanOnly, arbiterCannotOverrideHuman }));
+
+// B22 authority enforcement: an expert that calls the old direct path, and the
+// limited-write arbiter, are both bounded by the eight-class map. The raiser is
+// a human so self-resolution never masks an authority result.
+const authorityRaiser = { agent: { session: { id: 'b22-authority-raiser' } } };
+const plainExpertExec = { agent: { session: { id: 'b22-plain-expert', header: { meta: { agentPreset: 'lab-advisor' } } } } };
+const authorityArbiterExec = { agent: { session: { id: 'b22-authority-arbiter', header: { meta: { agentPreset: 'lab-arbiter' } } } } };
+const curatorExec = { agent: { session: { id: 'b22-curator', header: { meta: { agentPreset: 'lab-curator' } } } } };
+const authorityRows = {};
+for (const type of Object.keys(DISPUTE_CLASS_MAP)) {
+  const row = await service.openDispute(projectId, {
+    type,
+    target: { nodeId: 'branch-a' },
+    ...(type === 'priority_inversion' ? { reasonCode: 'human_requested_p0' } : {}),
+  }, authorityRaiser);
+  authorityRows[type] = row;
+}
+const directExpert = {};
+for (const type of Object.keys(DISPUTE_CLASS_MAP)) {
+  directExpert[type] = await service.resolveDispute(projectId, authorityRows[type].dispute?.id, {
+    resolution: 'apply_change', reason: 'expert bypass probe',
+  }, plainExpertExec);
+}
+check('an expert cannot resolve any of the eight classes through the direct resolve path',
+  Object.values(directExpert).every((row) => row.ok === false)
+  && Object.values(directExpert).every((row) => ['forbidden_authority', 'human_confirmation_required'].includes(row.error?.code)),
+  JSON.stringify(directExpert));
+
+const arbiterByClass = {};
+for (const type of Object.keys(DISPUTE_CLASS_MAP)) {
+  arbiterByClass[type] = await service.arbitrate(projectId, {
+    disputeId: authorityRows[type].dispute?.id,
+    resolution: 'apply_change',
+    reason: 'authority map probe',
+  }, authorityArbiterExec);
+}
+const arbiterAllowed = ['resource_quality', 'value_priority', 'scope_overlap'];
+check('the arbiter resolves only its three classes and is denied code/cfs/curator/human',
+  arbiterAllowed.every((type) => arbiterByClass[type].ok === true)
+  && ['stale_basis', 'fact_conflict', 'resource_quantity', 'duplicate_claim', 'priority_inversion']
+    .every((type) => arbiterByClass[type].ok === false
+      && ['forbidden_authority', 'human_confirmation_required'].includes(arbiterByClass[type].error?.code)),
+  JSON.stringify(Object.fromEntries(Object.entries(arbiterByClass).map(([type, row]) => [type, row.error?.code ?? 'ok']))));
+
+const curatorResolved = await service.resolveDispute(projectId, authorityRows.duplicate_claim.dispute?.id, {
+  resolution: 'keep_current', reason: 'curator owns duplicate claims',
+}, curatorExec);
+check('the curator authority can decide a duplicate claim without the arbiter tool',
+  curatorResolved.ok === true && curatorResolved.dispute?.resolvedBy?.id === 'b22-curator',
+  JSON.stringify(curatorResolved));
+
+const httpRoutes = new Map();
+registerHttpRoutes({
+  effect: () => {},
+  connection: { fetch: { register({ path, fetch }) { httpRoutes.set(path, fetch); return () => {}; } } },
+}, {
+  disputeClasses: () => ({ classes: {} }),
+  openDispute: () => ({ ok: true }),
+  resolveDispute: () => { httpRoutes.directResolveCalls = (httpRoutes.directResolveCalls ?? 0) + 1; return { ok: true }; },
+  arbitrate: () => { httpRoutes.arbitrateCalls = (httpRoutes.arbitrateCalls ?? 0) + 1; return { ok: true }; },
+});
+const resolveRoute = httpRoutes.get('/api/metainfer-research-lab/disputes/resolve');
+const routeResponse = await resolveRoute(new Request('http://local/api/metainfer-research-lab/disputes/resolve', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ projectId, disputeId: authorityRows.duplicate_claim.dispute?.id, resolution: 'keep_current' }),
+}));
+const routeEnvelope = await routeResponse.json();
+check('HTTP /disputes/resolve routes through arbitrate instead of calling resolveDispute directly',
+  routeEnvelope.ok === true && httpRoutes.arbitrateCalls === 1 && httpRoutes.directResolveCalls === undefined,
+  JSON.stringify({ routeEnvelope, arbitrateCalls: httpRoutes.arbitrateCalls, directResolveCalls: httpRoutes.directResolveCalls }));
 
 const expertMetrics = service.listExperts(projectId);
 check('disputes are counted in expert performance',

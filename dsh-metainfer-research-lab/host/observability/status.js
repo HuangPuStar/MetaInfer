@@ -14,6 +14,9 @@ import { blockingReason, capacityOf } from '../kernel/capacity.js';
 
 const MAX_RUNNING = 12;
 const MAX_NEXT = 5;
+// The UI needs positions beyond the five rows the agent context may see. Keep
+// the extra list ids-only so the status surface remains bounded.
+const MAX_QUEUE_IDS = 100;
 const MAX_FAILURES = 5;
 
 function parentsOf(node) {
@@ -133,6 +136,7 @@ export function buildStatusFacts({ project, nodes = [], auto = null, cluster = n
     },
     running: runningFacts(nodes, now),
     nextToStart: next,
+    queueOrder: queue.slice(0, MAX_QUEUE_IDS).map((node) => node.id),
     recentFailures: failures,
     proposals: nodes.filter((node) => node.status === 'proposed').slice(0, 5).map((node) => ({
       nodeId: node.id,
@@ -157,6 +161,7 @@ export function buildStatusFacts({ project, nodes = [], auto = null, cluster = n
     _truncated: {
       running: (counts.running ?? 0) > MAX_RUNNING ? { shown: MAX_RUNNING, total: counts.running } : null,
       nextToStart: runnableCount > MAX_NEXT ? { shown: MAX_NEXT, total: runnableCount } : null,
+      queueOrder: runnableCount > MAX_QUEUE_IDS ? { shown: MAX_QUEUE_IDS, total: runnableCount } : null,
       recentFailures: (counts.failed ?? 0) > MAX_FAILURES ? { shown: MAX_FAILURES, total: counts.failed } : null,
     },
   };

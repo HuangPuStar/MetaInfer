@@ -24,9 +24,10 @@ import { queryDag, dagGet, mapDag, walkDag, createDiffCache } from './context/da
 import { createExplorationBudget } from './context/limits.js';
 import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
+import { runnableQueue } from './kernel/runnable.js';
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
 import { PRIORITY_CLASSES, classBudgetOf } from './dispatch/reservation.js';
-import { DISPUTE_CLASS_MAP, DISPUTE_DEFAULT_ACTION, createDisputeRecord, effectiveDispute, expireDisputeRecord, reopenDisputeRecord, resolveDisputeRecord } from './kernel/disputes.js';
+import { DISPUTE_CLASS_MAP, DISPUTE_DEFAULT_ACTION, createDisputeRecord, disputeAuthorityVerdict, effectiveDispute, expireDisputeRecord, reopenDisputeRecord, resolveDisputeRecord } from './kernel/disputes.js';
 import { DEFAULT_ROTATION_DAYS, rotationPlan } from './experts/rotation.js';
 import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
 import { actorKeyOf, hasActorIdentity, isIssuedActorKey, publicView, sameActor } from './kernel/actors.js';
@@ -1369,13 +1370,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   const OBSERVER_STALL_MS = 30 * 60_000;
+  const OBSERVER_STARVE_MS = 10 * 60_000;
+  // The cheap observer long-polls for a full minute; a shorter cap would make
+  // the external model poll more often than the checklist (5.3.13) allows.
+  const OBSERVER_MAX_WAIT_MS = 60_000;
 
   /**
    * 5.3.13 observe surface: what is running, what is idle, what the event cursor
-   * is and which nodes have been silent long enough to trigger escalation.
+   * is and which nodes are stalled, starving, or held by a paused driver.
    * Read-only; escalation writes happen in escalateStalled().
    */
-  function observerSnapshot(projectId, { now = Date.now(), stallMs = OBSERVER_STALL_MS } = {}) {
+  function observerSnapshot(projectId, { now = Date.now(), stallMs = OBSERVER_STALL_MS, starveMs = OBSERVER_STARVE_MS } = {}) {
     const project = requireProject(projectId);
     const nodes = store.listNodes(projectId);
     const events = store.listEvents(projectId, Math.max(0, store.maxEventSeq(projectId) - 40));
@@ -1396,6 +1401,20 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         return { nodeId: node.id, title: node.title, idleMs: Math.max(0, now - last), lastActivityAt: last || null };
       })
       .filter((row) => row.idleMs >= stallMs);
+    const starving = runnableQueue(nodes, now)
+      .map((node) => {
+        const queuedAt = Number(node.timestamps?.createdAt) || 0;
+        return {
+          nodeId: node.id,
+          title: node.title ?? '',
+          className: normalizePriority(node.priority).class,
+          waitingMs: queuedAt > 0 ? Math.max(0, now - queuedAt) : 0,
+          queuedAt: queuedAt || null,
+        };
+      })
+      .filter((row) => row.waitingMs >= starveMs);
+    const autoStatus = auto?.statusOf?.(projectId) ?? null;
+    const pauseReason = autoStatus?.status === 'paused' ? (autoStatus.pauseReason || 'unknown') : null;
     const openDisputes = (Array.isArray(project.disputes) ? project.disputes : [])
       .map((record) => effectiveDispute(record, now))
       .filter((record) => record.status === 'pending');
@@ -1406,21 +1425,41 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       cursor: store.maxEventSeq(projectId),
       now,
       stallMs,
+      starveMs,
       running: running.map((node) => ({ nodeId: node.id, title: node.title, startedAt: node.timestamps?.startedAt ?? null })),
       stalled,
+      starving,
+      pauseReason,
       openDisputes: openDisputes.map((record) => ({ id: record.id, type: record.type, deadlineAt: record.deadlineAt, authority: record.authority })),
       recentEvents: events.slice(-20).map((event) => ({ seq: event.seq, type: event.type, at: event.at, nodeId: event.nodeId ?? null })),
     });
   }
 
+  /** Build the single escalation envelope when any 5.3.13 condition is met. */
+  function observerEscalation(snapshot) {
+    if (snapshot.stalled.length > 0) {
+      return { code: 'observer_stalled', nodes: snapshot.stalled, stalled: snapshot.stalled, starving: snapshot.starving, pauseReason: snapshot.pauseReason };
+    }
+    // A paused driver is the root cause; it must not be masked by the
+    // starvation it necessarily causes.
+    if (snapshot.pauseReason) {
+      return { code: 'observer_paused', nodes: [], stalled: snapshot.stalled, starving: snapshot.starving, pauseReason: snapshot.pauseReason };
+    }
+    if (snapshot.starving.length > 0) {
+      return { code: 'observer_starving', nodes: snapshot.starving, stalled: snapshot.stalled, starving: snapshot.starving, pauseReason: snapshot.pauseReason };
+    }
+    return null;
+  }
+
   /**
-   * Long-poll: hold the request until the event cursor advances, a stall is
-   * observable, or the bounded timeout expires. No model and no write here.
+   * Long-poll: hold the request until the event cursor advances, a stall /
+   * starvation / driver pause is observable, or the 60s bound expires.
+   * No model and no write here.
    */
-  async function waitForEvents(projectId, { after = null, timeoutMs = 25_000, pollMs = 250 } = {}) {
+  async function waitForEvents(projectId, { after = null, timeoutMs = OBSERVER_MAX_WAIT_MS, pollMs = 250 } = {}) {
     requireProject(projectId);
     const started = Date.now();
-    const timeout = Number.isFinite(timeoutMs) ? Math.max(0, Math.min(30_000, Math.trunc(timeoutMs))) : 25_000;
+    const timeout = Number.isFinite(timeoutMs) ? Math.max(0, Math.min(OBSERVER_MAX_WAIT_MS, Math.trunc(timeoutMs))) : OBSERVER_MAX_WAIT_MS;
     const interval = Number.isFinite(pollMs) ? Math.max(25, Math.min(1_000, Math.trunc(pollMs))) : 250;
     let cursor = Number.isFinite(after) ? Math.max(0, Math.trunc(after)) : store.maxEventSeq(projectId);
     while (Date.now() - started <= timeout) {
@@ -1438,7 +1477,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         });
       }
       const snapshot = observerSnapshot(projectId);
-      if (snapshot.stalled.length > 0) {
+      const escalation = observerEscalation(snapshot);
+      if (escalation) {
         return publicView({
           ok: true,
           projectId,
@@ -1447,7 +1487,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           cursor: page.next,
           waitedMs: Date.now() - started,
           timedOut: false,
-          escalation: { code: 'observer_stalled', nodes: snapshot.stalled },
+          escalation,
         });
       }
       const remaining = timeout - (Date.now() - started);
@@ -1468,15 +1508,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     });
   }
 
-  /** Deterministic escalation write: one observer event per idle window. */
+  /** Deterministic escalation write: one observer event per idle/starve/pause window. */
   async function escalateStalled(projectId, { now = Date.now() } = {}) {
     const snapshot = observerSnapshot(projectId, { now });
-    if (snapshot.stalled.length === 0) return { ok: true, projectId, escalated: [] };
     const events = store.listEvents(projectId, 0);
     const escalated = [];
+    const starving = [];
+    const paused = [];
     for (const row of snapshot.stalled) {
       const lastActivityAt = Number(row.lastActivityAt) || 0;
       const already = events.some((event) => event?.type === 'observer/escalation'
+        && event.data?.code === 'stalled_node'
         && event.data?.nodeId === row.nodeId
         && (Number(event.at) || 0) >= lastActivityAt);
       if (already) continue;
@@ -1487,7 +1529,35 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       }], { actor: { kind: 'system', id: 'observer' }, causeId: `observer:escalation:${row.nodeId}:${now}` });
       escalated.push(row.nodeId);
     }
-    return publicView({ ok: true, projectId, escalated, stalled: snapshot.stalled });
+    for (const row of snapshot.starving) {
+      const queuedAt = Number(row.queuedAt) || 0;
+      const already = events.some((event) => event?.type === 'observer/escalation'
+        && event.data?.code === 'starving_node'
+        && event.data?.nodeId === row.nodeId
+        && (Number(event.at) || 0) >= queuedAt);
+      if (already) continue;
+      await commitMutations(projectId, [{
+        op: 'event.record',
+        type: 'observer/escalation',
+        data: { nodeId: row.nodeId, code: 'starving_node', waitingMs: row.waitingMs, className: row.className, queuedAt: row.queuedAt, at: now },
+      }], { actor: { kind: 'system', id: 'observer' }, causeId: `observer:starving:${row.nodeId}:${now}` });
+      starving.push(row.nodeId);
+    }
+    if (snapshot.pauseReason) {
+      const already = events.some((event) => event?.type === 'observer/escalation'
+        && event.data?.code === 'driver_paused'
+        && event.data?.pauseReason === snapshot.pauseReason
+        && (Number(event.at) || 0) >= now - OBSERVER_STALL_MS);
+      if (!already) {
+        await commitMutations(projectId, [{
+          op: 'event.record',
+          type: 'observer/escalation',
+          data: { code: 'driver_paused', pauseReason: snapshot.pauseReason, at: now },
+        }], { actor: { kind: 'system', id: 'observer' }, causeId: `observer:paused:${projectId}:${now}` });
+        paused.push(snapshot.pauseReason);
+      }
+    }
+    return publicView({ ok: true, projectId, escalated, starving, paused, stalled: snapshot.stalled, starvingNodes: snapshot.starving, pauseReason: snapshot.pauseReason });
   }
 
   /** 5.3.14 bounded observe surface; no handles, no secrets, no writes. */
@@ -1513,9 +1583,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const project = requireProject(projectId);
     const record = (Array.isArray(project.disputes) ? project.disputes : []).find((row) => row.id === input.disputeId);
     if (!record) return rejection('dispute_not_found', `unknown dispute: ${input.disputeId ?? ''}`);
-    if (record.authority === 'human' && actor.kind !== 'human') {
-      return rejection('human_confirmation_required', 'this dispute class requires a human decision');
-    }
+    const authority = disputeAuthorityVerdict(actor, record);
+    if (authority.ok !== true) return rejection(authority.code, authority.message, { authority: record.authority ?? null });
     return resolveDispute(projectId, input.disputeId, {
       resolution: input.resolution,
       reason: input.reason,
@@ -3093,13 +3162,24 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return store.listNodes(projectId);
   }
 
+  const observerSweepAt = new Map();
+
   async function dispatchOnceAction(projectId, options = {}) {
     if (typeof dispatchOnce !== 'function') {
       return rejection('unavailable', 'deterministic dispatch is not wired in this Host build');
     }
     requireProject(projectId);
+    const now = Date.now();
+    // The auto tick runs every 2s; scanning the full event log for observer
+    // dedup on every tick would be O(all events). Explicit dispatch_once still
+    // sweeps immediately, while auto sweeps at the observer's own cadence.
+    const sweepObserver = options.includeStatus !== false
+      || now - (observerSweepAt.get(projectId) ?? 0) >= 30_000;
+    if (sweepObserver) {
+      observerSweepAt.set(projectId, now);
+      await escalateStalled(projectId, { now });
+    }
     await rotateDueExperts(projectId);
-    await escalateStalled(projectId);
     // Timeout defaults are applied by the same tick that takes the dispatch
     // commit point; a pending dispute therefore cannot block forever.
     await sweepDisputes(projectId);
@@ -3110,6 +3190,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       skipped: round.skipped ?? [],
       at: Date.now(),
     });
+    if (options.includeStatus === false) return { ...round };
     return { ...round, status: await statusFacts(projectId) };
   }
 
@@ -4310,6 +4391,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const current = (Array.isArray(project.disputes) ? project.disputes : []).find((row) => row.id === disputeId);
     if (!current) return rejection('dispute_not_found', `unknown dispute: ${disputeId}`);
     const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    // The authority map is enforced here as well as in `arbitrate`: the HTTP
+    // resolve route used to call this function directly, which let an expert
+    // bypass the limited-write check.
+    const authority = disputeAuthorityVerdict(actor, current);
+    if (authority.ok !== true) return rejection(authority.code, authority.message, { authority: current.authority ?? null });
     let resolved;
     try {
       resolved = resolveDisputeRecord(current, {

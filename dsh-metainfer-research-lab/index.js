@@ -151,6 +151,14 @@ export async function apply(ctx, config = {}) {
     });
   }
 
+  let service = null;
+  // The auto tick must run the same housekeeping as the explicit dispatch_once
+  // tool (timeout defaults, rotation, observer escalation), not raw dispatch.
+  // `service` is assigned below; early lifecycle calls fall back to raw.
+  const autoDispatch = async (projectId, options = {}) => (service
+    ? service.dispatchOnce(projectId, { ...options, includeStatus: false })
+    : dispatchOnce(projectId, options));
+
   const runtime = createRuntime({
     ctx,
     store,
@@ -158,7 +166,7 @@ export async function apply(ctx, config = {}) {
     onTerminated: (projectId, nodeId, termination) => {
       gcRunner?.run(projectId, nodeId, termination).catch(() => {});
       // Backfill immediately instead of waiting for the next 2 s tick.
-      dispatchOnce(projectId, { maxStarts: 4 }).catch(() => {});
+      autoDispatch(projectId, { maxStarts: 4 }).catch(() => {});
     },
     cluster,
     kernel,
@@ -166,8 +174,8 @@ export async function apply(ctx, config = {}) {
   const transcript = createTranscriptReader({ ctx, store });
   const orchestrator = createOrchestrator({ ctx, store, git, runtime, cluster, kernel });
   gcRunner = createGcRunner({ ctx, store, orchestrator, kernel });
-  const auto = createAutoController({ store, kernel, orchestrator, cluster, dispatchOnce });
-  const service = createLabService({
+  const auto = createAutoController({ store, kernel, orchestrator, cluster, dispatchOnce: autoDispatch });
+  service = createLabService({
     ctx,
     store,
     git,
