@@ -404,6 +404,7 @@ export async function openStore(ctx) {
 
   /** Remove every record owned by one project (nodes/runs/cycles/events + project). */
   async function deleteProject(projectId) {
+    guardWrite('deleteProject');
     indexes.delete(projectId);
     const prefix = `${projectId}__`;
     for (const table of ['nodes', 'runs', 'cycles', 'events']) {
@@ -451,6 +452,7 @@ export async function openStore(ctx) {
    * by a commit that was never acknowledged. Acknowledged events are never deleted.
    */
   async function deleteEventRecord(projectId, seq) {
+    guardWrite('deleteEventRecord');
     const acknowledged = getProject(projectId)?.counters?.eventSeq ?? 0;
     if (seq <= acknowledged) throw new Error(`refusing to delete acknowledged event ${projectId}#${seq}`);
     await tables.events.delete(eventStorageKey(projectId, seq));

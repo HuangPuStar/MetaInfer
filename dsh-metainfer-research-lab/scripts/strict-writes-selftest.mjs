@@ -70,6 +70,15 @@ try {
 } catch (error) { bypass = error; }
 check('direct store write is rejected under throw', bypass?.code === 'unpermitted_write', String(bypass?.code));
 check('bypass did not change the project', store.getProject('p').name !== 'bypass');
+// Deletion is a writer too: direct calls used to delete a whole project or an
+// unacknowledged event despite strictWrites=throw.
+let deleteBypass = null;
+try { await store.deleteProject('p'); } catch (error) { deleteBypass = error; }
+check('direct deleteProject is rejected under throw', deleteBypass?.code === 'unpermitted_write', String(deleteBypass?.code));
+check('rejected deleteProject kept the project', store.getProject('p')?.id === 'p');
+let eventDeleteBypass = null;
+try { await store.deleteEventRecord('p', 9999); } catch (error) { eventDeleteBypass = error; }
+check('direct deleteEventRecord is rejected under throw', eventDeleteBypass?.code === 'unpermitted_write', String(eventDeleteBypass?.code));
 
 // 2b. Service mutations through the executor still work.
 const updated = await service.updateProject('p', { name: 'renamed-by-service' });
@@ -93,7 +102,7 @@ check('runtime cancel advanced the revision', store.getProject('p').revision > r
 check('runtime cancel wrote a caused event', store.listEvents('p', 0).some((event) => event.type === 'node/cancelled' && event.nodeId === 'n2' && event.causeId));
 
 const stats = store.writeStats();
-check('only the deliberate bypass was rejected', stats.unpermitted === 1 && stats.byOp.saveProject === 1, JSON.stringify(stats));
+check('only the deliberate bypasses were rejected', stats.unpermitted === 3 && stats.byOp.saveProject === 1 && stats.byOp.deleteProject === 1 && stats.byOp.deleteEventRecord === 1, JSON.stringify(stats));
 
 console.log(failed === 0 ? '\nstrict-writes-selftest: all checks passed' : `\nstrict-writes-selftest: ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
