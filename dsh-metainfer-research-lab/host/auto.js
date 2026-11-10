@@ -58,6 +58,7 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
         idleStreak: 0,
         errorStreak: 0,
         lastCycleAt: 0,
+        pauseCounts: {},
       };
       states.set(projectId, state);
     }
@@ -114,6 +115,7 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
     if (state.status === 'paused' && state.pauseReason === reason) return;
     state.status = 'paused';
     state.pauseReason = reason;
+    state.pauseCounts[reason] = (state.pauseCounts[reason] ?? 0) + 1;
     const project = store.getProject(projectId);
     if (project) await saveEvent(project, 'auto/paused', { reason });
   }
@@ -137,6 +139,8 @@ export function createAutoController({ store, orchestrator, cluster, intervalMs 
     state.idleStreak = 0;
     state.errorStreak = 0;
     state.lastCycleAt = 0;
+    state.pauseCounts = {};
+    planners.delete(projectId);
     project.mode = 'auto';
     await saveEvent(project, 'auto/started', { at: state.startedAt });
     void tickOne(projectId);

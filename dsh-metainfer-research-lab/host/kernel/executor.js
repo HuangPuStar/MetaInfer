@@ -107,7 +107,9 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
     }
 
     const now = clock();
-    const ctx = { actor, now, transitions };
+    // The cause pointer travels with the mutation so a node can answer "what made
+    // me" without scanning the event log (usability A1).
+    const ctx = { actor, now, transitions, causeId: spec.causeId ?? null };
     const produced = [];
     try {
       for (const mutation of spec.mutations) produced.push(...applyMutation(ws, mutation, ctx));

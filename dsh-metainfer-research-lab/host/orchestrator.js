@@ -406,6 +406,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       lens: options.lens ?? null,
       timeoutMs,
       startedAt: Date.now(),
+      // Observability: the real prompt size in bytes, and the snapshot size as
+      // a separate regression metric (B3 in the observability package).
+      inputBytes: Buffer.byteLength(promptText, 'utf8'),
+      snapshotBytes: Buffer.byteLength(JSON.stringify(inputSnapshot ?? {}), 'utf8'),
     };
     await store.saveRun(project.id, record);
     await persistEvent(project, `${role}/started`, { runId: id, data: { cycleId: cycle.id } });
