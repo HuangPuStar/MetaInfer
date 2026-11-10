@@ -127,27 +127,27 @@ window.__ModuleLoader__.load({
       'auto/stopped': 'log.type.auto.stopped',
       'project.created': 'log.type.project.created',
       'project.updated': 'log.type.project.updated',
-      'node.created': 'log.type.node.created',
-      'node.edited': 'log.type.node.edited',
-      'node.proposed': 'log.type.node.proposed',
-      'node.approved': 'log.type.node.approved',
-      'node.rejected': 'log.type.node.rejected',
-      'node.started': 'log.type.node.started',
-      'node.completed': 'log.type.node.completed',
-      'node.failed': 'log.type.node.failed',
-      'node.cancelled': 'log.type.node.cancelled',
-      'cycle.completed': 'log.type.cycle.completed',
+      'node?.created': 'log.type.node.created',
+      'node?.edited': 'log.type.node.edited',
+      'node?.proposed': 'log.type.node.proposed',
+      'node?.approved': 'log.type.node.approved',
+      'node?.rejected': 'log.type.node.rejected',
+      'node?.started': 'log.type.node.started',
+      'node?.completed': 'log.type.node.completed',
+      'node?.failed': 'log.type.node.failed',
+      'node?.cancelled': 'log.type.node.cancelled',
+      'cycle?.completed': 'log.type.cycle.completed',
       'auto.started': 'log.type.auto.started',
       'auto.stopped': 'log.type.auto.stopped',
-      'node.sealed': 'log.type.node.sealed',
-      'node.resource_waiting': 'log.type.node.resource_waiting',
-      'node.resource_granted': 'log.type.node.resource_granted',
-      'node.resource_lost': 'log.type.node.resource_lost',
-      'node.escalated': 'log.type.node.escalated',
-      'node.model_changed': 'log.type.node.model_changed',
-      'node.retried': 'log.type.node.retried',
-      'cycle.started': 'log.type.cycle.started',
-      'cycle.finished': 'log.type.cycle.finished',
+      'node?.sealed': 'log.type.node.sealed',
+      'node?.resource_waiting': 'log.type.node.resource_waiting',
+      'node?.resource_granted': 'log.type.node.resource_granted',
+      'node?.resource_lost': 'log.type.node.resource_lost',
+      'node?.escalated': 'log.type.node.escalated',
+      'node?.model_changed': 'log.type.node.model_changed',
+      'node?.retried': 'log.type.node.retried',
+      'cycle?.started': 'log.type.cycle.started',
+      'cycle?.finished': 'log.type.cycle.finished',
       'advisor.started': 'log.type.advisor.started',
       'advisor.finished': 'log.type.advisor.finished',
       'scheduler.started': 'log.type.scheduler.started',
@@ -207,10 +207,10 @@ window.__ModuleLoader__.load({
       "dashboard.hint": "Widget 通过 Dashboard Chat 添加/修改；后台按设定间隔更新，数据可由脚本或 dashboard subagent 提供。",
       "dashboard.layout": "布局",
       "dashboard.mechActivity": "读取项目活动日志最后 8 条事件。",
-      "dashboard.mechChart": "将 data.series 中每条 series 的 points 按 x 等距、y 线性映射为折线。",
-      "dashboard.mechList": "逐项展示 data.items。",
-      "dashboard.mechMetric": "展示 data.value/unit/status/detail。",
-      "dashboard.mechText": "展示 data.body（或 detail）中的文本。",
+      "dashboard.mechChart": "将 data?.series 中每条 series 的 points 按 x 等距、y 线性映射为折线。",
+      "dashboard.mechList": "逐项展示 data?.items。",
+      "dashboard.mechMetric": "展示 data?.value/unit/status/detail。",
+      "dashboard.mechText": "展示 data?.body（或 detail）中的文本。",
       "dashboard.mechanism": "运作机理",
       "dashboard.mechanismHint": "这个 widget 的数据由 Dashboard agent 或确定性脚本生成；下面说明它如何得到并展示当前结果。",
       "dashboard.query": "数据获取指令",
@@ -327,12 +327,12 @@ window.__ModuleLoader__.load({
       "guide.demo.log.autoReview": "advisor.reviewed · 自动评审完成",
       "guide.demo.log.autoStarted": "auto.started · 自动循环开启",
       "guide.demo.log.autoWaiting": "scheduler.queued · 资源不足，等待中",
-      "guide.demo.log.nodeCompleted": "node.completed · 提交代码 + 报告",
-      "guide.demo.log.nodePlanned": "node.planned · 根节点已创建",
-      "guide.demo.log.nodeStarted": "node.started · worker 开始执行",
+      "guide.demo.log.nodeCompleted": "node?.completed · 提交代码 + 报告",
+      "guide.demo.log.nodePlanned": "node?.planned · 根节点已创建",
+      "guide.demo.log.nodeStarted": "node?.started · worker 开始执行",
       "guide.demo.log.projectCreated": "project.created · 写入 ProjectStore",
       "guide.demo.log.traceOpened": "trajectory.opened · 查看原生会话",
-      "guide.demo.log.userApproved": "node.approved · 人工批准",
+      "guide.demo.log.userApproved": "node?.approved · 人工批准",
       "guide.demo.manual": "手动挡",
       "guide.demo.mockBadge": "模拟 UI · 0 LLM 调用",
       "guide.demo.next": "下一步",
@@ -1197,7 +1197,7 @@ window.__ModuleLoader__.load({
       "ws.native.continueClose": "关闭",
       "ws.native.continueDisabled": "当前节点状态不允许继续对话",
       "ws.native.continueError": "发送失败",
-      "ws.native.continueHint": "消息通过 node.message 发送给该节点的 agent；历史轨迹请在 DSH 原生视图中只读查看。",
+      "ws.native.continueHint": "消息通过 node?.message 发送给该节点的 agent；历史轨迹请在 DSH 原生视图中只读查看。",
       "ws.native.continueInsufficient": "资源不足：需要 {needs} · 空闲 {free}",
       "ws.native.continueNeeds": "需要 {needs} · 空闲 {free}",
       "ws.native.continuePlaceholder": "向该节点 agent 发送消息…",
@@ -1581,10 +1581,10 @@ window.__ModuleLoader__.load({
       "dashboard.hint": "Widgets are added and edited through Dashboard Chat; the background refresh uses a script or dashboard subagent.",
       "dashboard.layout": "Layout",
       "dashboard.mechActivity": "Reads the latest 8 project activity events.",
-      "dashboard.mechChart": "Maps each series in data.series to a line: x is evenly spaced, y is scaled linearly.",
-      "dashboard.mechList": "Renders each entry in data.items.",
-      "dashboard.mechMetric": "Renders data.value / unit / status / detail.",
-      "dashboard.mechText": "Renders text from data.body (or detail).",
+      "dashboard.mechChart": "Maps each series in data?.series to a line: x is evenly spaced, y is scaled linearly.",
+      "dashboard.mechList": "Renders each entry in data?.items.",
+      "dashboard.mechMetric": "Renders data?.value / unit / status / detail.",
+      "dashboard.mechText": "Renders text from data?.body (or detail).",
       "dashboard.mechanism": "How this widget works",
       "dashboard.mechanismHint": "This widget is produced by the dashboard agent or a deterministic script; the details below explain how the current result is obtained and rendered.",
       "dashboard.query": "Data-acquisition instruction",
@@ -1701,12 +1701,12 @@ window.__ModuleLoader__.load({
       "guide.demo.log.autoReview": "advisor.reviewed · automatic review done",
       "guide.demo.log.autoStarted": "auto.started · auto loop enabled",
       "guide.demo.log.autoWaiting": "scheduler.queued · insufficient resources, waiting",
-      "guide.demo.log.nodeCompleted": "node.completed · code + report committed",
-      "guide.demo.log.nodePlanned": "node.planned · root created",
-      "guide.demo.log.nodeStarted": "node.started · worker started",
+      "guide.demo.log.nodeCompleted": "node?.completed · code + report committed",
+      "guide.demo.log.nodePlanned": "node?.planned · root created",
+      "guide.demo.log.nodeStarted": "node?.started · worker started",
       "guide.demo.log.projectCreated": "project.created · written to ProjectStore",
       "guide.demo.log.traceOpened": "trajectory.opened · native session opened",
-      "guide.demo.log.userApproved": "node.approved · approved by human",
+      "guide.demo.log.userApproved": "node?.approved · approved by human",
       "guide.demo.manual": "Manual",
       "guide.demo.mockBadge": "Mock UI · 0 LLM calls",
       "guide.demo.next": "Next",
@@ -2571,7 +2571,7 @@ window.__ModuleLoader__.load({
       "ws.native.continueClose": "Close",
       "ws.native.continueDisabled": "The current node state does not allow continuing the conversation",
       "ws.native.continueError": "Send failed",
-      "ws.native.continueHint": "Messages are delivered to this node’s agent via node.message; read history read-only in the native DSH view.",
+      "ws.native.continueHint": "Messages are delivered to this node’s agent via node?.message; read history read-only in the native DSH view.",
       "ws.native.continueInsufficient": "Insufficient resources: needs {needs} · free {free}",
       "ws.native.continueNeeds": "needs {needs} · free {free}",
       "ws.native.continuePlaceholder": "Send a message to this node’s agent…",
@@ -3632,33 +3632,33 @@ window.__ModuleLoader__.load({
       const response = await fetch(path, init);
       let payload = null;
       try {
-        payload = await response.json();
+        payload = await response?.json();
       } catch (error) {
         payload = null;
       }
-      const envelopeError = payload !== null && typeof payload === 'object' && payload.ok === false
-        ? (payload.error !== null && typeof payload.error === 'object' ? payload.error : {})
+      const envelopeError = payload !== null && typeof payload === 'object' && payload?.ok === false
+        ? (payload?.error !== null && typeof payload?.error === 'object' ? payload?.error : {})
         : null;
-      if (response.status === 401 || response.status === 403) {
+      if (response?.status === 401 || response?.status === 403) {
         const message = envelopeError && typeof envelopeError.message === 'string' && envelopeError.message
           ? envelopeError.message
           : t('error.unauthorized');
-        throw new LabRequestError('unauthorized', message, response.status);
+        throw new LabRequestError('unauthorized', message, response?.status);
       }
-      if (!response.ok && envelopeError === null) {
-        throw new LabRequestError('http_' + response.status, t('error.http', { status: response.status }), response.status);
+      if (!response?.ok && envelopeError === null) {
+        throw new LabRequestError('http_' + response?.status, t('error.http', { status: response?.status }), response?.status);
       }
       if (payload === null || typeof payload !== 'object') {
-        throw new LabRequestError('bad_body', t('error.unknown'), response.status);
+        throw new LabRequestError('bad_body', t('error.unknown'), response?.status);
       }
       if (envelopeError !== null) {
         const code = typeof envelopeError.code === 'string' && envelopeError.code ? envelopeError.code : 'command_failed';
         const message = typeof envelopeError.message === 'string' && envelopeError.message
           ? envelopeError.message
           : t('error.unknown');
-        throw new LabRequestError(code, message, response.status);
+        throw new LabRequestError(code, message, response?.status);
       }
-      if (payload.data !== undefined) return payload.data;
+      if (payload?.data !== undefined) return payload?.data;
       const flat = {};
       for (const key of Object.keys(payload)) if (key !== 'ok') flat[key] = payload[key];
       return flat;
@@ -3699,21 +3699,21 @@ window.__ModuleLoader__.load({
         const pageEnd = Number(data?.endAt);
         if (Number.isFinite(pageStart)) startAt = Math.min(startAt, pageStart);
         if (Number.isFinite(pageEnd)) endAt = Math.max(endAt, pageEnd);
-        for (const node of Array.isArray(data?.nodes) ? data.nodes : []) {
-          if (node && typeof node.id === 'string') nodes.set(node.id, node);
+        for (const node of Array.isArray(data?.nodes) ? data?.nodes : []) {
+          if (node && typeof node?.id === 'string') nodes.set(node?.id, node);
         }
-        for (const edge of Array.isArray(data?.edges) ? data.edges : []) {
+        for (const edge of Array.isArray(data?.edges) ? data?.edges : []) {
           if (!edge || typeof edge.from !== 'string' || typeof edge.to !== 'string') continue;
           edges.set(edge.from + '\u0000' + edge.to, edge);
         }
-        const pageEvents = Array.isArray(data?.events) ? data.events : [];
+        const pageEvents = Array.isArray(data?.events) ? data?.events : [];
         lastEventCount = pageEvents.length;
         for (const event of pageEvents) {
-          if (event && Number.isFinite(Number(event.seq))) events.set(Number(event.seq), event);
+          if (event && Number.isFinite(Number(event?.seq))) events.set(Number(event?.seq), event);
         }
         const nextSeq = Number(data?.nextSeq);
         if (Number.isFinite(nextSeq)) afterSeq = Math.max(afterSeq, nextSeq);
-        const nextCursor = typeof data?.nextNodeCursor === 'string' && data.nextNodeCursor ? data.nextNodeCursor : null;
+        const nextCursor = typeof data?.nextNodeCursor === 'string' && data?.nextNodeCursor ? data?.nextNodeCursor : null;
         cursor = nextCursor;
         const nodesDone = nextCursor === null;
         const eventsDone = pageEvents.length < eventLimit;
@@ -3894,31 +3894,31 @@ window.__ModuleLoader__.load({
 
     function projectIdOf(project) {
       const record = asObject(project);
-      return firstString(record.id, record.projectId);
+      return firstString(record?.id, record?.projectId);
     }
     function projectNameOf(project) {
       return firstString(asObject(project).name);
     }
     function projectRepoPath(project) {
       const record = asObject(project);
-      return firstString(asObject(record.repo).path, record.repoPath);
+      return firstString(asObject(record?.repo).path, record?.repoPath);
     }
     function projectBranch(project) {
       const record = asObject(project);
-      return firstString(asObject(record.repo).baseBranch, record.baseBranch);
+      return firstString(asObject(record?.repo).baseBranch, record?.baseBranch);
     }
     function projectBaseCommit(project) {
       const record = asObject(project);
-      return firstString(asObject(record.repo).baseCommit, record.baseCommit);
+      return firstString(asObject(record?.repo).baseCommit, record?.baseCommit);
     }
     function projectGitDirty(project) {
       const record = asObject(project);
-      const repo = asObject(record.repo);
-      return repo.dirty === true || record.dirty === true;
+      const repo = asObject(record?.repo);
+      return repo.dirty === true || record?.dirty === true;
     }
     function projectWorktreeRoot(project) {
       const record = asObject(project);
-      return firstString(asObject(record.repo).worktreeRoot, record.worktreeRoot);
+      return firstString(asObject(record?.repo).worktreeRoot, record?.worktreeRoot);
     }
     function projectConfig(project) {
       return asObject(asObject(project).config);
@@ -3948,11 +3948,11 @@ window.__ModuleLoader__.load({
 
     function nodeIdOf(node) {
       const record = asObject(node);
-      return firstString(record.id, record.nodeId);
+      return firstString(record?.id, record?.nodeId);
     }
     function nodeTitleOf(node, t) {
       const record = asObject(node);
-      const title = firstString(record.title, record.name);
+      const title = firstString(record?.title, record?.name);
       if (title) return title;
       const id = nodeIdOf(record);
       return id || (typeof t === 'function' ? t('common.unknown') : '');
@@ -3969,7 +3969,7 @@ window.__ModuleLoader__.load({
     }
     function nodeParentIdOf(node) {
       const record = asObject(node);
-      return firstString(record.parentId, record.parent);
+      return firstString(record?.parentId, record?.parent);
     }
     function nodeNeedsOf(node) {
       return asObject(asObject(node).needs);
@@ -3978,7 +3978,7 @@ window.__ModuleLoader__.load({
       const needs = nodeNeedsOf(node);
       return Object.keys(needs)
         .map((key) => ({ key, amount: numberOr(needs[key], 0) }))
-        .filter((entry) => entry.amount > 0);
+        .filter((entry) => entry?.amount > 0);
     }
     function nodeGitOf(node) {
       return asObject(asObject(node).git);
@@ -4010,9 +4010,9 @@ window.__ModuleLoader__.load({
     }
     function nodeTimeboxMinutesOf(node, project) {
       const record = asObject(node);
-      const minutes = finiteNumber(record.timeboxMinutes);
+      const minutes = finiteNumber(record?.timeboxMinutes);
       if (minutes !== null && minutes > 0) return Math.round(minutes);
-      const milliseconds = finiteNumber(record.timeboxMs);
+      const milliseconds = finiteNumber(record?.timeboxMs);
       if (milliseconds !== null && milliseconds > 0) return Math.max(1, Math.round(milliseconds / 60000));
       return Math.round(projectDefaultTimeoutMinutes(project));
     }
@@ -4075,7 +4075,7 @@ window.__ModuleLoader__.load({
     }
     function nodeParentIdsOf(node) {
       const record = asObject(node);
-      const ids = idListOf(record.parentIds);
+      const ids = idListOf(record?.parentIds);
       if (ids.length > 0) return ids;
       const single = nodeParentIdOf(record);
       return single ? [single] : [];
@@ -4103,7 +4103,7 @@ window.__ModuleLoader__.load({
       return merge === null ? [] : asArray(merge.prepared).filter((entry) => entry !== null && typeof entry === 'object');
     }
 
-    /** Session id for a node: node.sessionId, else the latest attempt's session. */
+    /** Session id for a node: node?.sessionId, else the latest attempt's session. */
     function nodeSessionIdOf(node) {
       const direct = firstString(asObject(node).sessionId);
       if (direct !== '') return direct;
@@ -4117,7 +4117,7 @@ window.__ModuleLoader__.load({
     }
     function attemptSessionIdOf(attempt) {
       const record = asObject(attempt);
-      return firstString(record.sessionId, record.anchorSessionId);
+      return firstString(record?.sessionId, record?.anchorSessionId);
     }
     function nodeCanContinueOf(node, nodes) {
       const status = nodeStatusOf(node);
@@ -4236,9 +4236,9 @@ window.__ModuleLoader__.load({
     }
     function usageTotalOf(usage) {
       const record = asObject(usage);
-      const total = finiteNumber(record.totalTokens);
+      const total = finiteNumber(record?.totalTokens);
       if (total !== null) return total;
-      return numberOr(record.inputTokens, 0) + numberOr(record.outputTokens, 0);
+      return numberOr(record?.inputTokens, 0) + numberOr(record?.outputTokens, 0);
     }
     function formatTokenCount(value) {
       const numeric = finiteNumber(value);
@@ -4296,9 +4296,9 @@ window.__ModuleLoader__.load({
     }
     function modelLabelOf(model) {
       const record = asObject(model);
-      const name = firstString(record.model, record.provider, record.profileId);
+      const name = firstString(record?.model, record?.provider, record?.profileId);
       if (name === '') return '';
-      const effort = firstString(record.reasoningEffort);
+      const effort = firstString(record?.reasoningEffort);
       return effort === '' ? name : name + '·' + effort;
     }
     function nodeModelLabelOf(node) {
@@ -4328,9 +4328,9 @@ window.__ModuleLoader__.load({
     }
     function attemptDurationTextOf(attempt) {
       const record = asObject(attempt);
-      const startedAt = finiteNumber(record.startedAt);
+      const startedAt = finiteNumber(record?.startedAt);
       if (startedAt === null) return '';
-      const endedAt = finiteNumber(record.endedAt);
+      const endedAt = finiteNumber(record?.endedAt);
       return formatDurationBetween(startedAt, endedAt === null ? null : endedAt);
     }
     function formatUsdAmount(value) {
@@ -4357,7 +4357,7 @@ window.__ModuleLoader__.load({
       const providerId = firstString(provider);
       const choices = [];
       const seen = new Set();
-      const match = asArray(providers).filter((entry) => firstString(entry.id) === providerId)[0] || null;
+      const match = asArray(providers).filter((entry) => firstString(entry?.id) === providerId)[0] || null;
       for (const model of match === null ? [] : asArray(match.models)) {
         const id = firstString(model.id);
         if (id === '' || seen.has(id)) continue;
@@ -4374,17 +4374,17 @@ window.__ModuleLoader__.load({
 
     function modelPayloadOf(model) {
       const record = asObject(model);
-      const effort = firstString(record.reasoningEffort);
-      const profileId = firstString(record.profileId);
+      const effort = firstString(record?.reasoningEffort);
+      const profileId = firstString(record?.profileId);
       if (profileId !== '') return Object.assign({ profileId }, effort === '' ? {} : { reasoningEffort: effort });
-      const provider = firstString(record.provider);
-      const name = firstString(record.model);
+      const provider = firstString(record?.provider);
+      const name = firstString(record?.model);
       if (provider !== '' && name !== '') return Object.assign({ provider, model: name }, effort === '' ? {} : { reasoningEffort: effort });
       return undefined;
     }
     function normalizeModelCatalog(data) {
       const record = asObject(data);
-      const options = asArray(record.options)
+      const options = asArray(record?.options)
         .filter((option) => option !== null && typeof option === 'object')
         .map((option) => ({
           id: firstString(option.id),
@@ -4401,9 +4401,9 @@ window.__ModuleLoader__.load({
           contextWindow: finiteNumber(option.contextWindow),
         }))
         .filter((option) => option.id !== '' || (option.provider !== '' && option.model !== ''));
-      const routing = asObject(record.routing);
-      const defaults = asObject(record.promptDefaults);
-      let providers = asArray(record.providers)
+      const routing = asObject(record?.routing);
+      const defaults = asObject(record?.promptDefaults);
+      let providers = asArray(record?.providers)
         .filter((provider) => provider !== null && typeof provider === 'object')
         .map((provider) => ({
           id: firstString(provider.id),
@@ -4432,16 +4432,16 @@ window.__ModuleLoader__.load({
           advisor: firstString(defaults.advisor),
           scheduler: firstString(defaults.scheduler),
         },
-        promptPlaceholders: stringListOf(record.promptPlaceholders),
+        promptPlaceholders: stringListOf(record?.promptPlaceholders),
         routing: {
           advisorMaySelectModels: routing.advisorMaySelectModels === true,
           autoUpgrade: routing.autoUpgrade === true,
           maxAttempts: Math.max(1, Math.round(numberOr(routing.maxAttempts, 2))),
         },
-        roles: asObject(record.roles),
-        defaultModel: asObject(record.default),
+        roles: asObject(record?.roles),
+        defaultModel: asObject(record?.default),
         providers,
-        allowlist: stringListOf(record.allowlist),
+        allowlist: stringListOf(record?.allowlist),
       };
     }
     function clusterOf(snapshot) {
@@ -4488,7 +4488,7 @@ window.__ModuleLoader__.load({
 
     function placementCompileResultOf(data) {
       const record = asObject(data);
-      const rawPolicy = asObject(record.policy);
+      const rawPolicy = asObject(record?.policy);
       const policy = {
         text: firstString(rawPolicy.text),
         spec: rawPolicy.spec !== null && typeof rawPolicy.spec === 'object' && Object.keys(rawPolicy.spec).length > 0 ? rawPolicy.spec : null,
@@ -4500,23 +4500,23 @@ window.__ModuleLoader__.load({
       };
       return {
         policy,
-        explanation: stringListOf(record.explanation, policy.explanation),
-        warnings: stringListOf(record.warnings, policy.warnings),
-        summary: firstString(record.summary, policy.summary),
+        explanation: stringListOf(record?.explanation, policy.explanation),
+        warnings: stringListOf(record?.warnings, policy.warnings),
+        summary: firstString(record?.summary, policy.summary),
         catalog: placementCatalogOf(record),
       };
     }
 
     function placementCatalogOf(data) {
       const record = asObject(data);
-      const catalog = asObject(record.catalog);
+      const catalog = asObject(record?.catalog);
       const labels = asObject(catalog.labels);
       return {
         machines: asArray(catalog.machines).filter((machine) => machine !== null && typeof machine === 'object'),
         labelKeys: Object.keys(labels),
         labels,
         models: stringListOf(catalog.models),
-        machineCount: Math.max(0, Math.round(numberOr(record.machineCount, 0))),
+        machineCount: Math.max(0, Math.round(numberOr(record?.machineCount, 0))),
       };
     }
 
@@ -4696,22 +4696,22 @@ window.__ModuleLoader__.load({
     /** Build the API fleet object from the draft; returns { fleet } or { error }. */
     function fleetConfigFromDraft(draft, t) {
       const pathMap = asArray(draft.pathMap)
-        .map((row) => ({ from: clusterConfigTrimmed(row.from), to: clusterConfigTrimmed(row.to) }))
-        .filter((row) => row.from !== '' && row.to !== '');
+        .map((row) => ({ from: clusterConfigTrimmed(row?.from), to: clusterConfigTrimmed(row?.to) }))
+        .filter((row) => row?.from !== '' && row?.to !== '');
       const machines = [];
       for (const row of asArray(draft.machines)) {
-        const machineId = clusterConfigTrimmed(row.machineId);
-        const sshHost = clusterConfigTrimmed(row.sshHost);
+        const machineId = clusterConfigTrimmed(row?.machineId);
+        const sshHost = clusterConfigTrimmed(row?.sshHost);
         if (machineId === '' && sshHost === '') continue;
         const env = {};
-        for (const line of String(row.containerEnv === undefined || row.containerEnv === null ? '' : row.containerEnv).split('\n')) {
+        for (const line of String(row?.containerEnv === undefined || row?.containerEnv === null ? '' : row?.containerEnv).split('\n')) {
           const trimmed = line.trim();
           if (trimmed === '') continue;
           const separator = trimmed.indexOf('=');
           if (separator <= 0) return { error: t('ws.clusterConfig.fleet.container.env.invalid') };
           env[trimmed.slice(0, separator).trim()] = trimmed.slice(separator + 1).trim();
         }
-        const manualDevices = asArray(row.devices)
+        const manualDevices = asArray(row?.devices)
           .map((device) => ({
             id: clusterConfigTrimmed(device.id),
             localId: clusterConfigTrimmed(device.localId) || clusterConfigTrimmed(device.id),
@@ -4721,36 +4721,36 @@ window.__ModuleLoader__.load({
           .filter((device) => device.id !== '');
         machines.push({
           machineId: machineId === '' ? 'gpu-node-' + String(machines.length + 1) : machineId,
-          masterAddr: clusterConfigTrimmed(row.masterAddr) === '' ? null : clusterConfigTrimmed(row.masterAddr),
+          masterAddr: clusterConfigTrimmed(row?.masterAddr) === '' ? null : clusterConfigTrimmed(row?.masterAddr),
           ssh: {
             host: sshHost,
-            user: clusterConfigTrimmed(row.sshUser) || 'root',
-            port: Math.max(1, Math.min(65535, Math.round(numberOr(row.sshPort, 22)))),
-            keyPath: clusterConfigTrimmed(row.sshKeyPath),
-            options: String(row.sshOptions === undefined || row.sshOptions === null ? '' : row.sshOptions)
+            user: clusterConfigTrimmed(row?.sshUser) || 'root',
+            port: Math.max(1, Math.min(65535, Math.round(numberOr(row?.sshPort, 22)))),
+            keyPath: clusterConfigTrimmed(row?.sshKeyPath),
+            options: String(row?.sshOptions === undefined || row?.sshOptions === null ? '' : row?.sshOptions)
               .split('\n')
               .map((line) => line.trim())
               .filter((line) => line !== ''),
-            command: clusterConfigTrimmed(row.sshCommand) || 'ssh',
+            command: clusterConfigTrimmed(row?.sshCommand) || 'ssh',
           },
           container: {
-            runtime: CLUSTER_FLEET_RUNTIMES.indexOf(firstString(row.containerRuntime)) >= 0 ? firstString(row.containerRuntime) : 'docker',
-            name: clusterConfigTrimmed(row.containerName),
-            workdir: clusterConfigTrimmed(row.containerWorkdir),
-            user: clusterConfigTrimmed(row.containerUser),
+            runtime: CLUSTER_FLEET_RUNTIMES.indexOf(firstString(row?.containerRuntime)) >= 0 ? firstString(row?.containerRuntime) : 'docker',
+            name: clusterConfigTrimmed(row?.containerName),
+            workdir: clusterConfigTrimmed(row?.containerWorkdir),
+            user: clusterConfigTrimmed(row?.containerUser),
             env,
           },
-          devices: row.devicesMode === 'auto' ? null : manualDevices,
+          devices: row?.devicesMode === 'auto' ? null : manualDevices,
           labels: (() => {
             const labels = {};
-            for (const labelRow of asArray(row.labels)) {
+            for (const labelRow of asArray(row?.labels)) {
               const key = clusterConfigTrimmed(labelRow.name).toLowerCase();
               const value = clusterConfigTrimmed(labelRow.value).toLowerCase();
               if (key !== '' && value !== '') labels[key] = value;
             }
             return labels;
           })(),
-          pathMap: asArray(row.pathMap)
+          pathMap: asArray(row?.pathMap)
             .map((pair) => ({ from: clusterConfigTrimmed(pair.from), to: clusterConfigTrimmed(pair.to) }))
             .filter((pair) => pair.from !== '' && pair.to !== ''),
         });
@@ -4799,10 +4799,10 @@ window.__ModuleLoader__.load({
 
     function clusterConfigPayloadOf(data) {
       const record = asObject(data);
-      const raw = asObject(record.config);
+      const raw = asObject(record?.config);
       const listen = asObject(raw.listen);
       return {
-        path: firstString(record.path),
+        path: firstString(record?.path),
         config: {
           enabled: raw.enabled === true,
           role: CLUSTER_CONFIG_ROLES.indexOf(firstString(raw.role)) >= 0 ? firstString(raw.role) : 'both',
@@ -4834,10 +4834,10 @@ window.__ModuleLoader__.load({
           stateFile: firstString(raw.stateFile),
           fleet: fleetConfigOf(raw.fleet),
         },
-        status: asObject(record.status),
-        activeLeases: Math.max(0, Math.round(numberOr(record.activeLeases, 0))),
-        canApply: record.canApply !== false,
-        warnings: stringListOf(record.warnings),
+        status: asObject(record?.status),
+        activeLeases: Math.max(0, Math.round(numberOr(record?.activeLeases, 0))),
+        canApply: record?.canApply !== false,
+        warnings: stringListOf(record?.warnings),
       };
     }
 
@@ -4954,7 +4954,7 @@ window.__ModuleLoader__.load({
 
     function clusterConfigStatusUrlOf(status) {
       const record = asObject(status);
-      return firstString(record.url, record.coordinatorUrl);
+      return firstString(record?.url, record?.coordinatorUrl);
     }
 
     function clusterConfigMachinesSummaryOf(status, t) {
@@ -5149,13 +5149,13 @@ window.__ModuleLoader__.load({
     }
     function runGcSummaryOf(run) {
       const record = asObject(run);
-      const output = asObject(record.output);
-      return firstString(record.summary, output.summary, output.postmortemSummary);
+      const output = asObject(record?.output);
+      return firstString(record?.summary, output.summary, output.postmortemSummary);
     }
     function runGcRecommendationOf(run) {
       const record = asObject(run);
-      const output = asObject(record.output);
-      return firstString(record.recommendation, output.recommendation, output.nextStep);
+      const output = asObject(record?.output);
+      return firstString(record?.recommendation, output.recommendation, output.nextStep);
     }
 
     /** `mm:ss` / `h:mm:ss` remaining time, plus an overdue flag. */
@@ -5180,7 +5180,7 @@ window.__ModuleLoader__.load({
       const out = [];
       for (const item of asArray(value)) {
         if (typeof item === 'string') {
-          if (item.trim()) out.push(item.trim());
+          if (item?.trim()) out.push(item?.trim());
         } else if (typeof item === 'number' || typeof item === 'boolean') {
           out.push(String(item));
         } else if (item !== null && typeof item === 'object') {
@@ -5230,19 +5230,19 @@ window.__ModuleLoader__.load({
     }
     function runErrorTextOf(run) {
       const record = asObject(run);
-      const error = record.error;
+      const error = record?.error;
       if (typeof error === 'string' && error.length > 0) return error;
       const message = firstString(asObject(error).message);
       return message;
     }
     function idListOf(value) {
-      return asArray(value).filter((item) => typeof item === 'string' && item.length > 0);
+      return asArray(value).filter((item) => typeof item === 'string' && item?.length > 0);
     }
     function normalizeRuns(data) {
       const record = asObject(data);
       return {
-        runs: asArray(record.runs).filter((run) => run !== null && typeof run === 'object'),
-        cycles: asArray(record.cycles).filter((cycle) => cycle !== null && typeof cycle === 'object'),
+        runs: asArray(record?.runs).filter((run) => run !== null && typeof run === 'object'),
+        cycles: asArray(record?.cycles).filter((cycle) => cycle !== null && typeof cycle === 'object'),
       };
     }
     function shortCommitOf(value) {
@@ -5297,29 +5297,29 @@ window.__ModuleLoader__.load({
     /** Normalize the GET /repo payload (branches may be absent on malformed input). */
     function normalizeRepoInfo(data) {
       const record = asObject(data);
-      const branches = asArray(record.branches).filter((branch) => typeof branch === 'string' && branch.length > 0);
-      const defaultBranch = firstString(record.defaultBranch, branches.length > 0 ? branches[0] : '');
+      const branches = asArray(record?.branches).filter((branch) => typeof branch === 'string' && branch.length > 0);
+      const defaultBranch = firstString(record?.defaultBranch, branches.length > 0 ? branches[0] : '');
       return {
-        repoRoot: firstString(record.repoRoot, record.root),
-        gitDir: firstString(record.gitDir, record.gitdir),
+        repoRoot: firstString(record?.repoRoot, record?.root),
+        gitDir: firstString(record?.gitDir, record?.gitdir),
         branches,
         defaultBranch,
-        baseCommit: firstString(record.baseCommit, record.commit),
-        dirty: record.dirty === true,
+        baseCommit: firstString(record?.baseCommit, record?.commit),
+        dirty: record?.dirty === true,
       };
     }
 
-    /** Normalize the GET /state payload. Edges fall back to node.parentId. */
+    /** Normalize the GET /state payload. Edges fall back to node?.parentId. */
     function normalizeState(data) {
       const record = asObject(data);
-      const project = asObject(record.project);
-      const nodes = asArray(record.nodes).filter((node) => node !== null && typeof node === 'object');
+      const project = asObject(record?.project);
+      const nodes = asArray(record?.nodes).filter((node) => node !== null && typeof node === 'object');
       const known = {};
       for (const node of nodes) {
         const id = nodeIdOf(node);
         if (id) known[id] = true;
       }
-      let edges = asArray(record.edges)
+      let edges = asArray(record?.edges)
         .map((edge) => {
           const raw = asObject(edge);
           return { from: firstString(raw.from, raw.parentId, raw.parent), to: firstString(raw.to, raw.childId, raw.child) };
@@ -5334,7 +5334,7 @@ window.__ModuleLoader__.load({
           })
           .filter((edge) => edge !== null);
       }
-      const rawResources = record.resources;
+      const rawResources = record?.resources;
       const resources = rawResources !== null && typeof rawResources === 'object'
         ? {
             pools: asObject(rawResources.pools),
@@ -5342,20 +5342,20 @@ window.__ModuleLoader__.load({
             free: asObject(rawResources.free),
           }
         : null;
-      const rawAuto = record.auto;
+      const rawAuto = record?.auto;
       const auto = rawAuto !== null && typeof rawAuto === 'object' ? rawAuto : null;
-      const rawCluster = record.cluster;
+      const rawCluster = record?.cluster;
       const cluster = rawCluster !== null && typeof rawCluster === 'object' ? rawCluster : null;
       return {
         project,
         nodes,
         edges,
         resources,
-        worktreeRoot: firstString(record.worktreeRoot, projectWorktreeRoot(project)),
-        revision: finiteNumber(record.revision),
+        worktreeRoot: firstString(record?.worktreeRoot, projectWorktreeRoot(project)),
+        revision: finiteNumber(record?.revision),
         auto,
         cluster,
-        pendingProposals: Math.max(0, Math.round(numberOr(record.pendingProposals, 0))),
+        pendingProposals: Math.max(0, Math.round(numberOr(record?.pendingProposals, 0))),
       };
     }
     // #endregion
@@ -5706,8 +5706,8 @@ window.__ModuleLoader__.load({
             const data = await api.fetchStateAll(projectId, revisionRef.current, controller.signal, t);
             if (!alive) return;
             flights.state = null;
-            if (data !== null && typeof data === 'object' && data.unchanged === true) {
-              const revision = finiteNumber(data.revision);
+            if (data !== null && typeof data === 'object' && data?.unchanged === true) {
+              const revision = finiteNumber(data?.revision);
               if (revision !== null) revisionRef.current = revision;
             } else {
               const normalized = normalizeState(data);
@@ -5746,7 +5746,7 @@ window.__ModuleLoader__.load({
             if (!alive) return;
             flights.events = null;
             const payload = asObject(data);
-            const incoming = asArray(payload.events).filter((event) => event !== null && typeof event === 'object');
+            const incoming = asArray(payload?.events).filter((event) => event !== null && typeof event === 'object');
             const fresh = [];
             let highest = lastEventSeqRef.current;
             for (const event of incoming) {
@@ -5765,7 +5765,7 @@ window.__ModuleLoader__.load({
                 return merged.length > MAX_LOG_EVENTS ? merged.slice(merged.length - MAX_LOG_EVENTS) : merged;
               });
             }
-            const next = finiteNumber(payload.next);
+            const next = finiteNumber(payload?.next);
             if (next !== null) eventsNextRef.current = next;
             eventsBackoffRef.current = 0;
             clearFailure('events');
@@ -5849,11 +5849,11 @@ window.__ModuleLoader__.load({
       /** Apply an auto-mode command result (status object, or `{auto}`/`{revision}`). */
       const applyAutoResult = React.useCallback((data) => {
         const payload = asObject(data);
-        const nested = payload.auto !== null && typeof payload.auto === 'object' ? payload.auto : null;
+        const nested = payload?.auto !== null && typeof payload?.auto === 'object' ? payload?.auto : null;
         const candidate = nested !== null
           ? nested
-          : (typeof payload.status === 'string' ? payload : null);
-        const revision = finiteNumber(payload.revision);
+          : (typeof payload?.status === 'string' ? payload : null);
+        const revision = finiteNumber(payload?.revision);
         if (revision !== null) revisionRef.current = revision;
         setSnapshot((previous) => ({
           ...previous,
@@ -5866,10 +5866,10 @@ window.__ModuleLoader__.load({
       /** Apply a command result locally, then reconcile with the Host. */
       const applyCommandResult = React.useCallback((data) => {
         const payload = asObject(data);
-        const revision = finiteNumber(payload.revision);
+        const revision = finiteNumber(payload?.revision);
         if (revision !== null) revisionRef.current = revision;
-        const nextNode = payload.node !== null && typeof payload.node === 'object' ? payload.node : null;
-        const nextProject = payload.project !== null && typeof payload.project === 'object' ? payload.project : null;
+        const nextNode = payload?.node !== null && typeof payload?.node === 'object' ? payload?.node : null;
+        const nextProject = payload?.project !== null && typeof payload?.project === 'object' ? payload?.project : null;
         setSnapshot((previous) => {
           let nodes = previous.nodes;
           if (nextNode !== null) {
@@ -6116,29 +6116,29 @@ window.__ModuleLoader__.load({
         let cancelled = false;
         setManaged(false);
         fetch(ROUTES.filesInfo + '?path=' + encodeURIComponent(target))
-          .then((response) => response.json().catch(() => null))
+          .then((response) => response?.json().catch(() => null))
           .then((payload) => {
-            if (!cancelled) setManaged(Boolean(payload && payload.ok === true && payload.data && payload.data.managed === true));
+            if (!cancelled) setManaged(Boolean(payload && payload?.ok === true && payload?.data && payload?.data.managed === true));
           })
           .catch(() => { if (!cancelled) setManaged(false); });
         return () => { cancelled = true; };
       }, [target]);
       if (target === '' || !managed) return null;
-      const name = target.split(/[\\/]/).filter(Boolean).pop() || 'download';
+      const name = target?.split(/[\\/]/).filter(Boolean).pop() || 'download';
       const download = async () => {
         if (busy) return;
         setBusy(true);
         setError('');
         try {
           const response = await fetch(ROUTES.filesDownload + '?path=' + encodeURIComponent(target));
-          const contentType = response.headers.get('content-type') || '';
+          const contentType = response?.headers.get('content-type') || '';
           if (contentType.indexOf('application/json') >= 0) {
             let payload = null;
-            try { payload = await response.json(); } catch { payload = null; }
+            try { payload = await response?.json(); } catch { payload = null; }
             throw new Error(payload?.error?.message || t('ws.files.downloadError'));
           }
-          if (!response.ok) throw new Error(t('ws.files.downloadError'));
-          const blob = await response.blob();
+          if (!response?.ok) throw new Error(t('ws.files.downloadError'));
+          const blob = await response?.blob();
           const url = URL.createObjectURL(blob);
           const anchor = document.createElement('a');
           anchor.href = url;
@@ -6669,7 +6669,7 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'rl-arch-step-dots' },
             ARCH_STEPS.map((entry, index) => h('button', {
-              key: entry.title,
+              key: entry?.title,
               type: 'button',
               className: 'rl-guide-dot' + (index === step ? ' rl-guide-dot-active' : ''),
               'aria-label': t('guide.arch.step', { current: index + 1, total }),
@@ -6752,11 +6752,11 @@ window.__ModuleLoader__.load({
         setTraceOpen(current.trace === true);
       }, [step]);
       const go = (next) => setStep(Math.max(0, Math.min(total - 1, next)));
-      const present = DEMO_NODES.filter((node) => current.statuses[node.id] !== undefined);
-      const selectedNode = present.find((node) => node.id === selected) || present[0] || DEMO_NODES[0];
+      const present = DEMO_NODES.filter((node) => current.statuses[node?.id] !== undefined);
+      const selectedNode = present.find((node) => node?.id === selected) || present[0] || DEMO_NODES[0];
       const selectedStatus = current.statuses[selectedNode.id] || 'planned';
-      const runningCount = present.filter((node) => current.statuses[node.id] === 'running').length;
-      const nodeById = (id) => DEMO_NODES.find((node) => node.id === id);
+      const runningCount = present.filter((node) => current.statuses[node?.id] === 'running').length;
+      const nodeById = (id) => DEMO_NODES.find((node) => node?.id === id);
       const statusText = (status) => t('guide.demo.nodeStatus.' + status);
       const inspectorValue = (labelKey, value) => h(
         'div',
@@ -6820,13 +6820,13 @@ window.__ModuleLoader__.load({
               present.map((node) => h(
                 'button',
                 {
-                  key: node.id,
+                  key: node?.id,
                   type: 'button',
-                  className: 'rl-demo-rail-row' + (node.id === selectedNode.id ? ' rl-demo-rail-row-active' : ''),
-                  onClick: () => setSelected(node.id),
+                  className: 'rl-demo-rail-row' + (node?.id === selectedNode.id ? ' rl-demo-rail-row-active' : ''),
+                  onClick: () => setSelected(node?.id),
                 },
-                h('span', { className: 'rl-demo-rail-dot rl-demo-node-' + current.statuses[node.id] }),
-                h('span', null, t(node.label)),
+                h('span', { className: 'rl-demo-rail-dot rl-demo-node-' + current.statuses[node?.id] }),
+                h('span', null, t(node?.label)),
               )),
             ),
             h(
@@ -6845,14 +6845,14 @@ window.__ModuleLoader__.load({
               present.map((node) => h(
                 'button',
                 {
-                  key: node.id,
+                  key: node?.id,
                   type: 'button',
-                  className: 'rl-demo-node rl-demo-node-' + current.statuses[node.id] + (node.id === selectedNode.id ? ' rl-demo-node-selected' : ''),
-                  style: { left: node.x + '%', top: node.y + '%' },
-                  onClick: () => setSelected(node.id),
+                  className: 'rl-demo-node rl-demo-node-' + current.statuses[node?.id] + (node?.id === selectedNode.id ? ' rl-demo-node-selected' : ''),
+                  style: { left: node?.x + '%', top: node?.y + '%' },
+                  onClick: () => setSelected(node?.id),
                 },
-                h('span', { className: 'rl-demo-node-title' }, t(node.label)),
-                h('span', { className: 'rl-demo-node-status' }, statusText(current.statuses[node.id])),
+                h('span', { className: 'rl-demo-node-title' }, t(node?.label)),
+                h('span', { className: 'rl-demo-node-status' }, statusText(current.statuses[node?.id])),
               )),
               traceOpen ? tracePanel : null,
             ),
@@ -6925,30 +6925,30 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
         const onKeyDown = (event) => {
-          if (event.key === 'Escape') onClose();
-          else if (event.key === 'ArrowRight') setIndex((value) => Math.min(total - 1, value + 1));
-          else if (event.key === 'ArrowLeft') setIndex((value) => Math.max(0, value - 1));
+          if (event?.key === 'Escape') onClose();
+          else if (event?.key === 'ArrowRight') setIndex((value) => Math.min(total - 1, value + 1));
+          else if (event?.key === 'ArrowLeft') setIndex((value) => Math.max(0, value - 1));
         };
         document.addEventListener('keydown', onKeyDown);
         return () => document.removeEventListener('keydown', onKeyDown);
       }, [onClose, total]);
       const onMouseDown = (event) => {
-        if (event.button === 0) mouseXRef.current = event.clientX;
+        if (event?.button === 0) mouseXRef.current = event?.clientX;
       };
       const onMouseUp = (event) => {
         if (mouseXRef.current === null) return;
-        const delta = event.clientX - mouseXRef.current;
+        const delta = event?.clientX - mouseXRef.current;
         mouseXRef.current = null;
         if (Math.abs(delta) <= 40) return;
         if (delta < 0) go(index + 1);
         else go(index - 1);
       };
       const onTouchStart = (event) => {
-        if (event.touches && event.touches.length > 0) touchXRef.current = event.touches[0].clientX;
+        if (event?.touches && event?.touches.length > 0) touchXRef.current = event?.touches[0].clientX;
       };
       const onTouchEnd = (event) => {
-        if (touchXRef.current === null || !event.changedTouches || event.changedTouches.length === 0) return;
-        const delta = event.changedTouches[0].clientX - touchXRef.current;
+        if (touchXRef.current === null || !event?.changedTouches || event?.changedTouches.length === 0) return;
+        const delta = event?.changedTouches[0].clientX - touchXRef.current;
         touchXRef.current = null;
         if (delta <= -40) go(index + 1);
         else if (delta >= 40) go(index - 1);
@@ -6999,7 +6999,7 @@ window.__ModuleLoader__.load({
               GUIDE_PAGE_KEYS.map((entry, dotIndex) => h(
                 'button',
                 {
-                  key: entry.visual,
+                  key: entry?.visual,
                   type: 'button',
                   className: 'rl-guide-dot' + (dotIndex === index ? ' rl-guide-dot-active' : ''),
                   'aria-label': t('guide.page', { current: dotIndex + 1, total }),
@@ -7035,7 +7035,7 @@ window.__ModuleLoader__.load({
         if (!createOpen && !intakeOpen) return undefined;
         if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
         const onKeyDown = (event) => {
-          if (event.key === 'Escape') {
+          if (event?.key === 'Escape') {
             setCreateOpen(false);
             setIntakeOpen(false);
           }
@@ -7267,8 +7267,8 @@ window.__ModuleLoader__.load({
       const repoPath = projectRepoPath(record);
       const branch = projectBranch(record);
       const commit = shortCommit(projectBaseCommit(record));
-      const mode = record.mode === 'auto' ? 'auto' : 'manual';
-      const count = finiteNumber(record.nodeCount);
+      const mode = record?.mode === 'auto' ? 'auto' : 'manual';
+      const count = finiteNumber(record?.nodeCount);
       return h(
         'div',
         { className: 'rl-project-row-wrap' },
@@ -7298,7 +7298,7 @@ window.__ModuleLoader__.load({
           h(
             'span',
             { className: 'rl-project-side' },
-            h('span', null, formatDateTime(record.updatedAt, t)),
+            h('span', null, formatDateTime(record?.updatedAt, t)),
             h('span', { className: 'rl-project-open' }, t('landing.projects.open') + ' →'),
           ),
         ),
@@ -7310,7 +7310,7 @@ window.__ModuleLoader__.load({
             title: t('landing.delete'),
             'aria-label': t('landing.delete') + ': ' + name,
             onClick: (event) => {
-              event.stopPropagation();
+              event?.stopPropagation();
               if (typeof onDelete === 'function') onDelete(project);
             },
           },
@@ -7373,7 +7373,7 @@ window.__ModuleLoader__.load({
         if (typeof value === 'string' && value.trim() === '') continue;
         setProjectFormPath(payload, field.path, value);
       }
-      if (!payload.config || typeof payload.config !== 'object') payload.config = {};
+      if (!payload?.config || typeof payload?.config !== 'object') payload.config = {};
       return payload;
     }
 
@@ -7508,8 +7508,8 @@ window.__ModuleLoader__.load({
           });
           const response = await api.createProject(payload, controller.signal, t);
           const record = asObject(response);
-          const project = record.project !== null && typeof record.project === 'object' ? record.project : null;
-          const createdId = project !== null ? projectIdOf(project) : firstString(record.projectId, record.id);
+          const project = record?.project !== null && typeof record?.project === 'object' ? record?.project : null;
+          const createdId = project !== null ? projectIdOf(project) : firstString(record?.projectId, record?.id);
           if (!createdId) {
             setCreateError(t('wizard.error.noProject'));
             setCreatePhase('idle');
@@ -7543,7 +7543,7 @@ window.__ModuleLoader__.load({
         const value = values[field.id] === undefined || values[field.id] === null ? '' : values[field.id];
         const hint = field.help || '';
         const onChange = (event) => {
-          setValue(field.id, event.target.value);
+          setValue(field.id, event?.target.value);
           if (field.id === 'name') setNameTouched(true);
         };
         if (field.type === 'textarea') {
@@ -7601,7 +7601,7 @@ window.__ModuleLoader__.load({
                 placeholder: t('wizard.repoPath.placeholder'),
                 ariaLabel: t('wizard.repoPath'),
                 onChange: (event) => {
-                  setValue('repoPath', event.target.value);
+                  setValue('repoPath', event?.target.value);
                   if (repoPhase !== 'idle') setRepoPhase('idle');
                   if (repoInfo !== null) setRepoInfo(null);
                   if (repoError) setRepoError('');
@@ -7645,7 +7645,7 @@ window.__ModuleLoader__.load({
                         value: values.baseBranch === undefined || values.baseBranch === null ? '' : values.baseBranch,
                         options: branchOptions,
                         ariaLabel: t('wizard.repo.baseBranch'),
-                        onChange: (event) => setValue('baseBranch', event.target.value),
+                        onChange: (event) => setValue('baseBranch', event?.target.value),
                       }),
                     )
                   : null,
@@ -7675,13 +7675,13 @@ window.__ModuleLoader__.load({
                     value: pool.key,
                     placeholder: t('wizard.pool.key'),
                     ariaLabel: t('wizard.pool.key'),
-                    onChange: (event) => updatePool(pool.id, 'key', event.target.value),
+                    onChange: (event) => updatePool(pool.id, 'key', event?.target.value),
                   }),
                   h(LabInput, {
                     type: 'number',
                     value: pool.value,
                     ariaLabel: t('wizard.pool.value'),
-                    onChange: (event) => updatePool(pool.id, 'value', event.target.value),
+                    onChange: (event) => updatePool(pool.id, 'value', event?.target.value),
                   }),
                   h(LabButton, {
                     label: '✕',
@@ -7747,11 +7747,11 @@ window.__ModuleLoader__.load({
             const data = await api.command({ type: 'project.intake_start', schema: projectFormSchema(t) }, undefined, t);
             if (!alive) return;
             const record = asObject(data);
-            setIntakeId(firstString(record.intakeId));
-            if (record.schema && typeof record.schema === 'object') setSchema(record.schema);
-            setValues(asObject(record.values));
-            setMissing(asArray(record.missing));
-            setMessages(asArray(record.messages));
+            setIntakeId(firstString(record?.intakeId));
+            if (record?.schema && typeof record?.schema === 'object') setSchema(record?.schema);
+            setValues(asObject(record?.values));
+            setMissing(asArray(record?.missing));
+            setMessages(asArray(record?.messages));
             setPhase('ready');
           } catch (startError) {
             if (!alive) return;
@@ -7764,8 +7764,8 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         const node = bottomRef.current;
-        if (node !== null && node !== undefined && typeof node.scrollIntoView === 'function') {
-          try { node.scrollIntoView({ block: 'end' }); } catch { /* ignore */ }
+        if (node !== null && node !== undefined && typeof node?.scrollIntoView === 'function') {
+          try { node?.scrollIntoView({ block: 'end' }); } catch { /* ignore */ }
         }
       }, [messages, busy]);
 
@@ -7786,9 +7786,9 @@ window.__ModuleLoader__.load({
         try {
           const data = await api.command({ type: 'project.intake_message', intakeId, text: message }, undefined, t);
           const record = asObject(data);
-          if (Array.isArray(record.messages)) setMessages(asArray(record.messages));
-          setValues(asObject(record.values));
-          setMissing(asArray(record.missing));
+          if (Array.isArray(record?.messages)) setMessages(asArray(record?.messages));
+          setValues(asObject(record?.values));
+          setMissing(asArray(record?.missing));
         } catch (sendError) {
           setError(describeError(sendError, t));
         } finally {
@@ -7803,8 +7803,8 @@ window.__ModuleLoader__.load({
         try {
           const data = await api.command({ type: 'project.intake_confirm', intakeId, start: true }, undefined, t);
           const record = asObject(data);
-          const project = asObject(record.project);
-          const createdId = projectIdOf(project) || firstString(record.projectId);
+          const project = asObject(record?.project);
+          const createdId = projectIdOf(project) || firstString(record?.projectId);
           if (createdId === '') {
             setCreateError(t('wizard.error.noProject'));
             setCreating(false);
@@ -7884,7 +7884,7 @@ window.__ModuleLoader__.load({
                   placeholder: t('intake.placeholder'),
                   ariaLabel: t('intake.placeholder'),
                   disabled: phase !== 'ready' || busy || creating,
-                  onChange: (event) => setText(event.target.value),
+                  onChange: (event) => setText(event?.target.value),
                 }),
                 h(
                   'div',
@@ -7995,7 +7995,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** Follow-up composer: sends node.message; history stays in the native DSH view. */
+    /** Follow-up composer: sends node?.message; history stays in the native DSH view. */
     function ContinueDialog({ node, nodes, resources, onClose, onSend, t }) {
       const [draft, setDraft] = React.useState('');
       const [sending, setSending] = React.useState(false);
@@ -8006,8 +8006,8 @@ window.__ModuleLoader__.load({
       const needs = nodeNeedsEntries(node);
       const free = freeResourcesOf(resources);
       const needsText = needsSummaryOf(nodeNeedsOf(node));
-      const freeText = needs.map((entry) => entry.key + '×' + numberOr(free[entry.key], 0)).join(', ');
-      const insufficient = needs.some((entry) => numberOr(free[entry.key], 0) < entry.amount);
+      const freeText = needs.map((entry) => entry?.key + '×' + numberOr(free[entry?.key], 0)).join(', ');
+      const insufficient = needs.some((entry) => numberOr(free[entry?.key], 0) < entry?.amount);
       const send = async () => {
         if (!canContinue || sending) return;
         const text = draft.trim();
@@ -8017,11 +8017,11 @@ window.__ModuleLoader__.load({
         setSuccess(false);
         const result = await onSend(text);
         setSending(false);
-        if (result !== null && result !== undefined && result.ok === true) {
+        if (result !== null && result !== undefined && result?.ok === true) {
           setDraft('');
           setSuccess(true);
         } else {
-          setError(result && result.error ? result.error : t('ws.native.continueError'));
+          setError(result && result?.error ? result?.error : t('ws.native.continueError'));
         }
       };
       return h(
@@ -8059,13 +8059,13 @@ window.__ModuleLoader__.load({
                   ariaLabel: t('ws.native.continuePlaceholder'),
                   placeholder: t('ws.native.continuePlaceholder'),
                   onChange: (event) => {
-                    setDraft(event.target.value);
+                    setDraft(event?.target.value);
                     setError('');
                     setSuccess(false);
                   },
                   onKeyDown: (event) => {
-                    if (event.key === 'Enter' && (event.metaKey === true || event.ctrlKey === true)) {
-                      event.preventDefault();
+                    if (event?.key === 'Enter' && (event?.metaKey === true || event?.ctrlKey === true)) {
+                      event?.preventDefault();
                       void send();
                     }
                   },
@@ -8094,54 +8094,54 @@ window.__ModuleLoader__.load({
       const data = asObject(event?.data);
       const type = firstString(event?.type);
       if (type === 'run/started') {
-        return 'run/started · ' + firstString(data.profile) + ' · ' + firstString(data.driver) + (data.model ? ' · ' + firstString(data.model) : '');
+        return 'run/started · ' + firstString(data?.profile) + ' · ' + firstString(data?.driver) + (data?.model ? ' · ' + firstString(data?.model) : '');
       }
-      if (type === 'run/completed') return 'run/completed' + (data.threadId ? ' · thread ' + firstString(data.threadId) : '');
-      if (type === 'run/failed') return 'run/failed · ' + firstString(data.message);
+      if (type === 'run/completed') return 'run/completed' + (data?.threadId ? ' · thread ' + firstString(data?.threadId) : '');
+      if (type === 'run/failed') return 'run/failed · ' + firstString(data?.message);
       if (type === 'run/cancelled') return 'run/cancelled';
-      const item = asObject(data.item);
-      const itemType = firstString(item.type);
+      const item = asObject(data?.item);
+      const itemType = firstString(item?.type);
       if (itemType === 'command_execution') {
-        return 'command · ' + firstString(item.command) + (item.aggregated_output ? '\n' + firstString(item.aggregated_output).slice(0, 4000) : '');
+        return 'command · ' + firstString(item?.command) + (item?.aggregated_output ? '\n' + firstString(item?.aggregated_output).slice(0, 4000) : '');
       }
-      if (itemType === 'agent_message') return 'agent · ' + firstString(item.text);
-      if (itemType === 'reasoning') return 'reasoning · ' + firstString(item.text);
+      if (itemType === 'agent_message') return 'agent · ' + firstString(item?.text);
+      if (itemType === 'reasoning') return 'reasoning · ' + firstString(item?.text);
       if (itemType === 'file_change') {
-        const changes = asArray(item.changes).map((change) => firstString(asObject(change).path)).filter(Boolean);
+        const changes = asArray(item?.changes).map((change) => firstString(asObject(change).path)).filter(Boolean);
         return 'file_change · ' + changes.join(', ');
       }
-      if (itemType === 'mcp_tool_call') return 'mcp · ' + firstString(item.server) + '/' + firstString(item.tool);
-      if (itemType === 'web_search') return 'web_search · ' + firstString(item.query);
-      if (itemType === 'todo_list') return 'todo_list · ' + asArray(item.items).length + ' items';
-      if (itemType === 'error') return 'error · ' + firstString(item.message);
+      if (itemType === 'mcp_tool_call') return 'mcp · ' + firstString(item?.server) + '/' + firstString(item?.tool);
+      if (itemType === 'web_search') return 'web_search · ' + firstString(item?.query);
+      if (itemType === 'todo_list') return 'todo_list · ' + asArray(item?.items).length + ' items';
+      if (itemType === 'error') return 'error · ' + firstString(item?.message);
       try { return type + ' · ' + JSON.stringify(data).slice(0, 1200); } catch { return type; }
     }
 
     /** Live/persisted trace of one external execution run. */
     function ExecutionTraceSection({ node, t }) {
-      const run = asObject(node.executionRun);
-      const runId = firstString(run.runId);
+      const run = asObject(node?.executionRun);
+      const runId = firstString(run?.runId);
       const [events, setEvents] = React.useState([]);
-      const [running, setRunning] = React.useState(run.status === 'running');
+      const [running, setRunning] = React.useState(run?.status === 'running');
       const [error, setError] = React.useState('');
       React.useEffect(() => {
         if (runId === '') return undefined;
         setEvents([]);
-        setRunning(run.status === 'running');
+        setRunning(run?.status === 'running');
         setError('');
         let cancelled = false;
         let after = 0;
         let timer = null;
         const tick = async () => {
           try {
-            const data = await api.fetchExecution(node.projectId, node.id, after, undefined, t);
+            const data = await api.fetchExecution(node?.projectId, node?.id, after, undefined, t);
             if (cancelled) return;
-            after = Number.isFinite(Number(data.next)) ? Number(data.next) : after;
-            const incoming = asArray(data.events);
+            after = Number.isFinite(Number(data?.next)) ? Number(data?.next) : after;
+            const incoming = asArray(data?.events);
             if (incoming.length > 0) setEvents((previous) => [...previous, ...incoming].slice(-300));
-            setRunning(data.running === true);
+            setRunning(data?.running === true);
             setError('');
-            if (data.running === true) timer = setTimeout(tick, 1200);
+            if (data?.running === true) timer = setTimeout(tick, 1200);
           } catch (reason) {
             if (cancelled) return;
             setError(describeError(reason, t));
@@ -8152,16 +8152,16 @@ window.__ModuleLoader__.load({
           cancelled = true;
           if (timer !== null) clearTimeout(timer);
         };
-      }, [runId, node.projectId, node.id, t]);
+      }, [runId, node?.projectId, node?.id, t]);
       if (runId === '') return null;
       return h(
         'div',
         { className: 'rl-section' },
         h('h3', { className: 'rl-section-title' }, t('ws.execution.title')),
         h('p', { className: 'rl-hint' }, t('ws.execution.hint')),
-        h(LabInfoRow, { label: t('ws.execution.profile'), value: firstString(run.profile) || '—', mono: true }),
-        h(LabInfoRow, { label: t('ws.execution.driver'), value: firstString(run.driver) || '—', mono: true }),
-        h(LabInfoRow, { label: t('ws.execution.model'), value: firstString(run.model) || 'native', mono: true }),
+        h(LabInfoRow, { label: t('ws.execution.profile'), value: firstString(run?.profile) || '—', mono: true }),
+        h(LabInfoRow, { label: t('ws.execution.driver'), value: firstString(run?.driver) || '—', mono: true }),
+        h(LabInfoRow, { label: t('ws.execution.model'), value: firstString(run?.model) || 'native', mono: true }),
         h('span', { className: 'rl-chip' }, running ? t('ws.execution.running') : t('ws.execution.done')),
         error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, t('ws.execution.error') + ': ' + error) : null,
         events.length === 0
@@ -8171,9 +8171,9 @@ window.__ModuleLoader__.load({
               { className: 'rl-execution-events' },
               events.map((event) => h(
                 'div',
-                { key: String(event.seq), className: 'rl-execution-event' },
-                h('span', { className: 'rl-execution-seq' }, '#' + String(event.seq)),
-                h('span', { className: 'rl-execution-type' }, firstString(event.type)),
+                { key: String(event?.seq), className: 'rl-execution-event' },
+                h('span', { className: 'rl-execution-seq' }, '#' + String(event?.seq)),
+                h('span', { className: 'rl-execution-type' }, firstString(event?.type)),
                 h('pre', { className: 'rl-execution-text' }, executionEventText(event)),
               )),
             ),
@@ -8326,10 +8326,10 @@ window.__ModuleLoader__.load({
       const w = Number.isFinite(Number(layout.w)) ? Number(layout.w) : 280;
       const height = Number.isFinite(Number(layout.h)) ? Number(layout.h) : 160;
       const onPointerDown = (event) => {
-        if (event.button !== undefined && event.button !== 0) return;
-        event.preventDefault();
-        const startX = event.clientX;
-        const startY = event.clientY;
+        if (event?.button !== undefined && event?.button !== 0) return;
+        event?.preventDefault();
+        const startX = event?.clientX;
+        const startY = event?.clientY;
         const origin = { x, y };
         setDragging({ x, y });
         const snappedPosition = (eventX, eventY) => {
@@ -8357,11 +8357,11 @@ window.__ModuleLoader__.load({
         document.addEventListener('pointerup', up, { once: true });
       };
       const onResizePointerDown = (event) => {
-        if (event.button !== undefined && event.button !== 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const startX = event.clientX;
-        const startY = event.clientY;
+        if (event?.button !== undefined && event?.button !== 0) return;
+        event?.preventDefault();
+        event?.stopPropagation();
+        const startX = event?.clientX;
+        const startY = event?.clientY;
         const origin = { w, h: height };
         setResizing(origin);
         const snappedSize = (eventX, eventY) => {
@@ -8392,7 +8392,7 @@ window.__ModuleLoader__.load({
       const heightNow = resizing?.h ?? height;
       const data = asObject(widget.data);
       const type = firstString(widget.type) || 'metric';
-      const status = firstString(data.status) || 'idle';
+      const status = firstString(data?.status) || 'idle';
       return h(
         'section',
         {
@@ -8414,8 +8414,8 @@ window.__ModuleLoader__.load({
             className: 'rl-dw-config',
             title: t('dashboard.configure'),
             'aria-label': t('dashboard.configure'),
-            onPointerDown: (event) => event.stopPropagation(),
-            onClick: (event) => { event.stopPropagation(); onConfigure(widget); },
+            onPointerDown: (event) => event?.stopPropagation(),
+            onClick: (event) => { event?.stopPropagation(); onConfigure(widget); },
           }, '⚙'),
           h('span', { className: 'rl-dw-type' }, type),
         ),
@@ -8426,18 +8426,18 @@ window.__ModuleLoader__.load({
             ? h(
                 'div',
                 { className: 'rl-dw-metric' },
-                h('span', { className: 'rl-dw-value rl-dw-' + status }, firstString(data.value) || '—'),
-                firstString(data.unit) ? h('span', { className: 'rl-dw-unit' }, firstString(data.unit)) : null,
-                firstString(data.detail) ? h('p', { className: 'rl-dw-detail' }, firstString(data.detail)) : null,
+                h('span', { className: 'rl-dw-value rl-dw-' + status }, firstString(data?.value) || '—'),
+                firstString(data?.unit) ? h('span', { className: 'rl-dw-unit' }, firstString(data?.unit)) : null,
+                firstString(data?.detail) ? h('p', { className: 'rl-dw-detail' }, firstString(data?.detail)) : null,
               )
             : type === 'text'
-              ? h('p', { className: 'rl-dw-text' }, firstString(data.body) || firstString(data.detail) || '—')
+              ? h('p', { className: 'rl-dw-text' }, firstString(data?.body) || firstString(data?.detail) || '—')
               : type === 'list'
-                ? (asArray(data.items).length > 0
-                    ? h('ul', { className: 'rl-dw-list' }, asArray(data.items).map((item, index) => h('li', { key: index }, String(item))))
+                ? (asArray(data?.items).length > 0
+                    ? h('ul', { className: 'rl-dw-list' }, asArray(data?.items).map((item, index) => h('li', { key: index }, String(item))))
                     : h('p', { className: 'rl-dw-text' }, '—'))
                 : type === 'chart'
-                  ? h(DashboardChart, { series: asArray(data.series), t })
+                  ? h(DashboardChart, { series: asArray(data?.series), t })
                   : h(
                     'div',
                     { className: 'rl-dw-activity' },
@@ -8467,7 +8467,7 @@ window.__ModuleLoader__.load({
         { className: 'rl-dw-mech-overlay', role: 'dialog', 'aria-modal': 'true', onClick: onClose },
         h(
           'div',
-          { className: 'rl-dw-mech', onClick: (event) => event.stopPropagation() },
+          { className: 'rl-dw-mech', onClick: (event) => event?.stopPropagation() },
           h('div', { className: 'rl-dw-mech-head' },
             h('span', { className: 'rl-dw-mech-title' }, firstString(widget.title) || 'Widget'),
             h(LabButton, { label: '✕', variant: 'ghost', title: t('dashboard.close'), onClick: onClose }),
@@ -8507,7 +8507,7 @@ window.__ModuleLoader__.load({
         try {
           const data = await api.fetchDashboard(projectId, undefined, t);
           setDashboard(data);
-          setWidgets(asArray(data.widgets));
+          setWidgets(asArray(data?.widgets));
           setError('');
         } catch (reason) {
           setError(describeError(reason, t));
@@ -8561,7 +8561,7 @@ window.__ModuleLoader__.load({
             ? {
                 ...previous,
                 chat: asArray(previous.chat).map((entry) => (
-                  entry && entry.pending ? { ...entry, pending: false, error: true, text: messageText } : entry
+                  entry && entry?.pending ? { ...entry, pending: false, error: true, text: messageText } : entry
                 )),
               }
             : previous);
@@ -8669,10 +8669,10 @@ window.__ModuleLoader__.load({
                 rows: 3,
                 placeholder: t('dashboard.chatPlaceholder'),
                 disabled: chatting,
-                onChange: (event) => setChatText(event.target.value),
+                onChange: (event) => setChatText(event?.target.value),
                 onKeyDown: (event) => {
-                  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                    event.preventDefault();
+                  if (event?.key === 'Enter' && (event?.metaKey || event?.ctrlKey)) {
+                    event?.preventDefault();
                     void sendChat();
                   }
                 },
@@ -8708,20 +8708,20 @@ window.__ModuleLoader__.load({
       const created = new Map();
       const status = new Map();
       for (const node of nodes) {
-        const stamps = asObject(node.timestamps);
-        const createdAt = Number(stamps.createdAt ?? node.createdAt ?? 0);
+        const stamps = asObject(node?.timestamps);
+        const createdAt = Number(stamps.createdAt ?? node?.createdAt ?? 0);
         if (createdAt > 0 && createdAt <= at) {
-          created.set(node.id, createdAt);
-          status.set(node.id, firstString(node.status) === 'proposed' ? 'proposed' : 'planned');
+          created.set(node?.id, createdAt);
+          status.set(node?.id, firstString(node?.status) === 'proposed' ? 'proposed' : 'planned');
         }
       }
       for (const event of events) {
-        if (Number(event.at) > at) continue;
-        const id = firstString(event.nodeId, asObject(event.data)?.nodeId);
+        if (Number(event?.at) > at) continue;
+        const id = firstString(event?.nodeId, asObject(event?.data)?.nodeId);
         if (!id) continue;
-        const type = firstString(event.type);
+        const type = firstString(event?.type);
         if (type === 'node/created' || type === 'node/proposed') {
-          if (!created.has(id)) created.set(id, Number(event.at) || 0);
+          if (!created.has(id)) created.set(id, Number(event?.at) || 0);
           status.set(id, type === 'node/proposed' ? 'proposed' : 'planned');
         } else if (type === 'node/approved' || type === 'node/retried' || type === 'node/escalated') {
           status.set(id, 'planned');
@@ -8738,9 +8738,9 @@ window.__ModuleLoader__.load({
       const visible = new Set();
       const resultNodes = [];
       for (const node of nodes) {
-        if (!created.has(node.id)) continue;
-        visible.add(node.id);
-        resultNodes.push({ ...node, status: status.get(node.id) || node.status });
+        if (!created.has(node?.id)) continue;
+        visible.add(node?.id);
+        resultNodes.push({ ...node, status: status.get(node?.id) || node?.status });
       }
       const resultEdges = edges.filter((edge) => visible.has(edge.from) && visible.has(edge.to));
       return { nodes: resultNodes, edges: resultEdges };
@@ -8772,7 +8772,7 @@ window.__ModuleLoader__.load({
           step: 1000,
           value: value - startAt,
           disabled: loading || error !== '',
-          onChange: (event) => onChange(startAt + Number(event.target.value)),
+          onChange: (event) => onChange(startAt + Number(event?.target.value)),
         }),
         h('span', { className: 'rl-replay-bound' }, new Date(endAt).toLocaleString()),
         h('span', { className: 'rl-replay-now' }, new Date(value).toLocaleString()),
@@ -8825,9 +8825,9 @@ window.__ModuleLoader__.load({
       const busyRef = React.useRef('');
       const stepBusyRef = React.useRef(false);
       const autoBusyRef = React.useRef(false);
-      const nodes = snapshot.nodes;
-      const edges = snapshot.edges;
-      const project = snapshot.project;
+      const nodes = snapshot?.nodes;
+      const edges = snapshot?.edges;
+      const project = snapshot?.project;
       const layout = React.useMemo(() => computeLayout(nodes, edges), [nodes, edges]);
       const runningCount = React.useMemo(
         () => nodes.filter((node) => nodeStatusOf(node) === 'running').length,
@@ -8837,7 +8837,7 @@ window.__ModuleLoader__.load({
         () => nodes.filter((node) => nodeStatusOf(node) === 'proposed').length,
         [nodes],
       );
-      const autoState = snapshot.auto;
+      const autoState = snapshot?.auto;
       const autoStatus = autoStatusOf(autoState);
       const now = useNow(runningCount > 0 || autoStatus === 'running');
       const modelCatalog = useModelCatalog(projectId, t);
@@ -8878,7 +8878,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
         const onKeyDown = (event) => {
-          if (event.key !== 'Escape') return;
+          if (event?.key !== 'Escape') return;
           if (confirmRequest !== null) {
             setConfirmRequest(null);
             return;
@@ -8994,12 +8994,12 @@ window.__ModuleLoader__.load({
         if (selectedNode === null) return { ok: false, error: t('ws.inspector.error') };
         try {
           const data = await api.command(
-            { type: 'node.edit', projectId, nodeId: nodeIdOf(selectedNode), ...patch },
+            { type: 'node?.edit', projectId, nodeId: nodeIdOf(selectedNode), ...patch },
             undefined,
             t,
           );
           applyCommandResult(data);
-          if (data !== null && typeof data === 'object' && data.node !== null && typeof data.node === 'object') setFullNode(data.node);
+          if (data !== null && typeof data === 'object' && data?.node !== null && typeof data?.node === 'object') setFullNode(data?.node);
           return { ok: true };
         } catch (error) {
           if (isAbortError(error)) return { ok: false, error: t('error.unknown') };
@@ -9047,7 +9047,7 @@ window.__ModuleLoader__.load({
           view === 'chat' ? 'chat' : 'trajectory',
           { projectId, nodeId: typeof nodeId === 'string' ? nodeId : '' },
         );
-        if (result === null || result === undefined || result.ok !== true) {
+        if (result === null || result === undefined || result?.ok !== true) {
           setActionError(t('ws.native.openFailed'));
         }
       }, [openNativeSession, projectId, t]);
@@ -9064,21 +9064,21 @@ window.__ModuleLoader__.load({
       }, [nodes, openSessionNative, t]);
       const openNodeFiles = React.useCallback(async (nodeId) => {
         if (busyRef.current !== '') return;
-        const key = 'node.files:' + nodeId;
+        const key = 'node?.files:' + nodeId;
         busyRef.current = key;
         setBusyKey(key);
         setActionError('');
         try {
           const data = await api.command(
-            { type: 'node.files', projectId, nodeId },
+            { type: 'node?.files', projectId, nodeId },
             undefined,
             t,
           );
-          const sessionId = firstString(data.sessionId);
+          const sessionId = firstString(data?.sessionId);
           if (sessionId === '') throw new Error(t('ws.files.failed'));
           if (typeof openNativeFiles !== 'function') throw new Error(t('ws.files.failed'));
           const result = openNativeFiles(sessionId, { projectId, nodeId });
-          if (result === null || result === undefined || result.ok !== true) {
+          if (result === null || result === undefined || result?.ok !== true) {
             throw new Error(t('ws.files.failed'));
           }
         } catch (error) {
@@ -9118,7 +9118,7 @@ window.__ModuleLoader__.load({
       }, [projectId]);
       const sendContinue = React.useCallback(async (text) => {
         if (continueNodeId === null) return { ok: false, error: t('error.unknown') };
-        return runNodeCommand('node.message', continueNodeId, { text });
+        return runNodeCommand('node?.message', continueNodeId, { text });
       }, [continueNodeId, runNodeCommand, t]);
 
       /** Manual Step: one advisor + scheduler cycle, then a summary or inline error. */
@@ -9130,10 +9130,10 @@ window.__ModuleLoader__.load({
         try {
           const data = await api.command({ type: 'project.step', projectId }, undefined, t);
           const result = asObject(data);
-          const created = idListOf(result.created).length;
-          const started = idListOf(result.started).length;
-          const skipped = asArray(result.skipped).length;
-          const errors = stringListOf(result.errors).length;
+          const created = idListOf(result?.created).length;
+          const started = idListOf(result?.started).length;
+          const skipped = asArray(result?.skipped).length;
+          const errors = stringListOf(result?.errors).length;
           const meta = [
             skipped > 0 ? t('ws.step.skipped', { count: skipped }) : '',
             errors > 0 ? t('ws.step.errors', { count: errors }) : '',
@@ -9164,14 +9164,14 @@ window.__ModuleLoader__.load({
         try {
           const data = await api.command(
             {
-              type: 'node.successor',
+              type: 'node?.successor',
               projectId,
               nodeId: payload?.nodeId,
-              title: payload.title,
-              prompt: payload.prompt,
-              needs: payload.needs,
-              successCriteria: payload.successCriteria,
-              timeboxMinutes: payload.timeboxMinutes,
+              title: payload?.title,
+              prompt: payload?.prompt,
+              needs: payload?.needs,
+              successCriteria: payload?.successCriteria,
+              timeboxMinutes: payload?.timeboxMinutes,
             },
             undefined,
             t,
@@ -9224,9 +9224,9 @@ window.__ModuleLoader__.load({
       }, [runAutoCommand]);
       const cancelAutoStart = React.useCallback(() => setAutoConfirmOpen(false), []);
       const switchToManual = React.useCallback(() => {
-        if (autoStatusOf(snapshot.auto) === 'off') return;
+        if (autoStatusOf(snapshot?.auto) === 'off') return;
         void runAutoCommand('auto.stop');
-      }, [runAutoCommand, snapshot.auto]);
+      }, [runAutoCommand, snapshot?.auto]);
       const stopAuto = React.useCallback(() => {
         void runAutoCommand('auto.stop');
       }, [runAutoCommand]);
@@ -9271,13 +9271,13 @@ window.__ModuleLoader__.load({
         const request = confirmRequest;
         if (request === null) return;
         setConfirmRequest(null);
-        if (request.kind === 'retry') {
-          void runNodeCommand('node.retry', request?.nodeId).then((result) => {
-            if (result !== null && result !== undefined && result.ok === true) reload();
+        if (request?.kind === 'retry') {
+          void runNodeCommand('node?.retry', request?.nodeId).then((result) => {
+            if (result !== null && result !== undefined && result?.ok === true) reload();
           });
           return;
         }
-        void runProposalAction(request?.kind === 'reject' ? 'node.reject' : 'node.approve', request?.nodeId);
+        void runProposalAction(request?.kind === 'reject' ? 'node?.reject' : 'node?.approve', request?.nodeId);
       }, [confirmRequest, reload, runNodeCommand, runProposalAction]);
       const cancelConfirm = React.useCallback(() => setConfirmRequest(null), []);
 
@@ -9346,12 +9346,12 @@ window.__ModuleLoader__.load({
         try {
           const data = await api.command(
             {
-              type: 'node.merge',
+              type: 'node?.merge',
               projectId,
-              parentIds: idListOf(payload.parentIds),
-              title: payload.title,
-              prompt: payload.prompt,
-              timeboxMinutes: payload.timeboxMinutes,
+              parentIds: idListOf(payload?.parentIds),
+              title: payload?.title,
+              prompt: payload?.prompt,
+              timeboxMinutes: payload?.timeboxMinutes,
             },
             undefined,
             t,
@@ -9376,7 +9376,7 @@ window.__ModuleLoader__.load({
         if (finishMergeNodeId === null) return { ok: false, error: t('ws.merge.finishError') };
         try {
           const data = await api.command(
-            { type: 'node.finish_merge', projectId, nodeId: finishMergeNodeId, ...(payload === undefined ? {} : payload) },
+            { type: 'node?.finish_merge', projectId, nodeId: finishMergeNodeId, ...(payload === undefined ? {} : payload) },
             undefined,
             t,
           );
@@ -9417,8 +9417,8 @@ window.__ModuleLoader__.load({
 
       /** Manual model escalation: new attempt with the next stronger tier. */
       const handleEscalate = React.useCallback(async (nodeId) => {
-        const result = await runNodeCommand('node.escalate', nodeId);
-        if (result !== null && result !== undefined && result.ok === true) reload();
+        const result = await runNodeCommand('node?.escalate', nodeId);
+        if (result !== null && result !== undefined && result?.ok === true) reload();
       }, [reload, runNodeCommand]);
 
       const openPush = React.useCallback(() => setPushOpen(true), []);
@@ -9449,7 +9449,7 @@ window.__ModuleLoader__.load({
         try {
           const data = await api.fetchReplayAll(projectId, undefined, t);
           setReplayData(data);
-          setReplayAt(Number(data.endAt) || Date.now());
+          setReplayAt(Number(data?.endAt) || Date.now());
         } catch (error) {
           setReplayError(describeError(error, t));
         } finally {
@@ -9480,7 +9480,7 @@ window.__ModuleLoader__.load({
       );
 
       let body;
-      if (snapshot.phase === 'ready') {
+      if (snapshot?.phase === 'ready') {
         const displayNodes = replayView !== null ? replayView.nodes : nodes;
         const displayEdges = replayView !== null ? replayView.edges : edges;
         const displayNow = replayView !== null ? replayAt : now;
@@ -9541,11 +9541,11 @@ window.__ModuleLoader__.load({
             onEscalate: handleEscalate,
             modelOptions,
             modelProviders,
-            clusterEnabled: clusterEnabledOf(snapshot.cluster),
+            clusterEnabled: clusterEnabledOf(snapshot?.cluster),
             t,
           }),
         );
-      } else if (snapshot.phase === 'error') {
+      } else if (snapshot?.phase === 'error') {
         body = h(
           'div',
           { className: 'rl-workspace-center' },
@@ -9553,7 +9553,7 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'rl-center-card' },
             h('h2', { className: 'rl-card-title' }, t('ws.loadError')),
-            h('p', { className: 'rl-hint' }, snapshot.error || t('error.unknown')),
+            h('p', { className: 'rl-hint' }, snapshot?.error || t('error.unknown')),
             h('p', { className: 'rl-hint' }, t('ws.loadingHint')),
             h(LabButton, { label: t('common.retry'), onClick: retry }),
           ),
@@ -9568,13 +9568,13 @@ window.__ModuleLoader__.load({
         h(LabStyle),
         h(WorkspaceTopBar, {
           project,
-          resources: snapshot.resources,
-          revision: snapshot.revision,
+          resources: snapshot?.resources,
+          revision: snapshot?.revision,
           nodeCount: nodes.length,
           runningCount,
           stepBusy,
           auto: autoState,
-          pendingProposals: Math.max(pendingProposalsCount, Math.round(numberOr(snapshot.pendingProposals, 0))),
+          pendingProposals: Math.max(pendingProposalsCount, Math.round(numberOr(snapshot?.pendingProposals, 0))),
           autoBusy,
           onStep: runStep,
           onOpenRuns: () => openRuns(null),
@@ -9593,7 +9593,7 @@ window.__ModuleLoader__.load({
           onDeleteProject: requestDeleteProject,
           onPush: openPush,
           onOpenClusterConfig: openClusterConfig,
-          cluster: snapshot.cluster,
+          cluster: snapshot?.cluster,
           onOpenCluster: () => setClusterOpen(true),
           runs: runsFeed.state.runs,
           copilotOpen,
@@ -9639,7 +9639,7 @@ window.__ModuleLoader__.load({
           ? h(ContinueDialog, {
               node: continueNode,
               nodes,
-              resources: snapshot.resources,
+              resources: snapshot?.resources,
               onClose: closeContinue,
               onSend: sendContinue,
               t,
@@ -9682,7 +9682,7 @@ window.__ModuleLoader__.load({
               onClose: closeSettings,
               onSave: saveProjectConfig,
               onSavePlacementPolicy: savePlacementPolicy,
-              cluster: snapshot.cluster,
+              cluster: snapshot?.cluster,
               catalogProviders: modelProviders,
               promptDefaults,
               promptPlaceholders,
@@ -9736,26 +9736,26 @@ window.__ModuleLoader__.load({
           : null,
         confirmRequest !== null
           ? h(ConfirmDialog, {
-              title: confirmRequest.kind === 'approve'
+              title: confirmRequest?.kind === 'approve'
                 ? t('ws.confirm.approveTitle')
-                : confirmRequest.kind === 'reject'
+                : confirmRequest?.kind === 'reject'
                   ? t('ws.confirm.rejectTitle')
                   : (confirmRequest?.kind === 'retry' && nodes.some((node) => nodeIdOf(node) === confirmRequest?.nodeId && nodeStatusOf(node) === 'cancelled'))
                     ? t('ws.retry.cancelledConfirmTitle')
                     : t('ws.retry.confirmTitle'),
-              body: confirmRequest.kind === 'approve'
+              body: confirmRequest?.kind === 'approve'
                 ? t('ws.confirm.approveBody')
-                : confirmRequest.kind === 'reject'
+                : confirmRequest?.kind === 'reject'
                   ? t('ws.confirm.rejectBody')
                   : (confirmRequest?.kind === 'retry' && nodes.some((node) => nodeIdOf(node) === confirmRequest?.nodeId && nodeStatusOf(node) === 'cancelled'))
                     ? t('ws.retry.cancelledConfirmBody')
                     : t('ws.retry.confirmBody'),
-              confirmLabel: confirmRequest.kind === 'approve'
+              confirmLabel: confirmRequest?.kind === 'approve'
                 ? t('ws.confirm.approve')
-                : confirmRequest.kind === 'reject'
+                : confirmRequest?.kind === 'reject'
                   ? t('ws.confirm.reject')
                   : t('ws.retry.confirm'),
-              danger: confirmRequest.kind === 'reject',
+              danger: confirmRequest?.kind === 'reject',
               onConfirm: confirmProposal,
               onCancel: cancelConfirm,
               t,
@@ -9799,7 +9799,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
         const onKeyDown = (event) => {
-          if (event.key === 'Escape') onClose();
+          if (event?.key === 'Escape') onClose();
         };
         document.addEventListener('keydown', onKeyDown);
         return () => document.removeEventListener('keydown', onKeyDown);
@@ -9817,19 +9817,19 @@ window.__ModuleLoader__.load({
         (async () => {
           try {
             const body = { type: 'project.copilot', projectId };
-            if (firstString(request.sessionId) !== '') body.sessionId = firstString(request.sessionId);
-            if (request.create === true) body.create = true;
+            if (firstString(request?.sessionId) !== '') body.sessionId = firstString(request?.sessionId);
+            if (request?.create === true) body.create = true;
             const data = await api.command(body, undefined, t);
             if (!alive) return;
             const record = asObject(data);
-            const id = firstString(record.sessionId);
-            const isReused = record.reused === true;
-            const parent = firstString(record.parentSessionId);
-            const list = asArray(record.sessions)
-              .filter((entry) => entry !== null && typeof entry === 'object' && firstString(entry.id) !== '' && entry.private !== false)
+            const id = firstString(record?.sessionId);
+            const isReused = record?.reused === true;
+            const parent = firstString(record?.parentSessionId);
+            const list = asArray(record?.sessions)
+              .filter((entry) => entry !== null && typeof entry === 'object' && firstString(entry?.id) !== '' && entry?.private !== false)
               .map((entry) => ({
-                id: firstString(entry.id),
-                title: firstString(entry.title) || firstString(entry.id),
+                id: firstString(entry?.id),
+                title: firstString(entry?.title) || firstString(entry?.id),
               }));
             setSessions(list);
             setParentSessionId(parent);
@@ -9889,7 +9889,7 @@ window.__ModuleLoader__.load({
         setAttempt((value) => value + 1);
       };
       const currentSessionTitle = (() => {
-        for (const entry of sessions) if (entry.id === sessionId) return entry.title;
+        for (const entry of sessions) if (entry?.id === sessionId) return entry?.title;
         return '';
       })();
 
@@ -10008,9 +10008,9 @@ window.__ModuleLoader__.load({
               value: sessionId,
               ariaLabel: t('ws.copilot.sessionPicker'),
               options: sessions.length > 0
-                ? sessions.map((entry) => ({ value: entry.id, label: entry.title }))
+                ? sessions.map((entry) => ({ value: entry?.id, label: entry?.title }))
                 : [{ value: '', label: t('ws.copilot.noSessions') }],
-              onChange: (event) => switchCopilotSession(event.target.value),
+              onChange: (event) => switchCopilotSession(event?.target.value),
             }),
             h(LabButton, {
               label: t('ws.copilot.newSession'),
@@ -10149,9 +10149,9 @@ window.__ModuleLoader__.load({
               total: chip.total,
             }))),
           heldEntriesOf(resources).map((entry) =>
-            h('span', { key: 'held-' + entry.key, className: 'rl-chip' }, t('ws.held', {
-              key: entry.key,
-              held: entry.held,
+            h('span', { key: 'held-' + entry?.key, className: 'rl-chip' }, t('ws.held', {
+              key: entry?.key,
+              held: entry?.held,
             }))),
           h('span', { className: 'rl-chip' }, t('ws.runningCount', { count: runningCount })),
           h('span', { className: 'rl-chip' }, t('ws.nodeCount', { count: nodeCount, max: maxNodes })),
@@ -10294,14 +10294,14 @@ window.__ModuleLoader__.load({
       const held = asObject(asObject(resources).held);
       return Object.keys(held)
         .map((key) => ({ key, held: numberOr(held[key], 0) }))
-        .filter((entry) => entry.held > 0);
+        .filter((entry) => entry?.held > 0);
     }
 
     /** `gpu free/total` chips, using state.resources with project config as fallback. */
     function resourceChips(resources, config) {
       const record = asObject(resources);
-      const pools = asObject(record.pools);
-      const free = asObject(record.free);
+      const pools = asObject(record?.pools);
+      const free = asObject(record?.free);
       const configured = asObject(config.resourcePools);
       const keys = {};
       for (const key of Object.keys(pools)) keys[key] = true;
@@ -10451,9 +10451,9 @@ window.__ModuleLoader__.load({
           className: 'rl-host-facts',
           role: 'status',
           'aria-live': 'polite',
-          onPointerDown: (event) => event.stopPropagation(),
-          onClick: (event) => event.stopPropagation(),
-          onWheel: (event) => event.stopPropagation(),
+          onPointerDown: (event) => event?.stopPropagation(),
+          onClick: (event) => event?.stopPropagation(),
+          onWheel: (event) => event?.stopPropagation(),
         },
         h(
           'div',
@@ -10506,25 +10506,25 @@ window.__ModuleLoader__.load({
      */
     // #region apply-change-delta
     function nodeIdOfLocal(node) {
-      return node !== null && typeof node === 'object' && typeof node.id === 'string' ? node.id : '';
+      return node !== null && typeof node === 'object' && typeof node?.id === 'string' ? node?.id : '';
     }
     function applyChangeDelta(snapshot, delta) {
       if (snapshot === null || typeof snapshot !== 'object') return null;
       if (delta === null || typeof delta !== 'object' || delta.full === true) return null;
       const removed = Array.isArray(delta.removed) ? delta.removed : [];
       const changed = Array.isArray(delta.changed) ? delta.changed : [];
-      const nodes = Array.isArray(snapshot.nodes) ? snapshot.nodes : [];
+      const nodes = Array.isArray(snapshot?.nodes) ? snapshot?.nodes : [];
       const index = new Map();
       for (const node of nodes) index.set(nodeIdOfLocal(node), node);
       for (const id of removed) if (!index.has(id)) return null;
       for (const row of changed) {
         if (row === null || typeof row !== 'object') return null;
-        const id = row.id;
+        const id = row?.id;
         if (typeof id !== 'string' || id === '') return null;
-        if (!index.has(id) && row.kind !== 'created') return null;
+        if (!index.has(id) && row?.kind !== 'created') return null;
       }
       const removedSet = new Set(removed);
-      const changedMap = new Map(changed.filter((row) => row && typeof row.id === 'string').map((row) => [row.id, row]));
+      const changedMap = new Map(changed.filter((row) => row && typeof row?.id === 'string').map((row) => [row?.id, row]));
       const nextNodes = [];
       for (const node of nodes) {
         const id = nodeIdOfLocal(node);
@@ -10534,19 +10534,19 @@ window.__ModuleLoader__.load({
         changedMap.delete(id);
         nextNodes.push({
           ...node,
-          status: typeof patch.status === 'string' ? patch.status : node.status,
-          rev: Number.isFinite(patch.rev) ? patch.rev : node.rev,
-          title: typeof patch.title === 'string' ? patch.title : node.title,
-          priority: patch.priority !== undefined ? patch.priority : node.priority,
-          timestamps: { ...(node.timestamps ?? {}), ...(Number.isFinite(patch.updatedAt) ? { updatedAt: patch.updatedAt } : {}) },
+          status: typeof patch.status === 'string' ? patch.status : node?.status,
+          rev: Number.isFinite(patch.rev) ? patch.rev : node?.rev,
+          title: typeof patch.title === 'string' ? patch.title : node?.title,
+          priority: patch.priority !== undefined ? patch.priority : node?.priority,
+          timestamps: { ...(node?.timestamps ?? {}), ...(Number.isFinite(patch.updatedAt) ? { updatedAt: patch.updatedAt } : {}) },
           _delta: true,
         });
       }
       // A created row we already knew is a no-op; an id we never saw is fine to
       // append only when the row carries enough to render (title/status).
       for (const row of changedMap.values()) {
-        if (row.kind !== 'created' || typeof row.title !== 'string' || typeof row.status !== 'string') return null;
-        nextNodes.push({ id: row.id, title: row.title, status: row.status, rev: row.rev, priority: row.priority, timestamps: { updatedAt: row.updatedAt }, _delta: true });
+        if (row?.kind !== 'created' || typeof row?.title !== 'string' || typeof row?.status !== 'string') return null;
+        nextNodes.push({ id: row?.id, title: row?.title, status: row?.status, rev: row?.rev, priority: row?.priority, timestamps: { updatedAt: row?.updatedAt }, _delta: true });
       }
       return { ...snapshot, nodes: nextNodes };
     }
@@ -10582,7 +10582,7 @@ window.__ModuleLoader__.load({
           })
           .sort((a, b) => a.distance - b.distance)
           .slice(0, maxRendered)
-          .map((entry) => entry.node);
+          .map((entry) => entry?.node);
       }
       const ids = new Set(rendered.map((node) => idOf(node)));
       return {
@@ -10675,12 +10675,12 @@ window.__ModuleLoader__.load({
         const viewport = viewportRef.current;
         if (!viewport || typeof viewport.addEventListener !== 'function') return undefined;
         const onWheel = (event) => {
-          if (typeof event.preventDefault === 'function') event.preventDefault();
+          if (typeof event?.preventDefault === 'function') event?.preventDefault();
           const rect = viewport.getBoundingClientRect();
-          const pointerX = event.clientX - rect.left;
-          const pointerY = event.clientY - rect.top;
+          const pointerX = event?.clientX - rect.left;
+          const pointerY = event?.clientY - rect.top;
           const current = zoomRef.current;
-          const next = clampZoom(current * Math.exp(-event.deltaY * 0.0015));
+          const next = clampZoom(current * Math.exp(-event?.deltaY * 0.0015));
           if (next === current) return;
           const ratio = next / current;
           setPan((previous) => ({
@@ -10711,19 +10711,19 @@ window.__ModuleLoader__.load({
       };
 
       const onPointerDown = (event) => {
-        if (event.button !== 0) return;
-        const target = event.target;
-        if (target && typeof target.closest === 'function' && target.closest('.rl-node') !== null) return;
+        if (event?.button !== 0) return;
+        const target = event?.target;
+        if (target && typeof target?.closest === 'function' && target?.closest('.rl-node') !== null) return;
         dragRef.current = {
-          startX: event.clientX,
-          startY: event.clientY,
+          startX: event?.clientX,
+          startY: event?.clientY,
           panX: panRef.current.x,
           panY: panRef.current.y,
         };
         movedRef.current = 0;
         setDragging(true);
         try {
-          event.currentTarget.setPointerCapture(event.pointerId);
+          event?.currentTarget.setPointerCapture(event?.pointerId);
         } catch (error) {
           /* pointer capture is best effort */
         }
@@ -10731,8 +10731,8 @@ window.__ModuleLoader__.load({
       const onPointerMove = (event) => {
         const drag = dragRef.current;
         if (drag === null) return;
-        const dx = event.clientX - drag.startX;
-        const dy = event.clientY - drag.startY;
+        const dx = event?.clientX - drag.startX;
+        const dy = event?.clientY - drag.startY;
         movedRef.current = Math.max(movedRef.current, Math.abs(dx) + Math.abs(dy));
         setPan({ x: drag.panX + dx, y: drag.panY + dy });
       };
@@ -10741,8 +10741,8 @@ window.__ModuleLoader__.load({
         dragRef.current = null;
         setDragging(false);
         try {
-          if (event.currentTarget.hasPointerCapture && event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId);
+          if (event?.currentTarget.hasPointerCapture && event?.currentTarget.hasPointerCapture(event?.pointerId)) {
+            event?.currentTarget.releasePointerCapture(event?.pointerId);
           }
         } catch (error) {
           /* ignore */
@@ -10753,8 +10753,8 @@ window.__ModuleLoader__.load({
           movedRef.current = 0;
           return;
         }
-        const target = event.target;
-        if (target && typeof target.closest === 'function' && target.closest('.rl-node') !== null) return;
+        const target = event?.target;
+        if (target && typeof target?.closest === 'function' && target?.closest('.rl-node') !== null) return;
         onSelect(null);
       };
 
@@ -10848,10 +10848,10 @@ window.__ModuleLoader__.load({
         nodes.length > 0 ? h('div', { className: 'rl-canvas-hint' }, t('ws.canvas.hint')) : null,
         replayFooter ? h('div', {
           className: 'rl-canvas-replay',
-          onPointerDown: (event) => event.stopPropagation(),
-          onPointerMove: (event) => event.stopPropagation(),
-          onPointerUp: (event) => event.stopPropagation(),
-          onClick: (event) => event.stopPropagation(),
+          onPointerDown: (event) => event?.stopPropagation(),
+          onPointerMove: (event) => event?.stopPropagation(),
+          onPointerUp: (event) => event?.stopPropagation(),
+          onClick: (event) => event?.stopPropagation(),
         }, replayFooter) : null,
       );
     }
@@ -10906,9 +10906,9 @@ window.__ModuleLoader__.load({
       const blocked = busy || wait !== null;
       const actions = [];
       if (status === 'planned') {
-        actions.push({ key: 'start', label: t('ws.action.start'), run: () => onNodeAction('node.start', id) });
+        actions.push({ key: 'start', label: t('ws.action.start'), run: () => onNodeAction('node?.start', id) });
       } else if (status === 'running') {
-        actions.push({ key: 'cancel', label: t('ws.action.cancel'), run: () => onNodeAction('node.cancel', id) });
+        actions.push({ key: 'cancel', label: t('ws.action.cancel'), run: () => onNodeAction('node?.cancel', id) });
         if (isMergeNode) actions.push({ key: 'continue', label: t('ws.native.continue'), run: () => onContinue(id) });
       } else if (status === 'completed' && isLeaf === true) {
         actions.push({
@@ -10935,7 +10935,7 @@ window.__ModuleLoader__.load({
             key: 'priority-raise',
             label: t('ws.priority.raise'),
             title: t('ws.priority.current', { class: currentClass }),
-            run: () => onNodeAction('node.priority', id, { priority: { class: nodePriorityTargetOf(node, 'raise') } }),
+            run: () => onNodeAction('node?.priority', id, { priority: { class: nodePriorityTargetOf(node, 'raise') } }),
           });
         }
         if (currentClass !== 'deferred') {
@@ -10943,7 +10943,7 @@ window.__ModuleLoader__.load({
             key: 'priority-lower',
             label: t('ws.priority.lower'),
             title: t('ws.priority.current', { class: currentClass }),
-            run: () => onNodeAction('node.priority', id, { priority: { class: nodePriorityTargetOf(node, 'lower') } }),
+            run: () => onNodeAction('node?.priority', id, { priority: { class: nodePriorityTargetOf(node, 'lower') } }),
           });
         }
       }
@@ -10963,16 +10963,16 @@ window.__ModuleLoader__.load({
           title,
           'aria-pressed': selected,
           onClick: (event) => {
-            event.stopPropagation();
+            event?.stopPropagation();
             onSelect(id);
           },
           onDoubleClick: (event) => {
-            event.stopPropagation();
+            event?.stopPropagation();
             onOpenNative(id, 'trajectory');
           },
           onKeyDown: (event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return;
-            event.preventDefault();
+            if (event?.key !== 'Enter' && event?.key !== ' ') return;
+            event?.preventDefault();
             onSelect(id);
           },
         },
@@ -10998,7 +10998,7 @@ window.__ModuleLoader__.load({
                     disabled: blocked,
                     title: blocked && wait !== null ? t('ws.cluster.waitHint') : action.label,
                     onClick: (event) => {
-                      event.stopPropagation();
+                      event?.stopPropagation();
                       action.run();
                     },
                   },
@@ -11018,7 +11018,7 @@ window.__ModuleLoader__.load({
           isMergeNode ? h('span', { className: 'rl-chip rl-chip-merge' }, t('ws.merge.badge')) : null,
           isMergeNode ? h('span', { className: 'rl-chip' }, t('ws.merge.parentCount', { count: nodeParentIdsOf(node).length })) : null,
           isFleet ? h('span', { className: 'rl-chip rl-chip-merge' }, nodeFleetBadgeTextOf(node, t)) : null,
-          needs.map((entry) => h('span', { key: entry.key, className: 'rl-chip' }, entry.key + '×' + entry.amount)),
+          needs.map((entry) => h('span', { key: entry?.key, className: 'rl-chip' }, entry?.key + '×' + entry?.amount)),
           status === 'running' && countdown !== null
             ? h(
                 'span',
@@ -11056,8 +11056,8 @@ window.__ModuleLoader__.load({
         setState({ status: 'loading', data: null, error: '' });
         try {
           const result = await api.fetchExplain(projectId, nodeId);
-          if (result === null || typeof result !== 'object' || result.ok === false) {
-            throw new Error(result !== null && typeof result === 'object' && typeof result.message === 'string' ? result.message : t('ws.explain.error'));
+          if (result === null || typeof result !== 'object' || result?.ok === false) {
+            throw new Error(result !== null && typeof result === 'object' && typeof result?.message === 'string' ? result?.message : t('ws.explain.error'));
           }
           setState({ status: 'ready', data: result, error: '' });
         } catch (error) {
@@ -11114,7 +11114,7 @@ window.__ModuleLoader__.load({
                         'li',
                         { key: 'cause-' + index },
                         h('span', { className: 'rl-explain-kind' }, atOrDash(entry, t)),
-                        h('span', { className: 'rl-explain-detail' }, firstString(entry.summary) || t('ws.explain.empty')),
+                        h('span', { className: 'rl-explain-detail' }, firstString(entry?.summary) || t('ws.explain.empty')),
                       )),
                     ),
                   )
@@ -11129,10 +11129,10 @@ window.__ModuleLoader__.load({
                       { className: 'rl-explain-list' },
                       events.slice(-10).reverse().map((event) => h(
                         'li',
-                        { key: 'ev-' + String(event.seq) },
-                        h('span', { className: 'rl-explain-kind' }, firstString(event.type) || ''),
-                        h('span', { className: 'rl-explain-time' }, formatDateTime(event.at, t)),
-                        h('span', { className: 'rl-explain-detail' }, firstString(event.detail) || ''),
+                        { key: 'ev-' + String(event?.seq) },
+                        h('span', { className: 'rl-explain-kind' }, firstString(event?.type) || ''),
+                        h('span', { className: 'rl-explain-time' }, formatDateTime(event?.at, t)),
+                        h('span', { className: 'rl-explain-detail' }, firstString(event?.detail) || ''),
                       )),
                     ),
                   )
@@ -11144,7 +11144,7 @@ window.__ModuleLoader__.load({
 
     function atOrDash(entry, t) {
       if (entry === null || typeof entry !== 'object') return t('ws.explain.older');
-      const at = finiteNumber(entry.at);
+      const at = finiteNumber(entry?.at);
       return at === null ? t('ws.explain.older') : formatDateTime(at, t);
     }
 
@@ -11204,7 +11204,7 @@ window.__ModuleLoader__.load({
       const held = nodeResourcesHeldOf(node);
       const heldEntries = Object.keys(held)
         .map((key) => ({ key, amount: numberOr(held[key], 0) }))
-        .filter((entry) => entry.amount > 0);
+        .filter((entry) => entry?.amount > 0);
       const sealedNode = nodeSealedFlagOf(node);
       const leafAndOpen = nodeIsLeafOf(node, nodes) && !sealedNode;
       const proposal = nodeProposalOf(node);
@@ -11237,11 +11237,11 @@ window.__ModuleLoader__.load({
         setSaveError('');
         const result = await onSave({ prompt, successCriteria: criteriaDraft.trim() });
         setSavingField('');
-        if (result.ok) {
+        if (result?.ok) {
           setSaved(true);
         } else {
           setSaved(false);
-          setSaveError(result.error || t('ws.inspector.error'));
+          setSaveError(result?.error || t('ws.inspector.error'));
         }
       };
       const saveModel = async () => {
@@ -11257,10 +11257,10 @@ window.__ModuleLoader__.load({
         }
         const result = await onSave({ model: payload });
         setSavingField('');
-        if (result.ok) setSaved(true);
+        if (result?.ok) setSaved(true);
         else {
           setSaved(false);
-          setSaveError(result.error || t('ws.inspector.error'));
+          setSaveError(result?.error || t('ws.inspector.error'));
         }
       };
       const saveTimebox = async () => {
@@ -11275,11 +11275,11 @@ window.__ModuleLoader__.load({
         setSaveError('');
         const result = await onSave({ timeboxMinutes: minutes });
         setSavingField('');
-        if (result.ok) {
+        if (result?.ok) {
           setSaved(true);
         } else {
           setSaved(false);
-          setSaveError(result.error || t('ws.inspector.error'));
+          setSaveError(result?.error || t('ws.inspector.error'));
         }
       };
 
@@ -11423,7 +11423,7 @@ window.__ModuleLoader__.load({
                 label: busy ? t('ws.action.starting') : t('ws.action.start'),
                 variant: 'primary',
                 disabled: blocked,
-                onClick: () => onAction('node.start', nodeKeyId),
+                onClick: () => onAction('node?.start', nodeKeyId),
               })
             : null,
           status === 'running'
@@ -11431,7 +11431,7 @@ window.__ModuleLoader__.load({
                 label: busy ? t('ws.action.cancelling') : t('ws.action.cancel'),
                 variant: 'primary',
                 disabled: busy,
-                onClick: () => onAction('node.cancel', nodeKeyId),
+                onClick: () => onAction('node?.cancel', nodeKeyId),
               })
             : null,
           status === 'failed'
@@ -11480,7 +11480,7 @@ window.__ModuleLoader__.load({
             : null,
         ),
         (() => {
-          const execution = asObject(node.execution);
+          const execution = asObject(node?.execution);
           const profile = firstString(execution.profile);
           const executionConfig = asObject(asObject(project.config).execution);
           const profiles = Object.keys(asObject(executionConfig.profiles));
@@ -11502,13 +11502,13 @@ window.__ModuleLoader__.load({
                     disabled: savingField !== '',
                     ariaLabel: t('ws.execution.profile'),
                     onChange: (event) => {
-                      const next = event.target.value;
+                      const next = event?.target.value;
                       if (next === profile) return;
                       setSavingField('execution');
                       setSaveError('');
                       Promise.resolve(onSave({ executionProfile: next })).then((result) => {
                         setSavingField('');
-                        if (result && result.ok) setSaved(true);
+                        if (result && result?.ok) setSaved(true);
                         else setSaveError(result?.error || t('ws.inspector.error'));
                       });
                     },
@@ -11560,9 +11560,9 @@ window.__ModuleLoader__.load({
                     'div',
                     { className: 'rl-project-chips' },
                     heldEntries.map((entry) =>
-                      h('span', { key: entry.key, className: 'rl-chip' }, t('ws.held', {
-                        key: entry.key,
-                        held: entry.amount,
+                      h('span', { key: entry?.key, className: 'rl-chip' }, t('ws.held', {
+                        key: entry?.key,
+                        held: entry?.amount,
                       }))),
                   )
                 : null,
@@ -11582,7 +11582,7 @@ window.__ModuleLoader__.load({
             rows: 5,
             disabled: !editable,
             onChange: (event) => {
-              setPromptDraft(event.target.value);
+              setPromptDraft(event?.target.value);
               setSaved(false);
               setSaveError('');
             },
@@ -11596,7 +11596,7 @@ window.__ModuleLoader__.load({
             rows: 3,
             disabled: !editable,
             onChange: (event) => {
-              setCriteriaDraft(event.target.value);
+              setCriteriaDraft(event?.target.value);
               setSaved(false);
               setSaveError('');
             },
@@ -11626,7 +11626,7 @@ window.__ModuleLoader__.load({
               disabled: !editable,
               ariaLabel: t('ws.inspector.timebox'),
               onChange: (event) => {
-                setTimeboxDraft(event.target.value);
+                setTimeboxDraft(event?.target.value);
                 setSaved(false);
                 setSaveError('');
               },
@@ -11747,9 +11747,9 @@ window.__ModuleLoader__.load({
     /** Structured NodeReport card: summary, blockers, metrics and lists. */
     function ReportCard({ report, t }) {
       const record = asObject(report);
-      const success = record.success === true;
-      const summary = firstString(record.summary);
-      const metrics = asArray(record.metrics).filter((metric) => metric !== null && typeof metric === 'object');
+      const success = record?.success === true;
+      const summary = firstString(record?.summary);
+      const metrics = asArray(record?.metrics).filter((metric) => metric !== null && typeof metric === 'object');
       const section = (title, items, extraClass) => {
         if (items.length === 0) return null;
         return h(
@@ -11772,7 +11772,7 @@ window.__ModuleLoader__.load({
           success ? t('ws.report.success') : t('ws.report.failed'),
         ),
         summary ? h('p', { className: 'rl-report-summary' }, summary) : null,
-        section(t('ws.report.blockers'), stringListOf(record.blockers), 'rl-report-blockers'),
+        section(t('ws.report.blockers'), stringListOf(record?.blockers), 'rl-report-blockers'),
         metrics.length > 0
           ? h(
               'div',
@@ -11796,12 +11796,12 @@ window.__ModuleLoader__.load({
                   null,
                   metrics.map((metric, index) => {
                     const entry = asObject(metric);
-                    const value = firstString(String(asObject(entry).value === undefined ? '' : entry.value));
-                    const unit = firstString(entry.unit);
+                    const value = firstString(String(asObject(entry).value === undefined ? '' : entry?.value));
+                    const unit = firstString(entry?.unit);
                     return h(
                       'tr',
                       { key: index },
-                      h('td', null, firstString(entry.name) || '—'),
+                      h('td', null, firstString(entry?.name) || '—'),
                       h('td', null, value === '' ? '—' : unit ? value + ' ' + unit : value),
                     );
                   }),
@@ -11809,23 +11809,23 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
-        section(t('ws.report.changes'), stringListOf(record.changes)),
-        section(t('ws.report.reproduce'), stringListOf(record.reproduce)),
-        section(t('ws.report.next'), stringListOf(record.next)),
-        section(t('ws.report.risks'), stringListOf(record.risks)),
+        section(t('ws.report.changes'), stringListOf(record?.changes)),
+        section(t('ws.report.reproduce'), stringListOf(record?.reproduce)),
+        section(t('ws.report.next'), stringListOf(record?.next)),
+        section(t('ws.report.risks'), stringListOf(record?.risks)),
       );
     }
 
     /** Deterministic termination record (timeout/cancel/failure reaper output). */
     function TerminationPanel({ termination, t, onOpenRun }) {
       const record = asObject(termination);
-      const kind = firstString(record.kind);
+      const kind = firstString(record?.kind);
       const kindLabel = ['timeout', 'cancel', 'failure'].indexOf(kind) >= 0
         ? t('ws.termination.kind.' + kind)
         : (kind || t('common.unknown'));
-      const pids = asArray(record.killedPids).map((pid) => String(pid));
-      const jobs = asArray(record.killedJobs).map((job) => String(job));
-      const leftover = stringListOf(record.leftover);
+      const pids = asArray(record?.killedPids).map((pid) => String(pid));
+      const jobs = asArray(record?.killedJobs).map((job) => String(job));
+      const leftover = stringListOf(record?.leftover);
       const flag = (value) => {
         if (value === true) return t('ws.termination.yes');
         if (value === false) return t('ws.termination.no');
@@ -11835,16 +11835,16 @@ window.__ModuleLoader__.load({
         'div',
         { className: 'rl-termination' },
         h('p', { className: 'rl-termination-title' }, kindLabel),
-        finiteNumber(record.killedAt) !== null
-          ? h(LabInfoRow, { label: t('ws.termination.killedAt'), value: formatDateTime(record.killedAt, t) })
+        finiteNumber(record?.killedAt) !== null
+          ? h(LabInfoRow, { label: t('ws.termination.killedAt'), value: formatDateTime(record?.killedAt, t) })
           : null,
         h(LabInfoRow, { label: t('ws.termination.pids'), value: pids.length > 0 ? pids.join(', ') : '—' }),
         h(LabInfoRow, { label: t('ws.termination.jobs'), value: jobs.length > 0 ? jobs.join(', ') : '—' }),
-        record.gpuFreed !== undefined
-          ? h(LabInfoRow, { label: t('ws.termination.gpuFreed'), value: flag(record.gpuFreed) })
+        record?.gpuFreed !== undefined
+          ? h(LabInfoRow, { label: t('ws.termination.gpuFreed'), value: flag(record?.gpuFreed) })
           : null,
-        record.verifiedClean !== undefined
-          ? h(LabInfoRow, { label: t('ws.termination.verifiedClean'), value: flag(record.verifiedClean) })
+        record?.verifiedClean !== undefined
+          ? h(LabInfoRow, { label: t('ws.termination.verifiedClean'), value: flag(record?.verifiedClean) })
           : null,
         leftover.length > 0
           ? h(
@@ -11858,10 +11858,10 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
-        record.gcPostmortem !== null && typeof record.gcPostmortem === 'object'
+        record?.gcPostmortem !== null && typeof record?.gcPostmortem === 'object'
           ? h(GcPanel, {
-              postmortem: record.gcPostmortem,
-              gcRunId: firstString(record.gcRunId),
+              postmortem: record?.gcPostmortem,
+              gcRunId: firstString(record?.gcRunId),
               onOpenRun,
               t,
             })
@@ -11869,23 +11869,23 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** Follow-up conversation summaries appended by `node.message` rounds. */
+    /** Follow-up conversation summaries appended by `node?.message` rounds. */
     function FollowUpsList({ followUps, t }) {
       return h(
         'div',
         { className: 'rl-followups' },
         followUps.map((entry, index) => {
           const record = asObject(entry);
-          const head = firstString(record.headCommit);
-          const user = firstString(record.user);
-          const assistant = firstString(record.assistant);
+          const head = firstString(record?.headCommit);
+          const user = firstString(record?.user);
+          const assistant = firstString(record?.assistant);
           return h(
             'div',
             { key: index, className: 'rl-followup' },
             h(
               'div',
               { className: 'rl-followup-head' },
-              h('span', null, formatDateTime(record.at, t)),
+              h('span', null, formatDateTime(record?.at, t)),
               head ? h('span', { className: 'rl-chip rl-chip-mono' }, shortCommit(head)) : null,
             ),
             user ? h('p', { className: 'rl-followup-user' }, user) : null,
@@ -11900,17 +11900,17 @@ window.__ModuleLoader__.load({
       const record = asObject(row);
       try {
         return JSON.stringify([
-          record.seq,
-          record.kind,
-          record.at,
-          record.name,
-          record.text,
-          record.args,
-          record.result,
-          record.error,
+          record?.seq,
+          record?.kind,
+          record?.at,
+          record?.name,
+          record?.text,
+          record?.args,
+          record?.result,
+          record?.error,
         ]);
       } catch (error) {
-        return String(record.seq) + ':' + String(record.kind);
+        return String(record?.seq) + ':' + String(record?.kind);
       }
     }
     function transcriptKeyOf(row, index) {
@@ -11925,7 +11925,7 @@ window.__ModuleLoader__.load({
     }
     function rowTextOf(row) {
       const record = asObject(row);
-      return firstString(record.text, record.content, record.message);
+      return firstString(record?.text, record?.content, record?.message);
     }
     function stringifyPayload(value) {
       if (value === null || value === undefined) return '';
@@ -11952,13 +11952,13 @@ window.__ModuleLoader__.load({
               value: pair.from,
               placeholder: t('ws.clusterConfig.fleet.pathMap.from'),
               ariaLabel: t('ws.clusterConfig.fleet.pathMap.from') + ' ' + pair.key,
-              onChange: (event) => onPath(listField, machineKey, pair.key, 'from', event.target.value),
+              onChange: (event) => onPath(listField, machineKey, pair.key, 'from', event?.target.value),
             }),
             h(LabInput, {
               value: pair.to,
               placeholder: t('ws.clusterConfig.fleet.pathMap.to'),
               ariaLabel: t('ws.clusterConfig.fleet.pathMap.to') + ' ' + pair.key,
-              onChange: (event) => onPath(listField, machineKey, pair.key, 'to', event.target.value),
+              onChange: (event) => onPath(listField, machineKey, pair.key, 'to', event?.target.value),
             }),
             h('div', { className: 'rl-reviewer-actions' },
               h(LabButton, {
@@ -11995,7 +11995,7 @@ window.__ModuleLoader__.load({
                 h('input', {
                   type: 'checkbox',
                   checked: fleet.enabled === true,
-                  onChange: (event) => onField('enabled', event.target.checked === true),
+                  onChange: (event) => onField('enabled', event?.target.checked === true),
                 }),
                 h('span', null, t('ws.clusterConfig.fleet.enabled')),
               ),
@@ -12007,14 +12007,14 @@ window.__ModuleLoader__.load({
                     value: fleet.placementMode,
                     ariaLabel: t('ws.clusterConfig.fleet.placementMode'),
                     options: CLUSTER_FLEET_PLACEMENTS.map((mode) => ({ value: mode, label: t('ws.clusterConfig.fleet.placement.' + mode) })),
-                    onChange: (event) => onField('placementMode', event.target.value),
+                    onChange: (event) => onField('placementMode', event?.target.value),
                   })),
                 h(LabField, { label: t('ws.clusterConfig.fleet.masterPort') },
                   h(LabInput, {
                     type: 'number',
                     value: fleet.masterPort,
                     ariaLabel: t('ws.clusterConfig.fleet.masterPort'),
-                    onChange: (event) => onField('masterPort', event.target.value),
+                    onChange: (event) => onField('masterPort', event?.target.value),
                   })),
               ),
               pathRows('pathMap', null, fleet.pathMap, t('ws.clusterConfig.fleet.pathMap')),
@@ -12042,39 +12042,39 @@ window.__ModuleLoader__.load({
                         h(LabInput, {
                           value: machine.machineId,
                           ariaLabel: t('ws.clusterConfig.fleet.machine.id') + ' ' + machine.key,
-                          onChange: (event) => onMachine(machine.key, 'machineId', event.target.value),
+                          onChange: (event) => onMachine(machine.key, 'machineId', event?.target.value),
                         })),
                       h(LabField, { label: t('ws.clusterConfig.fleet.ssh.host') },
                         h(LabInput, {
                           value: machine.sshHost,
                           ariaLabel: t('ws.clusterConfig.fleet.ssh.host') + ' ' + machine.key,
-                          onChange: (event) => onMachine(machine.key, 'sshHost', event.target.value),
+                          onChange: (event) => onMachine(machine.key, 'sshHost', event?.target.value),
                         })),
                       h(LabField, { label: t('ws.clusterConfig.fleet.ssh.user') },
                         h(LabInput, {
                           value: machine.sshUser,
                           ariaLabel: t('ws.clusterConfig.fleet.ssh.user') + ' ' + machine.key,
-                          onChange: (event) => onMachine(machine.key, 'sshUser', event.target.value),
+                          onChange: (event) => onMachine(machine.key, 'sshUser', event?.target.value),
                         })),
                       h(LabField, { label: t('ws.clusterConfig.fleet.ssh.port') },
                         h(LabInput, {
                           type: 'number',
                           value: machine.sshPort,
                           ariaLabel: t('ws.clusterConfig.fleet.ssh.port') + ' ' + machine.key,
-                          onChange: (event) => onMachine(machine.key, 'sshPort', event.target.value),
+                          onChange: (event) => onMachine(machine.key, 'sshPort', event?.target.value),
                         })),
                       h(LabField, { label: t('ws.clusterConfig.fleet.ssh.keyPath') },
                         h(LabInput, {
                           value: machine.sshKeyPath,
                           ariaLabel: t('ws.clusterConfig.fleet.ssh.keyPath') + ' ' + machine.key,
-                          onChange: (event) => onMachine(machine.key, 'sshKeyPath', event.target.value),
+                          onChange: (event) => onMachine(machine.key, 'sshKeyPath', event?.target.value),
                         })),
                       h(LabField, { label: t('ws.clusterConfig.fleet.container.runtime') },
                         h(LabSelect, {
                           value: machine.containerRuntime,
                           ariaLabel: t('ws.clusterConfig.fleet.container.runtime') + ' ' + machine.key,
                           options: CLUSTER_FLEET_RUNTIMES.map((runtime) => ({ value: runtime, label: runtime })),
-                          onChange: (event) => onMachine(machine.key, 'containerRuntime', event.target.value),
+                          onChange: (event) => onMachine(machine.key, 'containerRuntime', event?.target.value),
                         })),
                       machine.containerRuntime === 'none'
                         ? h('p', { className: 'rl-hint' }, t('ws.clusterConfig.fleet.baremetal.hint'))
@@ -12083,19 +12083,19 @@ window.__ModuleLoader__.load({
                         h(LabInput, {
                           value: machine.containerName,
                           ariaLabel: t('ws.clusterConfig.fleet.container.name') + ' ' + machine.key,
-                          onChange: (event) => onMachine(machine.key, 'containerName', event.target.value),
+                          onChange: (event) => onMachine(machine.key, 'containerName', event?.target.value),
                         })),
                       h(LabField, { label: t('ws.clusterConfig.fleet.container.workdir') },
                         h(LabInput, {
                           value: machine.containerWorkdir,
                           ariaLabel: t('ws.clusterConfig.fleet.container.workdir') + ' ' + machine.key,
-                          onChange: (event) => onMachine(machine.key, 'containerWorkdir', event.target.value),
+                          onChange: (event) => onMachine(machine.key, 'containerWorkdir', event?.target.value),
                         })),
                       h(LabField, { label: t('ws.clusterConfig.fleet.container.user') },
                         h(LabInput, {
                           value: machine.containerUser,
                           ariaLabel: t('ws.clusterConfig.fleet.container.user') + ' ' + machine.key,
-                          onChange: (event) => onMachine(machine.key, 'containerUser', event.target.value),
+                          onChange: (event) => onMachine(machine.key, 'containerUser', event?.target.value),
                         })),
                     ),
                     h(LabField, { label: t('ws.clusterConfig.fleet.container.env') },
@@ -12103,7 +12103,7 @@ window.__ModuleLoader__.load({
                         value: machine.containerEnv,
                         rows: 2,
                         ariaLabel: t('ws.clusterConfig.fleet.container.env') + ' ' + machine.key,
-                        onChange: (event) => onMachine(machine.key, 'containerEnv', event.target.value),
+                        onChange: (event) => onMachine(machine.key, 'containerEnv', event?.target.value),
                       })),
                     h(LabField, { label: t('ws.clusterConfig.fleet.devices') },
                       h(LabSelect, {
@@ -12113,7 +12113,7 @@ window.__ModuleLoader__.load({
                           { value: 'auto', label: t('ws.clusterConfig.fleet.devices.auto') },
                           { value: 'manual', label: t('ws.clusterConfig.fleet.devices.manual') },
                         ],
-                        onChange: (event) => onMachine(machine.key, 'devicesMode', event.target.value),
+                        onChange: (event) => onMachine(machine.key, 'devicesMode', event?.target.value),
                       })),
                     machine.devicesMode === 'manual'
                       ? h(
@@ -12126,26 +12126,26 @@ window.__ModuleLoader__.load({
                               value: device.id,
                               placeholder: t('ws.clusterConfig.fleet.devices.id'),
                               ariaLabel: t('ws.clusterConfig.fleet.devices.id') + ' ' + machine.key + ' ' + String(deviceIndex + 1),
-                              onChange: (event) => onDevice(machine.key, device.key, 'id', event.target.value),
+                              onChange: (event) => onDevice(machine.key, device.key, 'id', event?.target.value),
                             }),
                             h(LabInput, {
                               value: device.localId,
                               placeholder: t('ws.clusterConfig.fleet.devices.localId'),
                               ariaLabel: t('ws.clusterConfig.fleet.devices.localId') + ' ' + machine.key + ' ' + String(deviceIndex + 1),
-                              onChange: (event) => onDevice(machine.key, device.key, 'localId', event.target.value),
+                              onChange: (event) => onDevice(machine.key, device.key, 'localId', event?.target.value),
                             }),
                             h(LabInput, {
                               value: device.model,
                               placeholder: t('ws.clusterConfig.fleet.devices.model'),
                               ariaLabel: t('ws.clusterConfig.fleet.devices.model') + ' ' + machine.key + ' ' + String(deviceIndex + 1),
-                              onChange: (event) => onDevice(machine.key, device.key, 'model', event.target.value),
+                              onChange: (event) => onDevice(machine.key, device.key, 'model', event?.target.value),
                             }),
                             h(LabInput, {
                               type: 'number',
                               value: device.memoryMiB,
                               placeholder: t('ws.clusterConfig.fleet.devices.memory'),
                               ariaLabel: t('ws.clusterConfig.fleet.devices.memory') + ' ' + machine.key + ' ' + String(deviceIndex + 1),
-                              onChange: (event) => onDevice(machine.key, device.key, 'memoryMiB', event.target.value),
+                              onChange: (event) => onDevice(machine.key, device.key, 'memoryMiB', event?.target.value),
                             }),
                             h('div', { className: 'rl-reviewer-actions' },
                               h(LabButton, {
@@ -12175,13 +12175,13 @@ window.__ModuleLoader__.load({
                           value: labelRow.name,
                           placeholder: t('ws.clusterConfig.fleet.machine.labels.key'),
                           ariaLabel: t('ws.clusterConfig.fleet.machine.labels.key') + ' ' + labelRow.key,
-                          onChange: (event) => onLabel(machine.key, labelRow.key, 'name', event.target.value),
+                          onChange: (event) => onLabel(machine.key, labelRow.key, 'name', event?.target.value),
                         }),
                         h(LabInput, {
                           value: labelRow.value,
                           placeholder: t('ws.clusterConfig.fleet.machine.labels.value'),
                           ariaLabel: t('ws.clusterConfig.fleet.machine.labels.value') + ' ' + labelRow.key,
-                          onChange: (event) => onLabel(machine.key, labelRow.key, 'value', event.target.value),
+                          onChange: (event) => onLabel(machine.key, labelRow.key, 'value', event?.target.value),
                         }),
                         h('div', { className: 'rl-reviewer-actions' },
                           h(LabButton, {
@@ -12211,20 +12211,20 @@ window.__ModuleLoader__.load({
                             h(LabInput, {
                               value: machine.masterAddr,
                               ariaLabel: t('ws.clusterConfig.fleet.machine.masterAddr') + ' ' + machine.key,
-                              onChange: (event) => onMachine(machine.key, 'masterAddr', event.target.value),
+                              onChange: (event) => onMachine(machine.key, 'masterAddr', event?.target.value),
                             })),
                           h(LabField, { label: t('ws.clusterConfig.fleet.ssh.command') },
                             h(LabInput, {
                               value: machine.sshCommand,
                               ariaLabel: t('ws.clusterConfig.fleet.ssh.command') + ' ' + machine.key,
-                              onChange: (event) => onMachine(machine.key, 'sshCommand', event.target.value),
+                              onChange: (event) => onMachine(machine.key, 'sshCommand', event?.target.value),
                             })),
                           h(LabField, { label: t('ws.clusterConfig.fleet.ssh.options') },
                             h(LabTextarea, {
                               value: machine.sshOptions,
                               rows: 2,
                               ariaLabel: t('ws.clusterConfig.fleet.ssh.options') + ' ' + machine.key,
-                              onChange: (event) => onMachine(machine.key, 'sshOptions', event.target.value),
+                              onChange: (event) => onMachine(machine.key, 'sshOptions', event?.target.value),
                             })),
                           pathRows('machinePathMap', machine.key, machine.pathMap, t('ws.clusterConfig.fleet.machine.pathMap')),
                         )
@@ -12290,7 +12290,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
         const onKeyDown = (event) => {
-          if (event.key !== 'Escape' || busy !== '') return;
+          if (event?.key !== 'Escape' || busy !== '') return;
           onClose();
         };
         document.addEventListener('keydown', onKeyDown);
@@ -12306,7 +12306,7 @@ window.__ModuleLoader__.load({
         setState((previous) => ({
           ...previous,
           draft: Object.assign({}, previous.draft, {
-            devices: asArray(previous.draft.devices).map((row) => (row.key === key ? Object.assign({}, row, { [field]: value }) : row)),
+            devices: asArray(previous.draft.devices).map((row) => (row?.key === key ? Object.assign({}, row, { [field]: value }) : row)),
           }),
         }));
         setError('');
@@ -12329,7 +12329,7 @@ window.__ModuleLoader__.load({
         setState((previous) => ({
           ...previous,
           draft: Object.assign({}, previous.draft, {
-            devices: asArray(previous.draft.devices).filter((row) => row.key !== key),
+            devices: asArray(previous.draft.devices).filter((row) => row?.key !== key),
           }),
         }));
       };
@@ -12348,7 +12348,7 @@ window.__ModuleLoader__.load({
           ...previous,
           draft: Object.assign({}, previous.draft, {
             fleet: Object.assign({}, previous.draft.fleet, {
-              machines: asArray(previous.draft.fleet.machines).map((row) => (row.key === key ? Object.assign({}, row, { [field]: value }) : row)),
+              machines: asArray(previous.draft.fleet.machines).map((row) => (row?.key === key ? Object.assign({}, row, { [field]: value }) : row)),
             }),
           }),
         }));
@@ -12391,7 +12391,7 @@ window.__ModuleLoader__.load({
           ...previous,
           draft: Object.assign({}, previous.draft, {
             fleet: Object.assign({}, previous.draft.fleet, {
-              machines: asArray(previous.draft.fleet.machines).filter((row) => row.key !== key),
+              machines: asArray(previous.draft.fleet.machines).filter((row) => row?.key !== key),
             }),
           }),
         }));
@@ -12402,9 +12402,9 @@ window.__ModuleLoader__.load({
           ...previous,
           draft: Object.assign({}, previous.draft, {
             fleet: Object.assign({}, previous.draft.fleet, {
-              machines: asArray(previous.draft.fleet.machines).map((row) => (row.key === machineKey
+              machines: asArray(previous.draft.fleet.machines).map((row) => (row?.key === machineKey
                 ? Object.assign({}, row, {
-                    labels: asArray(row.labels).map((labelRow) => (labelRow.key === labelKey ? Object.assign({}, labelRow, { [field]: value }) : labelRow)),
+                    labels: asArray(row?.labels).map((labelRow) => (labelRow.key === labelKey ? Object.assign({}, labelRow, { [field]: value }) : labelRow)),
                   })
                 : row)),
             }),
@@ -12418,9 +12418,9 @@ window.__ModuleLoader__.load({
           ...previous,
           draft: Object.assign({}, previous.draft, {
             fleet: Object.assign({}, previous.draft.fleet, {
-              machines: asArray(previous.draft.fleet.machines).map((row) => (row.key === machineKey
+              machines: asArray(previous.draft.fleet.machines).map((row) => (row?.key === machineKey
                 ? Object.assign({}, row, {
-                    labels: asArray(row.labels).concat([{ key: 'fleet-machine-label-' + fleetSeqRef.current, name: '', value: '' }]),
+                    labels: asArray(row?.labels).concat([{ key: 'fleet-machine-label-' + fleetSeqRef.current, name: '', value: '' }]),
                   })
                 : row)),
             }),
@@ -12432,8 +12432,8 @@ window.__ModuleLoader__.load({
           ...previous,
           draft: Object.assign({}, previous.draft, {
             fleet: Object.assign({}, previous.draft.fleet, {
-              machines: asArray(previous.draft.fleet.machines).map((row) => (row.key === machineKey
-                ? Object.assign({}, row, { labels: asArray(row.labels).filter((labelRow) => labelRow.key !== labelKey) })
+              machines: asArray(previous.draft.fleet.machines).map((row) => (row?.key === machineKey
+                ? Object.assign({}, row, { labels: asArray(row?.labels).filter((labelRow) => labelRow.key !== labelKey) })
                 : row)),
             }),
           }),
@@ -12444,9 +12444,9 @@ window.__ModuleLoader__.load({
           ...previous,
           draft: Object.assign({}, previous.draft, {
             fleet: Object.assign({}, previous.draft.fleet, {
-              machines: asArray(previous.draft.fleet.machines).map((row) => (row.key === machineKey
+              machines: asArray(previous.draft.fleet.machines).map((row) => (row?.key === machineKey
                 ? Object.assign({}, row, {
-                    devices: asArray(row.devices).map((device) => (device.key === deviceKey ? Object.assign({}, device, { [field]: value }) : device)),
+                    devices: asArray(row?.devices).map((device) => (device.key === deviceKey ? Object.assign({}, device, { [field]: value }) : device)),
                   })
                 : row)),
             }),
@@ -12460,9 +12460,9 @@ window.__ModuleLoader__.load({
           ...previous,
           draft: Object.assign({}, previous.draft, {
             fleet: Object.assign({}, previous.draft.fleet, {
-              machines: asArray(previous.draft.fleet.machines).map((row) => (row.key === machineKey
+              machines: asArray(previous.draft.fleet.machines).map((row) => (row?.key === machineKey
                 ? Object.assign({}, row, {
-                    devices: asArray(row.devices).concat([{
+                    devices: asArray(row?.devices).concat([{
                       key: 'fleet-device-' + fleetSeqRef.current,
                       id: '',
                       localId: '',
@@ -12480,8 +12480,8 @@ window.__ModuleLoader__.load({
           ...previous,
           draft: Object.assign({}, previous.draft, {
             fleet: Object.assign({}, previous.draft.fleet, {
-              machines: asArray(previous.draft.fleet.machines).map((row) => (row.key === machineKey
-                ? Object.assign({}, row, { devices: asArray(row.devices).filter((device) => device.key !== deviceKey) })
+              machines: asArray(previous.draft.fleet.machines).map((row) => (row?.key === machineKey
+                ? Object.assign({}, row, { devices: asArray(row?.devices).filter((device) => device.key !== deviceKey) })
                 : row)),
             }),
           }),
@@ -12498,8 +12498,8 @@ window.__ModuleLoader__.load({
             ...previous,
             draft: Object.assign({}, previous.draft, {
               fleet: Object.assign({}, fleet, {
-                machines: asArray(fleet.machines).map((row) => (row.key === machineKey
-                  ? Object.assign({}, row, { pathMap: updateRows(row.pathMap) })
+                machines: asArray(fleet.machines).map((row) => (row?.key === machineKey
+                  ? Object.assign({}, row, { pathMap: updateRows(row?.pathMap) })
                   : row)),
               }),
             }),
@@ -12519,8 +12519,8 @@ window.__ModuleLoader__.load({
             ...previous,
             draft: Object.assign({}, previous.draft, {
               fleet: Object.assign({}, fleet, {
-                machines: asArray(fleet.machines).map((row) => (row.key === machineKey
-                  ? Object.assign({}, row, { pathMap: asArray(row.pathMap).concat([pair]) })
+                machines: asArray(fleet.machines).map((row) => (row?.key === machineKey
+                  ? Object.assign({}, row, { pathMap: asArray(row?.pathMap).concat([pair]) })
                   : row)),
               }),
             }),
@@ -12537,8 +12537,8 @@ window.__ModuleLoader__.load({
             ...previous,
             draft: Object.assign({}, previous.draft, {
               fleet: Object.assign({}, fleet, {
-                machines: asArray(fleet.machines).map((row) => (row.key === machineKey
-                  ? Object.assign({}, row, { pathMap: asArray(row.pathMap).filter((pair) => pair.key !== pairKey) })
+                machines: asArray(fleet.machines).map((row) => (row?.key === machineKey
+                  ? Object.assign({}, row, { pathMap: asArray(row?.pathMap).filter((pair) => pair.key !== pairKey) })
                   : row)),
               }),
             }),
@@ -12553,7 +12553,7 @@ window.__ModuleLoader__.load({
         if (typeof onApplied === 'function') onApplied(parsed);
       };
       const save = async () => {
-        if (busy !== '' || payload === null || draft === null || payload.canApply === false) return;
+        if (busy !== '' || payload === null || draft === null || payload?.canApply === false) return;
         const built = clusterConfigPatchOf(draft, payload, t);
         if (built.error !== '') {
           setError(built.error);
@@ -12600,7 +12600,7 @@ window.__ModuleLoader__.load({
         setSuccess('');
         setAttempt((value) => value + 1);
       };
-      const status = asObject(payload === null ? null : payload.status);
+      const status = asObject(payload === null ? null : payload?.status);
       const dashboardUrl = clusterConfigStatusUrlOf(status);
       const copyUrl = async () => {
         const target = dashboardUrl || (draft === null ? '' : clusterConfigTrimmed(draft.url));
@@ -12610,7 +12610,7 @@ window.__ModuleLoader__.load({
         else setSuccess('');
       };
       const openDashboard = () => {
-        if (dashboardUrl === '' || (payload !== null && payload.config.dashboard === false)) {
+        if (dashboardUrl === '' || (payload !== null && payload?.config.dashboard === false)) {
           setError(t('ws.clusterConfig.dashboardUnavailable'));
           return;
         }
@@ -12641,12 +12641,12 @@ window.__ModuleLoader__.load({
             { className: 'rl-config-status' },
             h('h3', { className: 'rl-config-section-title' }, t('ws.clusterConfig.status.title')),
             h('p', { className: 'rl-hint' }, t('ws.cluster.twoLayerNote')),
-            payload.path !== ''
-              ? h(LabInfoRow, { label: t('ws.clusterConfig.status.path'), value: payload.path, mono: true })
+            payload?.path !== ''
+              ? h(LabInfoRow, { label: t('ws.clusterConfig.status.path'), value: payload?.path, mono: true })
               : null,
             h(LabInfoRow, {
               label: t('ws.clusterConfig.status.enabled'),
-              value: payload.config.enabled ? '✓' : '—',
+              value: payload?.config.enabled ? '✓' : '—',
             }),
             h(LabInfoRow, { label: t('ws.clusterConfig.status.mode'), value: t('ws.cluster.mode.' + clusterModeOf(status)) }),
             h(LabInfoRow, {
@@ -12662,8 +12662,8 @@ window.__ModuleLoader__.load({
                 })
               : null,
             firstString(status.error) ? h(LabInfoRow, { label: t('ws.clusterConfig.status.error'), value: firstString(status.error) }) : null,
-            firstString(status.clusterId) || payload.config.clusterId
-              ? h(LabInfoRow, { label: t('ws.clusterConfig.status.clusterId'), value: firstString(status.clusterId) || payload.config.clusterId, mono: true })
+            firstString(status.clusterId) || payload?.config.clusterId
+              ? h(LabInfoRow, { label: t('ws.clusterConfig.status.clusterId'), value: firstString(status.clusterId) || payload?.config.clusterId, mono: true })
               : null,
             firstString(status.coordinatorId)
               ? h(LabInfoRow, { label: t('ws.clusterConfig.status.coordinatorId'), value: firstString(status.coordinatorId), mono: true })
@@ -12675,15 +12675,15 @@ window.__ModuleLoader__.load({
             Object.keys(clusterPoolsOf(status)).length > 0
               ? h(LabInfoRow, { label: t('ws.clusterConfig.status.pools'), value: clusterPoolSummaryTextOf(status, t) })
               : null,
-            payload.activeLeases > 0
-              ? h('p', { className: 'rl-hint rl-merge-conflicts' }, t('ws.clusterConfig.status.activeLeases', { count: payload.activeLeases }))
+            payload?.activeLeases > 0
+              ? h('p', { className: 'rl-hint rl-merge-conflicts' }, t('ws.clusterConfig.status.activeLeases', { count: payload?.activeLeases }))
               : null,
-            payload.warnings.length > 0
+            payload?.warnings.length > 0
               ? h(
                   'div',
                   { className: 'rl-report-section' },
                   h('h4', { className: 'rl-report-section-title' }, t('ws.clusterConfig.status.warnings')),
-                  h('ul', { className: 'rl-config-warning' }, payload.warnings.map((warning, index) => h('li', { key: index }, warning))),
+                  h('ul', { className: 'rl-config-warning' }, payload?.warnings.map((warning, index) => h('li', { key: index }, warning))),
                 )
               : null,
           ),
@@ -12697,7 +12697,7 @@ window.__ModuleLoader__.load({
               h('input', {
                 type: 'checkbox',
                 checked: draft.enabled === true,
-                onChange: (event) => setField('enabled', event.target.checked === true),
+                onChange: (event) => setField('enabled', event?.target.checked === true),
               }),
               h('span', null, t('ws.clusterConfig.enabled')),
             ),
@@ -12710,33 +12710,33 @@ window.__ModuleLoader__.load({
                   value: draft.role,
                   ariaLabel: t('ws.clusterConfig.role'),
                   options: CLUSTER_CONFIG_ROLES.map((role) => ({ value: role, label: t('ws.clusterConfig.role.' + role) })),
-                  onChange: (event) => setField('role', event.target.value),
+                  onChange: (event) => setField('role', event?.target.value),
                 })),
               h(LabField, { label: t('ws.clusterConfig.clusterId') },
                 h(LabInput, {
                   value: draft.clusterId,
                   ariaLabel: t('ws.clusterConfig.clusterId'),
-                  onChange: (event) => setField('clusterId', event.target.value),
+                  onChange: (event) => setField('clusterId', event?.target.value),
                 })),
               h(LabField, { label: t('ws.clusterConfig.machineId') },
                 h(LabInput, {
                   value: draft.machineId,
                   ariaLabel: t('ws.clusterConfig.machineId'),
                   placeholder: firstString(status.machineId),
-                  onChange: (event) => setField('machineId', event.target.value),
+                  onChange: (event) => setField('machineId', event?.target.value),
                 })),
               h(LabField, { label: t('ws.clusterConfig.userId') },
                 h(LabInput, {
                   value: draft.userId,
                   ariaLabel: t('ws.clusterConfig.userId'),
-                  onChange: (event) => setField('userId', event.target.value),
+                  onChange: (event) => setField('userId', event?.target.value),
                 })),
               h(LabField, { label: t('ws.clusterConfig.priority') },
                 h(LabInput, {
                   type: 'number',
                   value: draft.priority,
                   ariaLabel: t('ws.clusterConfig.priority'),
-                  onChange: (event) => setField('priority', event.target.value),
+                  onChange: (event) => setField('priority', event?.target.value),
                 })),
             ),
           ),
@@ -12749,17 +12749,17 @@ window.__ModuleLoader__.load({
               { className: 'rl-config-token-row' },
               h(LabField, {
                 label: t('ws.clusterConfig.token'),
-                hint: payload.config.tokenSet ? t('ws.clusterConfig.token.setHint') : t('ws.clusterConfig.token.emptyHint'),
+                hint: payload?.config.tokenSet ? t('ws.clusterConfig.token.setHint') : t('ws.clusterConfig.token.emptyHint'),
               },
                 h(LabInput, {
                   type: 'password',
                   value: draft.tokenInput,
                   ariaLabel: t('ws.clusterConfig.token'),
                   disabled: draft.tokenClear === true,
-                  placeholder: payload.config.tokenSet ? payload.config.tokenMasked : '',
-                  onChange: (event) => setField('tokenInput', event.target.value),
+                  placeholder: payload?.config.tokenSet ? payload?.config.tokenMasked : '',
+                  onChange: (event) => setField('tokenInput', event?.target.value),
                 })),
-              payload.config.tokenSet
+              payload?.config.tokenSet
                 ? h(LabButton, {
                     label: draft.tokenClear === true ? t('ws.clusterConfig.token.undoClear') : t('ws.clusterConfig.token.clear'),
                     variant: 'ghost',
@@ -12782,14 +12782,14 @@ window.__ModuleLoader__.load({
                   type: 'number',
                   value: draft.heartbeatSeconds,
                   ariaLabel: t('ws.clusterConfig.heartbeat'),
-                  onChange: (event) => setField('heartbeatSeconds', event.target.value),
+                  onChange: (event) => setField('heartbeatSeconds', event?.target.value),
                 })),
               h(LabField, { label: t('ws.clusterConfig.leaseTtl') },
                 h(LabInput, {
                   type: 'number',
                   value: draft.leaseTtlMinutes,
                   ariaLabel: t('ws.clusterConfig.leaseTtl'),
-                  onChange: (event) => setField('leaseTtlMinutes', event.target.value),
+                  onChange: (event) => setField('leaseTtlMinutes', event?.target.value),
                 })),
             ),
           ),
@@ -12805,7 +12805,7 @@ window.__ModuleLoader__.load({
                   { value: 'auto', label: t('ws.clusterConfig.devices.auto') },
                   { value: 'manual', label: t('ws.clusterConfig.devices.manual') },
                 ],
-                onChange: (event) => setField('devicesMode', event.target.value),
+                onChange: (event) => setField('devicesMode', event?.target.value),
               })),
             draft.devicesMode === 'manual'
               ? h(
@@ -12814,32 +12814,32 @@ window.__ModuleLoader__.load({
                   draft.devices.length === 0 ? h('p', { className: 'rl-hint' }, t('ws.clusterConfig.devices.empty')) : null,
                   draft.devices.map((row, index) => h(
                     'div',
-                    { key: row.key, className: 'rl-config-device-row' },
+                    { key: row?.key, className: 'rl-config-device-row' },
                     h(LabInput, {
-                      value: row.id,
+                      value: row?.id,
                       placeholder: t('ws.clusterConfig.devices.id'),
                       ariaLabel: t('ws.clusterConfig.devices.id') + ' ' + String(index + 1),
-                      onChange: (event) => setDevice(row.key, 'id', event.target.value),
+                      onChange: (event) => setDevice(row?.key, 'id', event?.target.value),
                     }),
                     h(LabInput, {
-                      value: row.model,
+                      value: row?.model,
                       placeholder: t('ws.clusterConfig.devices.model'),
                       ariaLabel: t('ws.clusterConfig.devices.model') + ' ' + String(index + 1),
-                      onChange: (event) => setDevice(row.key, 'model', event.target.value),
+                      onChange: (event) => setDevice(row?.key, 'model', event?.target.value),
                     }),
                     h(LabInput, {
                       type: 'number',
-                      value: row.memoryMiB,
+                      value: row?.memoryMiB,
                       placeholder: t('ws.clusterConfig.devices.memory'),
                       ariaLabel: t('ws.clusterConfig.devices.memory') + ' ' + String(index + 1),
-                      onChange: (event) => setDevice(row.key, 'memoryMiB', event.target.value),
+                      onChange: (event) => setDevice(row?.key, 'memoryMiB', event?.target.value),
                     }),
                     h('div', { className: 'rl-reviewer-actions' },
                       h(LabButton, {
                         label: '✕',
                         variant: 'ghost',
                         title: t('ws.clusterConfig.devices.remove'),
-                        onClick: () => removeDevice(row.key),
+                        onClick: () => removeDevice(row?.key),
                       })),
                   )),
                   h('div', { className: 'rl-form-actions' },
@@ -12879,7 +12879,7 @@ window.__ModuleLoader__.load({
                 h('input', {
                   type: 'checkbox',
                   checked: draft.dashboard === true,
-                  onChange: (event) => setField('dashboard', event.target.checked === true),
+                  onChange: (event) => setField('dashboard', event?.target.checked === true),
                 }),
                 h('span', null, t('ws.clusterConfig.dashboard')),
               ),
@@ -12889,7 +12889,7 @@ window.__ModuleLoader__.load({
                 h('input', {
                   type: 'checkbox',
                   checked: draft.allowMultipleCoordinators === true,
-                  onChange: (event) => setField('allowMultipleCoordinators', event.target.checked === true),
+                  onChange: (event) => setField('allowMultipleCoordinators', event?.target.checked === true),
                 }),
                 h('span', null, t('ws.clusterConfig.allowMultipleCoordinators')),
               ),
@@ -12911,20 +12911,20 @@ window.__ModuleLoader__.load({
                       h(LabInput, {
                         value: draft.instanceId,
                         ariaLabel: t('ws.clusterConfig.instanceId'),
-                        onChange: (event) => setField('instanceId', event.target.value),
+                        onChange: (event) => setField('instanceId', event?.target.value),
                       })),
                     h(LabField, { label: t('ws.clusterConfig.coordinatorId') },
                       h(LabInput, {
                         value: draft.coordinatorId,
                         ariaLabel: t('ws.clusterConfig.coordinatorId'),
-                        onChange: (event) => setField('coordinatorId', event.target.value),
+                        onChange: (event) => setField('coordinatorId', event?.target.value),
                       })),
                   ),
                   h(LabField, { label: t('ws.clusterConfig.url'), hint: t('ws.clusterConfig.urlHint', { example: 'http://127.0.0.1:8791' }) },
                     h(LabInput, {
                       value: draft.url,
                       ariaLabel: t('ws.clusterConfig.url'),
-                      onChange: (event) => setField('url', event.target.value),
+                      onChange: (event) => setField('url', event?.target.value),
                     })),
                   h(
                     'div',
@@ -12933,14 +12933,14 @@ window.__ModuleLoader__.load({
                       h(LabInput, {
                         value: draft.listenHost,
                         ariaLabel: t('ws.clusterConfig.listenHost'),
-                        onChange: (event) => setField('listenHost', event.target.value),
+                        onChange: (event) => setField('listenHost', event?.target.value),
                       })),
                     h(LabField, { label: t('ws.clusterConfig.listenPort') },
                       h(LabInput, {
                         type: 'number',
                         value: draft.listenPort,
                         ariaLabel: t('ws.clusterConfig.listenPort'),
-                        onChange: (event) => setField('listenPort', event.target.value),
+                        onChange: (event) => setField('listenPort', event?.target.value),
                       })),
                   ),
                   h(
@@ -12950,13 +12950,13 @@ window.__ModuleLoader__.load({
                       h(LabInput, {
                         value: draft.claimDir,
                         ariaLabel: t('ws.clusterConfig.claimDir'),
-                        onChange: (event) => setField('claimDir', event.target.value),
+                        onChange: (event) => setField('claimDir', event?.target.value),
                       })),
                     h(LabField, { label: t('ws.clusterConfig.stateFile') },
                       h(LabInput, {
                         value: draft.stateFile,
                         ariaLabel: t('ws.clusterConfig.stateFile'),
-                        onChange: (event) => setField('stateFile', event.target.value),
+                        onChange: (event) => setField('stateFile', event?.target.value),
                       })),
                   ),
                 )
@@ -12964,7 +12964,7 @@ window.__ModuleLoader__.load({
           ),
           error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, error) : null,
           success !== '' ? h('p', { className: 'rl-config-success', role: 'status' }, success + ' · ' + t('ws.clusterConfig.appliedNote')) : null,
-          payload.canApply === false
+          payload?.canApply === false
             ? h('p', { className: 'rl-hint' }, t('ws.clusterConfig.canApplyFalse'))
             : null,
           stopConfirm
@@ -12995,7 +12995,7 @@ window.__ModuleLoader__.load({
             h(LabButton, {
               label: busy === 'save' ? t('ws.clusterConfig.saving') : t('ws.clusterConfig.save'),
               variant: 'primary',
-              disabled: busy !== '' || payload.canApply === false,
+              disabled: busy !== '' || payload?.canApply === false,
               onClick: save,
             }),
             h(LabButton, {
@@ -13022,7 +13022,7 @@ window.__ModuleLoader__.load({
               disabled: dashboardUrl === '',
               onClick: copyUrl,
             }),
-            h('span', { className: 'rl-config-actions-meta' }, payload.path),
+            h('span', { className: 'rl-config-actions-meta' }, payload?.path),
           ),
         );
       }
@@ -13171,11 +13171,11 @@ window.__ModuleLoader__.load({
               ? h('p', { className: 'rl-hint' }, t('ws.cluster.empty'))
               : queue.map((entry, index) => h(
                   'p',
-                  { key: firstString(entry.requestId) || 'queue-' + index, className: 'rl-cluster-line' },
-                  '#' + String(numberOr(entry.position, index + 1)) + ' · '
-                    + t('ws.cluster.queueNode') + ': ' + (firstString(entry.nodeId) || '—') + ' · '
-                    + t('ws.cluster.queueAmount') + ': ' + String(numberOr(entry.amount, 0)) + ' · '
-                    + (firstString(entry.machineId) || '—'),
+                  { key: firstString(entry?.requestId) || 'queue-' + index, className: 'rl-cluster-line' },
+                  '#' + String(numberOr(entry?.position, index + 1)) + ' · '
+                    + t('ws.cluster.queueNode') + ': ' + (firstString(entry?.nodeId) || '—') + ' · '
+                    + t('ws.cluster.queueAmount') + ': ' + String(numberOr(entry?.amount, 0)) + ' · '
+                    + (firstString(entry?.machineId) || '—'),
                 )),
           ),
           fleet.enabled === true
@@ -13308,13 +13308,13 @@ window.__ModuleLoader__.load({
         { className: 'rl-report-section' },
         title ? h('h4', { className: 'rl-report-section-title' }, title) : null,
         h(LabInfoRow, { label: t('ws.usage.total'), value: formatTokenCount(usageTotalOf(record)) }),
-        h(LabInfoRow, { label: t('ws.usage.input'), value: formatTokenCount(record.inputTokens) }),
-        h(LabInfoRow, { label: t('ws.usage.output'), value: formatTokenCount(record.outputTokens) }),
-        finiteNumber(record.cacheReadTokens) !== null
-          ? h(LabInfoRow, { label: t('ws.usage.cacheRead'), value: formatTokenCount(record.cacheReadTokens) })
+        h(LabInfoRow, { label: t('ws.usage.input'), value: formatTokenCount(record?.inputTokens) }),
+        h(LabInfoRow, { label: t('ws.usage.output'), value: formatTokenCount(record?.outputTokens) }),
+        finiteNumber(record?.cacheReadTokens) !== null
+          ? h(LabInfoRow, { label: t('ws.usage.cacheRead'), value: formatTokenCount(record?.cacheReadTokens) })
           : null,
-        finiteNumber(record.cacheWriteTokens) !== null
-          ? h(LabInfoRow, { label: t('ws.usage.cacheWrite'), value: formatTokenCount(record.cacheWriteTokens) })
+        finiteNumber(record?.cacheWriteTokens) !== null
+          ? h(LabInfoRow, { label: t('ws.usage.cacheWrite'), value: formatTokenCount(record?.cacheWriteTokens) })
           : null,
       );
     }
@@ -13357,10 +13357,10 @@ window.__ModuleLoader__.load({
               h('h4', { className: 'rl-report-section-title' }, t('ws.merge.prepared')),
               rows.map((entry, index) => {
                 const record = asObject(entry);
-                const parentId = firstString(record.parentId);
-                const branch = firstString(record.branch);
-                const commit = shortCommit(firstString(record.headCommit));
-                const clean = record.clean === true ? t('ws.merge.clean') : (record.clean === false ? t('ws.merge.dirty') : '');
+                const parentId = firstString(record?.parentId);
+                const branch = firstString(record?.branch);
+                const commit = shortCommit(firstString(record?.headCommit));
+                const clean = record?.clean === true ? t('ws.merge.clean') : (record?.clean === false ? t('ws.merge.dirty') : '');
                 return h(
                   'div',
                   { key: parentId || 'parent-' + index, className: 'rl-merge-parent' },
@@ -13413,7 +13413,7 @@ window.__ModuleLoader__.load({
       };
       const submit = async () => {
         if (submitting) return;
-        if (selected.length < 2 || selected.length > 4) {
+        if (selected?.length < 2 || selected?.length > 4) {
           setError(t('ws.merge.required.parents'));
           return;
         }
@@ -13426,7 +13426,7 @@ window.__ModuleLoader__.load({
         setSubmitting(true);
         setError('');
         const result = await onSubmit({
-          type: 'node.merge',
+          type: 'node?.merge',
           parentIds: selected,
           title: title.trim(),
           prompt: prompt.trim(),
@@ -13434,8 +13434,8 @@ window.__ModuleLoader__.load({
           ...(modelPayload === undefined ? {} : { model: modelPayload }),
         });
         setSubmitting(false);
-        if (result !== null && result !== undefined && result.ok === true) onClose();
-        else setError((result && result.error) || t('ws.merge.error'));
+        if (result !== null && result !== undefined && result?.ok === true) onClose();
+        else setError((result && result?.error) || t('ws.merge.error'));
       };
       return h(
         'div',
@@ -13459,7 +13459,7 @@ window.__ModuleLoader__.load({
               h(
                 'span',
                 { className: 'rl-label' },
-                t('ws.merge.parents') + ' · ' + t('ws.merge.selected', { count: selected.length, max: 4 }),
+                t('ws.merge.parents') + ' · ' + t('ws.merge.selected', { count: selected?.length, max: 4 }),
               ),
               completed.length === 0
                 ? h('p', { className: 'rl-hint' }, t('ws.merge.required.parents'))
@@ -13468,7 +13468,7 @@ window.__ModuleLoader__.load({
                     { className: 'rl-merge-node-list' },
                     completed.map((node) => {
                       const id = nodeIdOf(node);
-                      const checked = selected.indexOf(id) >= 0;
+                      const checked = selected?.indexOf(id) >= 0;
                       return h(
                         'label',
                         { key: id, className: 'rl-merge-option' },
@@ -13495,14 +13495,14 @@ window.__ModuleLoader__.load({
                   value: title,
                   placeholder: t('ws.merge.field.titlePlaceholder'),
                   ariaLabel: t('ws.merge.field.title'),
-                  onChange: (event) => setTitle(event.target.value),
+                  onChange: (event) => setTitle(event?.target.value),
                 })),
               h(LabField, { label: t('ws.merge.field.timebox'), hint: t('ws.inspector.timebox.hint', { max: maxMinutes }) },
                 h(LabInput, {
                   type: 'number',
                   value: timebox,
                   ariaLabel: t('ws.merge.field.timebox'),
-                  onChange: (event) => setTimebox(event.target.value),
+                  onChange: (event) => setTimebox(event?.target.value),
                 })),
             ),
             h(LabField, { label: t('ws.merge.field.prompt') },
@@ -13511,7 +13511,7 @@ window.__ModuleLoader__.load({
                 placeholder: t('ws.merge.field.promptPlaceholder'),
                 ariaLabel: t('ws.merge.field.prompt'),
                 rows: 4,
-                onChange: (event) => setPrompt(event.target.value),
+                onChange: (event) => setPrompt(event?.target.value),
               })),
             h(LabField, { label: t('ws.model.title'), hint: t('ws.model.inheritHint') },
               h(ModelPicker, { model, onChange: setModel, modelOptions, modelProviders, disabled: submitting, t })),
@@ -13543,8 +13543,8 @@ window.__ModuleLoader__.load({
         setError('');
         const result = await onSubmit(summary.trim() ? { summary: summary.trim() } : {});
         setSubmitting(false);
-        if (result !== null && result !== undefined && result.ok === true) onClose();
-        else setError((result && result.error) || t('ws.merge.finishError'));
+        if (result !== null && result !== undefined && result?.ok === true) onClose();
+        else setError((result && result?.error) || t('ws.merge.finishError'));
       };
       return h(
         'div',
@@ -13567,7 +13567,7 @@ window.__ModuleLoader__.load({
                 value: summary,
                 rows: 3,
                 ariaLabel: t('ws.merge.finishSummary'),
-                onChange: (event) => setSummary(event.target.value),
+                onChange: (event) => setSummary(event?.target.value),
               })),
             error ? h('p', { className: 'rl-error-text', role: 'alert' }, error) : null,
           ),
@@ -13601,7 +13601,7 @@ window.__ModuleLoader__.load({
         if (outcome !== null && outcome !== undefined && outcome.ok === true) setResult(asObject(outcome.result));
         else setError((outcome && outcome.error) || t('ws.push.error'));
       };
-      const refs = result === null ? [] : stringListOf(result.pushedRefs);
+      const refs = result === null ? [] : stringListOf(result?.pushedRefs);
       return h(
         'div',
         { className: 'rl-overlay-layer rl-overlay-layer-top' },
@@ -13624,7 +13624,7 @@ window.__ModuleLoader__.load({
                 placeholder: t('ws.push.remotePlaceholder'),
                 ariaLabel: t('ws.push.remote'),
                 disabled: pushing || result !== null,
-                onChange: (event) => setRemote(event.target.value),
+                onChange: (event) => setRemote(event?.target.value),
               })),
             error ? h('p', { className: 'rl-error-text', role: 'alert' }, error) : null,
             result !== null
@@ -13632,7 +13632,7 @@ window.__ModuleLoader__.load({
                   'div',
                   { className: 'rl-push-result' },
                   h('p', { className: 'rl-push-result-title' }, t('ws.push.done', { count: refs.length })),
-                  firstString(result.stdout) ? h('pre', { className: 'rl-push-stdout' }, firstString(result.stdout)) : null,
+                  firstString(result?.stdout) ? h('pre', { className: 'rl-push-stdout' }, firstString(result?.stdout)) : null,
                 )
               : null,
           ),
@@ -13659,7 +13659,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
         const onKeyDown = (event) => {
-          if (event.key === 'Escape' && busy !== true) onCancel();
+          if (event?.key === 'Escape' && busy !== true) onCancel();
         };
         document.addEventListener('keydown', onKeyDown);
         return () => document.removeEventListener('keydown', onKeyDown);
@@ -13687,7 +13687,7 @@ window.__ModuleLoader__.load({
                 type: 'checkbox',
                 checked: removeWorktrees,
                 disabled: busy === true,
-                onChange: (event) => setRemoveWorktrees(event.target.checked === true),
+                onChange: (event) => setRemoveWorktrees(event?.target.checked === true),
               }),
               h('span', null, t('landing.delete.worktrees')),
             ),
@@ -13825,17 +13825,17 @@ window.__ModuleLoader__.load({
     /** Proposal detail readback for a `proposed` node. */
     function ProposalPanel({ proposal, t }) {
       const record = asObject(proposal);
-      const rationale = firstString(record.rationale);
-      const infoGain = firstString(record.expectedInfoGain);
-      const runId = firstString(record.runId);
+      const rationale = firstString(record?.rationale);
+      const infoGain = firstString(record?.expectedInfoGain);
+      const runId = firstString(record?.runId);
       return h(
         'div',
         { className: 'rl-proposal-panel' },
         h('p', { className: 'rl-proposal-title' }, t('ws.proposed.title')),
         rationale ? h(LabInfoRow, { label: t('ws.proposed.rationale'), value: rationale }) : null,
         infoGain ? h(LabInfoRow, { label: t('ws.proposed.infoGain'), value: infoGain }) : null,
-        finiteNumber(record.createdAt) !== null
-          ? h(LabInfoRow, { label: t('ws.proposed.createdAt'), value: formatDateTime(record.createdAt, t) })
+        finiteNumber(record?.createdAt) !== null
+          ? h(LabInfoRow, { label: t('ws.proposed.createdAt'), value: formatDateTime(record?.createdAt, t) })
           : null,
         runId ? h(LabInfoRow, { label: t('ws.proposed.run'), value: runId, mono: true }) : null,
       );
@@ -13848,9 +13848,9 @@ window.__ModuleLoader__.load({
       const summary = gcPostmortemTextOf(record, 'summary');
       const recommendation = gcPostmortemTextOf(record, 'recommendation');
       const leftovers = gcPostmortemListOf(record, 'leftovers');
-      const cleanupRequested = record.cleanupRequested === true
+      const cleanupRequested = record?.cleanupRequested === true
         ? t('ws.termination.yes')
-        : record.cleanupRequested === false ? t('ws.termination.no') : '';
+        : record?.cleanupRequested === false ? t('ws.termination.no') : '';
       return h(
         'div',
         { className: 'rl-gc-panel' },
@@ -13877,10 +13877,10 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** Key-value editor for node.needs (planned/proposed nodes). */
+    /** Key-value editor for node?.needs (planned/proposed nodes). */
     function NeedsEditor({ node, project, busy, onSave, t }) {
       const [rows, setRows] = React.useState(() =>
-        nodeNeedsEntries(node).map((entry, index) => ({ id: 'needs-' + index, key: entry.key, value: String(entry.amount) })));
+        nodeNeedsEntries(node).map((entry, index) => ({ id: 'needs-' + index, key: entry?.key, value: String(entry?.amount) })));
       const [saving, setSaving] = React.useState(false);
       const [error, setError] = React.useState('');
       const seqRef = React.useRef(rows.length);
@@ -13893,7 +13893,7 @@ window.__ModuleLoader__.load({
         return values.map((key) => ({ value: key, label: key === 'machines' ? t('ws.needs.machines') : key }));
       };
       const update = (id, field, value) => {
-        setRows((previous) => previous.map((row) => (row.id === id ? { ...row, [field]: value } : row)));
+        setRows((previous) => previous.map((row) => (row?.id === id ? { ...row, [field]: value } : row)));
         setError('');
       };
       const add = () => {
@@ -13901,15 +13901,15 @@ window.__ModuleLoader__.load({
         setRows((previous) => previous.concat([{ id: 'needs-' + seqRef.current, key: '', value: '1' }]));
       };
       const remove = (id) => {
-        setRows((previous) => previous.filter((row) => row.id !== id));
+        setRows((previous) => previous.filter((row) => row?.id !== id));
       };
       const save = async () => {
         if (saving || busy) return;
         const needs = {};
         for (const row of rows) {
-          const key = String(row.key === undefined || row.key === null ? '' : row.key).trim();
+          const key = String(row?.key === undefined || row?.key === null ? '' : row?.key).trim();
           if (!key) continue;
-          const amount = parseInteger(row.value, 0);
+          const amount = parseInteger(row?.value, 0);
           if (amount <= 0) {
             setError(t('ws.inspector.needsInvalid'));
             return;
@@ -13924,8 +13924,8 @@ window.__ModuleLoader__.load({
         setError('');
         const result = await onSave(needs);
         setSaving(false);
-        if (!(result !== null && result !== undefined && result.ok === true)) {
-          setError((result && result.error) || t('ws.inspector.error'));
+        if (!(result !== null && result !== undefined && result?.ok === true)) {
+          setError((result && result?.error) || t('ws.inspector.error'));
         }
       };
       return h(
@@ -13936,20 +13936,20 @@ window.__ModuleLoader__.load({
         rows.map((row) =>
           h(
             'div',
-            { key: row.id, className: 'rl-need-row' },
+            { key: row?.id, className: 'rl-need-row' },
             h(LabSelect, {
-              value: row.key,
+              value: row?.key,
               ariaLabel: t('ws.needs.poolKey'),
-              options: keyChoicesFor(row.key),
-              onChange: (event) => update(row.id, 'key', event.target.value),
+              options: keyChoicesFor(row?.key),
+              onChange: (event) => update(row?.id, 'key', event?.target.value),
             }),
             h(LabInput, {
               type: 'number',
-              value: row.value,
+              value: row?.value,
               ariaLabel: t('wizard.pool.value'),
-              onChange: (event) => update(row.id, 'value', event.target.value),
+              onChange: (event) => update(row?.id, 'value', event?.target.value),
             }),
-            h(LabButton, { label: '✕', variant: 'ghost', title: t('wizard.pool.remove'), onClick: () => remove(row.id) }),
+            h(LabButton, { label: '✕', variant: 'ghost', title: t('wizard.pool.remove'), onClick: () => remove(row?.id) }),
           )),
         poolKeys.length === 0 ? h('p', { className: 'rl-hint' }, t('ws.needs.noPools')) : null,
         h('div', { className: 'rl-form-actions' },
@@ -14063,15 +14063,15 @@ window.__ModuleLoader__.load({
       };
       const modelOptions = [];
       for (const row of asArray(draft.modelOptions)) {
-        const provider = String(row.provider === undefined || row.provider === null ? '' : row.provider).trim();
-        const model = String(row.model === undefined || row.model === null ? '' : row.model).trim();
+        const provider = String(row?.provider === undefined || row?.provider === null ? '' : row?.provider).trim();
+        const model = String(row?.model === undefined || row?.model === null ? '' : row?.model).trim();
         if (!provider || !model) continue;
-        const id = String(row.optionId === undefined || row.optionId === null ? '' : row.optionId).trim();
-        const effort = String(row.reasoningEffort === undefined || row.reasoningEffort === null ? '' : row.reasoningEffort).trim();
-        const tags = String(row.tags === undefined || row.tags === null ? '' : row.tags)
+        const id = String(row?.optionId === undefined || row?.optionId === null ? '' : row?.optionId).trim();
+        const effort = String(row?.reasoningEffort === undefined || row?.reasoningEffort === null ? '' : row?.reasoningEffort).trim();
+        const tags = String(row?.tags === undefined || row?.tags === null ? '' : row?.tags)
           .split(',').map((tag) => tag.trim()).filter((tag) => tag.length > 0).slice(0, 8);
-        const priceIn = Number(row.priceIn);
-        const priceOut = Number(row.priceOut);
+        const priceIn = Number(row?.priceIn);
+        const priceOut = Number(row?.priceOut);
         if (!Number.isFinite(priceIn) || priceIn < 0 || !Number.isFinite(priceOut) || priceOut < 0) {
           throw new Error(t('ws.settings.invalid'));
         }
@@ -14086,10 +14086,10 @@ window.__ModuleLoader__.load({
       }
       const reviewers = [];
       for (const row of asArray(draft.reviewers)) {
-        const lens = String(row.lens === undefined || row.lens === null ? '' : row.lens).trim();
-        const provider = String(row.provider === undefined || row.provider === null ? '' : row.provider).trim();
-        const model = String(row.model === undefined || row.model === null ? '' : row.model).trim();
-        const effort = String(row.reasoningEffort === undefined || row.reasoningEffort === null ? '' : row.reasoningEffort).trim();
+        const lens = String(row?.lens === undefined || row?.lens === null ? '' : row?.lens).trim();
+        const provider = String(row?.provider === undefined || row?.provider === null ? '' : row?.provider).trim();
+        const model = String(row?.model === undefined || row?.model === null ? '' : row?.model).trim();
+        const effort = String(row?.reasoningEffort === undefined || row?.reasoningEffort === null ? '' : row?.reasoningEffort).trim();
         if (!lens && !provider && !model) continue;
         reviewers.push({
           lens,
@@ -14102,8 +14102,8 @@ window.__ModuleLoader__.load({
       advisor.reviewers = reviewers;
       const pools = {};
       for (const row of draft.pools) {
-        const key = String(row.key === undefined || row.key === null ? '' : row.key).trim();
-        const amount = parseInteger(row.value, 0);
+        const key = String(row?.key === undefined || row?.key === null ? '' : row?.key).trim();
+        const amount = parseInteger(row?.value, 0);
         if (!key || amount <= 0) continue;
         pools[key] = amount;
       }
@@ -14217,17 +14217,17 @@ window.__ModuleLoader__.load({
       const savePlacement = async () => {
         if (placementAction !== '' || compileState.busy === true) return;
         const result = compileState.result;
-        if (result === null || result.policy.text !== placementText) {
+        if (result === null || result?.policy.text !== placementText) {
           setPlacementError(t('ws.settings.placement.needCompile'));
           return;
         }
         setPlacementAction('save');
         setPlacementError('');
         setPlacementMessage('');
-        const outcome = await onSavePlacementPolicy(result.policy);
+        const outcome = await onSavePlacementPolicy(result?.policy);
         setPlacementAction('');
         if (outcome !== null && outcome !== undefined && outcome.ok === true) {
-          setSavedPlacement(result.policy);
+          setSavedPlacement(result?.policy);
           setPlacementMessage(t('ws.settings.placement.savedMessage'));
         } else {
           setPlacementError((outcome && outcome.error) || t('ws.settings.placement.error'));
@@ -14265,7 +14265,7 @@ window.__ModuleLoader__.load({
       const setPool = (id, field, value) => {
         setDraft((previous) => ({
           ...previous,
-          pools: previous.pools.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+          pools: previous.pools.map((row) => (row?.id === id ? { ...row, [field]: value } : row)),
         }));
         setError('');
       };
@@ -14277,12 +14277,12 @@ window.__ModuleLoader__.load({
         }));
       };
       const removePool = (id) => {
-        setDraft((previous) => ({ ...previous, pools: previous.pools.filter((row) => row.id !== id) }));
+        setDraft((previous) => ({ ...previous, pools: previous.pools.filter((row) => row?.id !== id) }));
       };
       const setReviewer = (id, field, value) => {
         setDraft((previous) => ({
           ...previous,
-          reviewers: asArray(previous.reviewers).map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+          reviewers: asArray(previous.reviewers).map((row) => (row?.id === id ? { ...row, [field]: value } : row)),
         }));
         setError('');
       };
@@ -14306,7 +14306,7 @@ window.__ModuleLoader__.load({
       const setModelOption = (id, field, value) => {
         setDraft((previous) => ({
           ...previous,
-          modelOptions: asArray(previous.modelOptions).map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+          modelOptions: asArray(previous.modelOptions).map((row) => (row?.id === id ? { ...row, [field]: value } : row)),
         }));
         setError('');
       };
@@ -14333,13 +14333,13 @@ window.__ModuleLoader__.load({
       const removeModelOption = (id) => {
         setDraft((previous) => ({
           ...previous,
-          modelOptions: asArray(previous.modelOptions).filter((row) => row.id !== id),
+          modelOptions: asArray(previous.modelOptions).filter((row) => row?.id !== id),
         }));
       };
       const removeReviewer = (id) => {
         setDraft((previous) => ({
           ...previous,
-          reviewers: asArray(previous.reviewers).filter((row) => row.id !== id),
+          reviewers: asArray(previous.reviewers).filter((row) => row?.id !== id),
         }));
       };
       const reset = () => {
@@ -14367,10 +14367,10 @@ window.__ModuleLoader__.load({
         setError('');
         const result = await onSave(config);
         setSaving(false);
-        if (result !== null && result !== undefined && result.ok === true) {
+        if (result !== null && result !== undefined && result?.ok === true) {
           onClose();
         } else {
-          setError((result && result.error) || t('ws.settings.error'));
+          setError((result && result?.error) || t('ws.settings.error'));
         }
       };
       const promptDefaultOf = (key) => firstString(asObject(promptDefaults)[key]);
@@ -14403,7 +14403,7 @@ window.__ModuleLoader__.load({
             ariaLabel: t('ws.settings.model.' + role) + ' ' + t('ws.settings.model.provider'),
             options: providerChoicesOf(catalogProviders, provider, t),
             onChange: (event) => {
-              setField(providerKey, event.target.value);
+              setField(providerKey, event?.target.value);
               setField(modelKey, '');
             },
           }),
@@ -14412,7 +14412,7 @@ window.__ModuleLoader__.load({
             ariaLabel: t('ws.settings.model.' + role) + ' ' + t('ws.settings.model.model'),
             disabled: String(provider === undefined || provider === null ? '' : provider) === '',
             options: modelChoicesOf(catalogProviders, provider, currentModel, t),
-            onChange: (event) => setField(modelKey, event.target.value),
+            onChange: (event) => setField(modelKey, event?.target.value),
           }),
         );
       };
@@ -14444,7 +14444,7 @@ window.__ModuleLoader__.load({
                     { value: 'auto', label: t('ws.settings.acceptMode.auto') },
                     { value: 'confirm', label: t('ws.settings.acceptMode.confirm') },
                   ],
-                  onChange: (event) => setField('acceptMode', event.target.value),
+                  onChange: (event) => setField('acceptMode', event?.target.value),
                 })),
               h(
                 'div',
@@ -14454,14 +14454,14 @@ window.__ModuleLoader__.load({
                     type: 'number',
                     value: draft.maxProposalsPerPass,
                     ariaLabel: t('ws.settings.maxProposalsPerPass'),
-                    onChange: (event) => setField('maxProposalsPerPass', event.target.value),
+                    onChange: (event) => setField('maxProposalsPerPass', event?.target.value),
                   })),
                 h(LabField, { label: t('ws.settings.maxPendingProposals') },
                   h(LabInput, {
                     type: 'number',
                     value: draft.maxPendingProposals,
                     ariaLabel: t('ws.settings.maxPendingProposals'),
-                    onChange: (event) => setField('maxPendingProposals', event.target.value),
+                    onChange: (event) => setField('maxPendingProposals', event?.target.value),
                   })),
               ),
               h(LabField, {
@@ -14474,7 +14474,7 @@ window.__ModuleLoader__.load({
                   max: 1800,
                   value: draft.advisorTimeoutSeconds,
                   ariaLabel: t('ws.settings.advisorTimeoutSeconds'),
-                  onChange: (event) => setField('advisorTimeoutSeconds', event.target.value),
+                  onChange: (event) => setField('advisorTimeoutSeconds', event?.target.value),
                 })),
             ),
             h(
@@ -14485,31 +14485,31 @@ window.__ModuleLoader__.load({
               asArray(draft.reviewers).map((row, index) =>
                 h(
                   'div',
-                  { key: row.id, className: 'rl-reviewer-row' },
+                  { key: row?.id, className: 'rl-reviewer-row' },
                   h(LabInput, {
-                    value: row.lens,
+                    value: row?.lens,
                     placeholder: t('ws.settings.reviewer.lens'),
                     ariaLabel: t('ws.settings.reviewer.lens') + ' ' + String(index + 1),
-                    onChange: (event) => setReviewer(row.id, 'lens', event.target.value),
+                    onChange: (event) => setReviewer(row?.id, 'lens', event?.target.value),
                   }),
                   h(LabSelect, {
-                    value: row.provider,
+                    value: row?.provider,
                     ariaLabel: t('ws.settings.reviewer.provider') + ' ' + String(index + 1),
-                    options: providerChoicesOf(catalogProviders, row.provider, t),
+                    options: providerChoicesOf(catalogProviders, row?.provider, t),
                     onChange: (event) => {
-                      setReviewer(row.id, 'provider', event.target.value);
-                      setReviewer(row.id, 'model', '');
+                      setReviewer(row?.id, 'provider', event?.target.value);
+                      setReviewer(row?.id, 'model', '');
                     },
                   }),
                   h(LabSelect, {
-                    value: row.model,
+                    value: row?.model,
                     ariaLabel: t('ws.settings.reviewer.model') + ' ' + String(index + 1),
-                    disabled: String(row.provider === undefined || row.provider === null ? '' : row.provider) === '',
-                    options: modelChoicesOf(catalogProviders, row.provider, row.model, t),
-                    onChange: (event) => setReviewer(row.id, 'model', event.target.value),
+                    disabled: String(row?.provider === undefined || row?.provider === null ? '' : row?.provider) === '',
+                    options: modelChoicesOf(catalogProviders, row?.provider, row?.model, t),
+                    onChange: (event) => setReviewer(row?.id, 'model', event?.target.value),
                   }),
                   h(LabSelect, {
-                    value: row.reasoningEffort,
+                    value: row?.reasoningEffort,
                     ariaLabel: t('ws.settings.reviewer.effort') + ' ' + String(index + 1),
                     options: [
                       { value: '', label: t('ws.settings.reviewer.effort.auto') },
@@ -14519,12 +14519,12 @@ window.__ModuleLoader__.load({
                       { value: 'high', label: 'high' },
                       { value: 'max', label: 'max' },
                     ],
-                    onChange: (event) => setReviewer(row.id, 'reasoningEffort', event.target.value),
+                    onChange: (event) => setReviewer(row?.id, 'reasoningEffort', event?.target.value),
                   }),
                   h(
                     'div',
                     { className: 'rl-reviewer-actions' },
-                    h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.settings.reviewer.remove'), onClick: () => removeReviewer(row.id) }),
+                    h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.settings.reviewer.remove'), onClick: () => removeReviewer(row?.id) }),
                   ),
                 )),
               h(
@@ -14547,61 +14547,61 @@ window.__ModuleLoader__.load({
               asArray(draft.modelOptions).map((row, index) =>
                 h(
                   'div',
-                  { key: row.id, className: 'rl-model-option-row' },
+                  { key: row?.id, className: 'rl-model-option-row' },
                   h(LabInput, {
-                    value: row.optionId,
+                    value: row?.optionId,
                     placeholder: t('ws.settings.modelOption.id'),
                     ariaLabel: t('ws.settings.modelOption.id') + ' ' + String(index + 1),
-                    onChange: (event) => setModelOption(row.id, 'optionId', event.target.value),
+                    onChange: (event) => setModelOption(row?.id, 'optionId', event?.target.value),
                   }),
                   h(LabSelect, {
-                    value: row.provider,
+                    value: row?.provider,
                     ariaLabel: t('ws.settings.modelOption.provider') + ' ' + String(index + 1),
-                    options: providerChoicesOf(catalogProviders, row.provider, t),
+                    options: providerChoicesOf(catalogProviders, row?.provider, t),
                     onChange: (event) => {
-                      setModelOption(row.id, 'provider', event.target.value);
-                      setModelOption(row.id, 'model', '');
+                      setModelOption(row?.id, 'provider', event?.target.value);
+                      setModelOption(row?.id, 'model', '');
                     },
                   }),
                   h(LabSelect, {
-                    value: row.model,
+                    value: row?.model,
                     ariaLabel: t('ws.settings.modelOption.model') + ' ' + String(index + 1),
-                    disabled: String(row.provider === undefined || row.provider === null ? '' : row.provider) === '',
-                    options: modelChoicesOf(catalogProviders, row.provider, row.model, t),
-                    onChange: (event) => setModelOption(row.id, 'model', event.target.value),
+                    disabled: String(row?.provider === undefined || row?.provider === null ? '' : row?.provider) === '',
+                    options: modelChoicesOf(catalogProviders, row?.provider, row?.model, t),
+                    onChange: (event) => setModelOption(row?.id, 'model', event?.target.value),
                   }),
                   h(LabSelect, {
-                    value: row.reasoningEffort,
+                    value: row?.reasoningEffort,
                     ariaLabel: t('ws.settings.modelOption.effort') + ' ' + String(index + 1),
                     options: [{ value: '', label: t('ws.model.effort.inherit') }].concat(
                       ['minimal', 'low', 'medium', 'high', 'max'].map((effort) => ({ value: effort, label: effort })),
                     ),
-                    onChange: (event) => setModelOption(row.id, 'reasoningEffort', event.target.value),
+                    onChange: (event) => setModelOption(row?.id, 'reasoningEffort', event?.target.value),
                   }),
                   h(LabInput, {
-                    value: row.tags,
+                    value: row?.tags,
                     placeholder: t('ws.settings.modelOption.tags'),
                     ariaLabel: t('ws.settings.modelOption.tags') + ' ' + String(index + 1),
-                    onChange: (event) => setModelOption(row.id, 'tags', event.target.value),
+                    onChange: (event) => setModelOption(row?.id, 'tags', event?.target.value),
                   }),
                   h(LabInput, {
                     type: 'number',
-                    value: row.priceIn,
+                    value: row?.priceIn,
                     placeholder: t('ws.settings.modelOption.priceIn'),
                     ariaLabel: t('ws.settings.modelOption.priceIn') + ' ' + String(index + 1),
-                    onChange: (event) => setModelOption(row.id, 'priceIn', event.target.value),
+                    onChange: (event) => setModelOption(row?.id, 'priceIn', event?.target.value),
                   }),
                   h(LabInput, {
                     type: 'number',
-                    value: row.priceOut,
+                    value: row?.priceOut,
                     placeholder: t('ws.settings.modelOption.priceOut'),
                     ariaLabel: t('ws.settings.modelOption.priceOut') + ' ' + String(index + 1),
-                    onChange: (event) => setModelOption(row.id, 'priceOut', event.target.value),
+                    onChange: (event) => setModelOption(row?.id, 'priceOut', event?.target.value),
                   }),
                   h(
                     'div',
                     { className: 'rl-reviewer-actions' },
-                    h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.settings.modelOption.remove'), onClick: () => removeModelOption(row.id) }),
+                    h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.settings.modelOption.remove'), onClick: () => removeModelOption(row?.id) }),
                   ),
                 )),
               h(
@@ -14624,7 +14624,7 @@ window.__ModuleLoader__.load({
                   h('input', {
                     type: 'checkbox',
                     checked: draft.advisorMaySelectModels === true,
-                    onChange: (event) => setField('advisorMaySelectModels', event.target.checked === true),
+                    onChange: (event) => setField('advisorMaySelectModels', event?.target.checked === true),
                   }),
                   h('span', null, t('ws.settings.advisorMaySelectModels')),
                 ),
@@ -14634,7 +14634,7 @@ window.__ModuleLoader__.load({
                   h('input', {
                     type: 'checkbox',
                     checked: draft.autoUpgrade === true,
-                    onChange: (event) => setField('autoUpgrade', event.target.checked === true),
+                    onChange: (event) => setField('autoUpgrade', event?.target.checked === true),
                   }),
                   h('span', null, t('ws.settings.autoUpgrade')),
                 ),
@@ -14644,7 +14644,7 @@ window.__ModuleLoader__.load({
                   type: 'number',
                   value: draft.routingMaxAttempts,
                   ariaLabel: t('ws.settings.maxAttempts'),
-                  onChange: (event) => setField('routingMaxAttempts', event.target.value),
+                  onChange: (event) => setField('routingMaxAttempts', event?.target.value),
                 })),
             ),
             h(
@@ -14659,42 +14659,42 @@ window.__ModuleLoader__.load({
                     type: 'number',
                     value: draft.maxCycles,
                     ariaLabel: t('ws.settings.maxCycles'),
-                    onChange: (event) => setField('maxCycles', event.target.value),
+                    onChange: (event) => setField('maxCycles', event?.target.value),
                   })),
                 h(LabField, { label: t('ws.settings.maxWallClockMinutes') },
                   h(LabInput, {
                     type: 'number',
                     value: draft.maxWallClockMinutes,
                     ariaLabel: t('ws.settings.maxWallClockMinutes'),
-                    onChange: (event) => setField('maxWallClockMinutes', event.target.value),
+                    onChange: (event) => setField('maxWallClockMinutes', event?.target.value),
                   })),
                 h(LabField, { label: t('ws.settings.idleCycleLimit') },
                   h(LabInput, {
                     type: 'number',
                     value: draft.idleCycleLimit,
                     ariaLabel: t('ws.settings.idleCycleLimit'),
-                    onChange: (event) => setField('idleCycleLimit', event.target.value),
+                    onChange: (event) => setField('idleCycleLimit', event?.target.value),
                   })),
                 h(LabField, { label: t('ws.settings.maxTokens') },
                   h(LabInput, {
                     type: 'number',
                     value: draft.autoMaxTokens,
                     ariaLabel: t('ws.settings.maxTokens'),
-                    onChange: (event) => setField('autoMaxTokens', event.target.value),
+                    onChange: (event) => setField('autoMaxTokens', event?.target.value),
                   })),
                 h(LabField, { label: t('ws.settings.maxCostUsd') },
                   h(LabInput, {
                     type: 'number',
                     value: draft.autoMaxCostUsd,
                     ariaLabel: t('ws.settings.maxCostUsd'),
-                    onChange: (event) => setField('autoMaxCostUsd', event.target.value),
+                    onChange: (event) => setField('autoMaxCostUsd', event?.target.value),
                   })),
                 h(LabField, { label: t('ws.settings.clusterPriority'), hint: t('ws.settings.clusterPriorityHint') },
                   h(LabInput, {
                     type: 'number',
                     value: draft.clusterPriority,
                     ariaLabel: t('ws.settings.clusterPriority'),
-                    onChange: (event) => setField('clusterPriority', event.target.value),
+                    onChange: (event) => setField('clusterPriority', event?.target.value),
                   })),
               ),
             ),
@@ -14730,28 +14730,28 @@ window.__ModuleLoader__.load({
                     type: 'number',
                     value: draft.nodeTimeoutMinutes,
                     ariaLabel: t('ws.settings.nodeTimeoutMinutes'),
-                    onChange: (event) => setField('nodeTimeoutMinutes', event.target.value),
+                    onChange: (event) => setField('nodeTimeoutMinutes', event?.target.value),
                   })),
                 h(LabField, { label: t('ws.settings.maxNodeTimeoutMinutes') },
                   h(LabInput, {
                     type: 'number',
                     value: draft.maxNodeTimeoutMinutes,
                     ariaLabel: t('ws.settings.maxNodeTimeoutMinutes'),
-                    onChange: (event) => setField('maxNodeTimeoutMinutes', event.target.value),
+                    onChange: (event) => setField('maxNodeTimeoutMinutes', event?.target.value),
                   })),
                 h(LabField, { label: t('ws.settings.maxRunningNodes') },
                   h(LabInput, {
                     type: 'number',
                     value: draft.maxRunningNodes,
                     ariaLabel: t('ws.settings.maxRunningNodes'),
-                    onChange: (event) => setField('maxRunningNodes', event.target.value),
+                    onChange: (event) => setField('maxRunningNodes', event?.target.value),
                   })),
                 h(LabField, { label: t('ws.settings.maxNodes') },
                   h(LabInput, {
                     type: 'number',
                     value: draft.maxNodes,
                     ariaLabel: t('ws.settings.maxNodes'),
-                    onChange: (event) => setField('maxNodes', event.target.value),
+                    onChange: (event) => setField('maxNodes', event?.target.value),
                   })),
               ),
             ),
@@ -14765,20 +14765,20 @@ window.__ModuleLoader__.load({
                 draft.pools.map((row) =>
                   h(
                     'div',
-                    { key: row.id, className: 'rl-need-row' },
+                    { key: row?.id, className: 'rl-need-row' },
                     h(LabInput, {
-                      value: row.key,
+                      value: row?.key,
                       placeholder: t('wizard.pool.key'),
                       ariaLabel: t('wizard.pool.key'),
-                      onChange: (event) => setPool(row.id, 'key', event.target.value),
+                      onChange: (event) => setPool(row?.id, 'key', event?.target.value),
                     }),
                     h(LabInput, {
                       type: 'number',
-                      value: row.value,
+                      value: row?.value,
                       ariaLabel: t('wizard.pool.value'),
-                      onChange: (event) => setPool(row.id, 'value', event.target.value),
+                      onChange: (event) => setPool(row?.id, 'value', event?.target.value),
                     }),
-                    h(LabButton, { label: '✕', variant: 'ghost', title: t('wizard.pool.remove'), onClick: () => removePool(row.id) }),
+                    h(LabButton, { label: '✕', variant: 'ghost', title: t('wizard.pool.remove'), onClick: () => removePool(row?.id) }),
                   )),
               ),
               h('p', { className: 'rl-hint' }, t('ws.settings.pools.hint')),
@@ -14810,7 +14810,7 @@ window.__ModuleLoader__.load({
                     value: draft.workerPrefix,
                     rows: 2,
                     ariaLabel: t('ws.settings.prompts.workerPrefix'),
-                    onChange: (event) => setField('workerPrefix', event.target.value),
+                    onChange: (event) => setField('workerPrefix', event?.target.value),
                   })),
               ),
               h(
@@ -14825,7 +14825,7 @@ window.__ModuleLoader__.load({
                     value: draft.advisorPrompt,
                     rows: 3,
                     ariaLabel: t('ws.settings.prompts.advisor'),
-                    onChange: (event) => setField('advisorPrompt', event.target.value),
+                    onChange: (event) => setField('advisorPrompt', event?.target.value),
                   })),
               ),
               h(
@@ -14841,7 +14841,7 @@ window.__ModuleLoader__.load({
                     value: draft.schedulerPrompt,
                     rows: 3,
                     ariaLabel: t('ws.settings.prompts.scheduler'),
-                    onChange: (event) => setField('schedulerPrompt', event.target.value),
+                    onChange: (event) => setField('schedulerPrompt', event?.target.value),
                   })),
               ),
             ),
@@ -14873,7 +14873,7 @@ window.__ModuleLoader__.load({
                 placeholder: t('ws.settings.placement.placeholder'),
                 disabled: compileState.busy === true || placementAction !== '',
                 onChange: (event) => {
-                  setPlacementText(event.target.value);
+                  setPlacementText(event?.target.value);
                   setPlacementError('');
                   setPlacementMessage('');
                 },
@@ -14989,49 +14989,49 @@ window.__ModuleLoader__.load({
                       asArray(expertLibrary.data.experts).map((expert) =>
                         h(
                           'div',
-                          { key: expert.id, className: 'rl-expert-library-row' },
+                          { key: expert?.id, className: 'rl-expert-library-row' },
                           h(
                             'div',
                             { className: 'rl-expert-library-main' },
-                            h('strong', { className: 'rl-expert-library-id' }, expert.id),
-                            h('p', { className: 'rl-hint' }, expert.persona),
+                            h('strong', { className: 'rl-expert-library-id' }, expert?.id),
+                            h('p', { className: 'rl-hint' }, expert?.persona),
                           ),
                           h(
                             'div',
                             { className: 'rl-project-chips' },
-                            asArray(expert.mayPropose).map((action) => h('span', { key: action, className: 'rl-chip rl-chip-mono' }, action)),
+                            asArray(expert?.mayPropose).map((action) => h('span', { key: action, className: 'rl-chip rl-chip-mono' }, action)),
                             h('span', { className: 'rl-chip' }, t('ws.experts.library.metrics', {
-                              proposals: expert.metrics?.proposals ?? 0,
-                              completed: expert.metrics?.completed ?? 0,
+                              proposals: expert?.metrics?.proposals ?? 0,
+                              completed: expert?.metrics?.completed ?? 0,
                             })),
                             h('span', { className: 'rl-chip' }, t('ws.experts.library.noExecute')),
-                            h('span', { className: 'rl-chip rl-chip-lifecycle rl-chip-lifecycle-' + (expert.lifecycle?.status ?? 'catalog') }, t('ws.experts.lifecycle.' + (expert.lifecycle?.status ?? 'catalog'))),
+                            h('span', { className: 'rl-chip rl-chip-lifecycle rl-chip-lifecycle-' + (expert?.lifecycle?.status ?? 'catalog') }, t('ws.experts.lifecycle.' + (expert?.lifecycle?.status ?? 'catalog'))),
                           ),
                           h(
                             'div',
                             { className: 'rl-expert-lifecycle-actions' },
-                            (expert.lifecycle?.status ?? 'catalog') === 'catalog' || expert.lifecycle?.status === 'retired'
+                            (expert?.lifecycle?.status ?? 'catalog') === 'catalog' || expert?.lifecycle?.status === 'retired'
                               ? h(LabButton, {
-                                  label: expertAction === 'expert_hire:' + expert.id ? '…' : t('ws.experts.hire'),
+                                  label: expertAction === 'expert_hire:' + expert?.id ? '…' : t('ws.experts.hire'),
                                   variant: 'ghost',
                                   disabled: expertAction !== '',
-                                  onClick: () => void runExpertAction('expert_hire', expert.id),
+                                  onClick: () => void runExpertAction('expert_hire', expert?.id),
                                 })
                               : null,
-                            expert.lifecycle?.status === 'active'
+                            expert?.lifecycle?.status === 'active'
                               ? h(LabButton, {
-                                  label: expertAction === 'expert_drain:' + expert.id ? '…' : t('ws.experts.drain'),
+                                  label: expertAction === 'expert_drain:' + expert?.id ? '…' : t('ws.experts.drain'),
                                   variant: 'ghost',
                                   disabled: expertAction !== '',
-                                  onClick: () => void runExpertAction('expert_drain', expert.id),
+                                  onClick: () => void runExpertAction('expert_drain', expert?.id),
                                 })
                               : null,
-                            expert.lifecycle?.status === 'draining'
+                            expert?.lifecycle?.status === 'draining'
                               ? h(LabButton, {
-                                  label: expertAction === 'expert_fire:' + expert.id ? '…' : t('ws.experts.fire'),
+                                  label: expertAction === 'expert_fire:' + expert?.id ? '…' : t('ws.experts.fire'),
                                   variant: 'ghost',
                                   disabled: expertAction !== '',
-                                  onClick: () => void runExpertAction('expert_fire', expert.id),
+                                  onClick: () => void runExpertAction('expert_fire', expert?.id),
                                 })
                               : null,
                           ),
@@ -15059,12 +15059,12 @@ window.__ModuleLoader__.load({
     /** Inline Step result banner (summary or localized error). */
     function StepBanner({ info, onDismiss, t }) {
       const record = asObject(info);
-      const isError = record.kind === 'error';
+      const isError = record?.kind === 'error';
       return h(
         'div',
         { className: 'rl-step-banner' + (isError ? ' rl-step-banner-error' : ''), role: 'status' },
-        h('span', { className: 'rl-step-banner-text' + (isError ? '' : ' rl-step-banner-ok') }, record.text || ''),
-        record.meta ? h('span', { className: 'rl-step-banner-meta' }, record.meta) : null,
+        h('span', { className: 'rl-step-banner-text' + (isError ? '' : ' rl-step-banner-ok') }, record?.text || ''),
+        record?.meta ? h('span', { className: 'rl-step-banner-meta' }, record?.meta) : null,
         h(LabButton, { label: t('ws.step.dismiss'), variant: 'ghost', onClick: onDismiss }),
       );
     }
@@ -15084,7 +15084,7 @@ window.__ModuleLoader__.load({
       const out = [];
       for (const entry of asArray(asObject(run).rejected)) {
         if (typeof entry === 'string') {
-          if (entry.trim()) out.push(entry.trim());
+          if (entry?.trim()) out.push(entry?.trim());
           continue;
         }
         const reason = firstString(asObject(entry).reason);
@@ -15113,7 +15113,7 @@ window.__ModuleLoader__.load({
       const run = asObject(state.run);
       const role = runRoleOf(run);
       const status = runStatusOf(run);
-      const analysis = firstString(run.analysis);
+      const analysis = firstString(run?.analysis);
       const errorText = runErrorTextOf(run);
       const rejected = rejectedTextsOf(run);
       const roleLabel = runRoleLabelOf(role, t);
@@ -15130,30 +15130,30 @@ window.__ModuleLoader__.load({
           { className: 'rl-run-head' },
           h('span', { className: 'rl-run-role' }, roleLabel),
           h('span', { className: 'rl-run-status rl-run-status-' + status }, h(StatusDot, { status: status === 'running' ? 'running' : status === 'failed' ? 'failed' : 'completed' }), statusLabel),
-          h('span', { className: 'rl-run-meta' }, t('ws.runs.duration', { time: formatDurationBetween(run.startedAt, run.endedAt) })),
+          h('span', { className: 'rl-run-meta' }, t('ws.runs.duration', { time: formatDurationBetween(run?.startedAt, run?.endedAt) })),
           runIdOf(run) ? h('span', { className: 'rl-chip rl-chip-mono' }, runIdOf(run)) : null,
         ),
         h('p', { className: 'rl-hint' }, t('ws.experts.backgroundNote')),
-        firstString(run.sessionId) !== '' && typeof onOpenSession === 'function'
+        firstString(run?.sessionId) !== '' && typeof onOpenSession === 'function'
           ? h(
               'div',
               { className: 'rl-form-actions' },
               h(LabButton, {
                 label: t('ws.experts.openTrajectory'),
-                onClick: () => onOpenSession(firstString(run.sessionId), 'trajectory'),
+                onClick: () => onOpenSession(firstString(run?.sessionId), 'trajectory'),
               }),
               h(LabButton, {
                 label: t('ws.experts.openChat'),
-                onClick: () => onOpenSession(firstString(run.sessionId), 'chat'),
+                onClick: () => onOpenSession(firstString(run?.sessionId), 'chat'),
               }),
             )
           : null,
-        h(LabInfoRow, { label: t('ws.runs.detail.session'), value: firstString(run.sessionId), mono: true }),
-        h(LabInfoRow, { label: t('ws.runs.detail.model'), value: firstString(asObject(run.model).model, run.model), mono: true }),
+        h(LabInfoRow, { label: t('ws.runs.detail.session'), value: firstString(run?.sessionId), mono: true }),
+        h(LabInfoRow, { label: t('ws.runs.detail.model'), value: firstString(asObject(run?.model).model, run?.model), mono: true }),
         runLensOf(run) ? h(LabInfoRow, { label: t('ws.runs.lensLabel'), value: runLensOf(run) }) : null,
         runPanelSizeOf(run) !== null ? h(LabInfoRow, { label: t('ws.runs.panelLabel'), value: formatTokenCount(runPanelSizeOf(run)) }) : null,
         runUsageOf(run) !== null ? h(UsageRows, { usage: runUsageOf(run), title: t('ws.usage.title'), t }) : null,
-        firstString(run.stopReason) ? h(LabInfoRow, { label: t('ws.runs.stopReason'), value: firstString(run.stopReason) }) : null,
+        firstString(run?.stopReason) ? h(LabInfoRow, { label: t('ws.runs.stopReason'), value: firstString(run?.stopReason) }) : null,
         errorText ? h('p', { className: 'rl-run-error', role: 'alert' }, t('ws.runs.detail.errorLabel') + ': ' + errorText) : null,
         analysis ? h('div', { className: 'rl-report-section' }, h('h4', { className: 'rl-report-section-title' }, t('ws.runs.detail.analysis')), h('p', { className: 'rl-text-prewrap' }, analysis)) : null,
         gcSummary ? h('div', { className: 'rl-report-section' }, h('h4', { className: 'rl-report-section-title' }, t('ws.gc.summary')), h('p', { className: 'rl-text-prewrap' }, gcSummary)) : null,
@@ -15166,8 +15166,8 @@ window.__ModuleLoader__.load({
               h('ul', { className: 'rl-report-list rl-report-blockers' }, rejected.map((item, index) => h('li', { key: index }, item))),
             )
           : null,
-        h(JsonBlock, { title: t('ws.runs.detail.input'), value: run.inputSnapshot }),
-        h(JsonBlock, { title: t('ws.runs.detail.output'), value: run.output }),
+        h(JsonBlock, { title: t('ws.runs.detail.input'), value: run?.inputSnapshot }),
+        h(JsonBlock, { title: t('ws.runs.detail.output'), value: run?.output }),
         h(
           'div',
           { className: 'rl-form-actions' },
@@ -15227,7 +15227,7 @@ window.__ModuleLoader__.load({
               h(StatusDot, { status: status === 'running' ? 'running' : status === 'failed' ? 'failed' : 'completed' }),
               t('ws.runs.status.' + status),
             ),
-            h('span', { className: 'rl-run-meta' }, t('ws.runs.duration', { time: formatDurationBetween(run.startedAt, run.endedAt) })),
+            h('span', { className: 'rl-run-meta' }, t('ws.runs.duration', { time: formatDurationBetween(run?.startedAt, run?.endedAt) })),
           ),
           h(
             'span',
@@ -15238,7 +15238,7 @@ window.__ModuleLoader__.load({
             lens ? h('span', { className: 'rl-chip rl-chip-merge' }, t('ws.runs.lens', { lens })) : null,
             panelSize !== null ? h('span', { className: 'rl-chip' }, t('ws.runs.panel', { count: panelSize })) : null,
             usage !== null ? h('span', { className: 'rl-chip rl-chip-usage' }, t('ws.usage.chip', { count: formatTokenCount(usageTotalOf(usage)) })) : null,
-            firstString(run.stopReason) ? h('span', { className: 'rl-chip' }, t('ws.runs.stopReason') + ': ' + firstString(run.stopReason)) : null,
+            firstString(run?.stopReason) ? h('span', { className: 'rl-chip' }, t('ws.runs.stopReason') + ': ' + firstString(run?.stopReason)) : null,
           ),
           errorText ? h('p', { className: 'rl-run-error' }, errorText) : null,
           gcRecommendation ? h('p', { className: 'rl-run-meta' }, t('ws.gc.recommendation') + ': ' + gcRecommendation) : null,
@@ -15252,10 +15252,10 @@ window.__ModuleLoader__.load({
     /** One cycle row with trigger, counts, skipped stages and errors. */
     function CycleRow({ cycle, t }) {
       const record = asObject(cycle);
-      const created = idListOf(record.createdNodeIds).length;
-      const started = idListOf(record.startedNodeIds).length;
-      const skipped = asArray(record.skipped);
-      const errors = stringListOf(record.errors);
+      const created = idListOf(record?.createdNodeIds).length;
+      const started = idListOf(record?.startedNodeIds).length;
+      const skipped = asArray(record?.skipped);
+      const errors = stringListOf(record?.errors);
       return h(
         'li',
         null,
@@ -15265,9 +15265,9 @@ window.__ModuleLoader__.load({
           h(
             'span',
             { className: 'rl-run-head' },
-            h('span', { className: 'rl-run-role' }, firstString(record.trigger) || t('ws.runs.tab.cycles')),
-            h('span', { className: 'rl-run-meta' }, t('ws.runs.duration', { time: formatDurationBetween(record.startedAt, record.endedAt) })),
-            firstString(record.id) ? h('span', { className: 'rl-chip rl-chip-mono' }, firstString(record.id)) : null,
+            h('span', { className: 'rl-run-role' }, firstString(record?.trigger) || t('ws.runs.tab.cycles')),
+            h('span', { className: 'rl-run-meta' }, t('ws.runs.duration', { time: formatDurationBetween(record?.startedAt, record?.endedAt) })),
+            firstString(record?.id) ? h('span', { className: 'rl-chip rl-chip-mono' }, firstString(record?.id)) : null,
           ),
           h(
             'span',
@@ -15283,8 +15283,8 @@ window.__ModuleLoader__.load({
                 { className: 'rl-run-meta' },
                 skipped.map((entry, index) => {
                   const item = asObject(entry);
-                  const stage = firstString(item.stage);
-                  const reason = firstString(item.reason);
+                  const stage = firstString(item?.stage);
+                  const reason = firstString(item?.reason);
                   return (stage || reason) ? (index > 0 ? ' · ' : '') + [stage, reason].filter((part) => part !== '').join(': ') : '';
                 }),
               )
@@ -15397,11 +15397,11 @@ window.__ModuleLoader__.load({
     function ModelPicker({ model, onChange, modelOptions, modelProviders, disabled, t }) {
       const record = asObject(model);
       const options = asArray(modelOptions);
-      const profileId = firstString(record.profileId);
+      const profileId = firstString(record?.profileId);
       const profileOption = profileId === '' ? null : (options.filter((option) => option.id === profileId)[0] || null);
-      const provider = firstString(record.provider) || (profileOption === null ? '' : profileOption.provider);
-      const currentModel = firstString(record.model) || (profileOption === null ? '' : profileOption.model);
-      const effortValue = firstString(record.reasoningEffort);
+      const provider = firstString(record?.provider) || (profileOption === null ? '' : profileOption.provider);
+      const currentModel = firstString(record?.model) || (profileOption === null ? '' : profileOption.model);
+      const effortValue = firstString(record?.reasoningEffort);
       const providers = asArray(modelProviders);
       const providerChoices = providerChoicesOf(providers, provider, t);
       const modelChoices = modelChoicesOf(providers, provider, currentModel, t);
@@ -15452,7 +15452,7 @@ window.__ModuleLoader__.load({
               ariaLabel: t('ws.model.provider'),
               disabled: disabled === true || emptyCatalog,
               options: providerChoices,
-              onChange: (event) => changeProvider(event.target.value),
+              onChange: (event) => changeProvider(event?.target.value),
             })),
           h(LabField, { label: t('ws.model.model') },
             h(LabSelect, {
@@ -15460,7 +15460,7 @@ window.__ModuleLoader__.load({
               ariaLabel: t('ws.model.model'),
               disabled: disabled === true || provider === '' || emptyCatalog,
               options: modelChoices,
-              onChange: (event) => emit(provider, event.target.value),
+              onChange: (event) => emit(provider, event?.target.value),
             })),
           h(LabField, { label: t('ws.model.effort') },
             h(LabSelect, {
@@ -15470,7 +15470,7 @@ window.__ModuleLoader__.load({
               options: [{ value: '', label: t('ws.model.effort.inherit') }].concat(
                 effortChoices.map((effort) => ({ value: effort, label: effort })),
               ),
-              onChange: (event) => changeEffort(event.target.value),
+              onChange: (event) => changeEffort(event?.target.value),
             })),
         ),
         emptyCatalog ? h('p', { className: 'rl-hint' }, t('ws.model.catalogEmpty')) : null,
@@ -15490,7 +15490,7 @@ window.__ModuleLoader__.load({
       const [timebox, setTimebox] = React.useState(String(nodeTimeboxMinutesOf(parent, project)));
       const [needs, setNeeds] = React.useState(
         parentNeeds.length > 0
-          ? parentNeeds.map((entry, index) => ({ id: 'need-' + index, key: entry.key, value: String(entry.amount) }))
+          ? parentNeeds.map((entry, index) => ({ id: 'need-' + index, key: entry?.key, value: String(entry?.amount) }))
           : [],
       );
       const [submitting, setSubmitting] = React.useState(false);
@@ -15545,7 +15545,7 @@ window.__ModuleLoader__.load({
         setSubmitting(true);
         setError('');
         const result = await onSubmit({
-          type: 'node.successor',
+          type: 'node?.successor',
           nodeId: parentId,
           title: title.trim(),
           prompt: prompt.trim(),
@@ -15555,10 +15555,10 @@ window.__ModuleLoader__.load({
           ...(modelPayload === undefined ? {} : { model: modelPayload }),
         });
         setSubmitting(false);
-        if (result !== null && result !== undefined && result.ok === true) {
+        if (result !== null && result !== undefined && result?.ok === true) {
           onClose();
         } else {
-          setError((result && result.error) || t('ws.successor.error'));
+          setError((result && result?.error) || t('ws.successor.error'));
         }
       };
 
@@ -15584,7 +15584,7 @@ window.__ModuleLoader__.load({
                 placeholder: t('ws.successor.field.titlePlaceholder'),
                 ariaLabel: t('ws.successor.field.title'),
                 onChange: (event) => {
-                  setTitle(event.target.value);
+                  setTitle(event?.target.value);
                   setError('');
                 },
               })),
@@ -15595,7 +15595,7 @@ window.__ModuleLoader__.load({
                 ariaLabel: t('ws.successor.field.prompt'),
                 rows: 5,
                 onChange: (event) => {
-                  setPrompt(event.target.value);
+                  setPrompt(event?.target.value);
                   setError('');
                 },
               })),
@@ -15605,7 +15605,7 @@ window.__ModuleLoader__.load({
                 placeholder: t('ws.successor.field.criteriaPlaceholder'),
                 ariaLabel: t('ws.successor.field.criteria'),
                 rows: 2,
-                onChange: (event) => setCriteria(event.target.value),
+                onChange: (event) => setCriteria(event?.target.value),
               })),
             h(
               'div',
@@ -15616,7 +15616,7 @@ window.__ModuleLoader__.load({
                   value: timebox,
                   ariaLabel: t('ws.successor.field.timebox'),
                   onChange: (event) => {
-                    setTimebox(event.target.value);
+                    setTimebox(event?.target.value);
                     setError('');
                   },
                 })),
@@ -15641,14 +15641,14 @@ window.__ModuleLoader__.load({
                         value: need.key,
                         ariaLabel: t('ws.successor.needKey'),
                         options: values.map((key) => ({ value: key, label: key === 'machines' ? t('ws.needs.machines') : key })),
-                        onChange: (event) => updateNeed(need.id, 'key', event.target.value),
+                        onChange: (event) => updateNeed(need.id, 'key', event?.target.value),
                       });
                     })(),
                     h(LabInput, {
                       type: 'number',
                       value: need.value,
                       ariaLabel: t('ws.successor.needValue'),
-                      onChange: (event) => updateNeed(need.id, 'value', event.target.value),
+                      onChange: (event) => updateNeed(need.id, 'value', event?.target.value),
                     }),
                     h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.successor.removeNeed'), onClick: () => removeNeed(need.id) }),
                   )),
@@ -15754,17 +15754,17 @@ window.__ModuleLoader__.load({
     }
     function eventSummary(event, t) {
       const record = asObject(event);
-      const node = firstString(record.nodeId);
-      return formatClock(record.at, t) + ' · ' + eventLabelOf(event, t) + (node ? ' · ' + node : '');
+      const node = firstString(record?.nodeId);
+      return formatClock(record?.at, t) + ' · ' + eventLabelOf(event, t) + (node ? ' · ' + node : '');
     }
     function ActivityLogRow({ event, onSelectNode, onOpenRun, t }) {
       const record = asObject(event);
-      const data = asObject(record.data);
-      const nodeId = firstString(record.nodeId, record.node);
-      const runId = firstString(data.runId, record.runId);
-      const cycleId = firstString(data.cycleId, record.cycleId);
+      const data = asObject(record?.data);
+      const nodeId = firstString(record?.nodeId, record?.node);
+      const runId = firstString(data?.runId, record?.runId);
+      const cycleId = firstString(data?.cycleId, record?.cycleId);
       const content = [
-        h('span', { key: 'time', className: 'rl-log-time' }, formatClock(record.at, t)),
+        h('span', { key: 'time', className: 'rl-log-time' }, formatClock(record?.at, t)),
         h('span', { key: 'type', className: 'rl-log-type' }, eventLabelOf(event, t) + (nodeId ? ' · ' + nodeId : '')),
         h('span', { key: 'detail', className: 'rl-log-detail' }, eventDetailOf(event)),
       ];
@@ -16086,7 +16086,7 @@ window.__ModuleLoader__.load({
         /** Open a node worktree in DSH's native file sidebar (files + document preview plugins). */
         const openNativeFiles = (sessionId, context) => {
           const result = openNativeSession(sessionId, 'chat', context);
-          if (result === null || result === undefined || result.ok !== true) return result;
+          if (result === null || result === undefined || result?.ok !== true) return result;
           const show = () => {
             try {
               // openTab is keyed to the on-screen Session selected above;
