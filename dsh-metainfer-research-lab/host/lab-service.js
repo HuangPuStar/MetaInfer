@@ -3076,10 +3076,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const all = (Array.isArray(project.intents) ? project.intents : []).filter((intent) => !kind || intent.kind === kind);
     const size = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.trunc(limit))) : 100;
     const now = Date.now();
-    const intents = all.slice(-size).map((intent) => ({
-      ...intent,
-      expired: intent.status !== 'withdrawn' && Number.isFinite(intent.expiresAt) && intent.expiresAt <= now,
-    }));
+    const intents = all.slice(-size).map((intent) => {
+      const expired = intent.status !== 'withdrawn' && Number.isFinite(intent.expiresAt) && intent.expiresAt <= now;
+      return { ...intent, status: expired ? 'expired' : intent.status, expired };
+    });
     return {
       ok: true,
       projectId,
