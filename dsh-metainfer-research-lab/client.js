@@ -10478,9 +10478,9 @@ window.__ModuleLoader__.load({
               : h(
                   'div',
                   { className: 'rl-host-facts-body' },
-                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.running', { count: facts.counts.running })),
-                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.queued', { count: facts.counts.planned })),
-                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.failed', { count: facts.counts.failed })),
+                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.running', { count: facts.counts.running ?? 0 })),
+                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.queued', { count: facts.counts.planned ?? 0 })),
+                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.failed', { count: facts.counts.failed ?? 0 })),
                   next != null
                     ? h('span', { className: 'rl-host-facts-next' }, t('ws.facts.next', { id: next.nodeId, why: next.why?.message ?? next.why?.code ?? '' }))
                     : h('span', { className: 'rl-host-facts-hint' }, t('ws.facts.none')),
