@@ -8,11 +8,13 @@
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const ASSET_PREFIX = '/metainfer/trajectory-assets';
 const API_PREFIX = '/api/sys-shell/trajectories';
 const BACKEND = { host: '127.0.0.1', port: 8765 };
-const PLATFORM_ROOT = process.env.METAINFER_ROOT || '/home/MetaInfer';
+const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const PLATFORM_ROOT = process.env.METAINFER_ROOT || PLUGIN_ROOT;
 const STATIC_DIR = path.join(PLATFORM_ROOT, 'metainfer', 'tasks', 'sys_shell', 'static');
 
 function rewriteModule(file, replacements) {

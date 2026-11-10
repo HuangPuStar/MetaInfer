@@ -6,11 +6,12 @@
  * it once and stops only the child it owns.  An existing service is reused.
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, openSync, closeSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync, closeSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const HOST = '127.0.0.1';
 const PORT = 8765;
@@ -38,7 +39,14 @@ async function firstNode(root) {
 
 export async function ensureTrajectoryBackend(logger) {
   if (await healthy()) return { owned: false, process: null };
-  const root = process.env.METAINFER_ROOT || '/home/MetaInfer';
+  const root = process.env.METAINFER_ROOT
+    || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+  // A missing root used to reach spawn() and throw ENOENT, which killed the whole
+  // Host process. Degrade to "no backend" instead of crashing the web server.
+  if (!existsSync(root)) {
+    logger?.warn?.(`trajectory backend root does not exist: ${root}`);
+    return { owned: false, process: null, root };
+  }
   const nodeId = process.env.METAINFER_NODE_ID || await firstNode(root);
   const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
   const logDir = path.join(dshHome, 'metainfer-research-lab');
