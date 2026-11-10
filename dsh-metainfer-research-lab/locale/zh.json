@@ -1341,6 +1341,15 @@
     "ws.usage.input": "输入 {count}",
     "ws.usage.output": "输出 {count}",
     "ws.usage.title": "Token 用量",
-    "ws.usage.total": "总计 {count}"
+    "ws.usage.total": "总计 {count}",
+    "ws.experts.library": "专家库",
+    "ws.experts.library.hint": "后台专家的只读目录：人设、可提议动作与实测产出。专家只能提议，Host 独占写入。",
+    "ws.experts.library.loading": "正在读取专家库…",
+    "ws.experts.library.error": "读取专家库失败",
+    "ws.experts.library.refresh": "刷新专家库",
+    "ws.experts.library.empty": "暂无专家",
+    "ws.experts.library.metrics": "{proposals} 个提案 · {completed} 个完成",
+    "ws.experts.library.proposes": "可提议：{actions}",
+    "ws.experts.library.noExecute": "只提议，不执行"
   }
 }

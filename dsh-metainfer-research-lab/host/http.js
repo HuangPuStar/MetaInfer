@@ -142,6 +142,11 @@ export function registerHttpRoutes(ctx, service) {
     return ok(await service.metricsFor(params.get('projectId')));
   });
 
+  route(`${PREFIX}/experts`, ['GET'], async (request) => {
+    const params = query(request);
+    return ok(service.listExperts(params.get('projectId')));
+  });
+
   route(`${PREFIX}/node`, ['GET'], async (request) => {
     const params = query(request);
     return ok(await service.getNode(params.get('projectId'), params.get('nodeId')));

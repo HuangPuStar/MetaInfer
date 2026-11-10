@@ -1341,6 +1341,15 @@
     "ws.usage.input": "input {count}",
     "ws.usage.output": "output {count}",
     "ws.usage.title": "Token usage",
-    "ws.usage.total": "total {count}"
+    "ws.usage.total": "total {count}",
+    "ws.experts.library": "Expert library",
+    "ws.experts.library.hint": "Read-only catalog of background experts: persona, allowed proposals and measured output. Experts propose only; the Host owns every write.",
+    "ws.experts.library.loading": "Loading expert library…",
+    "ws.experts.library.error": "Could not load the expert library",
+    "ws.experts.library.refresh": "Refresh expert library",
+    "ws.experts.library.empty": "No experts",
+    "ws.experts.library.metrics": "{proposals} proposals · {completed} completed",
+    "ws.experts.library.proposes": "May propose: {actions}",
+    "ws.experts.library.noExecute": "Proposes only, never executes"
   }
 }

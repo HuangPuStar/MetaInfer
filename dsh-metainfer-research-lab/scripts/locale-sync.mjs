@@ -1,47 +1,40 @@
 #!/usr/bin/env node
 /**
- * Regenerates locale/{en,zh}.json from the client dictionaries. The JSON files
- * are the reviewable source of truth for translators; this script exists so the
- * generated copy cannot drift silently (locale-selftest asserts structural
- * equality of both key sets).
+ * locale/{en,zh}.json are the source of truth. This script regenerates the
+ * browser bundle's dictionary region from those files; it never writes JSON.
+ * The drift test (locale-selftest) fails when the bundle and JSON differ, so a
+ * mutated bundle cannot be laundered back into the source.
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const START = '    // #region locale-generated — source of truth: locale/{en,zh}.json; run npm run locale:sync';
+const END = '    // #endregion locale-generated';
 
-function extract(source, name) {
-  const start = source.indexOf(`const ${name} = {`);
-  if (start < 0) throw new Error(`dictionary ${name} not found`);
-  const open = source.indexOf('{', start);
-  let depth = 0;
-  let quote = null;
-  for (let index = open; index < source.length; index += 1) {
-    const char = source[index];
-    if (quote) {
-      if (char === '\\') index += 1;
-      else if (char === quote) quote = null;
-      continue;
-    }
-    if (char === "'" || char === '"' || char === '`') { quote = char; continue; }
-    if (char === '{') depth += 1;
-    else if (char === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(open, index + 1);
-    }
-  }
-  throw new Error(`unbalanced dictionary ${name}`);
+const locales = {};
+for (const language of ['zh', 'en']) {
+  const file = JSON.parse(await readFile(path.join(root, 'locale', `${language}.json`), 'utf8'));
+  if (!file.keys || typeof file.keys !== 'object') throw new Error(`locale/${language}.json has no keys object`);
+  locales[language] = file.keys;
+}
+const zhKeys = Object.keys(locales.zh).sort();
+const enKeys = Object.keys(locales.en).sort();
+if (JSON.stringify(zhKeys) !== JSON.stringify(enKeys)) {
+  throw new Error('locale/en.json and locale/zh.json key sets differ; fix the source files first');
 }
 
-const client = await readFile(path.join(root, 'client.js'), 'utf8');
-const zh = Function(`return (${extract(client, 'zh')})`)();
-const en = Function(`return (${extract(client, 'en')})`)();
-const meta = JSON.parse(await readFile(path.join(root, 'locale/en.json'), 'utf8')).meta ?? {
-  title: 'MetaInfer Research Lab',
-  description: 'Research-experiment DAG IDE for DeepSeek Harness.',
-};
-for (const [file, dictionary] of [['en.json', en], ['zh.json', zh]]) {
-  const sorted = Object.fromEntries(Object.keys(dictionary).sort().map((key) => [key, dictionary[key]]));
-  await writeFile(path.join(root, 'locale', file), `${JSON.stringify({ meta, keys: sorted }, null, 2)}\n`, 'utf8');
-  console.log(`${file}: ${Object.keys(sorted).length} keys`);
+function literal(dictionary) {
+  const rows = Object.keys(dictionary).sort().map((key) => `      ${JSON.stringify(key)}: ${JSON.stringify(dictionary[key])},`);
+  return `{\n${rows.join('\n')}\n    }`;
 }
+
+const generated = `${START}\n    const zh = ${literal(locales.zh)};\n\n    const en = ${literal(locales.en)};\n\n${END}\n`;
+const clientPath = path.join(root, 'client.js');
+const client = await readFile(clientPath, 'utf8');
+const start = client.indexOf(START);
+const end = client.indexOf(END);
+if (start < 0 || end < 0 || end < start) throw new Error('client.js locale region markers not found');
+const next = client.slice(0, start) + generated + client.slice(end + END.length + 1);
+await writeFile(clientPath, next, 'utf8');
+console.log(`client.js: ${Object.keys(locales.zh).length} zh keys / ${Object.keys(locales.en).length} en keys generated from locale/*.json`);

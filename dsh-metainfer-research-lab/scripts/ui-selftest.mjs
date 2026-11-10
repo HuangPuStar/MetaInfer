@@ -142,5 +142,11 @@ for (const result of results) {
   if (result.ok) console.log(`ok   ${result.name}`);
   else { failed += 1; console.log(`FAIL ${result.name}\n     ${result.error?.stack ?? result.error}`); }
 }
+await test('expert library UI reads the Host catalog, not a hardcoded list', () => {
+  assert.ok(source.includes("fetchExperts(projectId"), 'client fetches the expert catalog');
+  assert.ok(source.includes("t('ws.experts.library"), 'expert library strings are localized');
+  assert.ok(source.includes("className: 'rl-expert-library'"), 'expert library section is rendered');
+});
+
 console.log(`\n${results.length - failed}/${results.length} UI budget checks passed`);
 process.exit(failed === 0 ? 0 : 1);
