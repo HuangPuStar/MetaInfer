@@ -5932,7 +5932,6 @@ window.__ModuleLoader__.load({
       const [state, setState] = React.useState({ phase: 'loading', runs: [], cycles: [], error: null, delay: 0 });
       const backoffRef = React.useRef(0);
       const snapshotRef = React.useRef(null);
-      React.useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
       const refreshRef = React.useRef(null);
       const retryRef = React.useRef(null);
 
