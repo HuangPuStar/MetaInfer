@@ -137,6 +137,14 @@ export function buildStatusFacts({ project, nodes = [], auto = null, cluster = n
     running: runningFacts(nodes, now),
     nextToStart: next,
     queueOrder: queue.slice(0, MAX_QUEUE_IDS).map((node) => node.id),
+    // `nextToStart` is capped at five for the agent-facing snapshot. The UI
+    // still needs a reason on every rendered queue row, so this bounded detail
+    // list carries the same why for up to MAX_QUEUE_IDS ids. It is deliberately
+    // separate from queueOrder so older clients can keep consuming ids.
+    queueRows: queue.slice(0, MAX_QUEUE_IDS).map((node) => ({
+      nodeId: node.id,
+      why: whyNotStarting(node, { capacity, project, now }),
+    })),
     recentFailures: failures,
     proposals: nodes.filter((node) => node.status === 'proposed').slice(0, 5).map((node) => ({
       nodeId: node.id,

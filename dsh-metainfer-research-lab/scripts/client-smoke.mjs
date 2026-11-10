@@ -226,6 +226,40 @@ async function renderWith(component, fetchImpl) {
   await React.act(async () => view.root.unmount()); view.restore(); view.host.remove();
 }
 {
+  const total = 150;
+  const ids = Array.from({ length: total }, (_, index) => 'q' + (index + 1));
+  const payload = (url) => {
+    const text = String(url);
+    if (text.includes('/state')) return { project: { id: 'p1', name: 'P', config: {}, repo: {} }, nodes: [
+      { id: 'run1', title: 'running node', status: 'running', priority: { class: 'p0' }, timestamps: { startedAt: Date.now() - 60_000 } },
+      ...ids.map((id, index) => ({ id, title: 'queued ' + (index + 1), status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: 1 } })),
+    ], edges: [], revision: 1 };
+    if (text.includes('/status') || text.includes('/facts')) return {
+      summary: { runnable: total },
+      nextToStart: ids.slice(0, 5).map((nodeId) => ({ nodeId, why: { code: 'max_running', message: 'maxRunningNodes=4 slots are busy' } })),
+      queueOrder: ids.slice(0, 100),
+      queueRows: ids.slice(0, 100).map((nodeId) => ({ nodeId, why: { code: 'max_running', message: 'maxRunningNodes=4 slots are busy' } })),
+      _truncated: { queueOrder: { shown: 100, total } },
+    };
+    if (text.includes('/metrics')) return {};
+    if (text.includes('/budgets')) return { classes: [] };
+    return {};
+  };
+  const view = await renderWith(components.DispatchQueuePanel, async (url) => ({ ok: true, status: 200, json: async () => payload(url), text: async () => JSON.stringify(payload(url)) }));
+  extraChecks += 1;
+  const text = view.host.textContent ?? '';
+  if (!text.includes('showing 100 of 150') || !text.includes('#100') || text.includes('#101')) {
+    extraFailures.push(`U2 150-row truncation notice/position is wrong: ${text.slice(0, 800)}`);
+  } else process.stdout.write('ok   U2 surfaces showing 100 of 150 and stops at #100\n');
+  extraChecks += 1;
+  const rows = [...view.host.querySelectorAll('.rl-log-row')];
+  const hundredth = rows.find((row) => (row.textContent ?? '').includes('#100'));
+  if (!hundredth || !(hundredth.textContent ?? '').includes('maxRunningNodes=4')) {
+    extraFailures.push(`U2 row #100 has no facts.why reason: ${hundredth?.textContent ?? 'missing'}`);
+  } else process.stdout.write('ok   U2 puts facts.why on the rendered row beyond the first five\n');
+  await React.act(async () => view.root.unmount()); view.restore(); view.host.remove();
+}
+{
   const payload = (url) => {
     const text = String(url);
     if (text.includes('/events')) return { events: [{ seq: 1, type: 'node/failed', nodeId: 'n1', at: Date.now(), error: { stage: 'dispatch', role: 'worker', timeoutMs: 30000 } }] };

@@ -323,8 +323,16 @@ for (const type of Object.keys(DISPUTE_CLASS_MAP)) {
 }
 check('an expert cannot resolve any of the eight classes through the direct resolve path',
   Object.values(directExpert).every((row) => row.ok === false)
-  && Object.values(directExpert).every((row) => ['forbidden_authority', 'human_confirmation_required'].includes(row.error?.code)),
+  && Object.values(directExpert).every((row) => row.error?.code === 'forbidden_action'),
   JSON.stringify(directExpert));
+
+const expertTool = await service.arbitrate(projectId, {
+  disputeId: authorityRows.duplicate_claim.dispute?.id,
+  resolution: 'apply_change', reason: 'expert tool probe',
+}, plainExpertExec);
+check('an expert is denied by the same actor gate on the arbitrate tool',
+  expertTool.ok === false && expertTool.error?.code === 'forbidden_action',
+  JSON.stringify(expertTool));
 
 const arbiterByClass = {};
 for (const type of Object.keys(DISPUTE_CLASS_MAP)) {
@@ -342,12 +350,41 @@ check('the arbiter resolves only its three classes and is denied code/cfs/curato
       && ['forbidden_authority', 'human_confirmation_required'].includes(arbiterByClass[type].error?.code)),
   JSON.stringify(Object.fromEntries(Object.entries(arbiterByClass).map(([type, row]) => [type, row.error?.code ?? 'ok']))));
 
-const curatorResolved = await service.resolveDispute(projectId, authorityRows.duplicate_claim.dispute?.id, {
+const curatorDirect = await service.resolveDispute(projectId, authorityRows.duplicate_claim.dispute?.id, {
   resolution: 'keep_current', reason: 'curator owns duplicate claims',
 }, curatorExec);
-check('the curator authority can decide a duplicate claim without the arbiter tool',
-  curatorResolved.ok === true && curatorResolved.dispute?.resolvedBy?.id === 'b22-curator',
-  JSON.stringify(curatorResolved));
+const curatorTool = await service.arbitrate(projectId, {
+  disputeId: authorityRows.duplicate_claim.dispute?.id,
+  resolution: 'keep_current', reason: 'curator tool probe',
+}, curatorExec);
+check('the curator is denied by the same actor gate on both direct resolve and the tool',
+  curatorDirect.ok === false && curatorDirect.error?.code === 'forbidden_action'
+  && curatorTool.ok === false && curatorTool.error?.code === 'forbidden_action',
+  JSON.stringify({ direct: curatorDirect.error?.code, tool: curatorTool.error?.code }));
+
+// A human may decide a known class, but an unknown authority string is a
+// malformed record, not permission for the highest-privilege actor.
+await kernel.executor.commit(projectId, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{
+    op: 'dispute.open',
+    dispute: {
+      id: 'bogus-authority',
+      type: 'resource_quality',
+      authority: 'bogus_authority',
+      status: 'pending',
+      defaultAction: 'keep_current',
+      at: Date.now(),
+      deadlineAt: Date.now() + DISPUTE_TIMEOUT_MS,
+    },
+  }],
+});
+const unknownAuthority = await service.resolveDispute(projectId, 'bogus-authority', {
+  resolution: 'apply_change', reason: 'human bypass probe',
+}, human);
+check('an unknown authority is rejected even for a human actor',
+  unknownAuthority.ok === false && unknownAuthority.error?.code === 'unknown_dispute_authority',
+  JSON.stringify(unknownAuthority));
 
 const httpRoutes = new Map();
 registerHttpRoutes({
@@ -369,6 +406,30 @@ const routeEnvelope = await routeResponse.json();
 check('HTTP /disputes/resolve routes through arbitrate instead of calling resolveDispute directly',
   routeEnvelope.ok === true && httpRoutes.arbitrateCalls === 1 && httpRoutes.directResolveCalls === undefined,
   JSON.stringify({ routeEnvelope, arbitrateCalls: httpRoutes.arbitrateCalls, directResolveCalls: httpRoutes.directResolveCalls }));
+
+const actualHttpRoutes = new Map();
+registerHttpRoutes({
+  effect: () => {},
+  connection: { fetch: { register({ path, fetch }) { actualHttpRoutes.set(path, fetch); return () => {}; } } },
+}, service);
+const actualResolveRoute = actualHttpRoutes.get('/api/metainfer-research-lab/disputes/resolve');
+const actualResolveResponse = await actualResolveRoute(new Request('http://local/api/metainfer-research-lab/disputes/resolve', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ projectId, disputeId: authorityRows.duplicate_claim.dispute?.id, resolution: 'apply_change', authority: 'code', agentPreset: 'lab-advisor', actorKey: 'ak_host_FORGED' }),
+}));
+const actualResolveEnvelope = await actualResolveResponse.json();
+const actualArbitrateRoute = actualHttpRoutes.get('/api/metainfer-research-lab/arbitrate');
+const actualArbitrateResponse = await actualArbitrateRoute(new Request('http://local/api/metainfer-research-lab/arbitrate', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ projectId, disputeId: authorityRows.duplicate_claim.dispute?.id, resolution: 'apply_change' }),
+}));
+const actualArbitrateEnvelope = await actualArbitrateResponse.json();
+check('HTTP dispute resolution fails closed when no actor is resolvable, even with forged body fields',
+  actualResolveEnvelope.ok === false && actualResolveEnvelope.error?.code === 'actor_required'
+  && actualArbitrateEnvelope.ok === false && actualArbitrateEnvelope.error?.code === 'actor_required',
+  JSON.stringify({ resolve: actualResolveEnvelope, arbitrate: actualArbitrateEnvelope }));
 
 const expertMetrics = service.listExperts(projectId);
 check('disputes are counted in expert performance',

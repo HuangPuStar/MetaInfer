@@ -267,6 +267,7 @@ await test('status facts at 5k do not depend on the node count (bounded output)'
   const facts = buildStatusFacts({ project: store.getProject('prj-scale'), nodes, now: 10_000 });
   const bytes = Buffer.byteLength(JSON.stringify(facts), 'utf8');
   assert.ok(facts.nextToStart.length <= 5);
+  assert.ok(facts.queueRows.length <= 100, 'queue detail rows are bounded');
   assert.ok(facts.recentFailures.length <= 5);
   assert.ok(bytes < 16 * 1024, `facts ${bytes} B < 16 KB`);
   console.log(`     facts ${bytes} B, next=${facts.nextToStart.length}`);

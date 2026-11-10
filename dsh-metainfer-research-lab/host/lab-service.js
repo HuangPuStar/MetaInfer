@@ -27,7 +27,7 @@ import { normalizePriority } from './kernel/priority.js';
 import { runnableQueue } from './kernel/runnable.js';
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
 import { PRIORITY_CLASSES, classBudgetOf } from './dispatch/reservation.js';
-import { DISPUTE_CLASS_MAP, DISPUTE_DEFAULT_ACTION, createDisputeRecord, disputeAuthorityVerdict, effectiveDispute, expireDisputeRecord, reopenDisputeRecord, resolveDisputeRecord } from './kernel/disputes.js';
+import { DISPUTE_CLASS_MAP, DISPUTE_DEFAULT_ACTION, createDisputeRecord, disputeActorVerdict, disputeAuthorityVerdict, effectiveDispute, expireDisputeRecord, reopenDisputeRecord, resolveDisputeRecord } from './kernel/disputes.js';
 import { DEFAULT_ROTATION_DAYS, rotationPlan } from './experts/rotation.js';
 import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
 import { actorKeyOf, hasActorIdentity, isIssuedActorKey, publicView, sameActor } from './kernel/actors.js';
@@ -468,6 +468,26 @@ function normalizeConfig(raw, base = undefined) {
   config.models = config.models ?? {};
   config.placementPolicy = config.placementPolicy ?? { text: '', spec: null, compiledAt: null, explanation: [], warnings: [], compiler: null };
   return config;
+}
+
+/**
+ * Resolve a tool execution to an actor, but never synthesize the operator from
+ * an absent execution. HTTP has no actor context; `exec=null` must fail closed
+ * instead of inheriting the human operator's authority.
+ */
+function actorFromDisputeExecution(exec) {
+  if (!exec || typeof exec !== 'object') return null;
+  const session = exec.agent?.session;
+  if (session && typeof session === 'object' && typeof session.id === 'string' && session.id.length > 0) {
+    return actorFromToolExecution(exec);
+  }
+  // In-process callers may pass an already-resolved actor ({kind,id,preset}).
+  // HTTP never does: it always passes null, so this cannot revive the omitted
+  // operator fallback on the network path.
+  if (typeof exec.kind === 'string' && typeof exec.id === 'string' && exec.id.length > 0) {
+    return exec;
+  }
+  return null;
 }
 
 /**
@@ -1576,10 +1596,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
    * action. Human-authority disputes cannot be overridden by a model arbiter.
    */
   async function arbitrate(projectId, input = {}, exec = null) {
-    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
-    if (!(actor.kind === 'human' || actor.kind === 'system' || actor.preset === 'lab-arbiter')) {
-      return rejection('forbidden_action', 'only a human or the lab-arbiter preset may arbitrate');
-    }
+    const actor = actorFromDisputeExecution(exec);
+    if (!actor) return rejection('actor_required', 'arbitrate requires an authenticated actor; an absent exec is not the operator');
+    const actorVerdict = disputeActorVerdict(actor);
+    if (actorVerdict.ok !== true) return rejection(actorVerdict.code, actorVerdict.message);
     const project = requireProject(projectId);
     const record = (Array.isArray(project.disputes) ? project.disputes : []).find((row) => row.id === input.disputeId);
     if (!record) return rejection('dispute_not_found', `unknown dispute: ${input.disputeId ?? ''}`);
@@ -4390,7 +4410,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const project = requireProject(projectId);
     const current = (Array.isArray(project.disputes) ? project.disputes : []).find((row) => row.id === disputeId);
     if (!current) return rejection('dispute_not_found', `unknown dispute: ${disputeId}`);
-    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    const actor = actorFromDisputeExecution(exec);
+    if (!actor) return rejection('actor_required', 'resolveDispute requires an authenticated actor; an absent exec is not the operator');
+    // This is the same actor-class gate the `arbitrate` tool uses. Without it
+    // a curator (which has no `arbitrate` action) could resolve a
+    // duplicate_claim through the direct service path but not through the tool.
+    const actorVerdict = disputeActorVerdict(actor);
+    if (actorVerdict.ok !== true) return rejection(actorVerdict.code, actorVerdict.message);
     // The authority map is enforced here as well as in `arbitrate`: the HTTP
     // resolve route used to call this function directly, which let an expert
     // bypass the limited-write check.

@@ -8,8 +8,8 @@
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **114** |
-| FAIL | **50** |
+| PASS | **116** |
+| FAIL | **48** |
 | 未测量 | **10**（其中浏览器 2 行 = 不适用） |
 | 合计 | **174** |
 
@@ -24,16 +24,16 @@ key；未知/伪造 key 仍 fail-closed；第二个进程内完成一个真实�
 `actorKeys` 的方法，`changesSince` 不含 key。因此 §36 的 **“restart 排除”从
 B27 撤销**，不再作为 B27 的排除项。
 
-能力 Wave 1–3 的 5 个被点名行中，`1.3`、U1、U3 独立通过；U2 仍只给前 5 个
+**§38 历史结论（非当前判定）**：能力 Wave 1–3 的 5 个被点名行中，`1.3`、U1、U3 独立通过；U2 仍只给前 5 个
 队列位置且不显示 `facts.why`，U12 仍在部分端点失败时显示假空态且多数新面板
 没有 Retry。四个部分面中，B23（expected/rotation）和 5.3.14（limited-write /
 arbiter matrix）独立通过，**B22 仍是 FAIL**：8 类 authority 元数据正确，但
 `resolveDispute` 不执行 authority 检查，专家可对全部 8 类 `apply_change`；
 5.3.13 的 long-poll/mid-sleep 通过，但只有 30s、只识别 stalled，缺
-starving/pauseReason。独立计数为 **114 PASS / 50 FAIL / 10 未测量**。
+starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮独立复核后以 §40 的 **116 / 48 / 10** 为准。
 
 > 作者第十四轮报告见 **§35**，不替代独立复核。
-> 独立总判定以 **§38** 为准：**114 PASS / 50 FAIL / 10 未测量**；
+> **第十七轮独立复核见 §40；当前独立总判定以 §40 为准：116 PASS / 48 FAIL / 10 未测量。**
 > **B27 narrow release possible（含真实进程 restart）**，完整发布仍 **NO-SHIP**。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
@@ -41,7 +41,7 @@ starving/pauseReason。独立计数为 **114 PASS / 50 FAIL / 10 未测量**。
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
 > 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**；第十一轮作者 scope/CAS 整改见 **§30**，第十二轮独立复核（`e85b213`）见 **§30.6**；第十二轮作者 handler/canonical/CAS 整改见 **§31**，第十三轮独立复核（`4a209bc`）见 **§32**；第十三轮作者 `actorKey` 整改见 **§33**，第十四轮独立复核（`1f3e20e`）见 **§34**；作者第十五轮 B27/能力见 **§35**，第十五轮独立复核（`ef16f34`）见 **§36**。
-> 独立总判定以 **§38** 为准；§20/§22/§24/§26/§28/§29/§30/§31/§33/§35/§37 是作者报告，不能代替独立复核。§22 曾声称关闭
+> 独立总判定以 **§40** 为准；§20/§22/§24/§26/§28/§29/§30/§31/§33/§35/§37 是作者报告，不能代替独立复核。§22 曾声称关闭
 > B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了其中 B27/U14/S12/A20 四项；
 > §24 作者报告为 112 PASS / 52 FAIL，§25 复核为 103 PASS / 61 FAIL，§27 复核为
 > **107 PASS / 57 FAIL / 10 未测量**，§28.4 复核仍为 **107 / 57 / 10**，
@@ -5233,3 +5233,358 @@ human，且 `/disputes/resolve` 不做 authority 检查；这是 B22 的 authori
 
 边界：未改 §38 计数；未重启 Host；未写 `~/.dsh/storages/*`；浏览器绘制仍 N/A；
 B22/U2/U12/5.3.13 仍待独立验证者按 §38 重放。完整发布仍 **NO-SHIP**。
+
+---
+
+## §40 第十七轮独立复核（clean HEAD `5a9735b`，2026-11-10）
+
+> **边界**：本轮只做验证与文档更新，未改生产代码。主工作树
+> `/root/MetaInfer/dsh-metainfer-research-lab` 位于 `5a9735b`；除本文件外无改动。
+> 独立探针运行在 clean worktree
+> `/tmp/r17-head/dsh-metainfer-research-lab/dsh-metainfer-research-lab`，并在
+> `/tmp/r17-clean` 用独立 fetch/服务夹具重放；作者自己的 `stage5-selftest` /
+> `client-smoke` 不算独立证据。时间采样 `2026-11-10T22:14:52+08:00`
+> （`Asia/Shanghai`）；浏览器时区和绘制仍不可用。
+
+### 40.1 判定摘要
+
+| 判定 | 数量 |
+|---|---|
+| PASS | **116** |
+| FAIL | **48** |
+| 未测量 | **10**（浏览器 2 行 = 不适用） |
+| 合计 | **174** |
+
+推导：§38 的 **114 / 50 / 10** 为起点；**U12 PASS**、**5.3.13 PASS** 各
+`+1 PASS / -1 FAIL`；**B22、U2 仍是 FAIL**。因此
+**116 PASS / 48 FAIL / 10 未测量**。B27 的 restart 纳入结论不变。
+
+**完整发布仍是 NO-SHIP**。原因不是“48 行全是缺陷”：剩余 FAIL 混合了
+真实缺陷（B22、U2）、尚未完成的 `必须/应该` 行，以及本轮不接受的
+`明确不做` 裁决（见 §40.6）。任何 release note 都必须把这三类分开写。
+
+### 40.2 B22：FAIL（authority 仍可被绕过）
+
+独立探针用真实 `createLabService` + `registerAgentTool` 打开 8 类 dispute，
+再从 direct 和 tool 两条路径重放。关键结果：
+
+```json
+{"expert": {"stale_basis":"forbidden_authority",
+            "fact_conflict":"forbidden_authority",
+            "resource_quantity":"forbidden_authority",
+            "resource_quality":"forbidden_authority",
+            "value_priority":"forbidden_authority",
+            "priority_inversion":"human_confirmation_required",
+            "duplicate_claim":"forbidden_authority",
+            "scope_overlap":"forbidden_authority"},
+ "arbiter":{"resource_quality":"ok","value_priority":"ok","scope_overlap":"ok",
+            "stale_basis":"forbidden_authority","fact_conflict":"forbidden_authority",
+            "resource_quantity":"forbidden_authority",
+            "priority_inversion":"human_confirmation_required",
+            "duplicate_claim":"forbidden_authority"}}
+```
+
+这部分通过：普通 expert 对 **8/8** 直接 resolve 被拒；`lab-arbiter` 只通过
+**resource_quality / value_priority / scope_overlap 3 类**；curator 直接
+`resolveDispute` 一个 `duplicate_claim` 成功。但还有三个阻断：
+
+1. **curator 的 tool 路径不可用。** `svc.resolveDispute(..., curatorExec)` 返回
+   `ok:true`，而同一 curator 走 `metainfer_lab` 的 `arbitrate` 返回：
+
+   ```json
+   {"ok":false,"error":{"code":"forbidden_action",
+    "message":"action \"arbitrate\" is not available to preset lab-curator"}}
+   ```
+
+   `lab-curator` 的 `PRESET_POLICIES.allowed` 只有 `curator_nominate` 等读/提名
+   动作，没有 `arbitrate`；因此“curator 可裁 duplicate_claim”只在 Host 直调
+   路径成立，在 agent tool 路径不成立。若 B22 的“both paths”包括 tool，此项
+   **FAIL**。
+
+2. **未知 authority 可被人类放行。** 直接写入一个结构合法、但
+   `authority:"bogus_authority"` 的 dispute 记录，再用第二个 human actor
+   resolve：
+
+   ```json
+   {"ok":true,"dispute":{"authority":"bogus_authority",
+    "status":"resolved","resolution":"keep_current"}}
+   ```
+
+   `disputeAuthorityVerdict` 在检查 authority 是否属于八类映射之前先执行
+   `if (actor.kind === 'human') return {ok:true}`；expert/arbiter 会被
+   `forbidden_authority` 拒绝，human 却能放行一个不存在的 authority。用户点名
+   的“authority not in the map”因此仍是绕过面。正确行为应是先验证 authority
+   非空且属于 `DISPUTE_CLASS_MAP`，再按 actor 分派。
+
+3. **HTTP 路由没有 actor 身份。** `POST /disputes/resolve` 现在确实调用
+   `service.arbitrate(body.projectId, body, null)`，但 `exec=null` 被
+   `actorForSession({sessionId:'operator'})` 解释为 **kind:human**。独立请求带
+   `authority:"bogus_authority"`、`agentPreset:"lab-advisor"`、
+   `actorKey:"ak_host_FORGED"`、`skipArbitration:true` 等伪造字段，路由仍返回：
+
+   ```json
+   {"ok":true,"dispute":{"resolvedBy":{"kind":"human","id":"human"},
+    "resolution":"apply_change","authority":"code"}}
+   ```
+
+   也就是说，malformed body 没有改变字段，但任何外部 HTTP caller 都按最高
+   人类权限执行；普通 expert 无法在 HTTP 上被区分，也无法被拒绝。若这份 HTTP
+   面只允许本地受信 operator，必须把它写成明确边界；按“tool 和 HTTP 共用
+   authority 检查”的验收文字，**B22 FAIL**。
+
+**B22 结论：FAIL。** 不是“authority 元数据没做”，而是 curator 工具权限、
+unknown-authority 的 human 短路、以及 HTTP 无 actor 身份三个实际绕过面。
+
+### 40.3 U2：FAIL（第 100 位后静默截断）
+
+独立 jsdom 渲染真实 `DispatchQueuePanel`，夹具为 1 running + **150 planned**，
+`/status` 返回 `queueOrder` 前 100 个 id 和
+`_truncated:{queueOrder:{shown:100,total:150}}`。渲染文本：
+
+```text
+Dispatch & queue
+1 running · 150 queued · 1 blocked
+...
+#1 ... #100
+```
+
+- `#100` 存在，`#101`、`#150` 都不存在；
+- 没有任何 “showing 100/150”、truncated、more queued 字样；
+- `_truncated` 元数据在 UI 中被忽略；
+- `facts.why` 只对 `nextToStart` 前 5 个出现（`maxRunningNodes=4 slots are busy`），
+  第 6 位以后没有逐节点 `why`。
+
+前 5 位与 `facts.why` 的渲染、`queueOrder` 到 **100** 的上界本身是达成的；
+但用户要求的是“cap 不能以误导方式静默截断队列节点”。当前标题明确写
+**150 queued**，列表只画 100 个且不提示，属于静默截断，**U2 FAIL**。
+
+### 40.4 U12：PASS（五个面板的 partial failure 与 Retry）
+
+用独立 fetch 夹具让每个面板恰有一个端点先失败、再成功，检查真实 DOM 文本和
+按钮行为，而不是 class 名 grep。结果：
+
+| 面板 | 故障 | 首次渲染 | Retry 后 |
+|---|---|---|---|
+| DispatchQueue | `/state` | `running — · queued — · blocked —`，无假空态 | `/state` 成功后显示 queued 行；无 “No node” |
+| ClaimEvidence | `/state` | `claim counts unavailable` + 错误，无零计数/假空态 | 重新取到 `1 node claims · 1 intents` |
+| ExpertLibrary | `/experts` | `expert count unavailable` + 错误，无空态 | 重新取到 `1 experts` |
+| DisputeTable | `/disputes` | `dispute counts unavailable` + 错误，无 `No appeal...` | 重新取到 `1 disputes` |
+| EventTimeline | `/events` | 错误 + Retry，无 `No events yet.` | 重新取到 `node/failed` |
+
+五个面板的 Retry 都实际重新发起了请求（fetch 计数增加），不是只改本地状态。
+**U12 PASS。** 唯一保留的瑕疵是 ClaimEvidence 在只有 `/state` 失败时也会把
+`/intents` 显示为 unavailable（错误文案过度归因），但没有假空态或零计数，
+不改变本行判定。
+
+### 40.5 5.3.13：PASS（60 s / starving / pauseReason / 优先级）
+
+独立服务夹具（真实 `observerSnapshot` / `waitForEvents` / `escalateStalled`）：
+
+```json
+{"snapOff":{"starving":[{"nodeId":"n1","waitingMs":1794320291471}],"pauseReason":null},
+ "snapPaused":{"starving":[{"nodeId":"n1"}],"pauseReason":"operator_pause"},
+ "mixedWait":{"escalation":{"code":"observer_paused","pauseReason":"operator_pause"},
+              "timedOut":false},
+ "cap":{"timedOut":true,"waitedMs":60000,"escalation":null}}
+```
+
+- `timeoutMs:120000` 在真实 `waitForEvents` 路径被钳到 **60000 ms**；假时钟
+  只 patch `Date.now`/`setTimeout`，没有绕过函数体；
+- `starving` 由 runnable 队列 + `createdAt` ≥10 分钟得到；
+- paused driver 返回 `observer_paused` 并带 `pauseReason`，且 **在 starvation
+  之前**返回，满足“paused prioritised over starvation”；
+- `escalateStalled` 在 paused+starving 时仍会写 `starving_node` 和
+  `driver_paused` 两个审计事件（starvation 事件在前）。这是事件层的
+  “两个独立条件都记录”，不是 `observerEscalation` 的优先级反转；若验收要求
+  单 envelope 只能有一个事件，需另立一条更严的判据。按本轮点名的四项，
+  **5.3.13 PASS**。
+
+### 40.6 范围裁决审计（`OPEN-QUESTIONS.md`）
+
+表内 **43 行**逐项计数为 **必须 13 / 应该 19 / 明确不做 11**，与表头一致；
+没有从表中直接删除行。43 行 + `5.2`/`5.3`/`5.3.3` 约 **46 行**，再加
+B22/U2/U12/5.3.13 就是作者声称的 50 行覆盖。但这份账本不是干净分区：
+
+1. **Q3 已经独立 PASS，却仍作为“剩余必须行”列在 43 行表中。**
+   §36.2.1/§38 明确把 `5.3.2/Q3` 判 PASS；§38 的 50 FAIL 不含 Q3。把 Q3
+   再算进“剩余”会重复计数，并使“13 个必须”至少多算 1 个。
+2. **5.3.3 已经独立 PASS，却在“已覆盖行”和 46 行总数中被再次当作覆盖依据。**
+   43+3+4 形式上等于 50，但这 3 行里包含已 PASS 的 5.3.3，43 行里又包含已
+   PASS 的 Q3；因此该 50 行清单不可能是 §38 的 50 FAIL，**至少两个实际 FAIL
+   没有在这张 50 行表里被逐行点名**。文档没有给出逐行对齐表，这不是“静默
+   删除”，但确实是账本错误。
+3. **5.2 被合并进 B22。** 5.2 要求 dispute 表 + 8 类映射 + timeout 默认；
+   这些能力本身可由 B22 的实现覆盖，但 B22 现在因 authority 绕过而 FAIL。
+   合并后 5.2 的独立结论被 B22 的失败吞掉：若 5.2 单独满足，会少计一个
+   PASS；若 5.2 也不满足，则应由 5.2 自己保留 FAIL 证据，而不是用“由 B22
+   覆盖”代替。**这是一次不应有的合并**，至少需要独立行判定。
+4. **C1 的“明确不做”是躲闪。** 表写 v2 用 `maxDeferred` + 显式 prune 替代
+   deferred archive；但生产 `host/` 中搜索不到 `maxDeferred`，只有事件归档
+   `eventlog`/`archiveEvents`。清单 C1 的原始提案是 `deferredTtl` →
+   `node.archive`、`maxDeferred` 配额；替代机制没有落地，却把 C1 归入
+   “明确不做”，等于用不存在的替代品关闭清单项。**C1 应保留为 FAIL/未实现，
+   或先实现它所声称的 maxDeferred/prune。**
+5. **C14 是“接受停机割接”，不是隐藏能力。** 清单问“能否不停机迁移”，
+   实际记录是 10:04 停机重启；把它归为明确不做，只有在 owner 明确接受
+   “一次性停机”时才成立。它不是代码缺陷，但 release note 必须写这个
+   运维边界；不能写成“迁移已完成”。
+6. **其余 9 个明确不做**（B11/B12/B14/B16/Q8/5.3.10/5.4/C2/C8）都有
+   D7（不做固定三级）或 D6（不做驻留会话）的前提冲突，作为“与已裁决方向
+   冲突”的 won't-do 是可接受的；**B13/5.3.9/5.3.12** 则被标为“应该”，
+   仍是真实功能缺口，不是 won't-do。
+
+**结论：没有行被直接删除；但 46 行账本重复计入了 Q3/5.3.3，5.2 被不合规
+合并进一个仍 FAIL 的 B22，C1 的明确不做没有替代实现。因此“50 FAIL 全部
+被 43+3+4 覆盖”不成立。**
+
+### 40.7 回归门（clean `5a9735b`）
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**777 个 `ok`，0 个 `FAIL`** |
+| `npm run bench:scale` | **11/11**；100k-event first page < 50 ms |
+| `strict-writes-selftest` | EXIT 0；17 个 `ok`；bypass **0** |
+| `client-smoke` | **43/43** |
+| `plugin-smoke` | **5/5** |
+| `b27-restart-selftest` | **11/11** |
+| `eventlog-selftest`（S12 restart） | 7/7；归档事件跨 restart 无损 |
+| `dashboard-selftest`（U14 基础） | 12/12 |
+| 独立 U14 partial 探针 | `status=partial`、3 个 widget error、`failureCount=3`、`degraded=true`、`staleReason=refresh_partial` |
+
+`npm test` 的 777 是真实 `ok` 行计数，不是作者报告里的“全部通过”一句话。
+S12 的 100k 首读由 bench 的归档边界覆盖；eventlog-selftest 覆盖 restart 后
+跨冷热段读取。U14 的独立探针用 1 个成功 script + 3 个失败 script，连续
+刷新 3 次，确认 partial 不被当成 fresh。
+
+### 40.8 边界与结论
+
+- 浏览器绘制/真实 GUI 仍未测量；U 行使用 jsdom + 真实 payload；2 行浏览器项
+  仍是 N/A。
+- 真实 provider/LLM、自然人独立意志、双人审批仍未证明；B27 的 restart
+  结论只覆盖 Host session-id 连续性和 key fail-closed。
+- `POST /disputes/resolve` 的 operator-human 回退是本轮 B22 的实际安全边界，
+  不是“已完全修复”；若未来增加 HTTP 身份，必须把 actor 传入 `arbitrate`，
+  而不是依赖 `exec=null`。
+- `escalateStalled` 在 paused+starving 时写两个审计事件，若验收要求
+  “只升级 paused” 需另立判据；本轮按 `observerEscalation` 的优先级判 PASS。
+- **完整发布 NO-SHIP。** 当前 48 FAIL 中包含 B22/U2 的真实缺陷、未完成的
+  `必须/应该` 行，以及至少一个未被替代实现支撑的 `明确不做`（C1）；不能
+  把 116 PASS 或“11 行明确不做”写成 174 行完成。
+
+**本轮只修改了本文件；未改生产代码，未写 `~/.dsh/storages/*`，未重启 Host。**
+
+---
+
+## §41 作者第十八轮：B22 default-deny、U2 截断、C1 与 174 行账本（round 17）
+
+> **边界**：本节是作者实现与探针记录，不替代 §40 的独立复核。独立判定的
+> **116 PASS / 48 FAIL / 10 N/A** 仍是当前验证者结论；本节只修代码、账本和
+> release note，不把作者探针写成独立 PASS。
+
+### 41.1 B22：三条路径共用 actor/authority gate
+
+修改：
+
+- `host/kernel/disputes.js` 新增 `disputeActorVerdict(actor)`，并导出
+  `DISPUTE_AUTHORITIES`。`disputeAuthorityVerdict` 先校验 actor，再校验
+  `authority` 必须是八类映射中的值；未知 authority 无论 actor 是 human、
+  arbiter 还是 system，都返回 `unknown_dispute_authority`，不再走
+  `if (actor.kind === 'human') return ok` 的短路。
+- `host/lab-service.js` 新增 `actorFromDisputeExecution(exec)`：**只有**
+  `exec.agent.session.id` 存在时才解析 actor；`exec=null` 不再回退为
+  `actorForSession({sessionId:'operator'})`。
+- `arbitrate` 和 `resolveDispute` 都先调用同一 `disputeActorVerdict`：
+  只有 human、system、`lab-arbiter` 能进入；curator、普通 expert 在
+  direct 与 tool 两条路径都得到 `forbidden_action`。随后才执行按 record
+  的 authority 映射。HTTP `/disputes/resolve` 和 `/arbitrate` 都通过
+  `arbitrate(..., null)` 进入，因此无 actor 时返回 `actor_required`。
+
+作者探针（`stage5-selftest`）：
+
+- 普通 expert 对 8/8 类 direct resolve 全部 `forbidden_action`；
+- 普通 expert 对 `arbitrate` tool 也 `forbidden_action`；
+- `lab-arbiter` 只允许 resource_quality/value_priority/scope_overlap 3 类；
+- curator 的 direct 和 tool 都 `forbidden_action`（不再存在 direct 侧门）；
+- 带 `authority:bogus_authority` 的合法结构记录，human 也得到
+  `unknown_dispute_authority`；
+- HTTP `/disputes/resolve` 和 `/arbitrate` 在 body 伪造
+  `agentPreset/actorKey/skipArbitration` 时仍返回 `actor_required`。
+
+**行为边界**：HTTP 现在没有“本地 operator 即 human”的回退。需要身份的动作
+必须由带真实 session 的 tool 调用执行；HTTP operator UI 不能再用无 actor
+请求代替人类批准。这是有意的 default-deny，不是漏接线。
+
+### 41.2 U2：截断可见 + 每个渲染行有 why
+
+- `host/observability/status.js` 保留 `nextToStart` ≤5 和 `queueOrder`（最多
+  100 个 id），新增有界 `queueRows`（最多 100 个 `{nodeId,why}`）；
+  `_truncated.queueOrder` 继续给出 `{shown,total}`。
+- `client.js` 的 DispatchQueuePanel：
+  - 用 `_truncated.queueOrder` 或 `queued.length` 计算并显示
+    `showing 100 of 150 (cap 100; remaining rows are not shown)`；
+  - 位置优先从 `queueRows` 取，回退 `queueOrder`，第 6 位以后仍有 `#N`；
+  - 每行 reason 优先 `nextToStart.why`，否则取 `queueRows.why`，因此第 100
+    行也带有 `maxRunningNodes=4` 之类的原因；不再只给前 5 行。
+- `client-smoke` 新增 1 running + **150 planned** 夹具：断言
+  `showing 100 of 150`、存在 `#100`、不存在 `#101`，且 `#100` 行含
+  `maxRunningNodes=4`；当前 **45/45**。`scale-selftest` 断言
+  `queueRows.length <= 100`，5k facts 仍 <16 KB。
+
+### 41.3 C1：撤回不存在的替代机制，改成如实的“未建”
+
+`OPEN-QUESTIONS.md` 原先把 C1 标为“明确不做”，理由写“v2 用 `maxDeferred`
++ 显式 prune 替代 archive”。生产 `host/` 中不存在 `maxDeferred`，也没有
+deferred archive；该理由不成立。本轮**没有**伪造实现，而是：
+
+- 把 C1 从 **明确不做** 改为 **应该 / 未建**；
+- 理由改为“host/ 无 maxDeferred，无 deferred archive”；
+- 明确不做计数从 11 降为 10，应该从 19 升为 20；C1 留在 45 个 residual 中。
+
+### 41.4 174 行账本：每行一个状态，residual 可加总
+
+新增 [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)，174 个 ID 各出现一次：
+
+| 状态 | 数量 |
+|---|---:|
+| PASS | **119** |
+| FAIL | **45** |
+| N/A | **10** |
+| 合计 | **174** |
+
+从 §40 的 116/48/10 出发，纠正三个被合并/误算的 verdict：
+
+1. **Q3** 已是 §36 PASS，不再放在“剩余必须”表；不改变计数。
+2. **5.3.3** 已是 §38 PASS，不再作为剩余行；+1 PASS / −1 FAIL。
+3. **5.2** 的争议表 + 8 类映射 + 超时默认独立成立；B22 的 authority 执行
+   问题单独留在 B22；+1 PASS / −1 FAIL。
+4. **5.3** 由 B23 的 expected/retro/rotation 独立覆盖；不再被 B23 的 verdict
+   吞掉；+1 PASS / −1 FAIL。
+
+因此账本为 **119 PASS / 45 FAIL / 10 N/A**；45 = 必须 15 + 应该 20 +
+明确不做 10。**B22 和 U2 仍是 FAIL**（作者修复待独立重放），不是 PASS。
+独立验证者可以用该账本逐行重放，不需要再维护 43 行/46 行两套分母。
+
+### 41.5 C14 release note
+
+新增 [`RELEASE-NOTES.md`](RELEASE-NOTES.md)：
+
+> **C14：接受一次性停机割接是 owner 的决策，不是自动迁移能力。** v2 不会
+> 自动迁移 legacy 数据或双环状态；2026-11-10 10:04:28 的割接是 Host 停机后
+> 重启，不是不停机迁移，也没有 legacy/新双环长期共存承诺。
+
+### 41.6 回归门（作者侧）
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**782 个 `ok`，0 FAIL** |
+| `npm run bench:scale` | 11/11；5k facts 13,509 B <16 KB；queueRows ≤100 |
+| `client-smoke` | **45/45** |
+| `stage5-selftest` | all checks passed（B22 6 条新探针、60 s cap、observer） |
+| `strict-writes-selftest` | all checks passed |
+| `plugin-smoke` | 5/5 |
+| `b27-restart-selftest` | 11/11 |
+| `git diff --check` | EXIT 0 |
+
+**边界**：浏览器/真实 GUI、真实 provider、自然人独立意志仍未测量；独立
+§40 的 116/48/10 未被本节改写。完整发布仍 **NO-SHIP**，因为 15 个必须行
+（含 B22、U2、5.3.2）尚未全部独立关闭。

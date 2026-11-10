@@ -16107,6 +16107,20 @@ window.__ModuleLoader__.load({
       const facts = asObject(snapshot.facts);
       const summary = asObject(facts.summary);
       const failed = asObject(snapshot.failed);
+      const queueRows = asArray(facts.queueRows).map((row) => ({
+        nodeId: firstString(asObject(row).nodeId),
+        why: asObject(asObject(row).why),
+      })).filter((row) => row.nodeId !== '');
+      const queueOrder = asArray(facts.queueOrder).map((row) => {
+        if (typeof row === 'string') return { nodeId: row, why: {} };
+        return { nodeId: firstString(asObject(row).nodeId), why: asObject(asObject(row).why) };
+      }).filter((row) => row.nodeId !== '');
+      const orderedQueue = queueRows.length > 0 ? queueRows : queueOrder;
+      const queueTruncation = asObject(asObject(facts._truncated).queueOrder);
+      const renderedQueue = queued.slice(0, 100);
+      const queueShown = Math.max(renderedQueue.length, numberOr(queueTruncation.shown, renderedQueue.length));
+      const queueTotal = Math.max(queued.length, numberOr(queueTruncation.total, 0));
+      const queueTruncationText = queueTotal > queueShown ? `showing ${queueShown} of ${queueTotal} queued` : '';
       const head = h('div', { className: 'rl-card-head' },
         h('h3', { className: 'rl-card-title' }, 'Dispatch & queue'),
         h('span', { className: 'rl-card-meta' }, failed.state
@@ -16119,6 +16133,9 @@ window.__ModuleLoader__.load({
         { className: 'rl-card', 'data-testid': 'obs-dispatch-queue' },
         head,
         snapshot.error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, snapshot.error) : null,
+        queueTruncationText !== '' && !failed.state
+          ? h('p', { className: 'rl-hint', 'data-testid': 'queue-truncation' }, queueTruncationText + ' (cap 100; remaining rows are not shown)')
+          : null,
         h('div', { className: 'rl-hint' },
           `revision ${numberOr(asObject(snapshot.state).revision, 0)} · runnable ${numberOr(summary.runnable, queued.length)} · claimed ${numberOr(summary.claimed, 0)} · held ${numberOr(summary.held, 0)}`),
         h('h4', { className: 'rl-card-title' }, 'Running'),
@@ -16145,12 +16162,14 @@ window.__ModuleLoader__.load({
           ? h('p', { className: 'rl-hint' }, 'Queue positions are unavailable until /state succeeds.')
           : queued.length === 0
           ? h('p', { className: 'rl-hint' }, 'The executable queue is empty.')
-          : queued.slice(0, 100).map((node) => {
-              const queue = asArray(facts.nextToStart);
-              const queueOrder = asArray(facts.queueOrder);
-              const nextRow = queue.find((row) => (row?.nodeId ?? row?.id) === node?.id);
-              const position = (nextRow ? queue.findIndex((row) => row === nextRow) : queueOrder.indexOf(node?.id)) + 1;
-              const why = asObject(nextRow?.why);
+          : renderedQueue.map((node) => {
+              const nextToStart = asArray(facts.nextToStart);
+              const nextRow = nextToStart.find((row) => (row?.nodeId ?? row?.id) === node?.id);
+              const orderedRow = orderedQueue.find((row) => row.nodeId === node?.id);
+              const position = (orderedRow ? orderedQueue.indexOf(orderedRow) : nextRow ? nextToStart.indexOf(nextRow) : -1) + 1;
+              const nextWhy = asObject(nextRow?.why);
+              const orderedWhy = asObject(orderedRow?.why);
+              const why = firstString(nextWhy.message) || firstString(nextWhy.code) ? nextWhy : orderedWhy;
               const whyText = firstString(why.message) || firstString(why.code);
               const reason = whyText
                 || firstString(asObject(node?.resourceWait).reason)

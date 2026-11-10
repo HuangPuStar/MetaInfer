@@ -67,6 +67,39 @@ export const DISPUTE_CLASS_MAP = Object.freeze({
 });
 
 /**
+ * The complete authority vocabulary. A record may name only one of these
+ * values: an unknown string is a malformed record, not an implicit grant to a
+ * human or system actor.
+ */
+export const DISPUTE_AUTHORITIES = Object.freeze([
+  ...new Set(Object.values(DISPUTE_CLASS_MAP).map((row) => row.authority)),
+]);
+
+/**
+ * The actor-class gate shared by the `arbitrate` tool and the direct
+ * `resolveDispute` service path. Keeping this separate from the per-record
+ * authority map is deliberate: a caller must first be allowed to arbitrate at
+ * all, then be allowed to decide this class. A curator does not have the
+ * `arbitrate` tool action, so it cannot use the direct path as a side door.
+ *
+ * @param {{kind?: string, preset?: string|null, id?: string}} actor
+ * @returns {{ok: true} | {ok: false, code: string, message: string}}
+ */
+export function disputeActorVerdict(actor) {
+  if (!actor || typeof actor !== 'object' || typeof actor.id !== 'string' || actor.id.length === 0) {
+    return { ok: false, code: 'actor_required', message: 'an authenticated human, system, or lab-arbiter actor is required' };
+  }
+  if (actor.kind === 'human' || actor.kind === 'system' || actor.preset === 'lab-arbiter') {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    code: 'forbidden_action',
+    message: `only a human, system, or lab-arbiter may arbitrate; ${actor.preset ? `preset ${actor.preset}` : 'this actor'} is not allowed`,
+  };
+}
+
+/**
  * Who may decide this record. The mapping is enforcement, not metadata: a
  * model arbiter is limited to the arbiter classes, the curator to duplicate
  * claims, and only a human actor may decide a human-authority class. `system`
@@ -77,11 +110,18 @@ export const DISPUTE_CLASS_MAP = Object.freeze({
  * @returns {{ok: true} | {ok: false, code: string, message: string}}
  */
 export function disputeAuthorityVerdict(actor, record) {
-  const authority = typeof record?.authority === 'string'
-    ? record.authority
-    : DISPUTE_CLASS_MAP[record?.type]?.authority;
-  if (!authority) return { ok: false, code: 'invalid_dispute_authority', message: 'dispute has no authority class' };
-  if (actor?.kind === 'human') return { ok: true };
+  const actorVerdict = disputeActorVerdict(actor);
+  if (actorVerdict.ok !== true) return actorVerdict;
+  const declared = record?.authority !== undefined && record?.authority !== null;
+  const authority = declared ? record.authority : DISPUTE_CLASS_MAP[record?.type]?.authority;
+  if (typeof authority !== 'string' || !DISPUTE_AUTHORITIES.includes(authority)) {
+    return {
+      ok: false,
+      code: 'unknown_dispute_authority',
+      message: `dispute authority ${String(authority ?? '') || '(missing)'} is not one of ${DISPUTE_AUTHORITIES.join(', ')}`,
+    };
+  }
+  if (actor.kind === 'human') return { ok: true };
   if (authority === 'human') {
     return {
       ok: false,
@@ -89,13 +129,13 @@ export function disputeAuthorityVerdict(actor, record) {
       message: 'this dispute class requires a human decision',
     };
   }
-  if (actor?.kind === 'system') return { ok: true };
-  if (authority === 'arbiter' && actor?.preset === 'lab-arbiter') return { ok: true };
-  if (authority === 'curator' && actor?.preset === 'lab-curator') return { ok: true };
+  if (actor.kind === 'system') return { ok: true };
+  if (authority === 'arbiter' && actor.preset === 'lab-arbiter') return { ok: true };
+  if (authority === 'curator' && actor.preset === 'lab-curator') return { ok: true };
   return {
     ok: false,
     code: 'forbidden_authority',
-    message: `${authority}-authority dispute cannot be resolved by ${actor?.preset ? `preset ${actor.preset}` : 'this actor'}`,
+    message: `${authority}-authority dispute cannot be resolved by ${actor.preset ? `preset ${actor.preset}` : 'this actor'}`,
   };
 }
 
