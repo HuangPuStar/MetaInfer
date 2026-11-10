@@ -27,7 +27,7 @@ import { normalizePriority } from './kernel/priority.js';
 import { rejection, toActionable } from './kernel/errors.js';
 import { actorFromToolExecution } from './kernel/policy.js';
 import { INTENT_KINDS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
-import { IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
+import { ACTION_VERIFICATION, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
 import { recallExperts } from './experts/similarity.js';
 import { applyNomination, createCurator } from './experts/curator.js';
@@ -3320,9 +3320,25 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         });
       }
     }
-    if (claim && IRREVERSIBLE_ACTIONS.includes(claim.action)) {
+    if (claim && ACTION_VERIFICATION[claim.action]) {
       const stats = verifiedStats ?? claimStats(project, actor.id);
-      const gate = gateClaimAction(claim.action, stats);
+      // Chief confirmation is an authority, not a model-authored boolean. A
+      // human operator or the single chief preset may confirm; an advisor
+      // cannot promote itself by writing `chiefConfirmed: true`.
+      const chiefConfirmed = (input?.chiefConfirmed === true || claim?.chiefConfirmed === true)
+        && (actor.kind === 'human' || actor.kind === 'system' || actor.preset === 'lab-chief');
+      const humanConfirmed = input?.humanConfirmed === true || claim?.humanConfirmed === true;
+      const appealUntil = Number.isFinite(input?.appealUntil)
+        ? Number(input.appealUntil)
+        : (Number.isFinite(claim?.appealUntil) ? Number(claim.appealUntil) : null);
+      const gate = gateClaimAction(claim.action, stats, {
+        submitted: verification?.total ?? 0,
+        chiefConfirmed,
+        humanConfirmed,
+        appealUntil,
+        now: Date.now(),
+        actor,
+      });
       if (!gate.ok) {
         if (verifiedStats) {
           await commitMutations(projectId, [{
@@ -3332,12 +3348,29 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
             eventData: { actorId: actor.id, total: verifiedStats.total, failed: verifiedStats.failed, gate: gate.code },
           }], { actor, causeId: `claim:${actor.id}` });
         }
-        return rejection(gate.code, `claim action ${claim.action} requires a citation error rate below 5% with at least one verified claim`, {
+        return rejection(gate.code, `claim action ${claim.action} did not meet verification level ${gate.level}: ${gate.code}`, {
           citationErrorRate: gate.rate,
           tier: gate.tier,
           total: gate.total,
+          level: gate.level,
+          submitted: gate.submitted,
+          requiredEvidence: gate.requiredEvidence,
+          minimumEvidence: gate.minimumEvidence ?? null,
+          lowerBound: gate.lowerBound ?? null,
         });
       }
+      claim = {
+        ...claim,
+        gate: {
+          level: gate.level,
+          requiredEvidence: gate.requiredEvidence,
+          submitted: gate.submitted,
+          chiefConfirmed,
+          humanConfirmed,
+          appealUntil,
+          lowerBound: gate.lowerBound,
+        },
+      };
     }
     let basis;
     try {

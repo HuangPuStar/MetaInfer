@@ -20,7 +20,37 @@ export const CLAIM_PREDICATES = Object.freeze([
 ]);
 
 /** Actions whose effect cannot be undone; they require a clean citation record. */
-export const IRREVERSIBLE_ACTIONS = Object.freeze(['delete_project', 'cancel_running', 'prune_branch', 'apply_nomination']);
+export const IRREVERSIBLE_ACTIONS = Object.freeze(['delete_project', 'cancel_running', 'prune_branch']);
+
+/**
+ * B27: five verification strengths. `evidence` is the number of *fresh, verified
+ * atoms in this submission*; the statistical floor below is computed over the
+ * actor's whole verified history. Levels 2 and 3 cannot be self-confirmed by an
+ * expert: `chiefConfirmed` is accepted only from a human or the chief preset by
+ * `submitIntent`.
+ */
+export const VERIFICATION_LEVELS = Object.freeze([
+  { level: 0, name: 'planned_create', evidence: 0, description: 'parent exists and is not deferred' },
+  { level: 1, name: 'defer_nominate', evidence: 1, description: 'one verified atom' },
+  { level: 2, name: 'cancel_running', evidence: 2, chief: true, description: 'two verified atoms + chief confirmation' },
+  { level: 3, name: 'prune_branch', evidence: 3, chief: true, appeal: true, description: 'three verified atoms + chief confirmation + appeal window' },
+  { level: 4, name: 'delete_project', humanOnly: true, humanConfirmation: true, appeal: true, description: 'human operator only, with explicit confirmation and an appeal window' },
+]);
+
+export const ACTION_VERIFICATION = Object.freeze({
+  create_planned: VERIFICATION_LEVELS[0],
+  defer_planned: VERIFICATION_LEVELS[1],
+  apply_nomination: VERIFICATION_LEVELS[1],
+  cancel_running: VERIFICATION_LEVELS[2],
+  prune_branch: VERIFICATION_LEVELS[3],
+  delete_project: VERIFICATION_LEVELS[4],
+});
+
+/** C7: a handful of clean claims is not a citation record. */
+export const MIN_CITATION_EVIDENCE = 20;
+/** C7: Wilson lower bound on the clean-citation rate (95% one-sided z=1.96). */
+export const MIN_CITATION_LOWER_BOUND = 0.80;
+export const WILSON_Z = 1.96;
 
 const MAX_EVIDENCE = 200;
 
@@ -175,14 +205,86 @@ export function citationTier(rate) {
   return 'nominate';
 }
 
-/** Minimum evidence for an irreversible action (C7: silence is not a clean record). */
-export function gateClaimAction(action, stats = {}) {
+/**
+ * Wilson score interval lower bound for a binomial success rate. C7 uses the
+ * clean-citation rate (success = verified atom); with `successes = total` this
+ * grows only as the history grows, so a single clean atom cannot buy a full
+ * permission tier. `z=1.96` is a 95% one-sided bound.
+ */
+export function wilsonLowerBound(successes, total, z = WILSON_Z) {
+  const n = Number.isFinite(total) ? Math.max(0, total) : 0;
+  if (n === 0) return 0;
+  const s = Math.min(n, Math.max(0, Number.isFinite(successes) ? successes : 0));
+  const p = s / n;
+  const z2 = z * z;
+  const denominator = 1 + z2 / n;
+  const centre = p + z2 / (2 * n);
+  const margin = z * Math.sqrt((p * (1 - p) + z2 / (4 * n)) / n);
+  return Math.max(0, Math.min(1, (centre - margin) / denominator));
+}
+
+/**
+ * Verify permission to perform `action`.
+ *
+ * B27 checks this submission's evidence count, chief confirmation and appeal
+ * window. C7 then checks the actor's whole citation history: at least
+ * `MIN_CITATION_EVIDENCE` atoms and a Wilson lower bound of at least
+ * `MIN_CITATION_LOWER_BOUND`. Keeping both in this one function is deliberate:
+ * a caller cannot satisfy the action count and forget the statistical floor.
+ *
+ * `context.submitted` (alias `context.evidence`) is the number of fresh verified
+ * atoms in this submission; it defaults to `stats.total` for direct callers.
+ */
+export function gateClaimAction(action, stats = {}, context = {}) {
   const total = Number.isInteger(stats.total) ? stats.total : 0;
-  const rate = citationErrorRate(stats.failed ?? 0, total);
+  const failed = Number.isInteger(stats.failed) ? stats.failed : 0;
+  const rate = citationErrorRate(failed, total);
   const tier = citationTier(rate);
-  const irreversible = IRREVERSIBLE_ACTIONS.includes(action);
-  if (!irreversible) return { ok: true, action, tier, rate, total };
-  if (total === 0) return { ok: false, action, tier, rate, total, code: 'claim_evidence_required' };
-  if (rate >= 0.05) return { ok: false, action, tier, rate, total, code: 'citation_error_rate' };
-  return { ok: true, action, tier, rate, total };
+  const requirement = ACTION_VERIFICATION[action];
+  if (!requirement) return { ok: true, action, tier, rate, total };
+  const submitted = Number.isInteger(context.submitted)
+    ? context.submitted
+    : Number.isInteger(context.evidence) ? context.evidence : total;
+  const base = {
+    ok: false,
+    action,
+    tier,
+    rate,
+    total,
+    level: requirement.level,
+    requiredEvidence: requirement.evidence ?? 0,
+    submitted,
+  };
+  const actor = context.actor ?? null;
+  if (requirement.humanOnly && actor?.kind !== 'human') {
+    return { ...base, code: 'human_only' };
+  }
+  if (requirement.humanConfirmation && context.humanConfirmed !== true) {
+    return { ...base, code: 'human_confirmation_required' };
+  }
+  if (submitted < (requirement.evidence ?? 0)) {
+    return { ...base, code: 'claim_evidence_required' };
+  }
+  if (requirement.chief && context.chiefConfirmed !== true) {
+    return { ...base, code: 'chief_confirmation_required' };
+  }
+  if (requirement.appeal) {
+    const now = Number.isFinite(context.now) ? context.now : Date.now();
+    const appealUntil = Number.isFinite(context.appealUntil) ? context.appealUntil : 0;
+    if (appealUntil <= now) return { ...base, code: 'appeal_window_required' };
+  }
+  if (total < MIN_CITATION_EVIDENCE) {
+    return { ...base, code: 'citation_evidence_floor', minimumEvidence: MIN_CITATION_EVIDENCE };
+  }
+  const lowerBound = wilsonLowerBound(total - failed, total);
+  if (lowerBound < MIN_CITATION_LOWER_BOUND) {
+    return { ...base, code: 'citation_confidence_too_low', lowerBound, minimumLowerBound: MIN_CITATION_LOWER_BOUND };
+  }
+  if (rate >= 0.05) return { ...base, code: 'citation_error_rate' };
+  return {
+    ...base,
+    ok: true,
+    lowerBound,
+    requiredEvidence: requirement.evidence ?? 0,
+  };
 }

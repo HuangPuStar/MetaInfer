@@ -6,7 +6,7 @@
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
-import { CLAIM_PREDICATES, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from '../host/kernel/claims.js';
+import { ACTION_VERIFICATION, CLAIM_PREDICATES, MIN_CITATION_EVIDENCE, VERIFICATION_LEVELS, citationErrorRate, citationTier, gateClaimAction, verifyClaims, wilsonLowerBound } from '../host/kernel/claims.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -64,15 +64,70 @@ for (const predicate of CLAIM_PREDICATES) {
 
 check('citationErrorRate is failures / atoms', citationErrorRate(1, 7) === 1 / 7 && citationErrorRate(0, 0) === 0 && citationErrorRate(7, 7) === 1);
 check('citation tier boundaries are 5% and 15%', citationTier(0.049) === 'full' && citationTier(0.05) === 'review' && citationTier(0.15) === 'review' && citationTier(0.151) === 'nominate');
-check('irreversible actions need evidence', gateClaimAction('cancel_running', { total: 0, failed: 0 }).code === 'claim_evidence_required');
-check('a clean claim allows an irreversible action', gateClaimAction('cancel_running', { total: 7, failed: 0 }).ok === true);
-check('a dirty claim is downgraded', gateClaimAction('cancel_running', { total: 7, failed: 1 }).code === 'citation_error_rate');
+check('the five verification levels are distinct and ordered', VERIFICATION_LEVELS.length === 5
+  && VERIFICATION_LEVELS.every((row, index) => row.level === index)
+  && ACTION_VERIFICATION.cancel_running.level === 2
+  && ACTION_VERIFICATION.prune_branch.level === 3
+  && ACTION_VERIFICATION.delete_project.level === 4);
+check('Wilson lower bound needs a real clean history', wilsonLowerBound(20, 20) >= 0.80 && wilsonLowerBound(1, 1) < 0.80 && wilsonLowerBound(0, 20) === 0);
+check('C7 has a minimum evidence floor', MIN_CITATION_EVIDENCE >= 20 && gateClaimAction('cancel_running', { total: 19, failed: 0 }, {
+  submitted: 2, chiefConfirmed: true,
+}).code === 'citation_evidence_floor');
 
-const submit = (claim) => service.submitIntent(projectId, { kind: 'note', nodeId: 'child', claim }, null);
+const oneEvidence = { submitted: 1, chiefConfirmed: true, appealUntil: Date.now() + 60_000 };
+check('cancel_running rejects one atom even with chief confirmation', gateClaimAction('cancel_running', { total: 20, failed: 0 }, oneEvidence).code === 'claim_evidence_required');
+check('prune_branch rejects one atom even with chief confirmation and an appeal window', gateClaimAction('prune_branch', { total: 20, failed: 0 }, oneEvidence).code === 'claim_evidence_required');
+check('delete_project rejects one atom without human confirmation', gateClaimAction('delete_project', { total: 20, failed: 0 }, {
+  submitted: 1, actor: { kind: 'human' },
+}).code === 'human_confirmation_required');
+check('delete_project rejects non-humans', gateClaimAction('delete_project', { total: 20, failed: 0 }, {
+  submitted: 3, actor: { kind: 'expert' }, humanConfirmed: true,
+}).code === 'human_only');
+
+const required = { chiefConfirmed: true, appealUntil: Date.now() + 60_000 };
+check('cancel_running passes with two atoms and chief confirmation', gateClaimAction('cancel_running', { total: 20, failed: 0 }, {
+  ...required, submitted: 2,
+}).ok === true);
+check('prune_branch passes with three atoms, chief confirmation and an appeal window', gateClaimAction('prune_branch', { total: 20, failed: 0 }, {
+  ...required, submitted: 3,
+}).ok === true);
+check('delete_project passes only for a confirming human', gateClaimAction('delete_project', { total: 20, failed: 0 }, {
+  submitted: 0, actor: { kind: 'human' }, humanConfirmed: true, appealUntil: Date.now() + 600_000,
+}).ok === true);
+check('C7 blocks the required B27 set when the history is too small', gateClaimAction('cancel_running', { total: 1, failed: 0 }, {
+  submitted: 2, chiefConfirmed: true,
+}).code === 'citation_evidence_floor');
+check('C7 blocks a clean-but-thin history below the Wilson floor', gateClaimAction('cancel_running', { total: 20, failed: 4 }, {
+  submitted: 2, chiefConfirmed: true,
+}).code === 'citation_confidence_too_low');
+
+const submit = (claim, extra = {}) => service.submitIntent(projectId, { kind: 'note', nodeId: 'child', claim, ...extra }, null);
 const accepted = await submit({ action: 'observe', evidence: valid });
 check('a valid claim set is accepted', accepted.ok === true && accepted.intent?.claim?.verification?.failed === 0, JSON.stringify(accepted));
-const irreversible = await submit({ action: 'cancel_running', evidence: valid });
-check('clean history permits an irreversible claim', irreversible.ok === true, JSON.stringify(irreversible));
+// C7 needs a record: build 21 clean atoms before asking for an irreversible action.
+for (let index = 0; index < 2; index += 1) await submit({ action: 'observe', evidence: valid });
+const irreversible = await submit({ action: 'cancel_running', evidence: valid }, { chiefConfirmed: true });
+check('a clean history and the required evidence permit cancel_running', irreversible.ok === true, JSON.stringify(irreversible));
+const pruned = await submit({ action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true, appealUntil: Date.now() + 600_000 });
+check('a clean history and the required evidence permit prune_branch', pruned.ok === true, JSON.stringify(pruned));
+const deleted = await submit({ action: 'delete_project' }, { humanConfirmed: true, appealUntil: Date.now() + 600_000 });
+check('a confirming human can submit delete_project', deleted.ok === true, JSON.stringify(deleted));
+
+for (const [action, extra] of [
+  ['cancel_running', { chiefConfirmed: true }],
+  ['prune_branch', { chiefConfirmed: true, appealUntil: Date.now() + 600_000 }],
+  ['delete_project', {}],
+]) {
+  const rejected = await submit({ action, evidence: [valid[0]] }, extra);
+  check(`one atom cannot ${action}`, rejected.ok === false && ['claim_evidence_required', 'human_confirmation_required'].includes(rejected.error?.code), JSON.stringify(rejected));
+}
+
+const oneAtomCancel = await submit({ action: 'cancel_running', evidence: [valid[0]] }, { chiefConfirmed: true });
+check('one atom is rejected by the action-level evidence count', oneAtomCancel.ok === false && oneAtomCancel.error?.code === 'claim_evidence_required', JSON.stringify(oneAtomCancel));
+const noChief = await submit({ action: 'cancel_running', evidence: valid }, {});
+check('cancel_running cannot self-confirm without a chief', noChief.ok === false && noChief.error?.code === 'chief_confirmation_required', JSON.stringify(noChief));
+const noAppeal = await submit({ action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
+check('prune_branch needs a live appeal window', noAppeal.ok === false && noAppeal.error?.code === 'appeal_window_required', JSON.stringify(noAppeal));
 
 for (const predicate of CLAIM_PREDICATES) {
   const one = structuredClone(valid);
@@ -82,10 +137,10 @@ for (const predicate of CLAIM_PREDICATES) {
     && rejected.error?.failures?.some((row) => row.predicate === predicate), JSON.stringify(rejected));
 }
 
-const gated = await submit({ action: 'cancel_running', evidence: valid });
-check('history above 5% blocks the irreversible action', gated.ok === false && gated.error?.code === 'citation_error_rate' && gated.error?.tier === 'review', JSON.stringify(gated));
-const missingEvidence = await submit({ action: 'cancel_running' });
-check('an irreversible claim without fresh evidence is still gated', missingEvidence.ok === false && missingEvidence.error?.code === 'citation_error_rate', JSON.stringify(missingEvidence));
+const gated = await submit({ action: 'cancel_running', evidence: valid }, { chiefConfirmed: true });
+check('history above the statistical floor blocks the irreversible action', gated.ok === false && ['citation_error_rate', 'citation_confidence_too_low'].includes(gated.error?.code), JSON.stringify(gated));
+const missingEvidence = await submit({ action: 'cancel_running' }, { chiefConfirmed: true });
+check('an irreversible claim without fresh evidence is still gated', missingEvidence.ok === false && missingEvidence.error?.code === 'claim_evidence_required', JSON.stringify(missingEvidence));
 const stored = store.getProject(projectId);
 const actorId = accepted.intent.actor.id;
 check('claim statistics are persisted per actor', stored.claimStats?.[actorId]?.total >= 56 && stored.claimStats?.[actorId]?.failed === 7, JSON.stringify(stored.claimStats));
