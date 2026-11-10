@@ -6602,3 +6602,54 @@ B22 是否从 FAIL 变为 PASS。
 **完整发布：NO-SHIP。** 仍有 **1 个必须行 O3**，以及 **3 个应该行 C1/B13/5.3.9**。O3 是 `/metrics` 的 queue-wait 契约本身，不能只靠别名或文档降级；C1 是 Projection 热索引的归档边界；B13 是 escalation 意图的 reasonCode 门；5.3.9 是生产 observer 的队列超载窗口。
 
 **窄发布**也不成立，除非明确排除 `/metrics` queue-wait、archive 热索引、escalation reasonCode 和 5.3.9 队列超载；这四项正好是本轮未关闭的部分。
+
+## §51 作者修复 §50 的四个反证（HEAD `252c902`，待独立重放）
+
+> 本节是**作者探针**，不是独立复核。§50 的 `150 / 14 / 10` 仍是最后一个独立 verdict；本节只说明四个 FAIL 的语义修复和反证。作者账面为 `154 / 10 / 10`，独立验证者仍须重放。
+
+### 51.1 四个语义修复
+
+| 行 | 修复 | 真实探针 |
+|---|---|---|
+| O3 | `kernel/runnable.js` 增加 `runnableSince(node)`：取 `timestamps.plannedAt`、`deferUntil`、`dispatchHold.untilMs` 的最大值；`node.create`/`node.transition` 写 `plannedAt`；`dispatchOnceAction` 从该时刻算到 started，不再用 `createdAt` | `observability-selftest` 的 1h-old、hold 在 1ms 前解除的节点现在得到 `<5s` 的 `queueWait.p50` 和 `decisions[].waitMs`；断言已从 `>=3,500,000` 改为 `<5,000` |
+| C1 | Projection `indexNode` 遇到 `archivedAt` 不写入 `byId`；archive 的 `node.merge` 经 `putNode` 先 unindex 再跳过 | `priority-selftest` 断言 `projection.getNode('deferred-old') === undefined`、`checkConsistency('p') === []`，同时 `store.listNodes`/`getState`/metrics 不含 archived |
+| B13 | `INTENT_KINDS`/`INTENT_ACTIONS` 增加 `escalate`，`semanticFallback('escalate')` 路由 human dispute；`createIntent` 与 `submitIntent` 都要求 `claim.reasonCode` 属于六码，缺失/非法分别拒收 | `claims-selftest` 覆盖 kernel 写边界（missing/invalid 抛 TypeError）；`stage5-selftest` 覆盖服务写边界（`escalation_reason_required`/`escalation_reason_invalid`，且只有合法 intent 落盘） |
+| 5.3.9 | `experts/triggers.js` 导出唯一 `queueOverloadState(nodes, freeSlots)`（`planned > 2×freeSlots`）；observer 与 `evaluateThresholdTriggers` 共用 | 3 planned（2 runnable + 1 deferred）、`freeSlots=1`：t0 无 `queue_overload`，+5min 有，detail `planned=3, queue=2` |
+
+### 51.2 别名清理
+
+`computeProjectMetrics` 现在先构造 `cycle`、`byRole`、`advisorInput` 各一次，再返回 `cycles: cycle`、`roles: byRole`、`advisor: advisorInput`；三个兼容名是同一对象引用，不再独立重算。`advisorInput` 保留旧字段（`lastBytes`/`p50Bytes`/`tokenGuard` 等），`utilization` 在无 live snapshot 时回退到 `p50Utilization`，不再为 `null`。`observability-selftest` 断言：
+
+- `metrics.cycle === metrics.cycles`
+- `metrics.byRole === metrics.roles`
+- `metrics.advisor === metrics.advisorInput`
+- `metrics.advisorInput.utilization === metrics.advisor.inputBytes.p50Utilization`
+
+### 51.3 反证（re-plant）
+
+| 破坏 | 期望 | 实测 |
+|---|---|---|
+| `dispatchOnceAction` 改回 `createdAt` 起算 | O3 红 | `observability-selftest` EXIT 1；O3 失败 |
+| Projection `indexNode` 恢复 archived 入 `byId` | C1 红 | `priority-selftest` EXIT 1；C1 报 `projectedGet` 有 archived、`consistency=["extra deferred-old"]` |
+| 去掉 `INTENT_KINDS` 的 `escalate` | B13 红 | `claims-selftest` EXIT 1；`createIntent` 在 escalate 用例抛 TypeError |
+| observer 改回 `queue.length` | 5.3.9 红 | `experts-selftest` EXIT 1；生产 observer 两帧均无 `queue_overload` |
+| 旧 `cycles`/`roles` 独立构造 | 别名红 | 新身份断言直接失败 |
+
+### 51.4 回归
+
+| 检查 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**941 ok / 0 FAIL**（44 个 selftest） |
+| `bench:scale` | **11/11** |
+| `client-smoke` | **45/45** |
+| `operator-ui-selftest` | 全通过（10/10） |
+| `operator-route-selftest` | **48 route pairs** |
+| `dispute-route-selftest` | 全通过 |
+| `plugin-smoke` | **5/5** |
+| `b27-restart-selftest` | **11/11** |
+| `strict-writes-selftest` | **17 ok / 0 unexpected bypass** |
+| `git diff --check` | 0 |
+
+### 51.5 账本
+
+作者账面为 **154 PASS / 10 FAIL / 10 N/A**，10 FAIL 全部为明确不做；算术 `154 + 10 + 10 = 174`。最后一个独立账面仍是 §50 的 **150 / 14 / 10**；本节的 154 尚待独立重放，不能写成独立结论。
