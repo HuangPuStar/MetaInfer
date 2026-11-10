@@ -8717,7 +8717,7 @@ window.__ModuleLoader__.load({
       }
       for (const event of events) {
         if (Number(event.at) > at) continue;
-        const id = firstString(event.nodeId, asObject(event.data).nodeId);
+        const id = firstString(event.nodeId, asObject(event.data)?.nodeId);
         if (!id) continue;
         const type = firstString(event.type);
         if (type === 'node/created' || type === 'node/proposed') {
@@ -8941,7 +8941,7 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         if (confirmRequest === null) return;
-        for (const node of nodes) if (nodeIdOf(node) === confirmRequest.nodeId) return;
+        for (const node of nodes) if (nodeIdOf(node) === confirmRequest?.nodeId) return;
         setConfirmRequest(null);
       }, [nodes, confirmRequest]);
 
@@ -9166,7 +9166,7 @@ window.__ModuleLoader__.load({
             {
               type: 'node.successor',
               projectId,
-              nodeId: payload.nodeId,
+              nodeId: payload?.nodeId,
               title: payload.title,
               prompt: payload.prompt,
               needs: payload.needs,
@@ -9272,12 +9272,12 @@ window.__ModuleLoader__.load({
         if (request === null) return;
         setConfirmRequest(null);
         if (request.kind === 'retry') {
-          void runNodeCommand('node.retry', request.nodeId).then((result) => {
+          void runNodeCommand('node.retry', request?.nodeId).then((result) => {
             if (result !== null && result !== undefined && result.ok === true) reload();
           });
           return;
         }
-        void runProposalAction(request.kind === 'reject' ? 'node.reject' : 'node.approve', request.nodeId);
+        void runProposalAction(request.kind === 'reject' ? 'node.reject' : 'node.approve', request?.nodeId);
       }, [confirmRequest, reload, runNodeCommand, runProposalAction]);
       const cancelConfirm = React.useCallback(() => setConfirmRequest(null), []);
 
@@ -9740,14 +9740,14 @@ window.__ModuleLoader__.load({
                 ? t('ws.confirm.approveTitle')
                 : confirmRequest.kind === 'reject'
                   ? t('ws.confirm.rejectTitle')
-                  : (confirmRequest.kind === 'retry' && nodes.some((node) => nodeIdOf(node) === confirmRequest.nodeId && nodeStatusOf(node) === 'cancelled'))
+                  : (confirmRequest.kind === 'retry' && nodes.some((node) => nodeIdOf(node) === confirmRequest?.nodeId && nodeStatusOf(node) === 'cancelled'))
                     ? t('ws.retry.cancelledConfirmTitle')
                     : t('ws.retry.confirmTitle'),
               body: confirmRequest.kind === 'approve'
                 ? t('ws.confirm.approveBody')
                 : confirmRequest.kind === 'reject'
                   ? t('ws.confirm.rejectBody')
-                  : (confirmRequest.kind === 'retry' && nodes.some((node) => nodeIdOf(node) === confirmRequest.nodeId && nodeStatusOf(node) === 'cancelled'))
+                  : (confirmRequest.kind === 'retry' && nodes.some((node) => nodeIdOf(node) === confirmRequest?.nodeId && nodeStatusOf(node) === 'cancelled'))
                     ? t('ws.retry.cancelledConfirmBody')
                     : t('ws.retry.confirmBody'),
               confirmLabel: confirmRequest.kind === 'approve'
