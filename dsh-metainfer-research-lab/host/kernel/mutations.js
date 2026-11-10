@@ -271,6 +271,30 @@ const reducers = {
     })];
   },
 
+  'node.archive'(ws, m, ctx) {
+    const nodeId = requireString(m.nodeId, 'nodeId');
+    const node = ws.getNode(nodeId);
+    if (!node) throw new MutationError('not_found', `node ${nodeId} does not exist`);
+    // C1: only a planned deferred leaf may leave the hot index. Archiving is
+    // reversible (the node stays in the DAG), so restore is `node.update` on
+    // archivedAt; nothing is deleted.
+    if (node.status !== 'planned') throw new MutationError('not_archivable', `node ${nodeId} is ${node.status}; only planned nodes can be archived`);
+    if (normalizePriority(node.priority).class !== 'deferred') throw new MutationError('not_archivable', `node ${nodeId} is not deferred`);
+    if (node.archivedAt) return [];
+    const archivedAt = ctx.now;
+    const set = {
+      archivedAt,
+      archivedBy: ctx.actor?.id ?? 'system',
+      archiveReason: requireString(m.reason ?? 'deferred_ttl', 'reason'),
+    };
+    Object.assign(node, set);
+    node.timestamps = { ...(node.timestamps ?? {}), updatedAt: ctx.now };
+    ws.putNode(node);
+    return [nodeEvent('node/archived', node, { archivedAt, ...set }, {
+      op: 'node.merge', nodeId, set, unset: [], updatedAt: ctx.now,
+    })];
+  },
+
   'node.claim'(ws, m, ctx) {
     const nodeId = requireString(m.nodeId, 'nodeId');
     const node = ws.getNode(nodeId);

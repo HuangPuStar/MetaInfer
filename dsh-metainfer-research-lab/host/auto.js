@@ -71,16 +71,21 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     const project = store.getProject(projectId);
     let state = states.get(projectId);
     if (!state) {
+      // O6: streak counters and the last pause survive a Host restart. The
+      // driver still comes back paused (a restart must not silently resume
+      // work), but the audit counters are not reset to zero.
+      const persisted = project?.autoState && typeof project.autoState === 'object' ? project.autoState : {};
       state = {
         status: project?.mode === 'auto' ? 'paused' : 'off',
-        pauseReason: project?.mode === 'auto' ? 'hostRestarted' : null,
-        startedAt: null,
-        cycles: 0,
-        idleStreak: 0,
-        errorStreak: 0,
-        lastCycleAt: 0,
-        lastPlanSkip: null,
-        pauseCounts: {},
+        pauseReason: project?.mode === 'auto' ? (persisted.pauseReason ?? 'hostRestarted') : null,
+        startedAt: Number.isFinite(persisted.startedAt) ? persisted.startedAt : null,
+        cycles: Number.isFinite(persisted.cycles) ? persisted.cycles : 0,
+        idleStreak: Number.isFinite(persisted.idleStreak) ? persisted.idleStreak : 0,
+        errorStreak: Number.isFinite(persisted.errorStreak) ? persisted.errorStreak : 0,
+        lastCycleAt: Number.isFinite(persisted.lastCycleAt) ? persisted.lastCycleAt : 0,
+        lastPlanSkip: persisted.lastPlanSkip ?? null,
+        lastPauseAt: Number.isFinite(persisted.lastPauseAt) ? persisted.lastPauseAt : null,
+        pauseCounts: persisted.pauseCounts && typeof persisted.pauseCounts === 'object' ? { ...persisted.pauseCounts } : {},
       };
       states.set(projectId, state);
     }
@@ -113,6 +118,8 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       errorStreak: state.errorStreak,
       lastCycleAt: state.lastCycleAt,
       lastPlanSkip: state.lastPlanSkip,
+      lastPauseAt: state.lastPauseAt ?? null,
+      pauseCounts: { ...state.pauseCounts },
       lastDispatch: state.lastDispatch ?? null,
       dispatchStarted: state.dispatchStarted ?? 0,
       tokensUsed: tokensUsed(projectId),
@@ -130,10 +137,26 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
 
   async function saveEvent(project, type, data) {
     if (!kernel?.executor) throw new LabError('unavailable', 'auto controller requires kernel.executor', 503);
+    const state = stateOf(project.id);
     const result = await kernel.executor.commit(project.id, {
       actor: { kind: 'system', id: 'auto' },
       causeId: `${type}:${project.id}`,
-      mutations: [{ op: 'event.record', type, data }],
+      mutations: [
+        { op: 'event.record', type, data },
+        // O6: the event is the audit trail; autoState is the restart read model.
+        { op: 'project.update', set: { autoState: {
+          status: state.status,
+          pauseReason: state.pauseReason,
+          startedAt: state.startedAt,
+          cycles: state.cycles,
+          idleStreak: state.idleStreak,
+          errorStreak: state.errorStreak,
+          lastCycleAt: state.lastCycleAt,
+          lastPlanSkip: state.lastPlanSkip,
+          lastPauseAt: state.lastPauseAt ?? null,
+          pauseCounts: { ...state.pauseCounts },
+        } } },
+      ],
     });
     if (result.ok !== true) throw new LabError(result.code ?? 'commit_failed', result.message ?? 'auto event commit failed', 500);
   }
@@ -144,6 +167,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     state.status = 'paused';
     state.pauseReason = reason;
     state.pauseCounts[reason] = (state.pauseCounts[reason] ?? 0) + 1;
+    state.lastPauseAt = Date.now();
     const project = store.getProject(projectId);
     if (project) await saveEvent(project, 'auto/paused', { reason });
   }
@@ -246,7 +270,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       return pause(projectId, 'maxWallClock');
     }
     const maxDeferred = project.config.maxDeferred ?? 20;
-    if (nodes.filter(isDeferredNode).length > maxDeferred) return pause(projectId, 'maxDeferred');
+    if (nodes.filter((node) => isDeferredNode(node) && !node.archivedAt).length > maxDeferred) return pause(projectId, 'maxDeferred');
     if (newNodeCount(nodes) >= (project.config.maxNodes ?? 60)) return pause(projectId, 'maxNodes');
     const tokenLimit = auto.maxTokens ?? 0;
     if (tokenLimit > 0 && tokensUsed(projectId) >= tokenLimit) return pause(projectId, 'maxTokens');

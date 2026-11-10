@@ -19,6 +19,24 @@ function check(name, condition, detail = '') {
   else { failed += 1; console.log(`FAIL ${name}${detail ? ` — ${detail}` : ''}`); }
 }
 
+const coverageNodes = [
+  { id: 'coverage-root', title: 'coverage root', status: 'completed', report: { metrics: { score: 1 } }, review: { by: 'alice' } },
+  { id: 'coverage-child', title: 'coverage child', status: 'planned', parentId: 'coverage-root' },
+];
+const coverageClaims = [
+  [{ predicate: 'nodeExists', nodeId: 'coverage-root' }, true],
+  [{ predicate: 'statusIs', nodeId: 'coverage-root', status: 'completed' }, true],
+  [{ predicate: 'parentOf', nodeId: 'coverage-child', parentId: 'coverage-root' }, true],
+  [{ predicate: 'metricIs', nodeId: 'coverage-root', metric: 'score', value: 1 }, true],
+  [{ predicate: 'textContains', nodeId: 'coverage-root', text: 'coverage' }, true],
+  [{ predicate: 'countWhere', status: 'planned', count: 1 }, true],
+  [{ predicate: 'reviewedBy', nodeId: 'coverage-root', reviewer: 'alice' }, true],
+];
+const covered = coverageClaims.filter(([claim]) => verifyClaims([claim], coverageNodes).ok).length;
+check('C6: all seven claim predicates have an executable passing probe (100% >= 90% floor)',
+  CLAIM_PREDICATES.length === 7 && covered === CLAIM_PREDICATES.length,
+  JSON.stringify({ total: CLAIM_PREDICATES.length, covered }));
+
 const semanticUnknown = semanticFallback('semantic_disagreement');
 check('C5: an action with no code/expert executor has an explicit human-review fallback',
   semanticUnknown.executor === 'human' && semanticUnknown.code === 'human_review'

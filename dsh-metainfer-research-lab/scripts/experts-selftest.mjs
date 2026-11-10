@@ -8,8 +8,9 @@ import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
 import { registerAgentTool } from '../host/agent-tool.js';
 import { listExpertDescriptors, computeExpertMetrics } from '../host/experts/registry.js';
-import { nodeSimilarity, recallCandidates, recallExperts, similarityEvidence } from '../host/experts/similarity.js';
+import { dedupeSignature, nodeSimilarity, recallCandidates, recallExperts, similarityEvidence, variantConflict } from '../host/experts/similarity.js';
 import { applyNomination, createCurator } from '../host/experts/curator.js';
+import { evaluateTriggers, TRIGGER_CODES } from '../host/experts/triggers.js';
 import { ACTION_CATALOG, allowedActions } from '../host/kernel/policy.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
@@ -28,6 +29,19 @@ const curatorDescriptor = descriptors.find((descriptor) => descriptor.id === 'la
 check('curator is read-only and nominates', curatorDescriptor && curatorDescriptor.tools.every((tool) => ['dag_map', 'dag_walk', 'dag_get', 'dag_query'].includes(tool)), JSON.stringify(curatorDescriptor?.tools));
 check('descriptors are copies, not shared mutable state', listExpertDescriptors()[0] !== listExpertDescriptors()[0]);
 
+const triggerNow = Date.now();
+const triggerNodes = [
+  { id: 'running-stalled', status: 'running', title: 'duplicate title', priority: { class: 'p2' }, timestamps: { startedAt: triggerNow - 3_600_000, lastActivityAt: triggerNow - 3_600_000, createdAt: triggerNow - 3_600_000 } },
+  { id: 'queued-starving', status: 'planned', title: 'queued work', priority: { class: 'p0' }, timestamps: { createdAt: triggerNow - 3_600_000 } },
+  { id: 'duplicate-title', status: 'planned', title: 'duplicate title', priority: { class: 'p3' }, timestamps: { createdAt: triggerNow } },
+  { id: 'failed-node', status: 'failed', attempt: 3, title: 'failed work', timestamps: { createdAt: triggerNow } },
+];
+const triggerCodes = evaluateTriggers({ nodes: triggerNodes, auto: { status: 'paused', pauseReason: 'noProgress' }, now: triggerNow, stalledMs: 60_000, starvingMs: 60_000 }).map((row) => row.code);
+check('B13/5.3.9: all six trigger codes are deterministic predicates with detail',
+  TRIGGER_CODES.length === 6 && TRIGGER_CODES.every((code) => triggerCodes.includes(code))
+  && new Set(triggerCodes).size === 6,
+  JSON.stringify({ codes: TRIGGER_CODES, fired: triggerCodes }));
+
 const metrics = computeExpertMetrics({
   expertId: 'lab-advisor',
   nodes: [
@@ -45,6 +59,16 @@ const duplicateA = { id: 'n1', title: 'fold fp32 head weights into the tcgen05 k
 const duplicateB = { id: 'n2', title: 'fold fp32 head weights into the tcgen05 kernel', successCriteria: 'same logits, lower memory', status: 'planned', timestamps: { createdAt: 1 } };
 const unrelated = { id: 'n3', title: 'measure network bandwidth for distributed training', successCriteria: 'throughput up', status: 'planned', timestamps: { createdAt: 1 } };
 const mergeNode = { id: 'n4', title: 'fold fp32 head weights into the tcgen05 kernel', parentIds: ['n1', 'n2'], status: 'planned', timestamps: { createdAt: 1 } };
+const scanA = { id: 'scan-a', title: 'scan learning rate', hypothesis: 'lr too high', variant: 'lr=1e-3', tags: ['scan', 'lr'], status: 'planned', timestamps: { createdAt: 1 } };
+const scanB = { id: 'scan-b', title: 'scan learning rate', hypothesis: 'lr too high', variant: 'lr=3e-4', tags: ['scan', 'lr'], status: 'planned', timestamps: { createdAt: 1 } };
+const scanC = { id: 'scan-c', title: 'scan learning rate', hypothesis: 'lr too high', variant: 'lr=1e-3', tags: ['scan', 'lr'], status: 'planned', timestamps: { createdAt: 1 } };
+check('B18: structured hypothesis/variant/tag keys separate parameter scans',
+  variantConflict(scanA, scanB) === true && variantConflict(scanA, scanC) === false
+  && dedupeSignature(scanA) === dedupeSignature(scanC)
+  && dedupeSignature(scanA) !== dedupeSignature(scanB)
+  && !recallCandidates([scanA, scanB], { threshold: 0.3 }).pairs.some((pair) => pair.a === 'scan-a' && pair.b === 'scan-b'),
+  JSON.stringify({ a: dedupeSignature(scanA), b: dedupeSignature(scanB), recall: recallCandidates([scanA, scanB], { threshold: 0.3 }) }));
+
 check('similarity is symmetric and identical pairs score high', nodeSimilarity(duplicateA, duplicateB) >= 0.89 && nodeSimilarity(duplicateA, duplicateB) === nodeSimilarity(duplicateB, duplicateA) && nodeSimilarity(duplicateA, unrelated) < 0.3);
 const first = recallCandidates([duplicateA, duplicateB, unrelated, mergeNode], { threshold: 0.5 });
 const second = recallCandidates([duplicateA, duplicateB, unrelated, mergeNode], { threshold: 0.5 });

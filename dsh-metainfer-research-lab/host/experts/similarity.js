@@ -58,6 +58,34 @@ function metricsKey(node) {
   return metrics.map((metric) => String(metric?.name ?? metric?.key ?? metric ?? '')).sort().join('|');
 }
 
+/**
+ * B18: structured dedupe keys. A parameter scan is not a duplicate: two nodes
+ * with the same hypothesis but different `variant` are deliberately kept apart
+ * even when their titles are identical. `tags` are part of the signature so a
+ * caller can broadcast a cheap dedupe key before a model sees the pair.
+ */
+export function structuredVariant(node) {
+  return {
+    hypothesis: String(node?.hypothesis ?? '').trim(),
+    variant: String(node?.variant ?? '').trim(),
+    tags: [...new Set((Array.isArray(node?.tags) ? node.tags : []).map((tag) => String(tag).trim()).filter(Boolean))].sort(),
+  };
+}
+
+export function dedupeSignature(node) {
+  const key = structuredVariant(node);
+  return [key.hypothesis, key.variant, key.tags.join(',')].join('|');
+}
+
+/** True when the pair is a parameter/lever scan, not a duplicate. */
+export function variantConflict(left, right) {
+  const a = structuredVariant(left);
+  const b = structuredVariant(right);
+  return a.hypothesis !== '' && a.hypothesis === b.hypothesis
+    && a.variant !== '' && b.variant !== ''
+    && a.variant !== b.variant;
+}
+
 /** Structural reasons for a candidate pair, strongest first. */
 export function similarityEvidence(left, right) {
   const reasons = [];
@@ -69,6 +97,9 @@ export function similarityEvidence(left, right) {
   if (sameParent && criteria >= 0.5) reasons.push('sameParentCriteria');
   const leftMetrics = metricsKey(left);
   if (leftMetrics !== '' && leftMetrics === metricsKey(right)) reasons.push('metricTargets');
+  const leftStructure = structuredVariant(left);
+  const rightStructure = structuredVariant(right);
+  if (leftStructure.hypothesis !== '' && leftStructure.hypothesis === rightStructure.hypothesis) reasons.push('sameHypothesis');
   const title = jaccard(left?.title, right?.title);
   const leftTags = (left?.tags ?? []).join(' ');
   const rightTags = (right?.tags ?? []).join(' ');
@@ -81,7 +112,8 @@ export function similarityEvidence(left, right) {
     + tags * 0.1
     + (reasons.includes('promptHashPrefix') ? 0.1 : 0)
     + (reasons.includes('sameParentCriteria') ? 0.1 : 0)
-    + (reasons.includes('metricTargets') ? 0.1 : 0));
+    + (reasons.includes('metricTargets') ? 0.1 : 0)
+    + (reasons.includes('sameHypothesis') ? 0.15 : 0));
   return { score: Math.round(score * 1000) / 1000, reasons, title, criteria, sameParent };
 }
 
@@ -104,6 +136,9 @@ export function recallCandidates(nodes = [], { threshold = 0.3, limit = 20, excl
   const pairs = [];
   for (let i = 0; i < eligible.length; i += 1) {
     for (let j = i + 1; j < eligible.length; j += 1) {
+      // B18: a parameter scan is excluded before scoring; otherwise a model
+      // would be asked to close legitimate variants.
+      if (variantConflict(eligible[i], eligible[j])) continue;
       const evidence = similarityEvidence(eligible[i], eligible[j]);
       // A single strong structural predicate is a candidate even if the weighted
       // score is below θ: B17 is recall (or), not a linear score threshold.

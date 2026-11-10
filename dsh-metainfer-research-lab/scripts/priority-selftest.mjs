@@ -68,6 +68,17 @@ await kernel.executor.commit('p', { actor: { kind: 'human', id: 'test' }, mutati
 await kernel.executor.commit('p', { actor: { kind: 'human', id: 'test' }, mutations: [{ op: 'node.transition', nodeId: 'done', to: 'running' }] });
 await kernel.executor.commit('p', { actor: { kind: 'human', id: 'test' }, mutations: [{ op: 'node.transition', nodeId: 'done', to: 'completed' }] });
 
+await kernel.executor.commit('p', {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{ op: 'node.create', node: { id: 'deferred-old', title: 'old deferred', status: 'planned', priority: { class: 'deferred', at: Date.now() - 20 * 86_400_000 }, timestamps: { createdAt: Date.now() - 20 * 86_400_000 } } }],
+});
+const archived = await service.archiveDeferred('p', { now: Date.now() });
+check('C1: deferred TTL sweep archives an old deferred node without deleting it',
+  archived.archived.includes('deferred-old')
+  && store.getNode('p', 'deferred-old')?.archivedAt > 0
+  && store.listEvents('p', 0).some((event) => event.type === 'node/archived' && event.nodeId === 'deferred-old'),
+  JSON.stringify({ archived, node: store.getNode('p', 'deferred-old')?.archivedAt }));
+
 // 1. Planned node: accepted, and the write is an executor event.
 const beforeEvents = store.listEvents('p', 0).length;
 const ok = await service.setNodePriority('p', 'planned', { class: 'p0', reason: 'human says urgent' });

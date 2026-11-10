@@ -103,8 +103,27 @@ await test('Q5: deferred nodes do not consume the maxNodes hot budget', async ()
 });
 
 await test('Q5: the separate maxDeferred quota pauses the driver', async () => {
-  const { status } = await drive('p-deferred-quota', 1, { maxNodes: 100, maxDeferred: 2 }, { started: 0, skipped: [] }, 3);
+  const { status, store } = await drive('p-deferred-quota', 1, { maxNodes: 100, maxDeferred: 2 }, { started: 0, skipped: [] }, 3);
   assert.equal(status.pauseReason, 'maxDeferred');
+  assert.equal(store.getProject('p-deferred-quota')?.autoState?.pauseReason, 'maxDeferred');
+  assert.equal(store.getProject('p-deferred-quota')?.autoState?.pauseCounts?.maxDeferred, 1);
+});
+
+await test('O6: idle/error streaks and the last pause survive a restart read', async () => {
+  const { store } = await drive('p-persist', 1, { maxNodes: 100 }, { started: 0, skipped: [] });
+  await store.saveProject({
+    ...store.getProject('p-persist'),
+    autoState: { status: 'paused', pauseReason: 'noProgress', idleStreak: 2, errorStreak: 1, lastPauseAt: 1234, pauseCounts: { noProgress: 2, errors: 1 } },
+  });
+  const kernel = createKernel({ store });
+  const auto = createAutoController({ store, kernel, cluster: null, dispatchOnce: async () => ({ started: 0, skipped: [] }), orchestrator: { step: async () => ({ created: [], started: [], errors: [] }) }, intervalMs: 60_000 });
+  const status = auto.statusOf('p-persist');
+  auto.dispose();
+  kernel.dispose();
+  assert.equal(status.idleStreak, 2);
+  assert.equal(status.errorStreak, 1);
+  assert.equal(status.lastPauseAt, 1234);
+  assert.equal(status.pauseCounts.noProgress, 2);
 });
 
 await test('an explicit project cap overrides the derived default', async () => {

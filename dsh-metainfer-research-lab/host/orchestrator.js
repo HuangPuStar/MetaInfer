@@ -20,6 +20,10 @@ import { basisFor, createIntent, intentId, intentMutation } from './kernel/inten
 import { baselineFor, normalizeExpected } from './kernel/prediction.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
+// 5.3.8: O1 measured advisor p90 at the old 180 s ceiling; the default budget
+// now leaves headroom instead of cutting the tail off. Projects can still pin
+// `config.advisor.timeoutSeconds` within 30..1800 s.
+export const DEFAULT_ADVISOR_TIMEOUT_SECONDS = 240;
 
 /**
  * Read the platform-published expert-skill overlay.  The MetaInfer trajectory
@@ -410,12 +414,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     }
   }
 
-  /** Per-project advisor wall-clock budget (seconds -> ms), with the legacy default. */
-  function advisorTimeoutMs(project) {
-    const seconds = Number(project?.config?.advisor?.timeoutSeconds ?? 180);
-    const bounded = Number.isFinite(seconds) ? Math.max(30, Math.min(1800, Math.round(seconds))) : 180;
-    return bounded * 1000;
-  }
+  /** Per-project advisor wall-clock budget (seconds -> ms), with the measured default. */
 
   async function runRole(project, role, cycle, promptText, schema, inputSnapshot, options = {}) {
     const controller = await ensureController(project);
@@ -1465,3 +1464,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
 }
 
 export { ADVISOR_SCHEMA, SCHEDULER_SCHEMA, advisorPrompt, schedulerPrompt, mergeAdvisorOutputs };
+
+
+/** 5.3.8: bounded advisor wall-clock budget in ms; default is the measured 240 s. */
+export function advisorTimeoutMs(project) {
+  const seconds = Number(project?.config?.advisor?.timeoutSeconds ?? DEFAULT_ADVISOR_TIMEOUT_SECONDS);
+  const bounded = Number.isFinite(seconds) ? Math.max(30, Math.min(1800, Math.round(seconds))) : DEFAULT_ADVISOR_TIMEOUT_SECONDS;
+  return bounded * 1000;
+}

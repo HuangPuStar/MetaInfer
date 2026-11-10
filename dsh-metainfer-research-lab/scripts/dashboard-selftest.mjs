@@ -64,6 +64,18 @@ check('dashboard returns Host facts with no agent prose', () => {
   assert.deepEqual(view.hostFacts?.resources, { gpu: 2 });
   assert.doesNotMatch(JSON.stringify(view.hostFacts), /AGENT PROSE|AGENT COMMENTARY/);
 });
+check('O12: dashboard exposes structured GPU, cost and narrative facts', () => {
+  assert.equal(view.hostFacts?.gpu?.total, 2);
+  assert.equal(view.hostFacts?.gpu?.held, 0);
+  assert.equal(view.hostFacts?.gpu?.free, 2);
+  assert.equal(view.hostFacts?.gpu?.utilization, 0);
+  assert.equal(view.hostFacts?.cost?.tokensUsed, 0);
+  assert.equal(view.hostFacts?.cost?.costUsd, 0);
+  assert.equal(view.hostFacts?.narrative?.sections?.length, 3);
+  assert.equal(view.hostFacts?.narrative?.sections?.find((row) => row.key === 'gpu')?.values?.total, 2);
+  assert.doesNotMatch(JSON.stringify(view.hostFacts?.narrative), /AGENT PROSE|AGENT COMMENTARY/);
+});
+
 check('agent widgets are attributed to the agent', () => {
   const agent = view.widgets.find((widget) => widget.id === 'agent-w');
   assert.equal(agent.dataSource, 'agent');

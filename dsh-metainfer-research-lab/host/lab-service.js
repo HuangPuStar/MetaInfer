@@ -35,6 +35,7 @@ import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, detectIntentConfli
 import { ACTION_VERIFICATION, IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
 import { recallExperts } from './experts/similarity.js';
+import { evaluateTriggers, TRIGGER_CODES } from './experts/triggers.js';
 import { applyNomination, createCurator } from './experts/curator.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
@@ -480,6 +481,15 @@ function normalizeConfig(raw, base = undefined) {
     1,
     365,
   );
+  // C1: deferred nodes older than this leave the hot index. They remain in the
+  // DAG with archivedAt so a human can still audit or restore them.
+  scheduling.deferredTtlDays = integer(
+    input.scheduling?.deferredTtlDays,
+    'config.scheduling.deferredTtlDays',
+    previous.scheduling?.deferredTtlDays ?? 7,
+    1,
+    365,
+  );
   config.scheduling = scheduling;
 
   // Ensure every project has the full default shape even when created before M4.
@@ -911,19 +921,60 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   /** Host-computed facts only; no widget body, chat text or agent prose. */
   function dashboardHostFacts(project) {
     const nodes = store.listNodes(project.id);
+    const running = nodes.filter((node) => node.status === 'running');
+    const pools = project.config?.resourcePools ?? {};
+    const held = {};
+    for (const node of running) {
+      for (const [key, amount] of Object.entries(node.resourcesHeld ?? {})) held[key] = (held[key] ?? 0) + amount;
+    }
+    const free = Object.fromEntries(Object.entries(pools).map(([key, total]) => [key, Math.max(0, Number(total) - (held[key] ?? 0))]));
+    // O12: GPU, cost and narrative are structured Host facts, not prose a model
+    // can rewrite. `narrative` is a stable list of sections for the UI.
+    const gpuTotal = Math.max(0, Number(pools.gpu ?? 0));
+    const gpuHeld = Math.max(0, Number(held.gpu ?? 0));
+    const gpu = {
+      total: gpuTotal,
+      held: gpuHeld,
+      free: Math.max(0, gpuTotal - gpuHeld),
+      utilization: gpuTotal > 0 ? Number((gpuHeld / gpuTotal).toFixed(3)) : null,
+      runningNodes: running.filter((node) => Number(node.needs?.gpu ?? node.resourcesHeld?.gpu ?? 0) > 0).length,
+    };
+    const tokensUsed = Math.max(0, Number(project.counters?.tokensUsed ?? 0));
+    const costUsd = Number(project.counters?.costUsd ?? 0);
+    const cost = {
+      tokensUsed,
+      costUsd: Number.isFinite(costUsd) ? Number(costUsd.toFixed(6)) : 0,
+      maxTokens: Number(project.config?.auto?.maxTokens ?? 0),
+      maxCostUsd: Number(project.config?.auto?.maxCostUsd ?? 0),
+      tokenUtilization: Number(project.config?.auto?.maxTokens ?? 0) > 0
+        ? Number((tokensUsed / Number(project.config.auto.maxTokens)).toFixed(3)) : null,
+      costUtilization: Number(project.config?.auto?.maxCostUsd ?? 0) > 0
+        ? Number((costUsd / Number(project.config.auto.maxCostUsd)).toFixed(3)) : null,
+    };
     return {
       source: 'host',
       computedAt: Date.now(),
       projectRevision: project.revision ?? 0,
       counts: {
         total: nodes.length,
-        running: nodes.filter((node) => node.status === 'running').length,
+        running: running.length,
         planned: nodes.filter((node) => node.status === 'planned').length,
         completed: nodes.filter((node) => node.status === 'completed').length,
         failed: nodes.filter((node) => node.status === 'failed').length,
-        deferred: nodes.filter((node) => node.status === 'deferred').length,
+        deferred: nodes.filter((node) => node.status === 'deferred' && !node.archivedAt).length,
+        archived: nodes.filter((node) => node.archivedAt).length,
       },
-      resources: project.config?.resourcePools ?? {},
+      resources: pools,
+      gpu,
+      cost,
+      narrative: {
+        headline: `${running.length} running · ${nodes.filter((node) => node.status === 'planned').length} queued`,
+        sections: [
+          { key: 'execution', label: 'Execution', values: { running: running.length, queued: nodes.filter((node) => node.status === 'planned').length, completed: nodes.filter((node) => node.status === 'completed').length, failed: nodes.filter((node) => node.status === 'failed').length } },
+          { key: 'gpu', label: 'GPU', values: gpu },
+          { key: 'cost', label: 'Cost', values: cost },
+        ],
+      },
     };
   }
 
@@ -1496,6 +1547,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       stalled,
       starving,
       pauseReason,
+      triggers: evaluateTriggers({ nodes, auto: autoStatus, now, stalledMs: stallMs, starvingMs: starveMs }),
+      triggerCodes: [...TRIGGER_CODES],
       openDisputes: openDisputes.map((record) => ({ id: record.id, type: record.type, deadlineAt: record.deadlineAt, authority: record.authority })),
       recentEvents: events.slice(-20).map((event) => ({ seq: event.seq, type: event.type, at: event.at, nodeId: event.nodeId ?? null })),
     });
@@ -3253,6 +3306,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       observerSweepAt.set(projectId, now);
       await escalateStalled(projectId, { now });
     }
+    await archiveDeferred(projectId, { now });
+    const joined = await autoJoinCompleted(projectId);
     await rotateDueExperts(projectId);
     // Timeout defaults are applied by the same tick that takes the dispatch
     // commit point; a pending dispute therefore cannot block forever.
@@ -3530,11 +3585,15 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (!row) return { status: 'catalog', active: false };
     const lifecycle = {
       status: EXPERT_LIFECYCLE_STATUSES.includes(row.status) ? row.status : 'retired',
-      active: row.status === 'active',
+      active: row.status === 'active' && !(row.temporary === true && Number(row.expiresAt) > 0 && Number(row.expiresAt) <= Date.now()),
       hiredAt: row.hiredAt ?? null,
       hiredBy: row.hiredBy ?? null,
       drainedAt: row.drainedAt ?? null,
       retiredAt: row.retiredAt ?? null,
+      temporary: row.temporary === true,
+      invitedAt: row.invitedAt ?? null,
+      expiresAt: row.expiresAt ?? null,
+      expired: row.temporary === true && Number(row.expiresAt) > 0 && Number(row.expiresAt) <= Date.now(),
     };
     return lifecycle;
   }
@@ -3543,7 +3602,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   function recruitabilityOf(project) {
     const roster = expertRosterOf(project);
     if (roster.length === 0) return listExpertDescriptors();
-    const active = new Set(roster.filter((row) => row.status === 'active').map((row) => row.expertId));
+    const now = Date.now();
+    const active = new Set(roster
+      .filter((row) => row.status === 'active' && !(row.temporary === true && Number(row.expiresAt) > 0 && Number(row.expiresAt) <= now))
+      .map((row) => row.expertId));
     return listExpertDescriptors().filter((descriptor) => active.has(descriptor.id));
   }
 
@@ -3630,6 +3692,81 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }, actor);
   }
 
+  /**
+   * C1: archive deferred nodes past their TTL. The sweep is called by the same
+   * dispatch tick that rotates experts, so it cannot depend on a human click.
+   * A bounded batch keeps one tick from writing hundreds of events.
+   */
+  async function archiveDeferred(projectId, { now = Date.now() } = {}) {
+    const project = requireProject(projectId);
+    const ttlDays = Number(project?.config?.scheduling?.deferredTtlDays ?? 7);
+    const ttlMs = Math.max(1, Number.isFinite(ttlDays) ? ttlDays : 7) * 86_400_000;
+    const candidates = store.listNodes(projectId)
+      .filter((node) => node.status === 'planned'
+        && node.priority?.class === 'deferred'
+        && !node.archivedAt)
+      .map((node) => {
+        const since = Number(node.priority?.at ?? node.timestamps?.createdAt ?? 0);
+        return { node, since, ageMs: now - since };
+      })
+      .filter((row) => Number.isFinite(row.since) && row.since > 0 && row.ageMs > ttlMs)
+      .slice(0, 50);
+    const archived = [];
+    for (const row of candidates) {
+      const commit = await commitMutations(projectId, [{
+        op: 'node.archive',
+        nodeId: row.node.id,
+        reason: `deferred_ttl:${ttlDays}d`,
+      }], { actor: { kind: 'system', id: 'deferred-archiver' }, causeId: `deferred-ttl:${row.node.id}:${now}` });
+      if (commit.ok !== false) archived.push(row.node.id);
+    }
+    return { ok: true, projectId, ttlDays, archived };
+  }
+
+  /**
+   * 5.3.7: a true join primitive. When all direct children of a completed node
+   * have committed branches, create the merge node deterministically instead of
+   * waiting for a human to run `finish_merge`. The merge still runs as a normal
+   * node; `finish_merge` remains the conflict-safe fallback.
+   *
+   * Only one join per tick is created, and an existing merge with the exact
+   * parent set suppresses a duplicate.
+   */
+  async function autoJoinCompleted(projectId) {
+    const project = requireProject(projectId);
+    if (project.config?.scheduling?.autoJoin === false) return { ok: true, projectId, created: [] };
+    if (!orchestrator || typeof orchestrator.createMergeNode !== 'function') return { ok: true, projectId, created: [] };
+    if (!git) return { ok: true, projectId, created: [] };
+    const nodes = store.listNodes(projectId);
+    const existing = new Set(nodes
+      .filter((node) => node.kind === 'merge' && Array.isArray(node.parentIds))
+      .map((node) => [...node.parentIds].sort().join(',')));
+    const byParent = new Map();
+    for (const node of nodes) {
+      if (node.status !== 'completed' || !node.git?.headCommit) continue;
+      if (node.kind === 'merge') continue;
+      const parentId = node.parentId;
+      if (!parentId) continue;
+      if (!byParent.has(parentId)) byParent.set(parentId, []);
+      byParent.get(parentId).push(node);
+    }
+    for (const [parentId, children] of byParent) {
+      if (children.length < 2 || children.length > 4) continue;
+      const ids = children.map((node) => node.id).sort();
+      if (existing.has(ids.join(','))) continue;
+      try {
+        const result = await orchestrator.createMergeNode(projectId, {
+          parentIds: ids,
+          title: `Join ${children.map((node) => node.title).join(' + ').slice(0, 120)}`,
+        });
+        return { ok: true, projectId, created: [result?.node?.id ?? result?.id ?? null], parentId, parentIds: ids };
+      } catch (error) {
+        return { ok: false, projectId, created: [], code: error?.code ?? 'auto_join_failed', message: error?.message ?? String(error) };
+      }
+    }
+    return { ok: true, projectId, created: [] };
+  }
+
   /** Called by the dispatch tick, so rotation does not depend on a human click. */
   async function rotateDueExperts(projectId, { now = Date.now() } = {}) {
     const status = rotationStatus(projectId);
@@ -3661,14 +3798,35 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       ok: true,
       projectId,
       revision: project.revision,
-      experts: listExpertDescriptors().map((descriptor) => ({
-        ...descriptor,
-        lifecycle: expertLifecycleOf(project, descriptor.id),
-        metrics: {
-          ...computeExpertMetrics({ expertId: descriptor.id, nodes, runs }),
-          ...disputePerformance(project, descriptor.id),
-        },
-      })),
+      experts: listExpertDescriptors().map((descriptor) => {
+        // Q4: budget is a descriptor contract, so expose its measured usage and
+        // whether this project is still inside it. `runs` is the same bounded
+        // list the performance metrics use.
+        const expertRuns = runs.filter((run) => run.expertId === descriptor.id || run.preset === descriptor.id || run.createdBy === descriptor.id);
+        const tokens = expertRuns.reduce((sum, run) => sum + Number(run.usage?.totalTokens ?? run.usage?.tokens ?? 0), 0);
+        const wallClockMs = expertRuns.reduce((sum, run) => {
+          const started = Number(run.startedAt ?? 0);
+          const ended = Number(run.endedAt ?? run.finishedAt ?? 0);
+          return sum + (started > 0 && ended >= started ? ended - started : 0);
+        }, 0);
+        const budgetUsage = {
+          runs: expertRuns.length,
+          tokens,
+          wallClockMs,
+          withinQueries: expertRuns.length <= Number(descriptor.budget.queriesPerRun ?? Number.MAX_SAFE_INTEGER),
+          withinTokens: tokens <= Number(descriptor.budget.tokensPerHour ?? Number.MAX_SAFE_INTEGER),
+          withinWallClock: wallClockMs <= Number(descriptor.budget.wallClockMs ?? Number.MAX_SAFE_INTEGER),
+        };
+        return {
+          ...descriptor,
+          lifecycle: expertLifecycleOf(project, descriptor.id),
+          budgetUsage,
+          metrics: {
+            ...computeExpertMetrics({ expertId: descriptor.id, nodes, runs }),
+            ...disputePerformance(project, descriptor.id),
+          },
+        };
+      }),
       curator: curator.status(),
     });
   }
@@ -3714,7 +3872,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }
     const roster = expertRosterOf(project);
     const existing = roster.find((row) => row.expertId === expertId);
-    if (existing && (existing.status === 'active' || existing.status === 'draining')) {
+    const existingExpired = existing?.temporary === true && Number(existing.expiresAt) > 0 && Number(existing.expiresAt) <= Date.now();
+    if (existing && !existingExpired && (existing.status === 'active' || existing.status === 'draining')) {
       throw new LabError('expert_already_hired', `expert is already ${existing.status}: ${expertId}`, 409);
     }
     if (!existing && roster.length >= 8) throw new LabError('expert_roster_full', 'the expert roster is full (8)', 409);
@@ -3722,6 +3881,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const model = text(input.model, 'model', { max: 200 }) || descriptor.model.model;
     const lens = text(input.lens, 'lens', { max: 120 }) || '';
     const now = Date.now();
+    const temporary = input?.temporary === true;
+    const ttlHours = temporary
+      ? Math.max(1, Math.min(168, Number.isInteger(input?.ttlHours) ? input.ttlHours : 24))
+      : null;
     const entry = {
       expertId,
       status: 'active',
@@ -3730,6 +3893,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       ...(lens ? { lens } : {}),
       hiredAt: now,
       hiredBy: actor.id,
+      ...(temporary ? { temporary: true, invitedAt: now, expiresAt: now + ttlHours * 3_600_000 } : {}),
       ...(existing?.history ? { history: [...existing.history, { event: 'rehired', at: now }] } : {}),
     };
     const next = existing
@@ -3751,6 +3915,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   /** Start draining: never cancels a running node, and never pretends it is a fire. */
+  /**
+   * 5.3.5: temporary invited experts. They use the same roster/lifecycle as a
+   * hired expert but carry `temporary` + `expiresAt`; recruitability and
+   * rotation exclude an expired invite without deleting its history.
+   */
+  async function inviteExpert(projectId, input = {}, exec = null) {
+    const ttlHours = Math.max(1, Math.min(168, Number.isInteger(input?.ttlHours) ? input.ttlHours : 24));
+    const result = await hireExpert(projectId, { ...input, temporary: true, ttlHours }, exec);
+    return { ...result, invited: true, ttlHours, expiresAt: result?.expert?.lifecycle?.expiresAt ?? null };
+  }
+
   async function drainExpert(projectId, input = {}, exec = null) {
     const project = requireProject(projectId);
     const actor = actorFromToolExecution(exec);
@@ -4882,7 +5057,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     // accumulate unbounded deferred nodes while maxNodes never moved.
     if (priority.class === 'deferred' && normalizePriority(node.priority).class !== 'deferred') {
       const maxDeferred = project.config?.maxDeferred ?? 20;
-      const deferredCount = store.listNodes(projectId).filter((candidate) => candidate.status === 'planned' && normalizePriority(candidate.priority).class === 'deferred').length;
+      const deferredCount = store.listNodes(projectId).filter((candidate) => candidate.status === 'planned' && !candidate.archivedAt && normalizePriority(candidate.priority).class === 'deferred').length;
       if (deferredCount >= maxDeferred) {
         return rejection('max_deferred_reached', `deferred quota is ${maxDeferred}; restore or archive a deferred node first`, { maxDeferred, deferred: deferredCount });
       }
@@ -5081,6 +5256,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'expert_list') return listExperts(input?.projectId);
     if (action === 'expert_recall') return recallExpertFor(input?.projectId, input?.task ?? input?.text ?? '', { limit: input?.limit });
     if (action === 'expert_hire') return hireExpert(input?.projectId, input, exec);
+    if (action === 'expert_invite') return inviteExpert(input?.projectId, input, exec);
     if (action === 'expert_drain') return drainExpert(input?.projectId, input, exec);
     if (action === 'expert_fire') return fireExpert(input?.projectId, input, exec);
     if (action === 'curator_nominate') return nominateDuplicates(input?.projectId, input, exec);
@@ -5131,11 +5307,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     listExperts,
     recallExpertFor,
     hireExpert,
+    inviteExpert,
     drainExpert,
     fireExpert,
     rotationStatus,
     rotateExpert,
     rotateDueExperts,
+    archiveDeferred,
+    autoJoinCompleted,
     nominateDuplicates,
     recordCuratorOutcome,
     changesSince,

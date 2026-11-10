@@ -12,6 +12,7 @@ import { createIntent } from '../host/kernel/intent.js';
 import { DISPUTE_CLASS_MAP, DISPUTE_TIMEOUT_MS } from '../host/kernel/disputes.js';
 import { applyPredictionToNode, evaluateExpected, normalizeExpected } from '../host/kernel/prediction.js';
 import { rotationPlan } from '../host/experts/rotation.js';
+import { advisorTimeoutMs, DEFAULT_ADVISOR_TIMEOUT_SECONDS } from '../host/orchestrator.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -40,15 +41,74 @@ const service = createLabService({
   ctx: { effect: () => {}, get: () => null, logger: { info() {}, warn() {} } },
   store, kernel, git: null, runtime: null, transcript: null, orchestrator: null, auto, cluster: null, clusterAdmin: null,
 });
+await kernel.executor.commit(projectId, {
+  actor: { kind: 'system', id: 'test' },
+  mutations: [
+    { op: 'node.update', nodeId: 'branch-a', set: { git: { headCommit: 'a'.repeat(40) } } },
+    { op: 'node.update', nodeId: 'branch-b', set: { git: { headCommit: 'b'.repeat(40) } } },
+  ],
+});
+const joins = [];
+const joinService = createLabService({
+  ctx: { effect: () => {}, get: () => null, logger: { info() {}, warn() {} } },
+  store, kernel, git: {}, runtime: null, transcript: null,
+  orchestrator: { createMergeNode: async (id, input) => { joins.push({ id, input }); await kernel.executor.commit(id, { actor: { kind: 'system', id: 'test' }, mutations: [{ op: 'node.create', node: { id: 'merge-auto', title: 'auto join', kind: 'merge', status: 'planned', parentIds: input.parentIds, parentId: input.parentIds[0], timestamps: { createdAt: Date.now() } } }] }); return { ok: true, node: { id: 'merge-auto' } }; } },
+  auto, cluster: null, clusterAdmin: null,
+});
+const joined = await joinService.autoJoinCompleted(projectId);
+check('5.3.7: once both committed children complete, the Host creates the join without a human finish_merge call',
+  joined.ok === true && joined.created[0] === 'merge-auto' && joins.length === 1
+  && JSON.stringify(joins[0].input.parentIds) === JSON.stringify(['branch-a', 'branch-b']),
+  JSON.stringify({ joined, joins }));
+const joinedAgain = await joinService.autoJoinCompleted(projectId);
+check('5.3.7: the existing exact-parent merge suppresses a duplicate join',
+  joinedAgain.created.length === 0 && joins.length === 1, JSON.stringify(joinedAgain));
+
 const human = { agent: { session: { id: 'b22-human' } } };
 const secondHuman = { agent: { session: { id: 'b22-second-human' } } };
 const thirdHuman = { agent: { session: { id: 'b22-third-human' } } };
+
+check('5.3.8: the advisor budget defaults above the measured 180 s p90 and stays bounded',
+  DEFAULT_ADVISOR_TIMEOUT_SECONDS === 240 && advisorTimeoutMs({}) === 240_000
+  && advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 5 } } }) === 30_000
+  && advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 99_999 } } }) === 1_800_000,
+  JSON.stringify({ default: advisorTimeoutMs({}), low: advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 5 } } }), high: advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 99_999 } } }) }));
 
 check('the eight conflict classes map to an authority, and only two ask a model',
   Object.keys(DISPUTE_CLASS_MAP).length === 8
   && Object.values(DISPUTE_CLASS_MAP).filter((row) => row.needsModel).length === 2
   && Object.values(DISPUTE_CLASS_MAP).every((row) => ['code', 'cfs', 'arbiter', 'human', 'curator'].includes(row.authority)),
   JSON.stringify(DISPUTE_CLASS_MAP));
+
+const invited = await service.inviteExpert(projectId, { expertId: 'lab-advisor', ttlHours: 2 }, human);
+check('5.3.5: an operator can invite a temporary expert with an expiry',
+  invited.ok === true && invited.expert?.lifecycle?.temporary === true
+  && invited.expert?.lifecycle?.expiresAt > Date.now()
+  && invited.ttlHours === 2,
+  JSON.stringify({ invited: invited.expert?.lifecycle, ttlHours: invited.ttlHours }));
+const listedInvited = await service.listExperts(projectId);
+check('5.3.5: the invited expert appears in the project roster while active',
+  listedInvited.experts.some((row) => row.id === 'lab-advisor' && row.lifecycle?.temporary === true),
+  JSON.stringify(listedInvited.experts.find((row) => row.id === 'lab-advisor')?.lifecycle));
+const invitedRow = listedInvited.experts.find((row) => row.id === 'lab-advisor');
+check('Q4: expert identity, lifecycle, performance and budget usage are one row',
+  invitedRow?.lifecycle?.status === 'active'
+  && invitedRow?.metrics && Number.isFinite(invitedRow.metrics.proposals)
+  && invitedRow?.budget?.queriesPerRun >= 1
+  && Number.isFinite(invitedRow?.budgetUsage?.tokens)
+  && typeof invitedRow?.budgetUsage?.withinTokens === 'boolean',
+  JSON.stringify({ lifecycle: invitedRow?.lifecycle, metrics: invitedRow?.metrics, budget: invitedRow?.budget, usage: invitedRow?.budgetUsage }));
+
+const projectWithExpired = store.getProject(projectId);
+await kernel.executor.commit(projectId, {
+  actor: { kind: 'system', id: 'test' },
+  mutations: [{ op: 'project.update', set: { config: { ...projectWithExpired.config, experts: projectWithExpired.config.experts.map((row) => row.expertId === 'lab-advisor' ? { ...row, expiresAt: Date.now() - 1 } : row) } } }],
+});
+const listedExpired = await service.listExperts(projectId);
+const expiredLifecycle = listedExpired.experts.find((row) => row.id === 'lab-advisor')?.lifecycle;
+check('5.3.5: an expired invite is inactive but its lifecycle remains auditable',
+  expiredLifecycle?.temporary === true && expiredLifecycle?.expired === true && expiredLifecycle?.active === false,
+  JSON.stringify(expiredLifecycle));
 
 const opened = await service.openDispute(projectId, {
   type: 'resource_quantity',
