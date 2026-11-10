@@ -1,10 +1,11 @@
 /**
  * M1 ProjectStore on DSH storageDomain.
  *
- * Domain name must match /^[a-z][a-z0-9_]*$/ — hence `metainfer_research_lab`.
- * Table value schemas stay permissive for M1 (`z.any()`): records are authored by
- * this plugin and validated by host/lab-service.js. Typed schemas can land with a
- * later domain version bump.
+ * Domain name must match /^[a-z][a-z0-9_]*$/ — hence `metainfer_research_lab_v2`.
+ * Table value schemas stay permissive (`z.any()`): records are authored by this
+ * plugin and validated by host/lab-service.js. New tables can be declared at any
+ * time without another version bump; only a change to an existing field's shape
+ * needs `scripts/migrate-domain.mjs` again.
  *
  * Storage conventions:
  * - projects keyed by projectId
