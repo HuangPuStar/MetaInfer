@@ -236,6 +236,24 @@ export const ACTOR_KIND = Object.freeze({
  * Build the immutable actor identity of one DSH session.
  * @param {{agentPreset?: string, sessionId?: string, kind?: string}} input
  */
+/**
+ * Canonical actor id used for every identity comparison.
+ *
+ * Session ids are transport identifiers, not identities: the same human can
+ * arrive as `H1`, `h1 ` or `h1:resolver`. Comparing the raw strings makes
+ * those look like three different people. Trim, case-fold and drop a
+ * transport/session suffix before any distinctness check. This does not replace
+ * an external identity provider; it removes the trivial spelling bypass.
+ */
+export function canonicalActorId(value) {
+  if (typeof value !== 'string') return '';
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[:#@].*$/, '')
+    .trim();
+}
+
 export function actorForSession(input = {}) {
   const preset = typeof input.agentPreset === 'string' && input.agentPreset ? input.agentPreset : null;
   const policy = preset ? PRESET_POLICIES[preset] : null;
@@ -243,9 +261,10 @@ export function actorForSession(input = {}) {
   // actor kind LEGACY so the dispatch authorization paths deny it too.
   const fallbackKind = preset ? ACTOR_KIND.LEGACY : ACTOR_KIND.HUMAN;
   const kind = input.kind ?? (policy?.kind === 'expert' ? ACTOR_KIND.EXPERT : (policy ? ACTOR_KIND.SYSTEM : fallbackKind));
+  const rawId = typeof input.sessionId === 'string' && input.sessionId ? input.sessionId : (preset ?? 'human');
   return Object.freeze({
     kind,
-    id: typeof input.sessionId === 'string' && input.sessionId ? input.sessionId : (preset ?? 'human'),
+    id: canonicalActorId(rawId) || 'human',
     preset,
   });
 }

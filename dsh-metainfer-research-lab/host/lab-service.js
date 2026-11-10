@@ -25,7 +25,7 @@ import { createExplorationBudget } from './context/limits.js';
 import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
-import { actorFromToolExecution } from './kernel/policy.js';
+import { actorFromToolExecution, canonicalActorId } from './kernel/policy.js';
 import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
 import { ACTION_VERIFICATION, IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
@@ -2553,6 +2553,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   async function deleteProject(projectId, options = {}) {
+    let authorization = await authorizeIrreversibleTool(projectId, 'delete_project', options, options.exec ?? null);
     const project = requireProject(projectId);
     const nodes = store.listNodes(projectId);
     if (nodes.some((node) => node.status === 'running')) {
@@ -2563,6 +2564,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     } catch {
       // auto may not be wired in tests
     }
+    // auto.stop writes an `auto/stopped` event and therefore advances the
+    // project revision. Re-read the authorization after that write so the CAS
+    // below compares against the revision the delete will actually observe.
+    authorization = await authorizeIrreversibleTool(projectId, 'delete_project', options, options.exec ?? null);
     const removeWorktrees = options.removeWorktrees === true;
     let worktreesRemoved = 0;
     if (removeWorktrees && git?.removeWorktree) {
@@ -2580,15 +2585,19 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         // Ignore missing worktree root.
       }
     }
-    const deleted = await kernel.executor.deleteProject(projectId, { actor: { kind: 'human', id: 'operator' } });
-    if (deleted.ok !== true) throw new LabError(deleted.code ?? 'commit_failed', deleted.message ?? 'delete failed', 500);
+    const deleted = await kernel.executor.deleteProject(projectId, {
+      actor: authorization.actor,
+      expectedRevision: authorization.projectRevision,
+    });
+    if (deleted.ok !== true) throw new LabError(deleted.code ?? 'commit_failed', deleted.message ?? 'delete failed', deleted.code === 'stale_basis' ? 409 : 500);
     diffCache.reset(projectId);
     auto?.forget?.(projectId);
     return { deleted: true, projectId, worktreesRemoved, removeWorktrees };
   }
 
-  async function cancelNode(projectId, nodeId) {
-    return runtime.cancel(projectId, nodeId);
+  async function cancelNode(projectId, nodeId, options = {}) {
+    const authorization = await authorizeIrreversibleTool(projectId, 'cancel_node', { nodeId, ...options }, options.exec ?? null);
+    return runtime.cancel(projectId, nodeId, { expectedRevision: authorization.projectRevision });
   }
 
   async function messageNode(projectId, nodeId, text) {
@@ -3418,7 +3427,20 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return candidates.find((value) => typeof value === 'string' && value.length > 0) ?? null;
   }
 
+  /**
+   * The one scope shape an irreversible action accepts. A project-wide action
+   * is authorized by the project id, never by a node; a node action is
+   * authorized by the node id, never by the project id.
+   */
+  function expectedScopeKind(action) {
+    return action === 'delete_project' ? 'project' : 'node';
+  }
+
   function appealState(project, target, action, actor, now = Date.now()) {
+    const expectedKind = expectedScopeKind(action);
+    const requestedKey = expectedKind === 'project'
+      ? (target?.projectId && !target?.nodeId ? `project:${target.projectId}` : null)
+      : (target?.nodeId && !target?.projectId ? `node:${target.nodeId}` : null);
     const records = (Array.isArray(project.intents) ? project.intents : [])
       .filter((candidate) => candidate?.kind === 'appeal' && candidate?.claim?.action === 'appeal')
       .map((intent) => {
@@ -3427,37 +3449,44 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         // accepted from the request.
         const openedAt = Number.isFinite(intent.at) ? intent.at : null;
         const expiresAt = Number.isFinite(intent.expiresAt) ? intent.expiresAt : null;
+        const targetProjectId = typeof intent.target?.projectId === 'string' && intent.target.projectId
+          ? intent.target.projectId
+          : null;
+        const targetNodeId = typeof intent.target?.nodeId === 'string' && intent.target.nodeId
+          ? intent.target.nodeId
+          : null;
+        const targetAction = appealActionOf(intent.claim);
+        const recordKind = targetAction ? expectedScopeKind(targetAction) : null;
+        const key = recordKind === 'project'
+          ? (targetProjectId && !targetNodeId ? `project:${targetProjectId}` : null)
+          : (recordKind === 'node' && targetNodeId && !targetProjectId ? `node:${targetNodeId}` : null);
         return {
           intent,
-          targetNodeId: typeof intent.target?.nodeId === 'string' && intent.target.nodeId ? intent.target.nodeId : null,
-          targetAction: appealActionOf(intent.claim),
+          key,
+          targetProjectId,
+          targetNodeId,
+          targetAction,
           until: expiresAt !== null ? expiresAt : (openedAt !== null ? openedAt + INTENT_TTL_MS : null),
         };
       });
-    const scoped = records.filter((row) => row.targetNodeId !== null && row.targetAction !== null);
+    const scoped = records.filter((row) => row.key !== null && row.targetAction !== null);
     const malformed = records.length !== scoped.length;
-    const targetRows = target?.nodeId
-      ? scoped.filter((row) => row.targetNodeId === target.nodeId)
-      : [];
-    const exactRows = target?.nodeId
-      ? targetRows.filter((row) => row.targetAction === action)
-      : [];
-    const pending = targetRows.some((row) => row.intent.status === 'pending' && row.until !== null && row.until > now);
+    // Exact target+action for every state. A pending/withdrawn objection to
+    // prune must not block cancellation of the same node (and vice versa):
+    // those are different operations with different authorization.
+    const exactRows = scoped.filter((row) => row.key === requestedKey && row.targetAction === action);
+    const pending = exactRows.some((row) => row.intent.status === 'pending' && row.until !== null && row.until > now);
     // A withdrawn appeal is not a hearing and does not become permission when
     // the original TTL passes. It stays unresolved until a different actor
-    // writes an explicit resolution. This single predicate is used for the
-    // block and for the window decision below, so expiry cannot clear one but
-    // not the other.
-    const unresolved = targetRows.some((row) => row.intent.status === 'withdrawn');
+    // writes an explicit resolution.
+    const unresolved = exactRows.some((row) => row.intent.status === 'withdrawn');
     const windowed = exactRows.filter((row) => row.until !== null && (row.intent.status === 'resolved' || row.intent.status === 'pending'));
     const exactResolved = exactRows.some((row) => row.intent.status === 'resolved');
     // Any resolved appeal that is not exactly this target+action is a
-    // differently-scoped record, not a wildcard authorization. The error is
-    // deliberately distinct so a caller can tell "no appeal" from "wrong
-    // appeal".
+    // differently-scoped record, not a wildcard authorization.
     const foreignResolved = scoped.some((row) => row.intent.status === 'resolved'
-      && (row.targetNodeId !== target?.nodeId || row.targetAction !== action));
-    const targetMismatch = malformed || (foreignResolved && !exactResolved);
+      && (row.key !== requestedKey || row.targetAction !== action));
+    const targetMismatch = requestedKey === null || malformed || (foreignResolved && !exactResolved);
     const confirmation = exactRows.find((row) => {
       if (row.intent.status !== 'resolved') return false;
       // A resolution that rejects the objection is not a confirmation to
@@ -3465,15 +3494,15 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       if (row.intent.resolution !== 'upheld') return false;
       const by = row.intent.resolvedBy;
       if (!by || (by.kind !== 'human' && by.kind !== 'system')) return false;
-      if (typeof by.id !== 'string' || !by.id) return false;
-      if (typeof actor?.id !== 'string' || !actor.id) return false;
-      if (typeof row.intent.actor?.id !== 'string' || !row.intent.actor.id) return false;
-      // Raiser, requester and resolver are three distinct actors. Comparing
-      // only the resolver to the raiser let a requester who raised the appeal
-      // authorize itself.
-      if (by.id === actor.id) return false;
-      if (by.id === row.intent.actor.id) return false;
-      if (row.intent.actor.id === actor.id) return false;
+      const resolverId = canonicalActorId(by.id);
+      const requesterId = canonicalActorId(actor?.id);
+      const raiserId = canonicalActorId(row.intent.actor?.id);
+      if (!resolverId || !requesterId || !raiserId) return false;
+      // Raiser, requester and resolver are three distinct canonical actors.
+      // Raw ids let `H1`, `h1 ` and `h1:resolver` masquerade as three people.
+      if (resolverId === requesterId) return false;
+      if (resolverId === raiserId) return false;
+      if (raiserId === requesterId) return false;
       return true;
     });
     // The same unresolved predicate gates both outcomes: while any withdrawn
@@ -3502,6 +3531,66 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     };
   }
 
+  function toolActionScope(toolAction) {
+    if (toolAction === 'delete_project') return 'delete_project';
+    if (toolAction === 'cancel_node') return 'cancel_running';
+    return null;
+  }
+
+  /**
+   * Re-run the complete claim/appeal/human gate at the destructive handler.
+   * `submitIntent` is a record of a decision, not the execution path; a
+   * transport that deletes or cancels must not be able to skip this.
+   */
+  async function authorizeIrreversibleTool(projectId, toolAction, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const action = toolActionScope(toolAction);
+    if (!action) throw new LabError('unknown_action', `unknown irreversible handler: ${toolAction}`, 400);
+    const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    let target;
+    if (action === 'delete_project') {
+      // Project-wide action: the authorization scope is the project id. A
+      // node id here is a scope confusion, not an alias for the project.
+      if (input?.nodeId !== undefined && input?.nodeId !== null) {
+        throw new LabError('appeal_target_mismatch', 'delete_project is project-scoped and does not accept a nodeId', 400);
+      }
+      target = { projectId };
+    } else {
+      const nodeId = text(input?.nodeId, 'nodeId', { required: true });
+      if (!store.getNode(projectId, nodeId)) throw new LabError('node_not_found', `unknown node: ${nodeId}`, 404);
+      target = { nodeId };
+    }
+    let stats = claimStats(project, actor.id);
+    let submitted = 0;
+    if (input?.claim?.evidence !== undefined) {
+      if (!Array.isArray(input.claim.evidence)) throw new LabError('bad_request', 'claim.evidence must be an array of predicates');
+      const verification = verifyClaims(input.claim.evidence, store.listNodes(projectId));
+      submitted = verification.total;
+      if (verification.failed > 0) {
+        throw new LabError('claim_invalid', `claim failed ${verification.failed}/${verification.total} predicate(s); re-read the cited facts and resubmit`, 400);
+      }
+      stats = { total: stats.total + verification.total, failed: stats.failed + verification.failed };
+    }
+    const appeal = appealState(project, target, action, actor);
+    const chiefConfirmed = (input?.chiefConfirmed === true || input?.claim?.chiefConfirmed === true)
+      && (actor.kind === 'human' || actor.kind === 'system' || actor.preset === 'lab-chief');
+    const gate = gateClaimAction(action, stats, {
+      submitted,
+      chiefConfirmed,
+      humanConfirmed: appeal.humanConfirmation !== null,
+      humanConfirmedBy: appeal.humanConfirmation?.by ?? null,
+      appealPending: appeal.pending,
+      appealUnresolved: appeal.unresolved,
+      appealTargetMismatch: appeal.targetMismatch,
+      serverAppealWindow: appeal.hasWindow,
+      serverAppealUntil: appeal.until,
+      now: Date.now(),
+      actor,
+    });
+    if (!gate.ok) throw new LabError(gate.code, `irreversible action ${action} rejected by the claim gate: ${gate.code}`, 403);
+    return { projectRevision: project.revision ?? 0, actor, target, action, gate };
+  }
+
   /** Append one judgement to the project intent log (Stage 3). */
   async function submitIntent(projectId, input, exec = null) {
     const project = requireProject(projectId);
@@ -3517,12 +3606,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }
     let target = input?.target && typeof input.target === 'object'
       ? {
+          projectId: input.target.projectId ?? input?.targetProjectId ?? null,
           nodeId: input.target.nodeId ?? input?.nodeId ?? null,
           parentId: input.target.parentId ?? input?.parentId ?? null,
           intentId: input.target.intentId ?? input?.intentId ?? null,
         }
-      : (input?.nodeId || input?.parentId || input?.intentId
-        ? { nodeId: input.nodeId ?? null, parentId: input.parentId ?? null, intentId: input.intentId ?? null }
+      : (input?.nodeId || input?.parentId || input?.intentId || input?.targetProjectId
+        ? { projectId: input.targetProjectId ?? null, nodeId: input.nodeId ?? null, parentId: input.parentId ?? null, intentId: input.intentId ?? null }
         : null);
     let claim = input?.claim;
     // Confirmation is a Host-derived record, never a claim field. Strip any
@@ -3540,10 +3630,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (kind === 'appeal' && claim?.action !== 'appeal') {
       return rejection('intent_action_mismatch', 'an intent with kind "appeal" must carry claim.action "appeal"');
     }
-    // An appeal authorizes exactly one (target node, action) pair. Unscoped
-    // appeals are not a wildcard; they are rejected at the write boundary.
+    // An appeal authorizes exactly one scope + one action. A node action is
+    // scoped by node id; project-wide delete is scoped by project id. Mixing
+    // the two shapes is a target mismatch, not a wildcard.
     if (kind === 'appeal') {
       const scopeAction = appealActionOf(claim, input);
+      if (!scopeAction || !IRREVERSIBLE_ACTIONS.includes(scopeAction)) {
+        return rejection('appeal_target_mismatch', 'an appeal must carry targetAction naming one irreversible action');
+      }
       const claimTarget = claim?.target;
       const authorization = claim?.authorization ?? claim?.authorizes;
       const scope = claim?.scope;
@@ -3562,16 +3656,51 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           : null)
         ?? (typeof input?.targetNodeId === 'string' ? input.targetNodeId : null)
         ?? null;
-      if (scopeNodeId && target?.nodeId && scopeNodeId !== target.nodeId) {
-        return rejection('appeal_target_mismatch', 'the appeal target node and the action target node disagree');
-      }
-      if (!target?.nodeId && scopeNodeId) {
-        target = { nodeId: scopeNodeId, parentId: null, intentId: null };
-      }
-      if (!target?.nodeId || !scopeAction || !IRREVERSIBLE_ACTIONS.includes(scopeAction)) {
-        return rejection('appeal_target_mismatch', 'an appeal must carry a target.nodeId and targetAction naming one irreversible action');
+      const scopeProjectId = (typeof claim?.projectId === 'string' ? claim.projectId : null)
+        ?? (typeof claim?.targetProjectId === 'string' ? claim.targetProjectId : null)
+        ?? (claimTarget && typeof claimTarget === 'object' && typeof claimTarget.projectId === 'string' ? claimTarget.projectId : null)
+        ?? (authorization && typeof authorization === 'object' && typeof authorization.projectId === 'string' ? authorization.projectId : null)
+        ?? (scope && typeof scope === 'object' && typeof scope.projectId === 'string' ? scope.projectId : null)
+        ?? (typeof input?.targetProjectId === 'string' ? input.targetProjectId : null)
+        ?? (target && typeof target.projectId === 'string' ? target.projectId : null)
+        ?? null;
+      if (expectedScopeKind(scopeAction) === 'project') {
+        // delete_project is project-wide. A node id here would silently turn a
+        // node-level objection into authority over the whole project.
+        if (scopeNodeId || target?.nodeId || (scopeProjectId && scopeProjectId !== projectId)) {
+          return rejection('appeal_target_mismatch', 'a delete_project appeal must be scoped to the project, not a node');
+        }
+        // The project is the scope, so the known project id is the exact value.
+        target = { projectId };
+      } else {
+        if (scopeProjectId || target?.projectId) {
+          return rejection('appeal_target_mismatch', 'a node action appeal cannot be scoped to the project');
+        }
+        if (scopeNodeId && target?.nodeId && scopeNodeId !== target.nodeId) {
+          return rejection('appeal_target_mismatch', 'the appeal target node and the action target node disagree');
+        }
+        if (!target?.nodeId && scopeNodeId) {
+          target = { projectId: null, nodeId: scopeNodeId, parentId: null, intentId: null };
+        }
+        if (!target?.nodeId) {
+          return rejection('appeal_target_mismatch', 'an appeal must carry a target.nodeId and targetAction naming one irreversible action');
+        }
       }
       claim = { ...claim, targetAction: scopeAction };
+    }
+    // A project-wide action never accepts a node target. Keeping this at the
+    // action boundary is what stops node authorization from leaking into
+    // delete_project.
+    if (claim?.action === 'delete_project') {
+      if (target?.nodeId) {
+        return rejection('appeal_target_mismatch', 'delete_project is project-scoped and cannot target a node');
+      }
+      if (target?.projectId && target.projectId !== projectId) {
+        return rejection('appeal_target_mismatch', 'delete_project target project does not match the request project');
+      }
+      target = { projectId };
+    } else if (claim?.action !== 'appeal' && target?.projectId) {
+      return rejection('appeal_target_mismatch', 'this action is node-scoped and cannot target the project');
     }
     // Target validation happens after appeal scope normalization so a node
     // named inside the appeal claim is checked by the same path.
@@ -3721,7 +3850,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     } catch (error) {
       return rejection('bad_request', error instanceof Error ? error.message : String(error));
     }
-    const mutations = [intentMutation(intent)];
+    const mutations = [{ ...intentMutation(intent), expectedRevision: project.revision ?? 0 }];
     if (verifiedStats) {
       mutations.push({
         op: 'project.update',
@@ -3730,10 +3859,16 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         eventData: { actorId: actor.id, total: verifiedStats.total, failed: verifiedStats.failed },
       });
     }
-    const commit = await commitMutations(projectId, mutations, {
-      actor,
-      causeId: `intent:${intent.id}`,
-    });
+    let commit;
+    try {
+      commit = await commitMutations(projectId, mutations, {
+        actor,
+        causeId: `intent:${intent.id}`,
+      });
+    } catch (error) {
+      if (error instanceof LabError) return rejection(error.code, error.message);
+      throw error;
+    }
     if (commit.ok !== true) return rejection(commit.code ?? 'internal_error', commit.message ?? 'intent write failed');
     return { ok: true, projectId, intent, revision: store.getProject(projectId)?.revision ?? null, event: commit.events?.[0] ? { seq: commit.events[0].seq, type: commit.events[0].type, causeId: commit.events[0].causeId } : null };
   }
@@ -3775,8 +3910,20 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       return rejection('intent_action_mismatch', `intent ${intentId} is not a valid appeal record`);
     }
     const scopeAction = appealActionOf(intent.claim);
-    if (!intent.target?.nodeId || !scopeAction || !IRREVERSIBLE_ACTIONS.includes(scopeAction)) {
+    if (!scopeAction || !IRREVERSIBLE_ACTIONS.includes(scopeAction)) {
       return rejection('appeal_target_mismatch', `appeal ${intentId} does not name an exact target and irreversible action`);
+    }
+    if (expectedScopeKind(scopeAction) === 'project') {
+      if (intent.target?.nodeId || intent.target?.projectId !== projectId) {
+        return rejection('appeal_target_mismatch', `delete_project appeal ${intentId} is not scoped to this project`);
+      }
+    } else {
+      if (!intent.target?.nodeId || intent.target?.projectId) {
+        return rejection('appeal_target_mismatch', `appeal ${intentId} does not name an exact node target`);
+      }
+      if (!store.getNode(projectId, intent.target.nodeId)) {
+        return rejection('node_not_found', `appeal ${intentId} targets unknown node ${intent.target.nodeId}`);
+      }
     }
     const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
     if (actor.kind !== 'human' && actor.kind !== 'system' && actor.preset !== 'lab-chief') {
@@ -3792,7 +3939,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }
     // Separation of powers: the actor who raised an appeal cannot also decide
     // it. This is by actor id, not by role, so a chief cannot self-certify.
-    if (typeof intent.actor?.id === 'string' && intent.actor.id === actor.id) {
+    if (canonicalActorId(intent.actor?.id) === canonicalActorId(actor.id)) {
       return rejection('appeal_self_resolution', 'the actor who raised an appeal cannot resolve it; a different human or the chief must decide');
     }
     let commit;
@@ -3830,7 +3977,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     // withdrawn appeal remains `appeal_not_resolved` until an explicit
     // resolution by another actor. An expert may withdraw only the appeal it
     // raised; a different expert cannot silence someone else's objection.
-    if (appeal && actor.kind === 'expert' && actor.preset !== 'lab-chief' && intent.actor?.id !== actor.id) {
+    if (appeal && actor.kind === 'expert' && actor.preset !== 'lab-chief' && canonicalActorId(intent.actor?.id) !== canonicalActorId(actor.id)) {
       return rejection('forbidden_action', 'an expert may withdraw only its own appeal; a human or the chief may withdraw another actor\'s appeal');
     }
     // Withdrawal is not a hearing: it must not write `resolved`, `resolvedBy`
@@ -4012,8 +4159,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'start_node') return runtime.start(input?.projectId, input?.nodeId);
     if (action === 'retry_node') return retryNode(input?.projectId, input?.nodeId, input);
     if (action === 'escalate_node') return escalateNode(input?.projectId, input?.nodeId, input);
-    if (action === 'delete_project') return deleteProject(input?.projectId, { removeWorktrees: input?.removeWorktrees === true });
-    if (action === 'cancel_node') return runtime.cancel(input?.projectId, input?.nodeId);
+    if (action === 'delete_project') return deleteProject(input?.projectId, { removeWorktrees: input?.removeWorktrees === true, nodeId: input?.nodeId, exec });
+    if (action === 'cancel_node') return cancelNode(input?.projectId, input?.nodeId, { exec, claim: input?.claim, chiefConfirmed: input?.chiefConfirmed });
     if (action === 'message_node') return runtime.message(input?.projectId, input?.nodeId, input?.text);
     if (action === 'node_files') return ensureNodeWorktree(input?.projectId, input?.nodeId);
     if (action === 'replay') return getReplay(input?.projectId, { limit: input?.limit, afterSeq: input?.afterSeq, nodeLimit: input?.nodeLimit });

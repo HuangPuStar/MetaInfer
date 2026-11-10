@@ -340,6 +340,12 @@ const reducers = {
 
   /** Append one judgement record to the project intent log (Stage 3). */
   'intent.put'(ws, m, ctx) {
+    // Action authorization is read from a project snapshot. The write must be
+    // conditional on the same revision: otherwise an appeal or withdrawal that
+    // lands between the gate and this commit is silently ignored.
+    if (Number.isInteger(m.expectedRevision) && (ws.project.revision ?? 0) !== m.expectedRevision) {
+      throw new MutationError('stale_basis', `project revision changed since authorization (expected ${m.expectedRevision}, actual ${ws.project.revision ?? 0})`);
+    }
     const intent = requirePlainObject(m.intent, 'intent');
     const id = requireString(intent.id, 'intent.id');
     const current = Array.isArray(ws.project.intents) ? ws.project.intents : [];

@@ -5,7 +5,7 @@
 > 每条要么给出**文件 · 函数 · 测试**，要么写 `未完成` + 原因。状态只有「完成 / 未完成」，
 > 没有「部分完成」——部分完成的条目拆成两条。
 >
-> 分支：`refactor/v2`。测试入口：`npm test`（37 个自测文件 / 654 checks，见文末）。
+> 分支：`refactor/v2`。测试入口：`npm test`（37 个自测文件 / 668 checks，见文末）。
 
 ## 1. 内核与写路径（B3/B5/B21/G1/G2，P1）
 
@@ -168,7 +168,7 @@
 - 完成：**85**；未完成：**4**（`maxPlannedInFlight`/抢占、schema 收窄、覆盖率哨兵、O12 文本审计）；拆分条目：**2**（U8、U12）
 - 未完成原因集中在：`maxPlannedInFlight`/抢占、Stage 5 组织化能力、覆盖率哨兵；
   浏览器绘制在本机不可测（无 Chromium/Playwright），已关闭为不适用，不再列为待办。
-- `npm test` 覆盖 **37** 个文件（**654** checks）：`strict-writes`（executor 覆盖 + 默认 throw + 删除守卫）、
+- `npm test` 覆盖 **37** 个文件（**668** checks）：`strict-writes`（executor 覆盖 + 默认 throw + 删除守卫）、
   `replay-client`（真实 HTTP 分页跟随）、`intent`（结构化 basis/claim）、`claims`（7 谓词/
   citationErrorRate）、`eventlog`（冷段/checksum/重启）、`dashboard`（Host facts/stale）、
   `experts`（描述符/三谓词召回/curator/生命周期）、`locale`（JSON 源 + 结构 parity），无重复执行。

@@ -86,6 +86,7 @@ export function createIntent(input) {
   if (Buffer.byteLength(JSON.stringify(claim), 'utf8') > MAX_CLAIM_BYTES) throw new TypeError('intent.claim is too large');
   const target = input?.target && typeof input.target === 'object'
     ? {
+        ...(str(input.target.projectId, 'intent.target.projectId', MAX_TARGET) ? { projectId: str(input.target.projectId, 'intent.target.projectId', MAX_TARGET) } : {}),
         ...(str(input.target.nodeId, 'intent.target.nodeId', MAX_TARGET) ? { nodeId: str(input.target.nodeId, 'intent.target.nodeId', MAX_TARGET) } : {}),
         ...(str(input.target.parentId, 'intent.target.parentId', MAX_TARGET) ? { parentId: str(input.target.parentId, 'intent.target.parentId', MAX_TARGET) } : {}),
         ...(str(input.target.intentId, 'intent.target.intentId', MAX_TARGET) ? { intentId: str(input.target.intentId, 'intent.target.intentId', MAX_TARGET) } : {}),

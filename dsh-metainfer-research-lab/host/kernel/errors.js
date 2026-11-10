@@ -42,6 +42,7 @@ const NEXT_STEPS = Object.freeze({
   preconditions: 'The repository is not in the required state. Read the message, fix the repo, and retry.',
   illegal_transition: 'The node is in a different state than the action requires. Refresh status_facts and choose an action valid for the current status.',
   stale: 'Another write landed first. Re-read the node (dag_get) and retry with the fresh revision.',
+  stale_basis: 'An appeal or withdrawal landed after the authorization snapshot. Re-read the project and repeat the claim/appeal gate before retrying.',
   priority_frozen: 'Priority is a pre-run scheduling hint; only planned or proposed nodes can change it. Refresh status_facts and pick a planned node.',
   not_runnable: 'The node is not runnable (deferred, claimed, held, or not planned). Check `status_facts.nextToStart` for the reason.',
   start_failed: 'The experiment failed to boot. Read explain_node(nodeId), fix the cause, then retry; the node backs off automatically.',
@@ -50,7 +51,7 @@ const NEXT_STEPS = Object.freeze({
 });
 
 const RETRYABLE = new Set([
-  'stale', 'cycle_busy', 'review_claimed', 'not_runnable', 'start_failed', 'run_timeout', 'claim_board_full', 'internal_error', 'error',
+  'stale', 'stale_basis', 'cycle_busy', 'review_claimed', 'not_runnable', 'start_failed', 'run_timeout', 'claim_board_full', 'internal_error', 'error',
 ]);
 
 /**

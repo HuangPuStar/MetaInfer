@@ -6,6 +6,7 @@
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
+import { registerAgentTool } from '../host/agent-tool.js';
 import { ACTION_VERIFICATION, CLAIM_PREDICATES, MIN_CITATION_EVIDENCE, VERIFICATION_LEVELS, citationErrorRate, citationTier, gateClaimAction, verifyClaims, wilsonLowerBound } from '../host/kernel/claims.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
@@ -31,6 +32,10 @@ await kernel.executor.commit(projectId, {
     { op: 'node.create', node: { id: 'self-target', title: 'self-raised probe', status: 'completed', timestamps: { createdAt: 6 } } },
     { op: 'node.create', node: { id: 'race-target', title: 'resolution race probe', status: 'completed', timestamps: { createdAt: 7 } } },
     { op: 'node.create', node: { id: 'other-target', title: 'different target probe', status: 'completed', timestamps: { createdAt: 8 } } },
+    { op: 'node.create', node: { id: 'canonical-case', title: 'canonical case probe', status: 'completed', timestamps: { createdAt: 9 } } },
+    { op: 'node.create', node: { id: 'canonical-space', title: 'canonical whitespace probe', status: 'completed', timestamps: { createdAt: 10 } } },
+    { op: 'node.create', node: { id: 'canonical-suffix', title: 'canonical suffix probe', status: 'completed', timestamps: { createdAt: 11 } } },
+    { op: 'node.create', node: { id: 'foreign-pending', title: 'foreign pending probe', status: 'completed', timestamps: { createdAt: 12 } } },
   ],
 });
 const nodes = store.listNodes(projectId);
@@ -172,16 +177,98 @@ check('a humanConfirmed request flag alone cannot unlock an irreversible action'
 const setupAppeals = {};
 const setupResolved = [];
 for (const targetAction of ['cancel_running', 'prune_branch', 'delete_project']) {
-  const opened = await service.submitIntent(projectId, {
-    kind: 'note', nodeId: 'child', claim: { action: 'appeal', targetAction, reason: `setup a resolvable ${targetAction} window` },
-  }, chiefExec);
+  const opened = await service.submitIntent(projectId, targetAction === 'delete_project'
+    ? {
+        kind: 'note',
+        target: { projectId },
+        claim: { action: 'appeal', targetAction, reason: `setup a project-scoped ${targetAction} window` },
+      }
+    : {
+        kind: 'note', nodeId: 'child', claim: { action: 'appeal', targetAction, reason: `setup a resolvable ${targetAction} window` },
+      }, chiefExec);
   setupAppeals[targetAction] = opened;
+  if (!opened?.intent) console.error('SETUP_FAIL', targetAction, JSON.stringify(opened));
   setupResolved.push(await service.resolveAppeal(projectId, opened.intent.id, {
     resolution: 'upheld', reason: `human opens the ${targetAction} window for the clean path`,
   }, humanExec));
 }
 check('scoped resolved appeals supply the Host-side window for L2/L3/L4',
   setupResolved.every((row) => row.ok === true), JSON.stringify(setupResolved));
+// Canonical actor identity: trim, case-fold and session suffix are transport
+// spellings, not separate people. Each probe must still require confirmation.
+const canonicalRequester = { agent: { session: { id: 'h1' } } };
+const canonicalCases = [
+  ['canonical-case', 'H1'],
+  ['canonical-space', 'h1 '],
+  ['canonical-suffix', 'h1:resolver'],
+];
+const canonicalResults = [];
+for (const [targetNode, resolverId] of canonicalCases) {
+  const opened = await service.submitIntent(projectId, {
+    kind: 'note', nodeId: targetNode, claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'canonical identity probe' },
+  }, expertExec);
+  const resolverExec = { agent: { session: { id: resolverId } } };
+  const resolvedCanonical = await service.resolveAppeal(projectId, opened.intent.id, {
+    resolution: 'upheld', reason: `canonical resolver ${resolverId}`,
+  }, resolverExec);
+  const action = await service.submitIntent(projectId, {
+    kind: 'note', nodeId: targetNode,
+    claim: { action: 'prune_branch', evidence: valid.slice(0, 3) },
+    chiefConfirmed: true,
+  }, canonicalRequester);
+  canonicalResults.push({ resolverId, resolved: resolvedCanonical.ok === true, stored: resolvedCanonical.intent?.resolvedBy?.id ?? null, code: action.error?.code ?? (action.ok ? 'ok' : 'unknown') });
+}
+for (const row of canonicalResults) {
+  check(`canonical resolver ${JSON.stringify(row.resolverId)} is the requester, not a distinct actor`,
+    row.resolved && row.stored === 'h1' && row.code === 'human_confirmation_required',
+    JSON.stringify(row));
+}
+console.log(`ACTOR_CANONICAL ${JSON.stringify(canonicalResults)}`);
+// Exact action scoping for all states: a pending/withdrawn objection to
+// cancel_running must not block prune_branch on the same node.
+// Give this probe actor its own clean history so it cannot perturb the C7
+// regression below, which deliberately measures a different actor.
+const scopeRequesterExec = { agent: { session: { id: 'scope-human' } } };
+await kernel.executor.commit(projectId, {
+  actor: { kind: 'human', id: 'scope-human' },
+  mutations: [{
+    op: 'project.update',
+    set: { claimStats: { ...(store.getProject(projectId).claimStats ?? {}), 'scope-human': { total: 20, failed: 0 } } },
+    eventType: 'claim/verified',
+    eventData: { actorId: 'scope-human', total: 20, failed: 0 },
+  }],
+});
+const foreignPrune = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'foreign-pending', claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'exact prune objection' },
+}, expertExec);
+const foreignPruneResolved = await service.resolveAppeal(projectId, foreignPrune.intent.id, {
+  resolution: 'upheld', reason: 'human opens only the prune authorization',
+}, humanExec);
+const foreignCancel = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'foreign-pending', claim: { action: 'appeal', targetAction: 'cancel_running', reason: 'foreign pending cancel objection' },
+}, expertExec);
+const pruneWithForeignPending = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'foreign-pending', claim: { action: 'prune_branch', evidence: valid.slice(0, 3) },
+  chiefConfirmed: true,
+}, scopeRequesterExec);
+const foreignCancelWithdrawn = await service.withdrawIntent(projectId, foreignCancel.intent.id, { reason: 'foreign pending withdrawn' }, expertExec);
+const pruneWithForeignWithdrawn = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'foreign-pending', claim: { action: 'prune_branch', evidence: valid.slice(0, 3) },
+  chiefConfirmed: true,
+}, scopeRequesterExec);
+const scopeForeign = {
+  resolved: foreignPruneResolved.ok === true,
+  pendingExactPrune: pruneWithForeignPending.ok === true,
+  withdrawn: foreignCancelWithdrawn.ok === true,
+  withdrawnExactPrune: pruneWithForeignWithdrawn.ok === true,
+  pendingGate: pruneWithForeignPending.intent?.claim?.gate?.appealPending ?? null,
+  withdrawnGate: pruneWithForeignWithdrawn.intent?.claim?.gate?.appealPending ?? null,
+};
+check('a foreign pending/withdrawn action does not block the exact target+action',
+  scopeForeign.resolved && scopeForeign.pendingExactPrune && scopeForeign.withdrawn && scopeForeign.withdrawnExactPrune
+  && scopeForeign.pendingGate === false && scopeForeign.withdrawnGate === false,
+  JSON.stringify(scopeForeign));
+console.log(`SCOPE_FOREIGN ${JSON.stringify(scopeForeign)}`);
 const selfConfirmed = await service.submitIntent(projectId, {
   kind: 'note', nodeId: 'child', claim: { action: 'cancel_running', evidence: valid },
   chiefConfirmed: true, humanConfirmed: true,
@@ -193,16 +280,23 @@ check('a clean history and the required evidence permit cancel_running', irrever
 check('the gate records the independent human confirmer', irreversible.intent?.claim?.gate?.humanConfirmedBy?.id === 'human-reviewer', JSON.stringify(irreversible.intent?.claim?.gate));
 const pruned = await submit({ action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
 check('a clean history and the required evidence permit prune_branch', pruned.ok === true, JSON.stringify(pruned));
-const deleted = await submit({ action: 'delete_project' }, {});
-check('a confirming human can submit delete_project', deleted.ok === true, JSON.stringify(deleted));
+const deleted = await service.submitIntent(projectId, {
+  kind: 'note', target: { projectId }, claim: { action: 'delete_project' },
+}, null);
+check('a confirming human can submit a project-scoped delete_project', deleted.ok === true, JSON.stringify(deleted));
+const deletedOnNode = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'child', claim: { action: 'delete_project' },
+}, null);
+check('delete_project rejects a node-scoped target', deletedOnNode.ok === false
+  && deletedOnNode.error?.code === 'appeal_target_mismatch', JSON.stringify(deletedOnNode));
 const appeal = await service.submitIntent(projectId, {
   kind: 'note', nodeId: 'child', claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'I object to pruning this branch' },
 }, chiefExec);
 check('an appeal is stored as an appeal intent, not a note', appeal.ok === true && appeal.intent?.kind === 'appeal', JSON.stringify(appeal));
 const blocked = await submit({ action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
 check('an open appeal blocks a new prune_branch submission', blocked.ok === false && blocked.error?.code === 'appeal_pending', JSON.stringify(blocked));
-const cancelBlocked = await submit({ action: 'cancel_running', evidence: valid }, { chiefConfirmed: true });
-check('an open appeal also blocks cancel_running (L2, no appeal flag in its level)', cancelBlocked.ok === false && cancelBlocked.error?.code === 'appeal_pending', JSON.stringify(cancelBlocked));
+const cancelAfterForeignPrune = await submit({ action: 'cancel_running', evidence: valid }, { chiefConfirmed: true });
+check('a pending prune appeal does not block cancel_running on the same node', cancelAfterForeignPrune.ok === true, JSON.stringify(cancelAfterForeignPrune));
 
 const expertResolve = await service.resolveAppeal(projectId, appeal.intent.id, {
   resolution: 'upheld', reason: 'expert should not resolve',
@@ -267,8 +361,9 @@ const withdrawPruneSupplied = await submitOn('withdrawn-target', { action: 'prun
 check('withdraw-then-prune with a caller window is rejected', withdrawPruneSupplied.ok === false
   && withdrawPruneSupplied.error?.code === 'appeal_window_caller_supplied', JSON.stringify(withdrawPruneSupplied));
 const withdrawCancel = await submitOn('withdrawn-target', { action: 'cancel_running', evidence: valid }, { chiefConfirmed: true });
-check('withdraw-then-cancel is blocked without a window', withdrawCancel.ok === false
-  && withdrawCancel.error?.code === 'appeal_not_resolved', JSON.stringify(withdrawCancel));
+check('a withdrawn prune appeal is not read as cancel authority', withdrawCancel.ok === false
+  && ['human_confirmation_required', 'appeal_target_mismatch'].includes(withdrawCancel.error?.code)
+  && withdrawCancel.error?.code !== 'appeal_not_resolved', JSON.stringify(withdrawCancel));
 // Exact Round 10 probe: a manufactured appeal record (`kind:'appeal'` with a
 // non-appeal claim action) must not create a Host window. The write boundary
 // rejects it, and appealState also ignores any legacy malformed row.
@@ -424,6 +519,177 @@ console.log(`RACE_WITHDRAW ${JSON.stringify({
 check('concurrent resolve/withdraw: exactly one transition wins', raceWithdrawWinners.length === 1
   && raceWithdrawLoser?.error?.code === 'intent_not_pending', JSON.stringify(raceWithdrawResults));
 check('concurrent resolve/withdraw emits exactly one transition event', raceWithdrawEvents.length === 1, String(raceWithdrawEvents.length));
+
+
+// Round 12 B27 action CAS probe: the action's authorization is read from the
+// project snapshot, then a new same-target+action appeal is submitted and
+// withdrawn before the action commit is allowed through. The action commit
+// must carry the snapshot revision and reject the stale write.
+const originalCommit = kernel.executor.commit;
+let injectedAppeal = false;
+let injectedWithdrawn = false;
+let casCommitSpec = null;
+kernel.executor.commit = async (projectIdArg, spec) => {
+  const actionIntent = (spec?.mutations ?? []).find((mutation) => mutation.op === 'intent.put'
+    && mutation.expectedRevision !== undefined
+    && mutation.intent?.claim?.action === 'prune_branch');
+  if (actionIntent && !injectedAppeal) {
+    injectedAppeal = true;
+    casCommitSpec = { expectedRevision: actionIntent.expectedRevision };
+    const opened = await service.submitIntent(projectIdArg, {
+      kind: 'note', nodeId: 'child',
+      claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'delayed withdrawn appeal' },
+    }, chiefExec);
+    const withdrawn = await service.withdrawIntent(projectIdArg, opened.intent?.id, {
+      reason: 'withdraw during action commit window',
+    }, humanExec);
+    injectedWithdrawn = withdrawn.ok === true;
+  }
+  return originalCommit(projectIdArg, spec);
+};
+let casAction;
+try {
+  casAction = await submitOn('child', { action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
+} finally {
+  kernel.executor.commit = originalCommit;
+}
+const casFinal = store.getProject(projectId).intents.filter((row) => row.kind === 'appeal'
+  && row.target?.nodeId === 'child' && row.claim?.targetAction === 'prune_branch').slice(-3)
+  .map((row) => ({ status: row.status, resolution: row.resolution ?? null }));
+const actionCas = {
+  expectedRevision: casCommitSpec?.expectedRevision ?? null,
+  currentRevision: store.getProject(projectId).revision,
+  injectedWithdrawn,
+  code: casAction?.error?.code ?? (casAction?.ok ? 'ok' : 'unknown'),
+  final: casFinal,
+};
+check('an action commit rejects a withdrawn appeal inserted after the gate',
+  actionCas.injectedWithdrawn && actionCas.code === 'stale_basis'
+  && actionCas.final.some((row) => row.status === 'withdrawn'),
+  JSON.stringify(actionCas));
+console.log(`ACTION_CAS ${JSON.stringify(actionCas)}`);
+
+// Round 12 B27 execution probes: the real `registerAgentTool` wrapper must not
+// let a human tool session bypass the claim/appeal gate. These are negative
+// probes first: no appeal means no destructive write.
+const toolProjectId = 'claims-tool-p';
+await store.saveProject({
+  id: toolProjectId, revision: 0, counters: { eventSeq: 0 },
+  config: { maxRunningNodes: 4, resourcePools: {}, maxNodes: 100 }, createdAt: 0, updatedAt: 0,
+});
+kernel.load(toolProjectId);
+await kernel.executor.commit(toolProjectId, {
+  actor: { kind: 'human', id: 'setup' },
+  mutations: [
+    { op: 'node.create', node: { id: 'n1', title: 'tool target', status: 'planned', timestamps: { createdAt: 1 } } },
+    { op: 'node.create', node: { id: 'n2', title: 'tool sibling', status: 'completed', timestamps: { createdAt: 2 } } },
+  ],
+});
+const runtimeCalls = [];
+const toolService = createLabService({
+  ctx: { effect: () => {}, get: () => null, logger: { info() {}, warn() {} } },
+  store, kernel, git: null,
+  runtime: { cancel: async (...args) => { runtimeCalls.push(args); return { cancelled: true, projectId: args[0], nodeId: args[1], revision: args[2]?.expectedRevision ?? null }; } },
+  transcript: null, orchestrator: null, auto: null, cluster: null, clusterAdmin: null,
+});
+const toolCtx = { tools: { register(definition) { toolCtx.tool = definition; return () => {}; } } };
+registerAgentTool(toolCtx, toolService);
+const toolHuman = { agent: { session: { id: 'human-tool' } } };
+async function toolCall(action, input = {}) {
+  return JSON.parse((await toolCtx.tool.execute({ action, projectId: toolProjectId, ...input }, toolHuman)).result);
+}
+const deleteWithNodeId = await toolCall('delete_project', { nodeId: 'n1' });
+const deleteWithoutNode = await toolCall('delete_project');
+const cancelWithoutAppeal = await toolCall('cancel_node', { nodeId: 'n1' });
+const cancelWithoutNode = await toolCall('cancel_node');
+let directDeleteCode = null;
+let directCancelCode = null;
+try { await toolService.deleteProject(toolProjectId); } catch (error) { directDeleteCode = error.code; }
+try { await toolService.cancelNode(toolProjectId, 'n1'); } catch (error) { directCancelCode = error.code; }
+const handlerProbes = {
+  deleteWithNodeId: { code: deleteWithNodeId.error?.code ?? (deleteWithNodeId.deleted ? 'deleted' : 'unknown'), projectExists: Boolean(store.getProject(toolProjectId)) },
+  deleteWithoutNode: { code: deleteWithoutNode.error?.code ?? (deleteWithoutNode.deleted ? 'deleted' : 'unknown'), projectExists: Boolean(store.getProject(toolProjectId)) },
+  cancelWithoutAppeal: { code: cancelWithoutAppeal.error?.code ?? (cancelWithoutAppeal.ok ? 'ok' : 'unknown'), runtimeCalls: runtimeCalls.length },
+  cancelWithoutNode: { code: cancelWithoutNode.error?.code ?? (cancelWithoutNode.ok ? 'ok' : 'unknown'), runtimeCalls: runtimeCalls.length },
+  directDelete: { code: directDeleteCode, projectExists: Boolean(store.getProject(toolProjectId)) },
+  directCancel: { code: directCancelCode, runtimeCalls: runtimeCalls.length },
+};
+check('real tool delete_project with a nodeId fails closed on the scope mismatch',
+  handlerProbes.deleteWithNodeId.code === 'appeal_target_mismatch' && handlerProbes.deleteWithNodeId.projectExists,
+  JSON.stringify(handlerProbes.deleteWithNodeId));
+check('real tool delete_project without a nodeId fails closed on project scope',
+  handlerProbes.deleteWithoutNode.code === 'human_confirmation_required' && handlerProbes.deleteWithoutNode.projectExists,
+  JSON.stringify(handlerProbes.deleteWithoutNode));
+check('real tool cancel_node with no appeal fails closed before runtime.cancel',
+  handlerProbes.cancelWithoutAppeal.code === 'human_confirmation_required' && handlerProbes.cancelWithoutAppeal.runtimeCalls === 0,
+  JSON.stringify(handlerProbes.cancelWithoutAppeal));
+check('real tool cancel_node without a nodeId fails before runtime.cancel',
+  handlerProbes.cancelWithoutNode.code === 'bad_request' && handlerProbes.cancelWithoutNode.runtimeCalls === 0,
+  JSON.stringify(handlerProbes.cancelWithoutNode));
+check('direct service.deleteProject also fails closed without an appeal',
+  handlerProbes.directDelete.code === 'human_confirmation_required' && handlerProbes.directDelete.projectExists,
+  JSON.stringify(handlerProbes.directDelete));
+check('direct service.cancelNode also fails closed without an appeal',
+  handlerProbes.directCancel.code === 'human_confirmation_required' && handlerProbes.directCancel.runtimeCalls === 0,
+  JSON.stringify(handlerProbes.directCancel));
+console.log(`HANDLER_PROBES ${JSON.stringify(handlerProbes)}`);
+
+// Positive control: a project-scoped resolved delete appeal and a funded
+// claim history must still execute through the same wrapper.
+await kernel.executor.commit(toolProjectId, {
+  actor: { kind: 'human', id: 'setup' },
+  mutations: [{
+    op: 'project.update',
+    set: { claimStats: { 'human-tool': { total: 20, failed: 0 } } },
+    eventType: 'claim/verified',
+    eventData: { actorId: 'human-tool', total: 20, failed: 0 },
+  }],
+});
+const toolDeleteAppeal = await toolService.submitIntent(toolProjectId, {
+  kind: 'note', target: { projectId: toolProjectId },
+  claim: { action: 'appeal', targetAction: 'delete_project', reason: 'allow project-wide delete' },
+}, expertExec);
+const toolDeleteResolved = await toolService.resolveAppeal(toolProjectId, toolDeleteAppeal.intent?.id, {
+  resolution: 'upheld', reason: 'different human authorizes project delete',
+}, humanExec2);
+const deleteAllowed = await toolCall('delete_project', { removeWorktrees: false });
+check('a project-scoped resolved appeal + clean history authorizes the real delete handler',
+  deleteAllowed.deleted === true && !store.getProject(toolProjectId),
+  JSON.stringify({ deleteAllowed, resolved: toolDeleteResolved.ok }));
+
+// Positive control for the other destructive handler: the runtime is only
+// reached after the exact node+action appeal and the full gate pass.
+const cancelProjectId = 'claims-cancel-p';
+await store.saveProject({
+  id: cancelProjectId, revision: 0, counters: { eventSeq: 0 },
+  config: { maxRunningNodes: 4, resourcePools: {}, maxNodes: 100 }, createdAt: 0, updatedAt: 0,
+});
+kernel.load(cancelProjectId);
+await kernel.executor.commit(cancelProjectId, {
+  actor: { kind: 'human', id: 'setup' },
+  mutations: [
+    { op: 'node.create', node: { id: 'n1', title: 'cancel target', status: 'planned', timestamps: { createdAt: 1 } } },
+    { op: 'project.update', set: { claimStats: { 'human-tool': { total: 20, failed: 0 } } }, eventType: 'claim/verified', eventData: { actorId: 'human-tool', total: 20, failed: 0 } },
+  ],
+});
+const toolCancelAppeal = await toolService.submitIntent(cancelProjectId, {
+  kind: 'note', nodeId: 'n1',
+  claim: { action: 'appeal', targetAction: 'cancel_running', reason: 'allow node cancel' },
+}, expertExec);
+const toolCancelResolved = await toolService.resolveAppeal(cancelProjectId, toolCancelAppeal.intent?.id, {
+  resolution: 'upheld', reason: 'different human authorizes node cancel',
+}, humanExec2);
+runtimeCalls.length = 0;
+const cancelAllowed = await toolCall('cancel_node', {
+  projectId: cancelProjectId, nodeId: 'n1', chiefConfirmed: true,
+  claim: { evidence: [{ predicate: 'nodeExists', nodeId: 'n1' }, { predicate: 'statusIs', nodeId: 'n1', status: 'planned' }] },
+});
+const cancelCall = runtimeCalls[0] ?? null;
+check('a node-scoped resolved appeal + evidence authorizes the real cancel handler',
+  toolCancelResolved.ok === true && cancelAllowed.cancelled === true
+  && cancelCall?.[0] === cancelProjectId && cancelCall?.[1] === 'n1'
+  && Number.isInteger(cancelCall?.[2]?.expectedRevision),
+  JSON.stringify({ cancelAllowed, resolved: toolCancelResolved.ok, runtimeCall: cancelCall }));
 
 console.log(failed === 0 ? '\nclaims-selftest: all checks passed' : `\nclaims-selftest: ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

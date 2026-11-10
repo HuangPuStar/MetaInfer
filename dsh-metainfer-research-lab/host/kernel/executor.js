@@ -27,6 +27,7 @@ import {
   redoEffect,
 } from './mutations.js';
 import { currentCause } from './trace.js';
+import { canonicalActorId } from './policy.js';
 
 const ACTOR_KINDS = new Set(['human', 'expert', 'dispatcher', 'mcp', 'system', 'legacy']);
 const IDEMPOTENCY_LIMIT = 10_000;
@@ -35,7 +36,9 @@ function normalizeActor(actor) {
   if (!actor || typeof actor !== 'object') throw new MutationError('invalid_commit', 'actor is required');
   if (!ACTOR_KINDS.has(actor.kind)) throw new MutationError('invalid_commit', `unknown actor kind ${actor.kind}`);
   if (typeof actor.id !== 'string' || !actor.id) throw new MutationError('invalid_commit', 'actor.id is required');
-  return { kind: actor.kind, id: actor.id };
+  const id = canonicalActorId(actor.id);
+  if (!id) throw new MutationError('invalid_commit', 'actor.id is empty after canonicalization');
+  return { kind: actor.kind, id };
 }
 
 /**
@@ -93,6 +96,9 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
     if (!stored) return reject('not_found', `project ${projectId} does not exist`);
     const ws = createWorkingSet(stored, (nodeId) => store.getNode(projectId, nodeId));
     const baseRevision = stored.revision ?? 0;
+    if (Number.isInteger(spec.expectedProjectRevision) && baseRevision !== spec.expectedProjectRevision) {
+      return reject('stale_basis', `project revision changed since authorization (expected ${spec.expectedProjectRevision}, actual ${baseRevision})`, { revision: baseRevision });
+    }
 
     if (Number.isFinite(spec.basis) && !spec.allowStale) {
       const conflicts = [];
@@ -303,10 +309,24 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
   async function deleteProject(projectId, spec = {}) {
     return store.withProjectLock(projectId, () => (typeof store.withWritePermit === 'function'
       ? store.withWritePermit(async () => {
+        const current = store.getProject(projectId);
+        if (!current) return { ok: false, code: 'project_not_found', message: `unknown project: ${projectId}` };
+        if (Number.isInteger(spec.expectedRevision) && (current.revision ?? 0) !== spec.expectedRevision) {
+          return {
+            ok: false,
+            code: 'stale_basis',
+            message: `project revision changed since authorization (expected ${spec.expectedRevision}, actual ${current.revision ?? 0})`,
+          };
+        }
         await store.deleteProject(projectId);
         return { ok: true, projectId, actor: normalizeActor(spec.actor ?? { kind: 'system', id: 'service' }) };
       })
       : (async () => {
+        const current = store.getProject(projectId);
+        if (!current) return { ok: false, code: 'project_not_found', message: `unknown project: ${projectId}` };
+        if (Number.isInteger(spec.expectedRevision) && (current.revision ?? 0) !== spec.expectedRevision) {
+          return { ok: false, code: 'stale_basis', message: 'project revision changed since authorization' };
+        }
         await store.deleteProject(projectId);
         return { ok: true, projectId };
       })()));

@@ -488,6 +488,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     const spec = {
       actor: { kind: 'system', id: 'runtime' },
       causeId,
+      expectedProjectRevision: payload.expectedProjectRevision,
       mutations: [{ op: 'node.put', node, eventType, eventData: payload.data ?? {} }],
     };
     // Several runtime transitions already hold `withProjectLock`; the executor's
@@ -1470,6 +1471,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
 
   async function terminate(projectId, nodeId, kind, payload = {}) {
     const key = keyOf(projectId, nodeId);
+    const expectedProjectRevision = Number.isInteger(payload.expectedRevision) ? payload.expectedRevision : null;
     const entry = active.get(key);
     if (!entry || entry.phase !== 'running') return null;
     entry.phase = 'terminating';
@@ -1556,6 +1558,10 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
         : kind === 'resource_lost'
           ? 'node/resource_lost'
           : 'node/timeout';
+      const currentProject = store.getProject(projectId);
+      if (expectedProjectRevision !== null && (currentProject?.revision ?? 0) !== expectedProjectRevision) {
+        throw new LabError('stale_basis', `project revision changed while cancelling (expected ${expectedProjectRevision}, actual ${currentProject?.revision ?? 0})`, 409);
+      }
       await persistNode(project, node, terminalEvent, {
         data: {
           kind,
@@ -1566,6 +1572,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
           reaper: reaped.reaper,
           reaperSupported: reaped.reaperSupported,
         },
+        expectedProjectRevision,
       });
     }
     pendingFollowUps.delete(entry.node.sessionId);
@@ -1585,19 +1592,30 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     return { node, revision: project?.revision ?? null };
   }
 
-  async function cancel(projectId, nodeId) {
+  async function cancel(projectId, nodeId, options = {}) {
     const project = requireProject(projectId);
     const node = requireNode(projectId, nodeId);
     const key = keyOf(projectId, nodeId);
-    if (active.has(key)) return terminate(projectId, nodeId, 'cancel');
+    const expectedRevision = Number.isInteger(options.expectedRevision) ? options.expectedRevision : null;
+    if (expectedRevision !== null && (project.revision ?? 0) !== expectedRevision) {
+      throw new LabError('stale_basis', `project revision changed since authorization (expected ${expectedRevision}, actual ${project.revision ?? 0})`, 409);
+    }
+    if (active.has(key)) return terminate(projectId, nodeId, 'cancel', { expectedRevision });
     if (node.status !== 'planned') {
       throw new LabError('node_not_cancellable', `node ${nodeId} is ${node.status}`, 409);
     }
     await store.withProjectLock(projectId, async () => {
+      const currentProject = requireProject(projectId);
+      if (expectedRevision !== null && (currentProject.revision ?? 0) !== expectedRevision) {
+        throw new LabError('stale_basis', `project revision changed since authorization (expected ${expectedRevision}, actual ${currentProject.revision ?? 0})`, 409);
+      }
       const current = requireNode(projectId, nodeId);
       current.status = 'cancelled';
       current.timestamps = { ...(current.timestamps ?? {}), completedAt: Date.now() };
-      await persistNode(project, current, 'node/cancelled', { data: { kind: 'planned' } });
+      await persistNode(project, current, 'node/cancelled', {
+        data: { kind: 'planned' },
+        expectedProjectRevision: expectedRevision,
+      });
     });
     return { node: store.getNode(projectId, nodeId), revision: project.revision };
   }

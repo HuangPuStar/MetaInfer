@@ -16,35 +16,42 @@
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：第十一轮独立复核（HEAD `4d30c3a`，§29.6）确认作者 §29 的
-manufactured/TTL/kind-action 三个红项已经变绿，`humanConfirmed` 请求字段也已从
-tool schema 移除；但 **B27 仍未闭**，且有两条新的可执行路径：
+**一句话**：第十二轮独立复核（HEAD `e85b213`，§30.6）确认作者 §30 的
+scope/CAS/三 actor 精确探针大多变绿：`resolveAppeal` 的 rejected/upheld 并发现在
+一个成功、一个 `intent_not_pending`，且只有一条 `appeal/resolved`；scope 之外的
+resolution 返回 `appeal_target_mismatch`；aliases 不能授权实际执行的另一个
+action。但 **B27 仍未闭**，且这次有可直接执行的 tool-path 绕过：
 
-1. **自提申诉 + 串通 human**：requester 自己（或自己控制的 raiser）提出 appeal，
-   再由一个串通 human resolve，`prune` 得到 `ok:true`。代码只比较
-   `resolvedBy.id` 与 requester/raiser 的 id；“distinct id”不等于“独立意志”。
-2. **并发 resolution 覆盖**：对同一条 withdrawn appeal 同时提交 `rejected` 和
-   `upheld` 两个 `resolveAppeal`，两个都 `ok:true`，产生两条
-   `appeal/resolved` 事件，最终状态是 `upheld`，随后 `prune` 成功；reducer
-   允许对已 `resolved` 的记录再次 `resolve:true`，没有状态/版本条件。
+1. **实际 tool path 完全绕过 claim gate**：`metainfer_lab` 的 `delete_project`
+   对人类 session 直接删除项目，`cancel_node` 对人类 session 直接取消节点；
+   两者都不需要 appeal/resolution，也不写 `humanConfirmed`。`delete_project`
+   甚至不需要 `nodeId`。这是 §30.1/§30.2 的 intent 路径之外的执行路径。
+2. **三 actor 只比较字符串**：requester `h1`、raiser `advisor`、resolver
+   `H1` / `h1 ` / `h1:resolver` 都能通过；只差大小写、尾随空格或 session
+   suffix 的 id 被当作独立 actor。
+3. **action 写入没有 CAS**：在 gate 检查和 action commit 之间插入一条新的
+   withdrawn appeal，action 仍 `ok:true`；final 状态有 `unresolved`，但 action
+   已经通过。CAS 只覆盖 `intent.withdraw`，没有覆盖 `submitIntent` 的 action
+   commit。
 
 因此独立计数仍是 **107 PASS / 57 FAIL / 10 未测量**：1 个阻断（B27）、56 个
-能力未建、0 个只差文档。作者 §29 的 108/56 没有确认。浏览器绘制仍 N/A。
+能力未建、0 个只差文档。作者 §30 的 654 checks / 89 claims 没有覆盖上述执行
+路径。浏览器绘制仍 N/A。
 
-> 作者针对 §29.6.2/§29.6.3 的第十一轮整改见 **§30**，不替代独立复核。验证者
-> 重放 §30 的 scope/三 actor/CAS 探针前，独立总判定仍以 **§29.6** 的
-> **107 PASS / 57 FAIL / 10 未测量（NO-SHIP）** 为准。
+> 作者针对 §29.6.2/§29.6.3 的第十一轮整改见 **§30**，不替代独立复核。
+> 独立总判定以 **§30.6** 为准：**107 PASS / 57 FAIL / 10 未测量（NO-SHIP）**。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
-> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**。
-> 独立总判定以 **§29.6** 为准；§20/§22/§24/§26/§28/§29 是作者报告，不能代替独立复核。§22 曾声称关闭
+> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**；第十一轮作者 scope/CAS 整改见 **§30**，第十二轮独立复核（`e85b213`）见 **§30.6**。
+> 独立总判定以 **§30.6** 为准；§20/§22/§24/§26/§28/§29/§30 是作者报告，不能代替独立复核。§22 曾声称关闭
 > B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了其中 B27/U14/S12/A20 四项；
 > §24 作者报告为 112 PASS / 52 FAIL，§25 复核为 103 PASS / 61 FAIL，§27 复核为
 > **107 PASS / 57 FAIL / 10 未测量**，§28.4 复核仍为 **107 / 57 / 10**，
-> §29.6 复核仍为 **107 / 57 / 10（NO-SHIP）**。
+> §29.6 复核仍为 **107 / 57 / 10（NO-SHIP）**，
+> §30.6 复核仍为 **107 / 57 / 10（NO-SHIP）**。
 
 ### 0.1 判定口径
 
@@ -2906,6 +2913,9 @@ resolve-vs-resolve 为准。
 > 本节是作者对 §29.6.2/§29.6.3 的整改记录，不替代独立复核。独立总判定仍以
 > **§29.6** 的 **107 PASS / 57 FAIL / 10 未测量（NO-SHIP）** 为准，直到验证者
 > 重放本节探针。作者侧 claims-selftest 的计数从 78 增至 **89**。
+> 第十二轮独立复核见 **§30.6**：scope/CAS 的精确探针通过，但实际 tool path
+> 的 `delete_project`/`cancel_node`、actor id 后缀区分、action 写入 CAS 仍使
+> B27 失败；**107 / 57 / 10（NO-SHIP）**。
 
 ### 30.1 authorizing resolution 必须精确 scope
 
@@ -2984,3 +2994,449 @@ RACE_WITHDRAW {"calls":[{"ok":true,"resolution":"upheld"},{"ok":false,"code":"in
 
 作者侧 B27 的 §29.6.2/§29.6.3 两条红项已由本节探针覆盖；独立计数仍等待
 验证者重放，不由本节改写。
+
+---
+
+## 30.6 第十二轮独立复核（HEAD `e85b213`，2026-11-10）
+
+> 复核人：独立验证者。只读复跑 + 独立探针；生产代码未改。采样时间
+> `2026-11-10T20:26:56+08:00`（`Asia/Shanghai`）；浏览器时区不可用。
+> 对象：作者 §30 的 scope + 三 actor + intent CAS 整改。
+>
+> **结论：作者 §30 的精确 intent 探针通过，但 B27 仍未闭。** 独立计数
+> **107 PASS / 57 FAIL / 10 未测量**，**NO-SHIP**。不写
+> “narrow release possible”。
+
+### 30.6.1 作者 §30 精确探针
+
+| 探针 | 独立结果 | 判定 |
+|---|---|---|
+| 并发 `rejected` / `upheld`（同一 withdrawn appeal） | 一个 `ok:true`；另一个 `intent_not_pending`；stored 为胜者；`appeal/resolved` 恰好 1 条 | 通过；§29.6.3 的 last-writer-wins 已修 |
+| 并发两个 `upheld` | 一个 `ok:true`；另一个 `intent_not_pending`；1 条事件 | 通过 |
+| pending appeal：resolve vs withdraw | resolve `ok:true`，withdraw `intent_not_pending`；1 条 transition | 通过 |
+| withdrawn appeal：resolve vs withdraw | resolve `ok:true`；withdraw 返回 `ok:true, alreadyWithdrawn:true`（幂等 no-op）；不覆盖 resolution | 通过；注意“两个 ok”不是两个 transition，withdraw 未写状态 |
+| resolved appeal 的 scope=`scope-target/prune_branch`，再 cancel 同 target | `appeal_target_mismatch` | 通过；resolved 不能跨 action |
+| 同上，再 prune 另一 target | `appeal_target_mismatch` | 通过；不能跨 target |
+| resolver 自己 raise，另一 human resolve，requester 再执行 | `human_confirmation_required` | 通过；requester=raiser 被挡住 |
+| 三 actor 两两不同（advisor raise、h2 resolve、h1 execute） | `ok:true`；`humanConfirmedBy=h2` | 通过 |
+| appeal 缺 `targetAction` | `appeal_target_mismatch` | 通过 |
+| appeal 缺 `target.nodeId` | `appeal_target_mismatch` | 通过 |
+| 请求只带顶层 `humanConfirmed:true` | `human_confirmation_required` | 通过；请求字段仍非确认 |
+
+### 30.6.2 B27 失败一：实际 tool path 直接执行不可逆动作
+
+这是本轮最严重的失败，且不需要伪造 resolver、不需要 appeal、不需要 CAS 竞争。
+实际 `metainfer_lab` tool 的两个 handler：
+
+```js
+// host/lab-service.js:4015-4016
+if (action === 'delete_project') return deleteProject(input?.projectId, ...);
+if (action === 'cancel_node') return runtime.cancel(input?.projectId, input?.nodeId);
+```
+
+它们**没有**经过 `submitIntent`、`gateClaimAction`、`humanConfirmed` 或 appeal
+resolution。独立探针使用真实的 `registerAgentTool` wrapper 和 human session：
+
+| 探针 | 输出 |
+|---|---|
+| `delete_project`，human exec，无任何 appeal/resolution，项目只有 completed 节点 | `{"deleted":true,"projectId":"del1","worktreesRemoved":0}`；随后 `store.getProject('del1')` 为 `undefined` |
+| `delete_project`，human exec，**不传 `nodeId`** | 同样 `{"deleted":true,...}`，项目被删 |
+| `cancel_node`，human exec，无任何 appeal/resolution | `{"ok":true,"cancelled":true,"nodeId":"n1"}`；runtime 的 `cancel()` 被调用 |
+| 同上，advisor / chief exec | `forbidden_action`（policy 只允许 human） |
+| 直接 `service.deleteProject('del3')` | `{deleted:true}`；同样没有 claim gate |
+
+代码事实：
+
+- `deleteProject`（`host/lab-service.js:2555`）只检查 `project_busy`，然后
+  `kernel.executor.deleteProject`；没有 `humanConfirmed`。
+- `runtime.cancel`（`host/runtime.js:1588`）直接 terminate/cancel node；没有
+  `humanConfirmed`。
+- `ACTION_ENUM` 同时暴露 `delete_project` / `cancel_node`；human 是
+  `authorizeAction` 允许的执行者，但 B27 要求的是**独立的人类确认**，不是
+  “执行者恰好是人类”。
+- **`delete_project` 甚至可以无 target 执行**，因此 §30.1 的
+  target+action scope 对这条真实路径完全不存在。
+
+结论：B27 在真实 tool path 上仍可直接绕过。这不是“intent 语义不完整”，而是
+有实际执行 handler 没有接入 claim gate。该失败独立于 §30.6.3/§30.6.4，足以
+维持 **NO-SHIP**。
+
+### 30.6.3 B27 失败二：三 actor 只比较字符串，case/whitespace/suffix 仍通过
+
+`appealState` 的 confirmation 只做：
+
+```js
+resolvedBy.id !== requester.id
+resolvedBy.id !== intent.actor.id
+```
+
+没有 trim、大小写规范化、session 后缀校验，也没有外部身份。独立探针（每个
+target 隔离；raiser=`advisor`，action requester=`h1`）：
+
+| resolver id | 结果 |
+|---|---|
+| `H1`（仅大小写不同） | `prune ok:true`；`humanConfirmedBy.id='H1'` |
+| `h1 `（尾随空格） | `prune ok:true`；`humanConfirmedBy.id='h1 '` |
+| `h1:resolver`（session 后缀） | `prune ok:true`；`humanConfirmedBy.id='h1:resolver'` |
+| `h2`（真正不同） | `prune ok:true`（合法三 actor 对照） |
+
+即同一个 human 用 `H1` / `h1 ` / `h1:resolver` 任一 session id，都能作为
+requester `h1` 的“独立”确认者。用户明确要求测试“只差 case/whitespace/session
+suffix 的 actor id”；这里 **distinct 只到字符串层**，没有到身份层。
+
+这一条与 §30.6.2 独立：即使把所有执行 handler 接回 gate，字符串级三 actor 仍
+可被同一人绕过。
+
+### 30.6.4 B27 失败三：action 写入没有 CAS，check 与 write 之间可插入 withdrawn appeal
+
+作者 §30.3 的 CAS 只加在 `intent.withdraw`（`resolveAppeal` /
+`withdrawIntent`）。`submitIntent` 的 action commit 仍是：
+
+```js
+const gate = gateClaimAction(...);   // 读旧 project snapshot
+...
+const commit = await commitMutations(...); // 没有 expectedRevision
+```
+
+独立探针用受控延迟命中这个窗口（不是修改生产代码，而是让 action 的 commit
+停在测试 harness 中）：
+
+1. target 先有一条 exact resolved/upheld appeal；action 的 gate 看到
+   `humanConfirmed=true`，准备写 action；
+2. 在 action commit 之前，提交一条新的同 target+action appeal 并 withdraw；
+   `store` 中此时已有 `status=withdrawn`；
+3. 释放 action commit。
+
+结果：
+
+```json
+{
+  "beforeRelease": [
+    { "status": "resolved", "action": "prune_branch" },
+    { "status": "withdrawn", "action": "prune_branch" }
+  ],
+  "action": {
+    "ok": true,
+    "gate": {
+      "humanConfirmed": true,
+      "appealPending": false,
+      "appealUnresolved": false
+    }
+  },
+  "final": [
+    { "status": "resolved", "action": "prune_branch" },
+    { "status": "withdrawn", "action": "prune_branch" },
+    { "status": "pending", "action": "prune_branch" }
+  ]
+}
+```
+
+action 的 gate 里 `appealUnresolved=false`，但 final project 已经有 withdrawn
+appeal；action 仍然通过。这正是用户要求的 “action must not slip in between
+check and write”。根因是 action commit 没有 `expectedRevision`/transactional
+recheck；CAS 只保护 appeal transition，不保护 action authorization 的读取。
+
+对用户四个 CAS 问题的逐项结果：
+
+| 探针 | 结果 |
+|---|---|
+| 你原来的 exact `Promise.all(rejected, upheld)` | 一个成功、一个 `intent_not_pending`；1 条 `appeal/resolved`；**已修** |
+| race 两个 `upheld` | 一个成功、一个 `intent_not_pending`；1 条事件；**已修** |
+| resolve vs withdraw（pending） | 一个成功、一个 `intent_not_pending`；1 条 transition；**已修** |
+| resolve vs withdraw（already withdrawn） | resolve 成功；withdraw 幂等 `ok, alreadyWithdrawn`；不覆盖 resolution；**安全** |
+| resolve + prune（withdrawn appeal，同一 Promise.all） | resolve 成功；prune 得到 `appeal_not_resolved`（gate 在 resolve 前读取）；**没有 slip**；若 resolve 先完成，prune 可能合法通过，这是时间顺序而非 stale write |
+| action 与新 withdrawn appeal 竞争 check/write | **action `ok:true`，unresolved 已存在；失败** |
+
+### 30.6.5 Target+action scope 的精确结果与边界
+
+**授权范围（正确）**：
+
+- resolved `prune_branch` on node A：prune A `ok:true`；cancel A
+  `appeal_target_mismatch`；prune B `appeal_target_mismatch`。
+- resolved `delete_project` on node A：只有 target node A 的 intent 路径能通过；
+  其他 node 或 `target=null` 返回 `appeal_target_mismatch`。
+- aliases：`actionOnTarget`、`forAction`、`claim.target.action`、
+  `claim.authorization.action`、`claim.scope.action` 都能被读取并落盘为
+  `claim.targetAction`；执行另一个 action（如 alias=prune、实际 cancel）都返回
+  `appeal_target_mismatch`；执行同一 action 才通过。冲突 alias
+  （`targetAction=prune` + `actionOnTarget=cancel`）以 `targetAction` 为准，
+  cancel 失败、prune 通过。**aliases 没有授权不同的实际执行 action。**
+
+**阻断范围（有行为问题）**：
+
+同一 node 上不同 action 的 pending/withdrawn appeal：
+
+| 场景 | 结果 |
+|---|---|
+| node E 有 resolved prune + pending cancel；执行 prune E | `appeal_pending`（被 foreign pending 挡住） |
+| node D 有 withdrawn prune；执行 cancel D | `appeal_not_resolved`（被 foreign withdrawn 挡住） |
+| node C 有 pending prune；执行 cancel C | `appeal_pending` |
+| node F 有 resolved prune + resolved cancel；执行 prune F / cancel F | 两者都 `ok:true`（各自 exact resolution） |
+
+`pending` 和 `unresolved` 是 **target-wide**，不是 exact action；作者的
+“pending/withdrawn by target” 设计使一个 action 的 pending/withdrawn 可以阻断
+同 node 的另一个 action。这是 fail-closed（不会多授权），但会造成跨 action
+拒绝服务。若验收要求“pending/withdrawn 也只按 exact action 阻断”，这是
+**失败**；若接受 target-wide stop-the-line，则记录为行为取舍，不是 B27
+越权。独立报告不把它当作唯一 blocker，但把它列为 §30.6.5 的行为发现。
+
+**missing / delete 的边界**：
+
+- appeal 无 `targetAction` / 无 `target.nodeId`：`appeal_target_mismatch`。
+- action 无 `nodeId`：在无 foreign appeal 的 fresh project 会落到
+  `human_confirmation_required`；在存在 foreign resolved 的 project 返回
+  `appeal_target_mismatch`。两种都不授权，但没有专门的 `node_required` 错误。
+- `delete_project` 的 intent 路径**必须**有 node target：无 node 的 delete
+  intent 被 `appeal_target_mismatch` 挡住；有 node 的 delete intent 可以过。
+  但 `delete_project` 是 project-wide 动作，**实际 tool path 根本不看 node**
+  （§30.6.2），所以这条“node scope”只存在于 intent，不能约束真实删除。
+- **unscoped appeal** 被写边界拒绝，正确。
+
+### 30.6.6 同一 raiser 的两个 appeal
+
+| 场景 | 结果 |
+|---|---|
+| 两个 pending（同 raiser、同 target+action） | action `appeal_pending`；安全 |
+| 一个 rejected + 一个 upheld（不同 human） | action `ok:true`；gate 取 upheld，rejected 被跳过 |
+| 一个 withdrawn + 一个 upheld | action `appeal_not_resolved`；安全 |
+| 两个 upheld（不同 human） | 可执行；取其中一个 confirmation |
+
+同一 raiser 可以对同一 pair 重复提交 appeal；代码没有唯一性约束。`rejected`
+和 `upheld` 两条不同记录不会把 rejected 读成 upheld（`confirmation` 明确检查
+`resolution==='upheld'`），所以不是 §29.6.3 的 last-writer 问题；但一个被
+rejected 的 objection 之后可以用同一 raiser 的第二张 appeal 得到 upheld。
+如果政策要求“一个 raiser 对同一 pair 只能有一个终局 appeal”，当前实现没有
+强制；独立报告记为**未定义语义/可滥用重复提交**，不是主要执行路径。
+
+### 30.6.7 system 与 humanConfirmed
+
+- **真实 tool path**：`lab-scheduler` `intent_submit` / `intent_withdraw` 返回
+  `forbidden_action`；`resolveAppeal` 不在 tool action enum，返回
+  `unknown_action`；没有 system resolver 的 agent 路径。
+- **直接 service**：`resolveAppeal(..., systemExec)` 仍可写
+  `resolvedBy.kind='system'`；这是 Host 内部 service，不是 tool。
+- **实际 tool path 的 human**：`delete_project`/`cancel_node` 直接执行，
+  比 system 冒充更严重（§30.6.2）。
+- **`humanConfirmed` 请求字段**：tool schema 顶层仍无该字段；`claim` 描述无；
+  service strip `claim.humanConfirmed`/`humanConfirmedBy`；合法 resolved
+  appeal 路径正常；无 resolution 时请求标志仍 `human_confirmation_required`。
+- **新失败不是因为旧字段回来**：旧字段仍是死的；失败来自实际 handler 和
+  action CAS。
+
+### 30.6.8 回归（HEAD `e85b213`）
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT=0；37 files / **654 ok** |
+| `node scripts/claims-selftest.mjs` | EXIT=0；**89 checks** |
+| `node scripts/tool-surface-selftest.mjs` | EXIT=0；**41** |
+| `npm run bench:scale` | EXIT=0；**11/11**；100k first page 0.42 ms；restart 1.83 ms；dispatch max 35.3 ms / p95 32.6 ms / starts 161 |
+| `node scripts/strict-writes-selftest.mjs` | EXIT=0；**17**；bypass 0；“only the deliberate bypasses were rejected” |
+| `node scripts/policy-selftest.mjs` | EXIT=0；**120** |
+| `node scripts/client-smoke.mjs` | EXIT=0；**16/16** |
+| `node scripts/replay-client-selftest.mjs` | EXIT=0；**8** |
+| U14 partial probe | EXIT=0；3 次 `refresh_partial`，前两次 `degraded=false`，第三次 `degraded=true`；`previousSuccess=true`；good widget stale=false / bad widget stale=true |
+| S12 restart first page | EXIT=0；first same-store 2 ms；reopen 1.3 ms；list 112.6 ms；5 segments；total 100000；last 100000 |
+
+回归全绿，但不覆盖 §30.6.2–§30.6.4 的实际执行/CAS 攻击。
+
+### 30.6.9 计数与判定
+
+| 判定 | 数量 |
+|---|---|
+| PASS | **107** |
+| FAIL | **57** |
+| 未测量 | **10**（浏览器 2 行 = 不适用） |
+| 合计 | **174** |
+
+- **1 个阻断：B27**。至少三条独立失败：
+  1. 实际 `delete_project` / `cancel_node` tool path 绕过 claim gate；
+  2. case/whitespace/session-suffix actor id 绕过三 actor 区分；
+  3. action check/write 之间没有 CAS，新 withdrawn appeal 可被 action 跨过。
+- **56 个能力未建**：1.3、5.3.2/Q3、Stage 3–5 等既有能力缺口。
+- **0 个只差文档**。
+
+**明确判定：NO-SHIP。** 不满足 “narrow release possible”。作者 §30 的
+scope/CAS 探针在 intent 层变绿，但真实 tool path 仍可直接删除项目/取消节点；
+这不是能力问题，而是 B27 的执行路径漏洞。作者侧 **654 checks / 89 claims**
+不覆盖这些路径。
+
+**如果** 修复 §30.6.10 的 1–3 项，且剩余 56 项确认为 capability-not-built，
+独立计数才可改为 **108 / 56 / 10**，届时才可使用 “narrow release possible”；
+排除范围必须显式写成 `1.3`、`5.3.2`/Q3、Stage 3–5，以及未测量的
+browser/provider/restart。当前不得使用该措辞。
+
+### 30.6.10 修复建议
+
+1. **真实执行路径接入 gate**：`delete_project` 和 `cancel_node` 不能直接
+   `deleteProject`/`runtime.cancel`。要么要求已存在通过 gate、未过期、有精确
+   target+action 的 action intent（并由 executor 执行），要么在 handler 内
+   重新做完整 `humanConfirmed` + appeal scope 校验；不能只靠 humanOnly。
+   `delete_project` 还需定义 project-wide 的 target 语义，不能用 node 级
+   resolution 授权整项目删除。
+2. **action commit CAS**：在 `submitIntent` 的 `intent.put` 上带
+   `expectedRevision`（gate 读取的 revision），并在 mutation 内拒绝 revision
+   变化；或者把 gate 重新校验与 action 写入放在同一个锁/事务中。仅给
+   `intent.withdraw` 加 CAS 不够。
+3. **actor 身份**：如果威胁模型包含 case/whitespace/suffix，必须做 canonical
+   identity（至少 trim/大小写规则，session suffix 规则），但字符串规范化仍不能
+   证明“不同的人”；最终需要外部身份/双人确认/职责分离。仅比较 id 字符串
+   不是独立确认。
+4. **scope 阻断语义**：决定 pending/withdrawn 是 exact action 阻断还是
+   target-wide stop-the-line；若是 exact，`pending`/`unresolved` 也应使用
+   `exactRows`，不要让 foreign pending 阻断无关 action。若是 target-wide，
+   在文档中明确这是可用性取舍，避免被当作 exact scope。
+5. **delete scope**：为 project-wide delete 定义独立 target/authorization，
+   不允许 node 级 appeal 授权整项目删除；实际 tool handler 和 intent handler
+   必须一致。
+6. **重复 appeal**：决定同一 raiser/target+action 是否允许第二张 appeal；
+   若不允许，写入边界拒绝；若允许，明确 rejected 后重新提交的语义。
+7. **测试**：把 §30.6.2–§30.6.4 加进 selftest；现有 89 checks 没有覆盖实际
+   tool handler、actor 后缀、action CAS。实际 tool path 的 `delete_project`
+   必须在一个临时项目上做“无 appeal 必须失败”的负向测试。
+
+### 30.6.11 边界
+
+- 只修改了本文件；生产代码未改。
+- 未执行 sandbox escalation；未写用户 storage。
+- 浏览器二维未测；provider/restart 仍是既有未测量项。
+- 结论对 HEAD `e85b213` 有效；后续修改 `lab-service.js`、`runtime.js`、
+  `mutations.js` 或 `agent-tool.js` 后，必须重跑实际 delete/cancel、actor
+  suffix、action CAS 三组探针，不能只跑 `npm test`。
+
+---
+
+## §31 作者第十二轮整改：执行路径、canonical actor、action CAS、exact scope
+
+> 这是作者侧整改记录，不是独立复核。§30.6 的独立判定仍为
+> **107 PASS / 57 FAIL / 10 未测量，NO-SHIP**；只有验证者重放下述探针后才可改口径。
+
+### 31.1 本轮代码改动
+
+1. **真实 handler 接入 gate**（`host/lab-service.js`）
+   - `delete_project` 的 tool handler 不再直接调用 executor，而是在删除前调用
+     `authorizeIrreversibleTool(projectId, 'delete_project', options, exec)`。
+   - `cancel_node` 的 tool handler 不再直接调用 `runtime.cancel`，而是在取消前调用
+     `authorizeIrreversibleTool(projectId, 'cancel_node', { nodeId, ... }, exec)`。
+   - `authorizeIrreversibleTool` 重新计算 citation floor、fresh evidence、
+     chief confirmation、精确 target+action appeal、pending/unresolved 和
+     human resolution；失败抛 `LabError`，不会到达删除/取消。
+   - `deleteProject` 在 `auto.stop`（会写 `auto/stopped` 事件、推进 revision）之后
+     重新做一次授权，避免用旧 revision 做 CAS；任何破坏性 worktree 删除和
+     `kernel.executor.deleteProject` 都在 gate 之后。
+   - `delete_project` 的授权 scope 是 `{ projectId }`，并显式拒绝 `nodeId`；
+     node 级 appeal/resolution 不能授权整项目删除。`cancel_node` 的授权 scope
+     是 `{ nodeId }`，缺少 nodeId 返回 `bad_request`，未知 node 返回
+     `node_not_found`。
+   - `deleteProject` 的 executor CAS 使用 `expectedRevision`；失败返回
+     `stale_basis`（HTTP 409），不删除项目。
+
+2. **canonical actor**（`host/kernel/policy.js`）
+   - 新增 `canonicalActorId`：`trim`、`toLowerCase`、去掉第一个 `:`/`#`/`@` 之后的
+     transport/session suffix，再次 `trim`。
+   - `actorForSession` 和 executor 的 `normalizeActor` 都写 canonical id。
+   - `appealState` 的 raiser/requester/resolver 比较和 `resolveAppeal` 的 self
+     resolution 检查都按 canonical id；`H1`、`h1 `、`h1:resolver` 是同一个 actor。
+
+3. **action commit CAS**（`host/kernel/mutations.js`、`host/kernel/executor.js`、
+   `host/runtime.js`）
+   - `submitIntent` 的 action `intent.put` 携带 gate 读取的
+     `expectedRevision: project.revision`；`intent.put` 在 mutation 内检查
+     `ws.project.revision`，不一致抛 `stale_basis`。
+   - `deleteProject` 的 executor 在项目锁内检查 `expectedRevision`；runtime 的
+     planned cancel 在锁外和锁内各检查一次，active terminate 在终态
+     `persistNode` 前检查 `expectedRevision`，并把 `expectedProjectRevision`
+     传给 executor。
+   - gate 之后的 appeal/withdrawal 会推进 revision，action write 因此失败；不会
+     出现“authorization 读的是旧快照、action 却落盘”的情况。
+
+4. **exact target+action 的 pending/withdrawn/window/resolved**
+   （`host/lab-service.js`）
+   - `appealState` 的 `pending`、`unresolved`、`windowed`、`confirmation` 都从
+     `exactRows` 取；`exactRows` 同时匹配 `scope key` 和 `targetAction`。
+   - 一个 node 上 pending/withdrawn 的 `prune_branch` 不再阻断同一 node 的
+     `cancel_running`，反之亦然；精确的 pending/withdrawn 仍阻断精确 action。
+   - 代价是保留 fail-closed 的 `targetMismatch`：存在 malformed / 非精确 resolved
+     record 且没有精确 resolved 时，动作不会借别的 action/node 的 resolution 通过。
+
+### 31.2 真实 agent-tool / direct-service 探针（逐字）
+
+```text
+HANDLER_PROBES {"deleteWithNodeId":{"code":"appeal_target_mismatch","projectExists":true},"deleteWithoutNode":{"code":"human_confirmation_required","projectExists":true},"cancelWithoutAppeal":{"code":"human_confirmation_required","runtimeCalls":0},"cancelWithoutNode":{"code":"bad_request","runtimeCalls":0},"directDelete":{"code":"human_confirmation_required","projectExists":true},"directCancel":{"code":"human_confirmation_required","runtimeCalls":0}}
+```
+
+四个必须负向探针（真实 `registerAgentTool` + `registerAgentTool.execute`）的结论：
+
+- `delete_project` + nodeId + 无 appeal：`appeal_target_mismatch`，项目仍在；
+- `delete_project` + 无 nodeId + 无 appeal：`human_confirmation_required`，项目仍在；
+- `cancel_node` + nodeId + 无 appeal：`human_confirmation_required`，`runtime.cancel` 从未调用；
+- `cancel_node` + 无 nodeId：`bad_request`，`runtime.cancel` 从未调用。
+
+另加两个 direct-service 负向探针：`service.deleteProject` 和
+`service.cancelNode` 都返回/抛出 `human_confirmation_required`，项目仍在，
+`runtime.cancel` 仍未调用。
+
+正向控制：
+
+- project-scoped resolved delete appeal + funded history → 真实 tool
+  `delete_project` 成功，项目被删除；
+- node-scoped resolved cancel appeal + fresh evidence + chief → 真实 tool
+  `cancel_node` 到达 runtime，且传给 runtime 的 `expectedRevision` 是整数。
+
+### 31.3 canonical actor 探针（逐字）
+
+```text
+ACTOR_CANONICAL [{"resolverId":"H1","resolved":true,"stored":"h1","code":"human_confirmation_required"},{"resolverId":"h1 ","resolved":true,"stored":"h1","code":"human_confirmation_required"},{"resolverId":"h1:resolver","resolved":true,"stored":"h1","code":"human_confirmation_required"}]
+```
+
+三次都是：requester `h1`、raiser `expert-1`、resolver 分别使用 `H1`/`h1 `/
+`h1:resolver`；三次都因 requester==resolver 被拒，存储的 `resolvedBy.id` 都是
+`h1`。对应三条独立 selftest check，而不是一个聚合断言。
+
+### 31.4 action commit CAS 延迟探针（逐字）
+
+```text
+ACTION_CAS {"expectedRevision":74,"currentRevision":76,"injectedWithdrawn":true,"code":"stale_basis","final":[{"status":"resolved","resolution":"upheld"},{"status":"resolved","resolution":"upheld"},{"status":"withdrawn","resolution":null}]}
+```
+
+探针在 `kernel.executor.commit` 的动作写入前插入一条新的同 target+action appeal，
+随后 withdraw，再放行动作。动作 commit 的 `expectedRevision` 是 74，实际 revision
+已到 76；结果不是 `ok:true`，而是 `stale_basis`。这说明 CAS 在 mutation/commit
+边界，而不是只在 gate 前做一次检查。
+
+### 31.5 exact scope 探针（逐字）
+
+```text
+SCOPE_FOREIGN {"resolved":true,"pendingExactPrune":true,"withdrawn":true,"withdrawnExactPrune":true,"pendingGate":false,"withdrawnGate":false}
+```
+
+同一 node 上：先 resolved 一条 `prune_branch` appeal，再 pending 一条
+`cancel_running` appeal，`prune_branch` 仍成功且 gate 的 `appealPending=false`；
+withdraw 该 cancel appeal 后，`prune_branch` 仍成功且 `appealPending=false`。
+这说明 foreign pending/withdrawn 不再 DoS 精确 action；精确 pending/withdrawn 的
+阻断仍由既有断言覆盖。
+
+### 31.6 测试结果
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT=0；37 个文件 / **668 checks** |
+| `node scripts/claims-selftest.mjs` | EXIT=0；**103 checks** |
+| `node scripts/strict-writes-selftest.mjs` | EXIT=0 |
+| `node scripts/client-smoke.mjs` | EXIT=0；16/16 panels |
+| `npm run bench:scale` | EXIT=0；11/11 |
+
+`strict-writes` 的直接删除仍走 `kernel.executor.deleteProject`（write-permit
+路径），不再调用已加 gate 的 public service handler；这避免测试用公共入口绕过
+gate，同时保留 executor 的“permitted delete”覆盖。
+
+### 31.7 边界
+
+- 只做作者侧修改与作者侧探针；没有独立复核，不能把 §30.6 的 107/57/10 改成
+  108/56/10。
+- 未执行 sandbox escalation；未写 `~/.dsh/storages/*`；未重启 Host。
+- 浏览器二维仍 N/A；provider/restart 仍是既有未测量项。
+- canonical id 只是字符串规范化，不能证明“不同的人”。真正的双人独立意志仍需
+  外部身份/审批；本轮只移除 case/whitespace/session-suffix 的明显绕过。
+- `delete_project` 的实际 handler 正向路径已覆盖 project-scoped appeal；node 级
+  delete appeal 被写边界和实际 handler 双重拒绝。

@@ -262,9 +262,10 @@ export function gateClaimAction(action, stats = {}, context = {}) {
   // A caller-supplied timestamp can never satisfy a cooling-off requirement.
   // The window is evidence about the Host's appeal record, not an input.
   if (context.appealUntil !== undefined) return { ...base, code: 'appeal_window_caller_supplied' };
-  // A live appeal covers every action on its target, including L0/L1 and
-  // `cancel_running` (L2). This check must precede every level-specific rule:
-  // otherwise a level without `appeal: true` silently bypasses an open appeal.
+  // A live appeal blocks the exact target+action it names, including L0/L1 and
+  // `cancel_running` (L2). Scope is derived by the service from the intent
+  // record; a foreign action's pending appeal must not DoS this one. This check
+  // precedes every level-specific rule.
   if (context.appealPending === true) return { ...base, code: 'appeal_pending' };
   // A withdrawn appeal is not a resolution. For irreversible actions it keeps
   // the gate closed until a separate valid resolution is recorded; the TTL
