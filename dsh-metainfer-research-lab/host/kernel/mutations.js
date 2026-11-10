@@ -142,7 +142,30 @@ const reducers = {
       ws.projectTouched = true;
       event.effects.push({ op: 'project.merge', set: { counters: structuredClone(m.counters) } });
     }
-    return [event];
+    const events = [event];
+    // B20: a new child is a vote that its parent is alive. Any pending curator
+    // nomination to defer/close the parent is withdrawn in the same commit.
+    const parentIds = parentIdsOf(input);
+    if (parentIds.length > 0 && Array.isArray(ws.project.intents)) {
+      let changed = false;
+      for (const intent of ws.project.intents) {
+        if (intent.status !== 'pending' || intent.kind !== 'curate') continue;
+        if (!(intent.claim?.nominations ?? []).some((row) => parentIds.includes(row.nodeId))) continue;
+        intent.status = 'withdrawn';
+        intent.withdrawnAt = ctx.now;
+        intent.withdrawnBy = { kind: 'system', id: 'node.create' };
+        intent.withdrawReason = `child ${id} created under ${parentIds.join(',')}`;
+        changed = true;
+        events.push({
+          type: 'intent/withdrawn',
+          nodeId: intent.target?.nodeId,
+          data: { intentId: intent.id, reason: intent.withdrawReason },
+          effects: [{ op: 'project.merge', set: { intents: structuredClone(ws.project.intents) } }],
+        });
+      }
+      if (changed) ws.projectTouched = true;
+    }
+    return events;
   },
 
   /**
@@ -348,6 +371,29 @@ const reducers = {
     }];
   },
 
+  /** Withdraw a pending judgement (curator nomination or stale proposal). */
+  'intent.withdraw'(ws, m, ctx) {
+    const intentId = requireString(m.intentId, 'intentId');
+    const current = Array.isArray(ws.project.intents) ? ws.project.intents : [];
+    const index = current.findIndex((intent) => intent.id === intentId);
+    if (index < 0) throw new MutationError('intent_not_found', `unknown intent ${intentId}`);
+    if (current[index].status === 'withdrawn') return [];
+    current[index] = {
+      ...current[index],
+      status: 'withdrawn',
+      withdrawnAt: ctx.now,
+      withdrawnBy: m.actor ?? null,
+      withdrawReason: typeof m.reason === 'string' ? m.reason.slice(0, 500) : 'withdrawn',
+    };
+    ws.projectTouched = true;
+    return [{
+      type: 'intent/withdrawn',
+      ...(current[index].target?.nodeId ? { nodeId: current[index].target.nodeId } : {}),
+      data: { intentId, reason: current[index].withdrawReason },
+      effects: [{ op: 'project.merge', set: { intents: structuredClone(ws.project.intents) } }],
+    }];
+  },
+
   /** Full cycle-record write for migrated legacy orchestrator paths. */
   'cycle.put'(ws, m) {
     const cycle = requirePlainObject(m.cycle, 'cycle');
@@ -362,7 +408,30 @@ const reducers = {
       ws.projectTouched = true;
       event.effects.push({ op: 'project.merge', set: { counters: structuredClone(m.counters) } });
     }
-    return [event];
+    const events = [event];
+    // B20: a new child is a vote that its parent is alive. Any pending curator
+    // nomination to defer/close the parent is withdrawn in the same commit.
+    const parentIds = parentIdsOf(input);
+    if (parentIds.length > 0 && Array.isArray(ws.project.intents)) {
+      let changed = false;
+      for (const intent of ws.project.intents) {
+        if (intent.status !== 'pending' || intent.kind !== 'curate') continue;
+        if (!(intent.claim?.nominations ?? []).some((row) => parentIds.includes(row.nodeId))) continue;
+        intent.status = 'withdrawn';
+        intent.withdrawnAt = ctx.now;
+        intent.withdrawnBy = { kind: 'system', id: 'node.create' };
+        intent.withdrawReason = `child ${id} created under ${parentIds.join(',')}`;
+        changed = true;
+        events.push({
+          type: 'intent/withdrawn',
+          nodeId: intent.target?.nodeId,
+          data: { intentId: intent.id, reason: intent.withdrawReason },
+          effects: [{ op: 'project.merge', set: { intents: structuredClone(ws.project.intents) } }],
+        });
+      }
+      if (changed) ws.projectTouched = true;
+    }
+    return events;
   },
 
   /** Full run-record write for migrated legacy runners (GC/reconcile/experts). */

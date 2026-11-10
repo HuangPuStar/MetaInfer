@@ -67,6 +67,8 @@ export const ACTION_CATALOG = Object.freeze({
   ledger_update: 'write',
   intent_submit: 'write',
   intent_list: 'read',
+  intent_withdraw: 'write',
+  curator_reset: 'control',
   expert_list: 'read',
   expert_recall: 'read',
   curator_nominate: 'write',
@@ -107,7 +109,7 @@ export const ALL_ACTIONS = Object.freeze(Object.keys(ACTION_CATALOG).sort());
 
 const READ = ALL_ACTIONS.filter((action) => ACTION_CATALOG[action] === 'read');
 const DAG = Object.freeze(['dag_map', 'dag_query', 'dag_walk', 'dag_get', 'dag_diff', 'ledger_read']);
-const EXPERT_PROPOSE = Object.freeze(['claim_review', 'release_review', 'review_claims', 'ledger_update', 'intent_submit']);
+const EXPERT_PROPOSE = Object.freeze(['claim_review', 'release_review', 'review_claims', 'ledger_update', 'intent_submit', 'intent_withdraw']);
 
 /**
  * Smallest safe surface for a preset that is not listed below (default-deny).

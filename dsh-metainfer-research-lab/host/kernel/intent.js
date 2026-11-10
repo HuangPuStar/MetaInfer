@@ -11,6 +11,7 @@ export const INTENT_KINDS = Object.freeze(['dispatch', 'priority', 'proposal', '
 const MAX_TARGET = 160;
 const MAX_RATIONALE = 2_000;
 const MAX_CLAIM_BYTES = 4_096;
+export const INTENT_TTL_MS = 30 * 60_000;
 
 function str(value, field, max) {
   if (value === undefined || value === null) return null;
@@ -57,6 +58,8 @@ export function createIntent(input) {
   return {
     id,
     kind: input.kind,
+    status: 'pending',
+    expiresAt: Number.isFinite(input?.expiresAt) ? input.expiresAt : (Number.isFinite(input?.at) ? input.at : Date.now()) + INTENT_TTL_MS,
     actor: { kind: typeof actor.kind === 'string' ? actor.kind : 'expert', id: actor.id },
     claim: structuredClone(claim),
     basis: input.basis,

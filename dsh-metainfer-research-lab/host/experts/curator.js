@@ -53,7 +53,7 @@ export function createCurator({
       duplicateOf: pair.b,
       kind: pair.kind,
       confidence: pair.score,
-      evidence: [{ kind: 'similarity', ref: `${pair.a}~${pair.b}`, note: `score ${pair.score}` }],
+      evidence: [{ kind: 'similarity', ref: `${pair.a}~${pair.b}`, note: `score ${pair.score}; ${(pair.reasons ?? []).join(',')}` }],
     }));
     proposed += nominations.length;
     return { nominations, candidates: recall.total, circuitOpen: false };

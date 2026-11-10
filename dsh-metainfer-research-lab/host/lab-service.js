@@ -2969,7 +2969,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       task: typeof task === 'string' ? task : '',
       experts: recall.experts.map((row) => ({
         ...row,
-        descriptor: descriptors.find((descriptor) => descriptor.id === row.id),
+        descriptor: getExpertDescriptor(row.id),
         metrics: computeExpertMetrics({ expertId: row.id, nodes, runs }),
       })),
       total: recall.total,
@@ -2982,8 +2982,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const project = requireProject(projectId);
     if (!kernel?.executor) return rejection('internal_error', 'kernel executor is not wired');
     const nodes = store.listNodes(projectId);
-    const claims = [];
-    const reviews = [];
+    const reviewClaims = typeof orchestrator?.reviewClaims?.list === 'function' ? orchestrator.reviewClaims.list(projectId) : [];
+    const claims = [
+      ...nodes.filter((node) => node.claim).map((node) => ({ nodeId: node.id, expiresAt: null })),
+      ...reviewClaims.map((claim) => ({ nodeId: claim.nodeId, expiresAt: claim.expiresAt ?? null })),
+    ];
+    const reviews = reviewClaims.map((claim) => ({ nodeId: claim.nodeId, status: claim.intent === 'review' ? 'claimed' : 'pending' }));
     const result = curator.nominate({ nodes, claims, reviews });
     const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
     if (result.nominations.length > 0 && result.circuitOpen !== true) {
@@ -3029,6 +3033,20 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const basis = input?.basis === undefined ? project.revision : Number(input.basis);
     if (!Number.isInteger(basis) || basis < 0) return rejection('bad_request', 'intent.basis must be a non-negative integer revision');
     if (basis > project.revision) return rejection('basis_ahead', `basis ${basis} is newer than project revision ${project.revision}`);
+    const conflict = (Array.isArray(project.intents) ? project.intents : []).find((candidate) => (
+      candidate.status === 'pending'
+      && candidate.target?.nodeId
+      && candidate.target.nodeId === target?.nodeId
+      && Number.isFinite(candidate.basis)
+      && candidate.basis > basis
+    ));
+    if (conflict) {
+      return rejection('stale_basis', `intent ${conflict.id} already judged this target from revision ${conflict.basis}; re-read before submitting`, {
+        conflictingIntentId: conflict.id,
+        basis: conflict.basis,
+        currentRevision: project.revision,
+      });
+    }
     let intent;
     try {
       intent = createIntent({
@@ -3056,7 +3074,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const project = requireProject(projectId);
     const all = (Array.isArray(project.intents) ? project.intents : []).filter((intent) => !kind || intent.kind === kind);
     const size = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.trunc(limit))) : 100;
-    const intents = all.slice(-size);
+    const now = Date.now();
+    const intents = all.slice(-size).map((intent) => ({
+      ...intent,
+      expired: intent.status !== 'withdrawn' && Number.isFinite(intent.expiresAt) && intent.expiresAt <= now,
+    }));
     return {
       ok: true,
       projectId,
@@ -3065,6 +3087,30 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       total: all.length,
       _truncated: all.length > intents.length ? { shown: intents.length, total: all.length } : null,
     };
+  }
+
+  /** Withdraw a pending judgement (curator nomination or stale proposal). */
+  async function withdrawIntent(projectId, intentId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    if (!kernel?.executor) return rejection('internal_error', 'kernel executor is not wired');
+    const intent = (Array.isArray(project.intents) ? project.intents : []).find((candidate) => candidate.id === intentId);
+    if (!intent) return rejection('intent_not_found', `unknown intent: ${intentId}`);
+    if (intent.status === 'withdrawn') return { ok: true, projectId, intent, alreadyWithdrawn: true };
+    const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    const commit = await commitMutations(projectId, [{
+      op: 'intent.withdraw',
+      intentId,
+      actor,
+      reason: typeof input?.reason === 'string' ? input.reason : 'withdrawn by operator',
+    }], { actor, causeId: `intent-withdraw:${intentId}` });
+    if (commit.ok !== true) return rejection(commit.code ?? 'internal_error', commit.message ?? 'intent withdraw failed');
+    const fresh = store.getProject(projectId)?.intents?.find((candidate) => candidate.id === intentId) ?? null;
+    return { ok: true, projectId, intent: fresh };
+  }
+
+  /** Human reset for the curator's false-close breaker (production path). */
+  function resetCurator() {
+    return { ok: true, ...curator.reset() };
   }
 
   async function setNodePriority(projectId, nodeId, input, actor = null) {
@@ -3279,6 +3325,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'expert_recall') return recallExpertFor(input?.projectId, input?.task ?? input?.text ?? '', { limit: input?.limit });
     if (action === 'curator_nominate') return nominateDuplicates(input?.projectId, input, exec);
     if (action === 'curator_outcome') return recordCuratorOutcome(input);
+    if (action === 'curator_reset') return resetCurator();
+    if (action === 'intent_withdraw') return withdrawIntent(input?.projectId, input?.intentId, input, exec);
     throw new LabError('unknown_command', `unknown metainfer_lab action: ${String(action)}`, 400);
   }
 
@@ -3306,6 +3354,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     listNodesPage,
     submitIntent,
     listIntents,
+    withdrawIntent,
+    resetCurator,
     listExperts,
     recallExpertFor,
     nominateDuplicates,

@@ -1,10 +1,18 @@
 /**
  * Deterministic recall (Stage 4.2). Finding duplicates is a retrieval problem:
- * this module enumerates every eligible pair and scores it with plain token
- * overlap. There is no model call and no randomness, so the same DAG always
- * yields the same candidates (asserted by the selftest).
+ * this module enumerates every eligible pair and scores structural predicates.
+ * There is no model call and no randomness, so the same DAG always yields the
+ * same candidates (asserted by the selftest).
+ *
+ * Predicates (B17):
+ *   - promptHash prefix: two proposals with the same prompt prefix are likely
+ *     the same hypothesis even when the titles were paraphrased;
+ *   - same parent + similar success criteria: a sibling re-run;
+ *   - matching metric targets;
+ *   - title / criteria / tag Jaccard as the fallback.
  */
 const STOP = new Set(['the', 'a', 'an', 'and', 'or', 'of', 'to', 'for', 'in', 'on', 'with', 'by', 'is', 'are', 'be', 'from', 'as', 'at', 'it', 'this', 'that']);
+const PROMPT_PREFIX = 12;
 
 export function tokens(value) {
   return String(value ?? '')
@@ -23,13 +31,63 @@ export function jaccard(left, right) {
   return intersection / (a.size + b.size - intersection);
 }
 
-/** Pair score in [0,1]; title dominates, criteria and tags refine. */
-export function nodeSimilarity(left, right) {
-  const title = jaccard(left?.title, right?.title);
+/** Small deterministic fingerprint, used when a node predates promptHash. */
+export function hashText(value) {
+  let hash = 2166136261;
+  for (const char of String(value ?? '')) {
+    hash ^= char.codePointAt(0);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+export function promptFingerprint(node) {
+  if (node?.promptHash) return String(node.promptHash);
+  const prompt = String(node?.prompt ?? '').trim();
+  return prompt === '' ? '' : hashText(prompt);
+}
+
+function parentKey(node) {
+  if (Array.isArray(node?.parentIds) && node.parentIds.length > 0) return [...node.parentIds].sort().join(',');
+  return node?.parentId ?? '';
+}
+
+function metricsKey(node) {
+  const metrics = node?.report?.metrics ?? node?.metrics ?? [];
+  if (!Array.isArray(metrics) || metrics.length === 0) return '';
+  return metrics.map((metric) => String(metric?.name ?? metric?.key ?? metric ?? '')).sort().join('|');
+}
+
+/** Structural reasons for a candidate pair, strongest first. */
+export function similarityEvidence(left, right) {
+  const reasons = [];
+  const leftPrompt = promptFingerprint(left);
+  const rightPrompt = promptFingerprint(right);
+  if (leftPrompt !== '' && leftPrompt.slice(0, PROMPT_PREFIX) === rightPrompt.slice(0, PROMPT_PREFIX)) reasons.push('promptHashPrefix');
   const criteria = jaccard(left?.successCriteria, right?.successCriteria);
-  const tags = jaccard((left?.tags ?? []).join(' '), (right?.tags ?? []).join(' '));
-  const sameHash = left?.promptHash && left.promptHash === right?.promptHash ? 0.15 : 0;
-  return Math.min(1, title * 0.7 + criteria * 0.2 + tags * 0.1 + sameHash);
+  const sameParent = parentKey(left) !== '' && parentKey(left) === parentKey(right);
+  if (sameParent && criteria >= 0.5) reasons.push('sameParentCriteria');
+  const leftMetrics = metricsKey(left);
+  if (leftMetrics !== '' && leftMetrics === metricsKey(right)) reasons.push('metricTargets');
+  const title = jaccard(left?.title, right?.title);
+  const leftTags = (left?.tags ?? []).join(' ');
+  const rightTags = (right?.tags ?? []).join(' ');
+  const tags = leftTags === '' && rightTags === '' ? 1 : jaccard(leftTags, rightTags);
+  if (title >= 0.4) reasons.push('titleOverlap');
+  if (tags >= 0.4) reasons.push('tagOverlap');
+  const score = Math.min(1,
+    title * 0.6
+    + criteria * 0.2
+    + tags * 0.1
+    + (reasons.includes('promptHashPrefix') ? 0.1 : 0)
+    + (reasons.includes('sameParentCriteria') ? 0.1 : 0)
+    + (reasons.includes('metricTargets') ? 0.1 : 0));
+  return { score: Math.round(score * 1000) / 1000, reasons, title, criteria, sameParent };
+}
+
+/** Pair score in [0,1]; kept as a stable API for callers that only need a number. */
+export function nodeSimilarity(left, right) {
+  return similarityEvidence(left, right).score;
 }
 
 /**
@@ -46,13 +104,14 @@ export function recallCandidates(nodes = [], { threshold = 0.3, limit = 20, excl
   const pairs = [];
   for (let i = 0; i < eligible.length; i += 1) {
     for (let j = i + 1; j < eligible.length; j += 1) {
-      const score = nodeSimilarity(eligible[i], eligible[j]);
-      if (score < threshold) continue;
+      const evidence = similarityEvidence(eligible[i], eligible[j]);
+      if (evidence.score < threshold) continue;
       pairs.push({
         a: eligible[i].id,
         b: eligible[j].id,
-        score: Math.round(score * 1000) / 1000,
-        kind: score >= 0.75 ? 'duplicate' : score >= 0.5 ? 'variant' : 'extension',
+        score: evidence.score,
+        reasons: evidence.reasons,
+        kind: evidence.score >= 0.75 ? 'duplicate' : evidence.score >= 0.5 ? 'variant' : 'extension',
       });
     }
   }
