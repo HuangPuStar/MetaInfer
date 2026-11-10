@@ -25,7 +25,7 @@
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**。
-> 总判定以 §21 为准；§20 是作者报告，不能代替独立复核。
+> 总判定以 §21 为准；§20 是作者报告，不能代替独立复核。第七轮修复复核见 **§22**（关闭 B27/C7/U14/S12/A20，87 PASS / 77 FAIL）。
 
 ### 0.1 判定口径
 
@@ -1308,3 +1308,109 @@ UI：`U1`、`U2`、`U3`、`U12`。
 - 浏览器绘制是环境性 N/A，不据此判 FAIL；但它也意味着真实 DOM/帧率没有被本轮验收。
 - 本轮没有修改生产代码；唯一改动是本文件。建议先修 B27/C7/U14 和 S12 首读预算，
   再重跑 495 checks、100k 冷读探针与真实 HTTP 生命周期探针。
+
+---
+
+## 22. 第七轮修复复核（B27 / C7 / U14 / S12）
+
+> 实现提交：`678981a`（B27+C7）、`5ce5279`（U14+A20），以及此前已落的 `S12` 冷读索引。
+> 本节的数字由本次工作区重新执行；§21 是第六轮独立报告，保留原判。
+
+### 22.1 最新总数与 delta
+
+| 判定 | §21（`ad396b7`） | §22（`5ce5279`） | 变化 |
+|---|---|---|---|
+| PASS | 82 | **87** | +5 |
+| FAIL | 82 | **77** | −5 |
+| 未测量 | 10（含 2 N/A） | **10** | 0 |
+| 合计 | 174 | **174** | — |
+
+**FAIL → PASS（5 行）**：`B27`、`C7`、`U14`、`S12`、`A20`。
+剩余 **77 FAIL** = 20 个只差文档/口径 + 57 个能力未建；3 个阻断项已清零。
+因此可以继续做文档收尾与能力建设，但**仍不能**据此宣称 174 行全部上线。
+
+### 22.2 B27：5 级验证强度
+
+`host/kernel/claims.js` 现在导出：
+
+| 等级 | 动作 | 本次证据 | 额外门槛 |
+|---|---|---|---|
+| L0 | `create_planned` | 0 | parent exists and not deferred（概念层） |
+| L1 | `defer_planned` / `apply_nomination` | 1 | — |
+| L2 | `cancel_running` | 2 | chief confirmation |
+| L3 | `prune_branch` | 3 | chief confirmation + live appeal window |
+| L4 | `delete_project` | 0 | human actor + explicit human confirmation + live appeal window |
+
+`gateClaimAction(action, stats, context)` 把「本次提交的 evidence 数」与「累计
+citation 历史」分开：`context.submitted` 是前者，`stats.total` 是后者。
+`submitIntent` 只接受 human / system / `lab-chief` 的 `chiefConfirmed`，并把
+行动门槛、human confirmation、appeal 窗口和 Wilson 下界写进 `claim.gate`。
+
+`claims-selftest.mjs` 真实 service 测试：
+
+- 一条 `nodeExists` 对 `cancel_running`、`prune_branch`、`delete_project` 全部拒绝
+  （分别为 `claim_evidence_required` / `claim_evidence_required` /
+  `human_confirmation_required`）。
+- required set 通过：cancel 2 条 + chief；prune 3 条 + chief + 未来
+  `appealUntil`；delete human + `humanConfirmed` + 未来 `appealUntil`。
+- 非 human 的 delete 返回 `human_only`；expert 不能自封 chief；缺 appeal 返回
+  `appeal_window_required`。
+
+### 22.3 C7：Wilson 下界 + 最少证据
+
+`wilsonLowerBound(successes,total,z=1.96)` 计算 clean-citation rate 的 95% 单侧下界。
+门控要求 `total >= 20` 且下界 `>= 0.80`，并继续要求原始 `failed/total < 5%`；它和
+B27 在同一个 `gateClaimAction` 调用里，不能只满足其中一条：
+
+- 20 clean、required evidence 2 + chief → PASS；
+- 19 clean → `citation_evidence_floor`；
+- 20 条中 4 失败（即使 `submitted` 够）→ `citation_confidence_too_low`；
+- 一条干净证据无法让 2/3/4 级动作通过（B27 先拒绝）。
+
+### 22.4 U14：成功/失败真值
+
+`dashboardView` 现在用 `lastSuccessAt`（不是本次失败尝试的 `endedAt`）计算年龄；
+`lastRun.status === 'error'` 无条件 stale，`staleReason='refresh_failed'`。
+成功刷新把 `lastRun.revision` 记为写入后的 project revision，并保留
+`lastRun.dataRevision` 为实际读取 revision；失败刷新保留上一次成功的
+`revision` / `lastSuccessAt`，不写入本次失败的时间或 revision。
+
+连续失败 3 次后：
+
+- `commentary.degraded = true`，widgets 带 `degraded:true`，UI 隐藏数字并显示
+  “last success” 年龄；
+- `nextRunAt` 指数退避，正常间隔 × 2^(n−1)，上限 30 分钟；
+- 顶部出现可关闭的 `role="alert"`，`failureAt` 变化后重新出现；
+- 后台失败写 `dashboard/failed` 事件，不再只有 `dashboard/partial`。
+
+`dashboard-selftest.mjs` 用真实 `refreshDashboard` 与脚本 widget 验证：
+成功时 `lastRun.revision === project.revision` 且 `dataRevision` 是读取值、非 stale；
+删掉 revision 对齐后写失败标记再刷新，仍为 stale/`refresh_failed`；连续三次失败
+`degraded` 且退避 > 正常间隔。
+
+### 22.5 S12：100k 首读
+
+`host/store.js` 新增 `timelineCache`：归档边界预热 cold+hot 合并数组，后续只把
+hot 尾部追加进去；首读不再解压/排序全部 cold 段。`scale-selftest.mjs` 造
+100,000 事件（50k hot + 5 个 10k 冷段），首读 100 条：
+
+```
+100k-event first page in 0.27 ms   (another run 0.35 ms)
+11/11 scale checks passed
+```
+
+预算 ≤50 ms，未放宽。
+
+### 22.6 回归
+
+- `npm test`：**EXIT=0**，31 个文件，**517 个 `ok`**（新增 claims 17、dashboard 3、
+  ui 1 等）。
+- `npm run bench:scale`：**EXIT=0**，11/11；新增 100k 首读断言。
+- `locale-selftest`：en/zh 均 1,375 keys，client 字典同步。
+- `ui-selftest`：12/12；新增可关闭失败告警与降级断言（仍不测真实 DOM/帧率）。
+
+### 22.7 结论
+
+**三个阻断项已关闭，S12 预算达标，A20 随之可见。** 但 174 行仍有 77 FAIL：
+20 行需要把文档/验收口径落实，57 行是 Stage 3–5 组织、争议、预算、观测与 UI 能力。
+本轮没有开始 Stage 5，也没有用文档改写替代代码证据。

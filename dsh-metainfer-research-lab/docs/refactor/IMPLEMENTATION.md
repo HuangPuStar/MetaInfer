@@ -5,7 +5,7 @@
 > 每条要么给出**文件 · 函数 · 测试**，要么写 `未完成` + 原因。状态只有「完成 / 未完成」，
 > 没有「部分完成」——部分完成的条目拆成两条。
 >
-> 分支：`refactor/v2`。测试入口：`npm test`（31 个自测文件，见文末）。
+> 分支：`refactor/v2`。测试入口：`npm test`（31 个自测文件 / 517 checks，见文末）。
 
 ## 1. 内核与写路径（B3/B5/B21/G1/G2，P1）
 
@@ -100,7 +100,7 @@
 | S9 UI 事件风暴 | 完成 | `client.js` `applyChangeDelta` + `api.fetchChanges` | 同上（合并/拒收两例） |
 | S10 增量读 | 完成 | `store.changesSince` + `/changes` | `scale-selftest.mjs` |
 | S11 分页覆盖 | 完成 | `http.js` `/state`（默认 1,000）、`/transcript`（首 200 行）、`/replay`（2,000/2,000）；MCP `list_nodes` 100 行游标、`get_node` 直取；`nodes_page`/`events_page`/`runs_page` | `surface-bounds-selftest.mjs`、`tool-surface-selftest.mjs` |
-| S12 事件增长 / 冷段 | 完成 | 同 P1.2：hot 窗口默认 50,000，超出后按 10,000 条连续段归档；归档段只读、带 checksum、永不删除；读路径对调用方透明 | `eventlog-selftest.mjs`（热/冷合并读、分页、重启续写、checksum 失败） |
+| S12 事件增长 / 冷段 | 完成 | 同 P1.2：hot 窗口默认 50,000，超出后按 10,000 条连续段归档；归档段只读、带 checksum、永不删除；`host/store.js` 的 `timelineCache` 在归档边界预热 cold+hot 合并视图，之后只追加 hot 尾部，首读不再解压/排序全部事件 | `eventlog-selftest.mjs`（热/冷合并读、分页、重启续写、checksum 失败）；`scale-selftest.mjs` 100,000 条首读 0.27–0.35 ms（预算 50 ms） |
 | S13 规模回归测试 | 完成 | `scripts/scale-selftest.mjs`（5,000 节点） | 本文件 |
 | S14 `maxNodes` 硬上限 | 完成 | `lab-service.updateProject` 1..20,000；`client.js` 向导 max 20,000 | 手工核对（无单测） |
 
@@ -139,7 +139,7 @@
 | U11b 全量文案迁移到 `locale/*.json` | 完成 | 1,371 条文案在 `locale/*.json`；JSON → 客户端单向生成；漂移测试只报错、不回写 JSON；`locale:sync` 永不改 JSON | `locale-selftest.mjs`（客户端改一个值即 RED）、`npm run locale:sync` |
 | U12 空/加载/错误三态 | 完成（Host facts/rail/canvas/inspector/专家库）/ 未完成（队列面板） | `client.js` `HostFactsCard`（loading/empty/error/retry）；`SettingsModal` 专家库 loading/error/empty + 刷新 | 手工 + `ui-selftest.mjs`/`surface-bounds-selftest.mjs` |
 | U13 agent 数据 vs Host 数据可区分 | 完成 | `lab-service.dashboardHostFacts`（唯一 Host 事实：revision/counts/resources/computedAt）；`dashboardView` 给每个 widget 标 `dataSource: host\|agent`、chat 标 `source: human\|agent`；`client.js` `.rl-dash-facts` + `.rl-dw-source` 徽标；agent 文本只出现在 commentary/widget body，不进入 hostFacts | `dashboard-selftest.mjs`（hostFacts 不含 agent prose、chat source、widget source） |
-| U14 仪表盘静默过期 | 完成 | `lab-service.dashboardView` 计算 `commentary.ageMs/stale/staleReason`（2×interval，最小 60 s）；revision drift 立即 stale；`client.js` `.rl-dash-badge-stale` 显示 “Stale · {age}”，tooltip 区分 revision_changed | `dashboard-selftest.mjs`（age、revision drift、阈值） |
+| U14 仪表盘静默过期 | 完成 | `lab-service.dashboardView` 以 `lastSuccessAt`（失败时保留上一次成功时间）计算 `ageMs/stale`；成功刷新记录写入后的 project revision 和 `dataRevision`，失败刷新保留上次成功 revision；失败状态无条件 `staleReason:'refresh_failed'`；连续 3 次失败 `degraded:true`，widget 隐藏数字并显示上次成功时间，`nextRunAt` 指数退避（上限 30 min）；`client.js` 显示可关闭 `.rl-dash-alert` | `dashboard-selftest.mjs`（成功 revision、失败对齐 revision 仍 stale、连续失败降级/退避）；`ui-selftest.mjs`（警报可关闭、失败次数） |
 | 选中节点加载全量 prompt/report | 完成 | `client.js` `api.fetchNode` + `fullNode`（state 只留索引） | `scale-selftest.mjs`（全量 prompt 仍可取） |
 
 ## 8. Stage 3–5 专家与清理
@@ -153,7 +153,8 @@
 | B20 建子节点自动撤回 defer 提名 | 完成 | `kernel/mutations.js` `node.create`：同提交把针对 parent 的 pending curate nomination 置 `withdrawn` 并发 `nomination/withdrawn{reason:child_created}`；curator 反向免疫有幼子的 parent | `experts-selftest.mjs`（真实 executor 建 child 后 parent nomination withdrawn） |
 | B24 evidence 指针与权限分级 | 完成 | 意图 claim 必带 action；描述符 `mayExecute: []`；curator 不能执行 | `intent-selftest.mjs`、`experts-selftest.mjs` |
 | 4.5 专家 hire/fire/drain | 完成 | `lab-service.hireExpert/drainExpert/fireExpert`：roster 存 `project.config.experts`；hire 拒绝 expert actor/self；drain 只置 `draining` 并保留 running；fire 要求先 drain、仍 running 返回 `expert_busy`、把未完成节点 `createdBy` 交还 human；`recallExpertFor` 只招 active；`expert_list` 返回 lifecycle；设置弹窗按状态显示 Hire/Drain/Retire | `expert-lifecycle-selftest.mjs`（15 checks：策略拒绝、hire、recall、drain 保活、busy fire、retire 移交、self-hire）；`ui-selftest.mjs` |
-| B27 7 谓词 claim 校验 + `citationErrorRate` 门控 | 完成 | `host/kernel/claims.js` `CLAIM_PREDICATES`（nodeExists/statusIs/parentOf/metricIs/textContains/countWhere/reviewedBy）逐原子验证；`verifyClaims` 返回 total/failed/rate/tier；`lab-service.submitIntent` 对 claim.evidence 先验后提交，失败写 `claim/rejected` + stats 并返回 `claim_invalid`；`IRREVERSIBLE_ACTIONS` 无证据拒绝、rate ≥5% `citation_error_rate` | `claims-selftest.mjs`（7 谓词全通过；每个谓词单独篡改均被纯函数与 submitIntent 拒绝；tier 边界 4.9/5/15/15.1%；不可逆门控） |
+| B27 7 谓词 claim 校验 + 5 级验证强度 | 完成 | `host/kernel/claims.js` `VERIFICATION_LEVELS` / `ACTION_VERIFICATION`：L0 planned=0、L1 defer=1、L2 cancel_running=2+chief、L3 prune_branch=3+chief+appeal、L4 delete_project=human+explicit confirmation+appeal；`gateClaimAction` 同时检查本次 evidence 数与行动级门槛；`lab-service.submitIntent` 只接受 human/chief 的 `chiefConfirmed`，并持久化 `claim.gate` | `claims-selftest.mjs`（5 级映射；每个不可逆动作一条证据被拒；2/3 条、chief、appeal、human confirmation 的 required set 通过） |
+| C7 Wilson 下界 + 最少证据 | 完成 | `host/kernel/claims.js` `wilsonLowerBound`（95% one-sided, z=1.96）；`MIN_CITATION_EVIDENCE=20`、`MIN_CITATION_LOWER_BOUND=0.80`；`gateClaimAction` 在 B27 行动门槛之后强制历史 clean-rate 下界与原始 rate<5%，两条门控共用一次调用 | `claims-selftest.mjs`（20 clean 通过；19 条 floor；20 条 4 失败 confidence 拒绝；B27+C7 同时不可绕过） |
 | `experts_list` / `expert_upsert` / `curator_scan` 旧名 | 完成（移除） | 旧名保持从 `ACTION_ENUM`/`ACTION_CATALOG` 删除；`expert_list`/`expert_recall`/`intent_*`/`curator_nominate`/`curator_outcome`/`curator_reset` 是三表一致的实现 | `policy-selftest.mjs`、`tool-surface-selftest.mjs`（三表一致，不残留旧名） |
 | G3 只存 id/摘要 | 完成 | `lab-service` state 瘦身、`reportText` 删除、`_truncated` |
 | G4 专家只能提议 | 完成 | 能力表 `lab-worker`/`lab-advisor` 无写权限 action |

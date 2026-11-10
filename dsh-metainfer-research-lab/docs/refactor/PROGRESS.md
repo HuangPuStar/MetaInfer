@@ -183,3 +183,14 @@
 | 浏览器绘制 | 不适用（关闭） | — | 本机 `playwright`/`puppeteer`/`chromium`/`firefox` 均不存在，GUI URL 返回 401；无法测量首屏/交互帧。按用户裁决记一次，不再列为待办 |
 
 **测试**：`npm test` 31 个文件、495 checks 全绿；`npm run bench:scale` 10/10。
+
+## 第七轮（Round 6）：先关三个阻断项 + S12
+
+| 提交 | 内容 | 证据 |
+|---|---|---|
+| `678981a` | P17.1(B27,C7) 5 级验证强度 + Wilson 下界/最少 20 条引用 | `claims-selftest` 44 checks；一条证据对 cancel/prune/delete 全拒；required set 通过；C7 floor/confidence 分别拒绝 |
+| `5ce5279` | P17.2(U14,A20) 成功刷新记录 post-write revision；失败刷新保留上次成功并永不 stale:false；可关闭告警、3 次失败降级/退避、widget 隐藏数字 | `dashboard-selftest` 10 checks；真实 `refreshDashboard` 成功/失败/连续失败；`ui-selftest` 12/12 |
+| 已落 | S12 100k 首读：`timelineCache` 归档边界预热 + hot 尾追加 | `scale-selftest` 11/11，100k 首读 0.27–0.35 ms（≤50 ms） |
+
+状态：3 个阻断项清零；S12/A20 关闭。§22 计数 **87 PASS / 77 FAIL / 10 N/A**。
+剩余 20 行只差文档/口径，57 行能力未建；本轮未开始 Stage 5。
