@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
+import { createEventArchive } from './kernel/eventlog.js';
 
 /**
  * v2 is a clean break, not an upgrade: the plugin never reads a v1 record and
@@ -151,6 +152,12 @@ export async function openStore(ctx) {
     cycles: domain.table('cycles'),
     events: domain.table('events'),
   };
+  const archive = createEventArchive({
+    root: ctx.config?.kernel?.eventArchiveRoot ?? path.join(dshHome(), 'metainfer-research-lab', 'eventlog'),
+    hotEvents: ctx.config?.kernel?.hotEvents ?? 50_000,
+    segmentSize: ctx.config?.kernel?.eventArchiveSegment ?? 10_000,
+  });
+  const coldCache = new Map();
 
   /**
    * In-memory projection of the per-project read path.
@@ -406,6 +413,8 @@ export async function openStore(ctx) {
   async function deleteProject(projectId) {
     guardWrite('deleteProject');
     indexes.delete(projectId);
+    coldCache.delete(projectId);
+    await archive.removeProject(projectId);
     const prefix = `${projectId}__`;
     for (const table of ['nodes', 'runs', 'cycles', 'events']) {
       const keys = [];
@@ -440,10 +449,19 @@ export async function openStore(ctx) {
     if (event.causeId === undefined || event.causeId === null) {
       event.causeId = `${type}:${project.id}:${seq}`;
     }
-    await tables.events.put(eventStorageKey(project.id, seq), event);
+    // Build the in-memory index before inserting the row; otherwise the first
+    // append can make buildIndexes() load the row and then push it a second time.
     const entry = indexFor(project.id);
+    await tables.events.put(eventStorageKey(project.id, seq), event);
     if ((entry.events[entry.events.length - 1]?.seq ?? 0) < seq) entry.events.push(event);
     else insertSorted(entry.events, event, (a, b) => (a?.seq ?? 0) - (b?.seq ?? 0));
+    try {
+      await archiveEvents(project.id);
+    } catch (error) {
+      // Archiving must never lose an event: on failure the hot table stays the
+      // source of truth and the next append retries.
+      ctx.logger?.warn?.(`[metainfer-lab] event archive deferred: ${error?.message ?? error}`);
+    }
     return event;
   }
 
@@ -461,6 +479,39 @@ export async function openStore(ctx) {
     if (at >= 0) entry.events.splice(at, 1);
   }
 
+  /** Archived events for one project, cached until the next archive write. */
+  function coldEvents(projectId) {
+    if (!coldCache.has(projectId)) coldCache.set(projectId, archive.readArchivedSync(projectId));
+    return coldCache.get(projectId);
+  }
+
+  function allEvents(projectId) {
+    const cold = coldEvents(projectId);
+    if (cold.length === 0) return indexFor(projectId).events;
+    const merged = [...cold, ...indexFor(projectId).events];
+    merged.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+    return merged;
+  }
+
+  /**
+   * Move the oldest complete segment out of the hot table. The segment file and
+   * its checksum are durable before any row is deleted; a failed archive write
+   * leaves the table untouched. Archived events remain readable through
+   * listEvents/pageEvents.
+   */
+  async function archiveEvents(projectId) {
+    const entry = indexFor(projectId);
+    if (entry.events.length <= archive.hotEvents) return { archived: 0, segments: (await archive.listSegments(projectId)).length };
+    const segment = entry.events.slice(0, archive.segmentSize);
+    if (segment.length === 0) return { archived: 0, segments: (await archive.listSegments(projectId)).length };
+    const descriptor = await archive.writeSegment(projectId, segment);
+    guardWrite('archiveEvent');
+    for (const event of segment) await tables.events.delete(eventStorageKey(projectId, event.seq));
+    entry.events.splice(0, segment.length);
+    coldCache.delete(projectId);
+    return { archived: segment.length, ...descriptor, segments: (await archive.listSegments(projectId)).length };
+  }
+
   function firstEventAfter(events, after) {
     let low = 0;
     let high = events.length;
@@ -474,8 +525,8 @@ export async function openStore(ctx) {
 
   /** @returns {Array<object>} events with seq > after, ascending (all of them). */
   function listEvents(projectId, after = 0) {
-    const entry = indexFor(projectId);
-    return entry.events.slice(firstEventAfter(entry.events, after)).map((event) => ({ ...event }));
+    const events = allEvents(projectId);
+    return events.slice(firstEventAfter(events, after)).map((event) => ({ ...event }));
   }
 
   /**
@@ -483,15 +534,15 @@ export async function openStore(ctx) {
    * @returns {{events: object[], nextSeq: number|null, total: number, hasMore: boolean}}
    */
   function pageEvents(projectId, { after = 0, limit = 100 } = {}) {
-    const entry = indexFor(projectId);
+    const events = allEvents(projectId);
     const size = Math.max(1, Math.min(1_000, Number.isFinite(limit) ? limit : 100));
-    const start = firstEventAfter(entry.events, after);
-    const page = entry.events.slice(start, start + size).map((event) => ({ ...event }));
-    const hasMore = start + size < entry.events.length;
+    const start = firstEventAfter(events, after);
+    const page = events.slice(start, start + size).map((event) => ({ ...event }));
+    const hasMore = start + size < events.length;
     return {
       events: page,
       nextSeq: hasMore ? (page[page.length - 1]?.seq ?? null) : null,
-      total: entry.events.length,
+      total: events.length,
       hasMore,
     };
   }
@@ -608,6 +659,8 @@ export async function openStore(ctx) {
     deleteNode,
     deleteProject,
     appendEvent,
+    archiveEvents,
+    listEventSegments: (projectId) => archive.listSegments(projectId),
     deleteEventRecord,
     listEvents,
     pageEvents,

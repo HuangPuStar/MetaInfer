@@ -34,6 +34,6 @@ export function memoryDomain({ failAfterPuts = Infinity } = {}) {
 }
 
 /** Minimal Cordis-like ctx exposing only `storageDomain`, enough for openStore(). */
-export function storeContext(domain) {
-  return { storageDomain: { open: async () => domain } };
+export function storeContext(domain, config = {}) {
+  return { storageDomain: { open: async () => domain }, config };
 }
