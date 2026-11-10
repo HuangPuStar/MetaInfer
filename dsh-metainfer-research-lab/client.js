@@ -197,20 +197,24 @@ window.__ModuleLoader__.load({
       "dashboard.commentary": "Agent 评论",
       "dashboard.computedAt": "计算于 {at}",
       "dashboard.configure": "查看 widget 运作机理",
+      "dashboard.degradedWidget": "连续刷新失败，已隐藏数字。上次成功：{age}。",
+      "dashboard.dismissAlert": "关闭提醒",
       "dashboard.dragHint": "拖动标题栏移动 widget",
       "dashboard.empty": "还没有 widget。用 Dashboard Chat 描述你想跟踪的指标。",
       "dashboard.error": "dashboard 更新失败",
       "dashboard.facts": "Host 事实",
+      "dashboard.failedAlert": "仪表盘刷新失败：{error}。当前显示 {age} 的数据。",
+      "dashboard.failedDegraded": "刷新已连续失败 {count} 次，自动重试正在退避。",
       "dashboard.formula": "计算/展示规则",
       "dashboard.fresh": "实时",
       "dashboard.generatedBy": "生成方式",
       "dashboard.hint": "Widget 通过 Dashboard Chat 添加/修改；后台按设定间隔更新，数据可由脚本或 dashboard subagent 提供。",
       "dashboard.layout": "布局",
       "dashboard.mechActivity": "读取项目活动日志最后 8 条事件。",
-      "dashboard.mechChart": "将 data?.series 中每条 series 的 points 按 x 等距、y 线性映射为折线。",
-      "dashboard.mechList": "逐项展示 data?.items。",
-      "dashboard.mechMetric": "展示 data?.value/unit/status/detail。",
-      "dashboard.mechText": "展示 data?.body（或 detail）中的文本。",
+      "dashboard.mechChart": "将 data.series 中每条 series 的 points 按 x 等距、y 线性映射为折线。",
+      "dashboard.mechList": "逐项展示 data.items。",
+      "dashboard.mechMetric": "展示 data.value/unit/status/detail。",
+      "dashboard.mechText": "展示 data.body（或 detail）中的文本。",
       "dashboard.mechanism": "运作机理",
       "dashboard.mechanismHint": "这个 widget 的数据由 Dashboard agent 或确定性脚本生成；下面说明它如何得到并展示当前结果。",
       "dashboard.query": "数据获取指令",
@@ -226,6 +230,7 @@ window.__ModuleLoader__.load({
       "dashboard.sourceAgent": "Agent",
       "dashboard.sourceHost": "Host",
       "dashboard.stale": "已过期 · {age}",
+      "dashboard.staleFailed": "刷新失败",
       "dashboard.staleRevision": "上次刷新后项目已变化",
       "dashboard.title": "仪表盘",
       "dashboard.toggle": "打开或关闭 Dashboard",
@@ -327,12 +332,12 @@ window.__ModuleLoader__.load({
       "guide.demo.log.autoReview": "advisor.reviewed · 自动评审完成",
       "guide.demo.log.autoStarted": "auto.started · 自动循环开启",
       "guide.demo.log.autoWaiting": "scheduler.queued · 资源不足，等待中",
-      "guide.demo.log.nodeCompleted": "node?.completed · 提交代码 + 报告",
-      "guide.demo.log.nodePlanned": "node?.planned · 根节点已创建",
-      "guide.demo.log.nodeStarted": "node?.started · worker 开始执行",
+      "guide.demo.log.nodeCompleted": "node.completed · 提交代码 + 报告",
+      "guide.demo.log.nodePlanned": "node.planned · 根节点已创建",
+      "guide.demo.log.nodeStarted": "node.started · worker 开始执行",
       "guide.demo.log.projectCreated": "project.created · 写入 ProjectStore",
       "guide.demo.log.traceOpened": "trajectory.opened · 查看原生会话",
-      "guide.demo.log.userApproved": "node?.approved · 人工批准",
+      "guide.demo.log.userApproved": "node.approved · 人工批准",
       "guide.demo.manual": "手动挡",
       "guide.demo.mockBadge": "模拟 UI · 0 LLM 调用",
       "guide.demo.next": "下一步",
@@ -1197,7 +1202,7 @@ window.__ModuleLoader__.load({
       "ws.native.continueClose": "关闭",
       "ws.native.continueDisabled": "当前节点状态不允许继续对话",
       "ws.native.continueError": "发送失败",
-      "ws.native.continueHint": "消息通过 node?.message 发送给该节点的 agent；历史轨迹请在 DSH 原生视图中只读查看。",
+      "ws.native.continueHint": "消息通过 node.message 发送给该节点的 agent；历史轨迹请在 DSH 原生视图中只读查看。",
       "ws.native.continueInsufficient": "资源不足：需要 {needs} · 空闲 {free}",
       "ws.native.continueNeeds": "需要 {needs} · 空闲 {free}",
       "ws.native.continuePlaceholder": "向该节点 agent 发送消息…",
@@ -1571,20 +1576,24 @@ window.__ModuleLoader__.load({
       "dashboard.commentary": "Agent commentary",
       "dashboard.computedAt": "computed {at}",
       "dashboard.configure": "Inspect widget mechanism",
+      "dashboard.degradedWidget": "Data hidden after repeated refresh failures. Last success: {age}.",
+      "dashboard.dismissAlert": "Dismiss alert",
       "dashboard.dragHint": "Drag the title bar to move this widget",
       "dashboard.empty": "No widgets yet. Describe the metrics you want in Dashboard Chat.",
       "dashboard.error": "Dashboard refresh failed",
       "dashboard.facts": "Host facts",
+      "dashboard.failedAlert": "Dashboard refresh failed: {error}. Showing data from {age}.",
+      "dashboard.failedDegraded": "Refresh has failed {count} times; automatic retries are backing off.",
       "dashboard.formula": "Computation / rendering rule",
       "dashboard.fresh": "Live",
       "dashboard.generatedBy": "Produced by",
       "dashboard.hint": "Widgets are added and edited through Dashboard Chat; the background refresh uses a script or dashboard subagent.",
       "dashboard.layout": "Layout",
       "dashboard.mechActivity": "Reads the latest 8 project activity events.",
-      "dashboard.mechChart": "Maps each series in data?.series to a line: x is evenly spaced, y is scaled linearly.",
-      "dashboard.mechList": "Renders each entry in data?.items.",
-      "dashboard.mechMetric": "Renders data?.value / unit / status / detail.",
-      "dashboard.mechText": "Renders text from data?.body (or detail).",
+      "dashboard.mechChart": "Maps each series in data.series to a line: x is evenly spaced, y is scaled linearly.",
+      "dashboard.mechList": "Renders each entry in data.items.",
+      "dashboard.mechMetric": "Renders data.value / unit / status / detail.",
+      "dashboard.mechText": "Renders text from data.body (or detail).",
       "dashboard.mechanism": "How this widget works",
       "dashboard.mechanismHint": "This widget is produced by the dashboard agent or a deterministic script; the details below explain how the current result is obtained and rendered.",
       "dashboard.query": "Data-acquisition instruction",
@@ -1600,6 +1609,7 @@ window.__ModuleLoader__.load({
       "dashboard.sourceAgent": "Agent",
       "dashboard.sourceHost": "Host",
       "dashboard.stale": "Stale · {age}",
+      "dashboard.staleFailed": "Refresh failed",
       "dashboard.staleRevision": "Project changed since the last refresh",
       "dashboard.title": "Dashboard",
       "dashboard.toggle": "Open or close the dashboard",
@@ -1701,12 +1711,12 @@ window.__ModuleLoader__.load({
       "guide.demo.log.autoReview": "advisor.reviewed · automatic review done",
       "guide.demo.log.autoStarted": "auto.started · auto loop enabled",
       "guide.demo.log.autoWaiting": "scheduler.queued · insufficient resources, waiting",
-      "guide.demo.log.nodeCompleted": "node?.completed · code + report committed",
-      "guide.demo.log.nodePlanned": "node?.planned · root created",
-      "guide.demo.log.nodeStarted": "node?.started · worker started",
+      "guide.demo.log.nodeCompleted": "node.completed · code + report committed",
+      "guide.demo.log.nodePlanned": "node.planned · root created",
+      "guide.demo.log.nodeStarted": "node.started · worker started",
       "guide.demo.log.projectCreated": "project.created · written to ProjectStore",
       "guide.demo.log.traceOpened": "trajectory.opened · native session opened",
-      "guide.demo.log.userApproved": "node?.approved · approved by human",
+      "guide.demo.log.userApproved": "node.approved · approved by human",
       "guide.demo.manual": "Manual",
       "guide.demo.mockBadge": "Mock UI · 0 LLM calls",
       "guide.demo.next": "Next",
@@ -2571,7 +2581,7 @@ window.__ModuleLoader__.load({
       "ws.native.continueClose": "Close",
       "ws.native.continueDisabled": "The current node state does not allow continuing the conversation",
       "ws.native.continueError": "Send failed",
-      "ws.native.continueHint": "Messages are delivered to this node’s agent via node?.message; read history read-only in the native DSH view.",
+      "ws.native.continueHint": "Messages are delivered to this node’s agent via node.message; read history read-only in the native DSH view.",
       "ws.native.continueInsufficient": "Insufficient resources: needs {needs} · free {free}",
       "ws.native.continueNeeds": "needs {needs} · free {free}",
       "ws.native.continuePlaceholder": "Send a message to this node’s agent…",
@@ -2977,10 +2987,15 @@ window.__ModuleLoader__.load({
       '.rl-dash-facts-label { font-size: 11px; font-weight: 600; }',
       '.rl-dash-fact { font-size: 11px; color: var(--dsw-alias-label-secondary); }',
       '.rl-dash-facts-at { margin-left: auto; font-size: 11px; color: var(--dsw-alias-label-secondary); }',
+      '.rl-dash-alert { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary) 45%, transparent); background: color-mix(in srgb, var(--dsw-alias-state-warning-primary) 10%, var(--dsw-alias-bg-layer-1)); color: var(--dsw-alias-label-primary); font-size: 12px; }',
+      '.rl-dash-alert-text { flex: 1 1 auto; min-width: 0; }',
+      '.rl-dash-alert-degraded { color: var(--dsw-alias-state-error-primary); }',
+      '.rl-dash-alert-dismiss { flex: none; border: 0; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 4px; }',
       '.rl-dash-commentary-tag { margin-left: 8px; font-size: 10px; font-weight: 400; color: var(--dsw-alias-label-secondary); }',
       '.rl-dw-source { flex: none; padding: 0 5px; border-radius: 4px; font-size: 10px; line-height: 16px; border: 1px solid var(--dsw-alias-border-l2); }',
       '.rl-dw-source-host { color: var(--dsw-alias-label-primary); }',
       '.rl-dw-source-agent { color: var(--dsw-alias-label-secondary); }',
+      '.rl-dw-degraded { margin: 8px; color: var(--dsw-alias-label-secondary); font-size: 11.5px; }',
       '.rl-dw-stale { flex: none; font-size: 10px; color: var(--dsw-alias-label-secondary); }',
       '.rl-dash-head-hint { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
       '.rl-dash-head-actions { display: flex; align-items: center; gap: 6px; flex: none; }',
@@ -8422,7 +8437,9 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'rl-dw-body' },
-          type === 'metric'
+          widget.degraded
+            ? h('p', { className: 'rl-dw-degraded' }, t('dashboard.degradedWidget', { age: dashboardAge(widget.ageMs, t) }))
+            : type === 'metric'
             ? h(
                 'div',
                 { className: 'rl-dw-metric' },
@@ -8501,6 +8518,7 @@ window.__ModuleLoader__.load({
       const [chatText, setChatText] = React.useState('');
       const [chatBusy, setChatBusy] = React.useState(false);
       const [layoutError, setLayoutError] = React.useState('');
+      const [dismissedFailureAt, setDismissedFailureAt] = React.useState(0);
       const canvasRef = React.useRef(null);
       const [configWidget, setConfigWidget] = React.useState(null);
       const load = React.useCallback(async () => {
@@ -8595,6 +8613,10 @@ window.__ModuleLoader__.load({
       const chat = asArray(dashboard?.chat);
       const lastRun = dashboard?.lastRun ?? null;
       const chatting = chatBusy || dashboard?.chatting === true;
+      const failureAt = Number(lastRun?.failedAt ?? lastRun?.endedAt ?? 0);
+      const failureCount = Number(lastRun?.consecutiveFailures ?? dashboard?.failureCount ?? 0);
+      const degraded = dashboard?.degraded === true || failureCount >= 3;
+      const showFailureAlert = lastRun?.status === 'error' && failureAt !== dismissedFailureAt;
       return h(
         'div',
         { className: 'rl-dash-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('dashboard.title') },
@@ -8607,7 +8629,9 @@ window.__ModuleLoader__.load({
             h('span', { className: 'rl-dash-head-title' }, firstString(asObject(spec).title) || t('dashboard.title')),
             h('span', {
               className: 'rl-dash-badge ' + (dashboard?.stale ? 'rl-dash-badge-stale' : 'rl-dash-badge-fresh'),
-              title: dashboard?.staleReason === 'revision_changed' ? t('dashboard.staleRevision') : '',
+              title: dashboard?.staleReason === 'revision_changed'
+                ? t('dashboard.staleRevision')
+                : dashboard?.staleReason === 'refresh_failed' ? t('dashboard.staleFailed') : '',
             }, dashboard?.stale ? t('dashboard.stale', { age: dashboardAge(dashboard?.ageMs, t) }) : t('dashboard.fresh')),
             h('span', { className: 'rl-dash-head-hint' }, t('dashboard.hint')),
             h('div', { className: 'rl-dash-head-actions' },
@@ -8620,6 +8644,22 @@ window.__ModuleLoader__.load({
               h(LabButton, { label: '✕', variant: 'ghost', title: t('dashboard.close'), onClick: onClose }),
             ),
           ),
+          showFailureAlert
+            ? h('div', { className: 'rl-dash-alert', role: 'alert' },
+                h('span', { className: 'rl-dash-alert-text' },
+                  t('dashboard.failedAlert', {
+                    error: firstString(lastRun?.error) || t('dashboard.error'),
+                    age: dashboardAge(dashboard?.ageMs, t),
+                  }),
+                  degraded ? h('span', { className: 'rl-dash-alert-degraded' }, ' ' + t('dashboard.failedDegraded', { count: failureCount })) : null),
+                h('button', {
+                  type: 'button',
+                  className: 'rl-dash-alert-dismiss',
+                  title: t('dashboard.dismissAlert'),
+                  'aria-label': t('dashboard.dismissAlert'),
+                  onClick: () => setDismissedFailureAt(failureAt),
+                }, '×'))
+            : null,
           h(
             'div',
             { className: 'rl-dash-facts', 'aria-label': t('dashboard.facts') },

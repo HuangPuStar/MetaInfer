@@ -4,6 +4,9 @@
  * current fact.
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
@@ -12,6 +15,10 @@ import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 let failed = 0;
 function check(name, fn) {
   try { fn(); console.log(`ok   ${name}`); }
+  catch (error) { failed += 1; console.log(`FAIL ${name} — ${error.message}`); }
+}
+async function checkAsync(name, fn) {
+  try { await fn(); console.log(`ok   ${name}`); }
   catch (error) { failed += 1; console.log(`FAIL ${name} — ${error.message}`); }
 }
 
@@ -94,6 +101,57 @@ check('age alone marks an agent view stale', () => {
   assert.equal(aged.staleReason, 'age');
   assert.ok(aged.commentary.ageMs > aged.commentary.staleAfterMs);
 });
+
+const refreshId = 'dash-refresh';
+const refreshRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mir-dash-refresh-'));
+const marker = path.join(refreshRoot, 'fail-marker');
+let lastGoodRevision = 0;
+const script = `if [ -f '${marker}' ]; then exit 9; else echo '{"data":{"value":"ok"}}'; fi`;
+await store.saveProject({
+  id: refreshId,
+  revision: 2,
+  counters: { eventSeq: 0 },
+  config: { resourcePools: { gpu: 1 } },
+  repo: { path: refreshRoot },
+  dashboard: {
+    spec: { title: 'R', prompt: '', intervalMinutes: 1, enabled: true },
+    widgets: [{ id: 'w1', title: 'W', type: 'text', config: { collector: 'script', script }, data: { body: 'old' }, updatedAt: old }],
+    lastRun: { status: 'ok', startedAt: old, endedAt: old, revision: 0, lastSuccessAt: old },
+  },
+  createdAt: old,
+  updatedAt: old,
+});
+kernel.load(refreshId);
+await checkAsync('a successful refresh records the revision it actually read', async () => {
+  const view = await service.refreshDashboard(refreshId, { force: true });
+  assert.equal(view.lastRun?.status, 'ok');
+  assert.equal(view.lastRun?.revision, store.getProject(refreshId).revision);
+  assert.equal(view.lastRun?.dataRevision, 2);
+  lastGoodRevision = view.lastRun?.revision;
+  assert.equal(view.commentary?.lastSuccessAt, view.lastRun?.endedAt);
+  assert.equal(view.stale, false);
+  assert.equal(view.staleReason, null);
+});
+await checkAsync('a failed refresh with aligned revisions stays stale', async () => {
+  fs.writeFileSync(marker, 'fail');
+  const view = await service.refreshDashboard(refreshId, { force: true });
+  assert.equal(view.lastRun?.status, 'error');
+  assert.equal(view.lastRun?.revision, lastGoodRevision, 'the last successful revision must not be overwritten');
+  assert.ok(view.lastRun?.lastSuccessAt > 0);
+  assert.equal(view.stale, true);
+  assert.equal(view.staleReason, 'refresh_failed');
+  assert.equal(view.commentary?.staleReason, 'refresh_failed');
+});
+await checkAsync('consecutive failures degrade and back off', async () => {
+  let view = await service.refreshDashboard(refreshId, { force: true });
+  view = await service.refreshDashboard(refreshId, { force: true });
+  assert.ok(view.lastRun?.consecutiveFailures >= 3, JSON.stringify(view.lastRun));
+  assert.equal(view.degraded, true);
+  assert.equal(view.commentary?.degraded, true);
+  assert.equal(view.widgets[0]?.degraded, true);
+  assert.ok(view.nextRunAt > Date.now() + 60_000, 'failure backoff must exceed the normal interval');
+});
+fs.rmSync(refreshRoot, { recursive: true, force: true });
 
 console.log(failed === 0 ? '\ndashboard-selftest: all checks passed' : `\ndashboard-selftest: ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

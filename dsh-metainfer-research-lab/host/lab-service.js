@@ -858,6 +858,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const dash = dashboardOf(project);
     const now = Date.now();
     const staleAfterMs = Math.max(60_000, dash.spec.intervalMinutes * 2 * 60_000);
+    const lastRun = dash.lastRun && typeof dash.lastRun === 'object' ? dash.lastRun : null;
+    const failed = lastRun?.status === 'error';
+    const consecutiveFailures = Number.isInteger(lastRun?.consecutiveFailures) ? lastRun.consecutiveFailures : 0;
+    const lastSuccessAt = Number.isFinite(lastRun?.lastSuccessAt)
+      ? lastRun.lastSuccessAt
+      : (!failed && Number.isFinite(lastRun?.endedAt) ? lastRun.endedAt : null);
+    const degraded = failed && consecutiveFailures >= 3;
     const widgets = dash.widgets.map((widget) => {
       const config = widget.config && typeof widget.config === 'object' ? widget.config : {};
       const at = Number.isFinite(widget.updatedAt) ? widget.updatedAt : null;
@@ -867,15 +874,26 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         dataSource: config.collector === 'script' || config.script ? 'host' : 'agent',
         ageMs,
         stale: at === null || ageMs > staleAfterMs,
+        degraded,
+        lastSuccessAt: at,
       };
     });
     const times = widgets.map((widget) => widget.updatedAt).filter((at) => Number.isFinite(at));
-    if (Number.isFinite(dash.lastRun?.endedAt)) times.push(dash.lastRun.endedAt);
+    if (Number.isFinite(lastSuccessAt)) times.push(lastSuccessAt);
     const commentaryAt = times.length > 0 ? Math.max(...times) : null;
     const ageMs = commentaryAt === null ? null : Math.max(0, now - commentaryAt);
-    const revisionChanged = Number.isInteger(dash.lastRun?.revision) && dash.lastRun.revision !== (project.revision ?? 0);
-    const stale = commentaryAt === null || ageMs > staleAfterMs || revisionChanged;
-    const staleReason = commentaryAt === null ? 'never_generated' : revisionChanged ? 'revision_changed' : stale ? 'age' : null;
+    const revisionChanged = Number.isInteger(lastRun?.revision) && lastRun.revision !== (project.revision ?? 0);
+    // A failed refresh is never evidence of freshness. Even when the project
+    // revision happens to match the last successful read, the attempt failed and
+    // the old commentary must stay visibly stale.
+    const stale = failed || commentaryAt === null || ageMs > staleAfterMs || revisionChanged;
+    const staleReason = failed
+      ? 'refresh_failed'
+      : commentaryAt === null
+        ? 'never_generated'
+        : revisionChanged
+          ? 'revision_changed'
+          : stale ? 'age' : null;
     return {
       projectId: project.id,
       ...dash,
@@ -884,14 +902,21 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       commentary: {
         source: 'agent',
         generatedAt: commentaryAt,
+        lastSuccessAt,
+        lastAttemptAt: Number.isFinite(lastRun?.endedAt) ? lastRun.endedAt : null,
         ageMs,
         stale,
         staleReason,
         staleAfterMs,
+        failureCount: consecutiveFailures,
+        degraded,
+        error: typeof lastRun?.error === 'string' ? lastRun.error : null,
       },
       stale,
       ageMs,
       staleReason,
+      failureCount: consecutiveFailures,
+      degraded,
     };
   }
 
@@ -1034,11 +1059,27 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }
     const task = (async () => {
       const startedAt = Date.now();
+      // The revision the refresh actually starts from. The outer `project`
+      // snapshot can predate a successful commit by two revisions; recording it
+      // made every later view look permanently revision_changed.
+      const readRevision = requireProject(projectId).revision ?? 0;
       await store.withProjectLock(projectId, async () => {
         const locked = requireProject(projectId);
+        const previous = locked.dashboard?.lastRun && typeof locked.dashboard.lastRun === 'object'
+          ? locked.dashboard.lastRun
+          : {};
         locked.dashboard = {
           ...(locked.dashboard ?? {}),
-          lastRun: { status: 'running', startedAt, revision: project.revision ?? 0, error: null },
+          lastRun: {
+            ...previous,
+            status: 'running',
+            startedAt,
+            revision: previous.revision ?? null,
+            lastSuccessAt: previous.lastSuccessAt
+              ?? (previous.status !== 'error' && Number.isFinite(previous.endedAt) ? previous.endedAt : null),
+            consecutiveFailures: previous.consecutiveFailures ?? 0,
+            error: null,
+          },
         };
         await commitProjectFields(projectId, { dashboard: locked.dashboard });
       });
@@ -1081,8 +1122,27 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       }
       const now = Date.now();
       const status = errors.length === 0 ? 'ok' : updated > 0 ? 'partial' : 'error';
+      const failed = status === 'error';
       await store.withProjectLock(projectId, async () => {
         const locked = requireProject(projectId);
+        const previous = locked.dashboard?.lastRun && typeof locked.dashboard.lastRun === 'object'
+          ? locked.dashboard.lastRun
+          : {};
+        const previousFailures = Number.isInteger(previous.consecutiveFailures) ? previous.consecutiveFailures : 0;
+        const consecutiveFailures = failed ? previousFailures + 1 : 0;
+        // Preserve the last success on failure; do not copy this attempt's
+        // revision or timestamp into the freshness inputs.
+        const lastSuccessAt = failed
+          ? (Number.isFinite(previous.lastSuccessAt)
+            ? previous.lastSuccessAt
+            : (previous.status !== 'error' && Number.isFinite(previous.endedAt) ? previous.endedAt : null))
+          : now;
+        const intervalMs = Math.max(60_000, current.spec.intervalMinutes * 60_000);
+        // Exponential backoff after total failures, capped at 30 minutes. This
+        // is the degradation: a broken dashboard stops hammering its collector.
+        const backoffMs = failed
+          ? Math.min(30 * 60_000, intervalMs * (2 ** Math.min(consecutiveFailures - 1, 4)))
+          : intervalMs;
         locked.dashboard = {
           ...(locked.dashboard ?? {}),
           spec: current.spec,
@@ -1092,22 +1152,35 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
             startedAt,
             endedAt: now,
             durationMs: now - startedAt,
-            revision: project.revision ?? 0,
+            // `readRevision` is the data snapshot; the dashboard write itself
+            // advances the project revision by one. Record the post-write
+            // revision so the view is not permanently stale against its own
+            // metadata update, and keep the actual read separately.
+            revision: failed ? (previous.revision ?? null) : ((locked.revision ?? 0) + 1),
+            dataRevision: failed ? (previous.dataRevision ?? null) : readRevision,
+            lastSuccessAt,
+            consecutiveFailures,
+            failedAt: failed ? now : (previous.failedAt ?? null),
             updated,
             errors,
             error: errors.length > 0 ? `${errors.length} widget(s) failed` : null,
           },
           updatedAt: now,
-          nextRunAt: current.spec.enabled ? now + current.spec.intervalMinutes * 60_000 : null,
+          nextRunAt: current.spec.enabled ? now + backoffMs : null,
         };
         await commitProjectFields(projectId, { dashboard: locked.dashboard }, {
-          eventType: status === 'ok' ? 'dashboard/updated' : 'dashboard/partial',
-          eventData: { updated, errors: errors.length, durationMs: now - startedAt },
+          eventType: status === 'ok' ? 'dashboard/updated' : failed ? 'dashboard/failed' : 'dashboard/partial',
+          eventData: { updated, errors: errors.length, durationMs: now - startedAt, consecutiveFailures },
         });
       });
       return dashboardView(requireProject(projectId));
     })();
     dashboardRuns.set(projectId, task);
+    // A completed run must not become a permanent memoized response: the next
+    // refresh has to collect fresh data. Keep the in-flight dedupe only.
+    task.finally(() => {
+      if (dashboardRuns.get(projectId) === task) dashboardRuns.delete(projectId);
+    }).catch(() => {});
     return task;
   }
 

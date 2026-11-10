@@ -1374,6 +1374,11 @@
     "ws.experts.actionError": "专家操作失败",
     "ws.experts.hired": "已聘用 {id}",
     "ws.experts.draining": "{id} 已进入交接；运行中的节点会继续。",
-    "ws.experts.fired": "{id} 已退休，未完成节点已交还人工。"
+    "ws.experts.fired": "{id} 已退休，未完成节点已交还人工。",
+    "dashboard.failedAlert": "仪表盘刷新失败：{error}。当前显示 {age} 的数据。",
+    "dashboard.failedDegraded": "刷新已连续失败 {count} 次，自动重试正在退避。",
+    "dashboard.dismissAlert": "关闭提醒",
+    "dashboard.staleFailed": "刷新失败",
+    "dashboard.degradedWidget": "连续刷新失败，已隐藏数字。上次成功：{age}。"
   }
 }

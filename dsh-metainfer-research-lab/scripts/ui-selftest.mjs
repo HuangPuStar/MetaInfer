@@ -165,6 +165,13 @@ await test('dashboard stale state carries an age badge', () => {
   assert.ok(source.includes("rl-dash-badge-stale"), 'stale badge is styled');
   assert.ok(source.includes("t('dashboard.stale', { age: dashboardAge"), 'stale badge includes the age');
   assert.ok(source.includes("dashboard.staleRevision"), 'revision drift has a reason');
+  assert.ok(source.includes("dashboard.staleFailed"), 'failed refresh has a reason');
+});
+await test('dashboard failure alert is dismissible and degrades', () => {
+  assert.ok(source.includes("className: 'rl-dash-alert'"), 'failure alert is rendered');
+  assert.ok(source.includes("setDismissedFailureAt(failureAt)"), 'the alert can be dismissed');
+  assert.ok(source.includes("dashboard.failedDegraded"), 'consecutive failures are called out');
+  assert.ok(source.includes("failureCount >= 3"), 'degradation starts at three failures');
 });
 
 console.log(`\n${results.length - failed}/${results.length} UI budget checks passed`);

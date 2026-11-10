@@ -1374,6 +1374,11 @@
     "ws.experts.actionError": "Expert action failed",
     "ws.experts.hired": "Hired {id}",
     "ws.experts.draining": "{id} is draining; running nodes keep going.",
-    "ws.experts.fired": "{id} is retired; unfinished nodes were handed back to the human."
+    "ws.experts.fired": "{id} is retired; unfinished nodes were handed back to the human.",
+    "dashboard.failedAlert": "Dashboard refresh failed: {error}. Showing data from {age}.",
+    "dashboard.failedDegraded": "Refresh has failed {count} times; automatic retries are backing off.",
+    "dashboard.dismissAlert": "Dismiss alert",
+    "dashboard.staleFailed": "Refresh failed",
+    "dashboard.degradedWidget": "Data hidden after repeated refresh failures. Last success: {age}."
   }
 }
