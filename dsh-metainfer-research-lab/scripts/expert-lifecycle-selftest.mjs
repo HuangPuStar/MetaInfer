@@ -8,6 +8,7 @@ import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
 import { registerAgentTool } from '../host/agent-tool.js';
 import { registerHttpRoutes } from '../host/http.js';
+import { createOperatorAuthority } from '../host/operator-token.js';
 import { actorForSession, authorizeAction } from '../host/kernel/policy.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
@@ -37,7 +38,8 @@ await kernel.executor.commit(projectId, {
     { op: 'node.create', node: { id: 'plan-1', title: 'planned work', status: 'planned', createdBy: 'lab-advisor', timestamps: { createdAt: 2 } } },
   ],
 });
-const service = createLabService({ ctx: { effect: () => {}, get: () => null, logger: { info() {}, warn() {} } }, store, kernel, git: null, runtime: null, transcript: null, orchestrator: null, auto: null, cluster: null, clusterAdmin: null });
+const operatorAuthority = createOperatorAuthority();
+const service = createLabService({ ctx: { effect: () => {}, get: () => null, logger: { info() {}, warn() {} } }, store, kernel, git: null, runtime: null, transcript: null, orchestrator: null, auto: null, cluster: null, clusterAdmin: null, operatorAuthority });
 const toolCtx = { tools: { register(definition) { toolCtx.tool = definition; return () => {}; } } };
 registerAgentTool(toolCtx, service);
 const call = async (args, exec) => JSON.parse((await toolCtx.tool.execute(args, exec)).result);
@@ -114,7 +116,8 @@ check('HTTP /disputes/classes exposes the eight-class arbiter map',
   && Object.values(classesHttp.data.classes).filter((row) => row.needsModel).length === 2,
   JSON.stringify(classesHttp));
 const openDisputeHttp = await httpRequest('disputes', {
-  method: 'POST', headers: { 'content-type': 'application/json' },
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'x-metainfer-operator': operatorAuthority.token },
   body: JSON.stringify({ projectId, type: 'resource_quantity', target: { nodeId: 'plan-1' }, rationale: 'http probe' }),
 });
 const disputeAfterHttp = await httpRequest('disputes?projectId=' + encodeURIComponent(projectId));

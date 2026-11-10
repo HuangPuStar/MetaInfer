@@ -8,8 +8,8 @@
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **119** |
-| FAIL | **45** |
+| PASS | **120** |
+| FAIL | **44** |
 | 未测量 | **10**（其中浏览器 2 行 = 不适用） |
 | 合计 | **174** |
 
@@ -30,10 +30,10 @@ B27 撤销**，不再作为 B27 的排除项。
 arbiter matrix）独立通过，**B22 仍是 FAIL**：8 类 authority 元数据正确，但
 `resolveDispute` 不执行 authority 检查，专家可对全部 8 类 `apply_change`；
 5.3.13 的 long-poll/mid-sleep 通过，但只有 30s、只识别 stalled，缺
-starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮以 §41.7 的 **119 / 45 / 10** 为准。
+starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准。
 
 > 作者第十四轮报告见 **§35**，不替代独立复核。
-> **第十七轮独立复核见 §40；第十八轮独立复核见 §41.7；当前独立总判定以 §41.7 为准：119 PASS / 45 FAIL / 10 未测量。**
+> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮独立复核见 §43；当前独立总判定以 §43 为准：120 PASS / 44 FAIL / 10 未测量。**
 > **B27 narrow release possible（含真实进程 restart）**，完整发布仍 **NO-SHIP**。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
@@ -41,7 +41,7 @@ starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 �
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
 > 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**；第十一轮作者 scope/CAS 整改见 **§30**，第十二轮独立复核（`e85b213`）见 **§30.6**；第十二轮作者 handler/canonical/CAS 整改见 **§31**，第十三轮独立复核（`4a209bc`）见 **§32**；第十三轮作者 `actorKey` 整改见 **§33**，第十四轮独立复核（`1f3e20e`）见 **§34**；作者第十五轮 B27/能力见 **§35**，第十五轮独立复核（`ef16f34`）见 **§36**。
-> 独立总判定以 **§41.7** 为准；§40 是第十七轮历史结论；§20/§22/§24/§26/§28/§29/§30/§31/§33/§35/§37 是作者报告，不能代替独立复核。§22 曾声称关闭
+> 独立总判定以 **§43** 为准；§40/§41.7 是前轮历史结论；§20/§22/§24/§26/§28/§29/§30/§31/§33/§35/§37 是作者报告，不能代替独立复核。§22 曾声称关闭
 > B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了其中 B27/U14/S12/A20 四项；
 > §24 作者报告为 112 PASS / 52 FAIL，§25 复核为 103 PASS / 61 FAIL，§27 复核为
 > **107 PASS / 57 FAIL / 10 未测量**，§28.4 复核仍为 **107 / 57 / 10**，
@@ -5792,3 +5792,225 @@ p0/p1/p2 交错；`queueRows`/`queueOrder` 按调度顺序取前 100。断言：
 作者门（见本轮最终回复）：`npm test`、`client-smoke`、新增
 `operator-ui-selftest`、`stage5-selftest`、`bench:scale`、`strict`、`plugin`、
 `b27` 全部通过。
+
+---
+
+## §43 第十九轮独立复核（HEAD `7e382bd`，2026-11-10T22:47:52+08:00 `Asia/Shanghai`）
+
+> **边界**：独立探针在 clean worktree `/tmp/r19-head/repo/dsh-metainfer-research-lab`；
+> 作者 `operator-ui-selftest` / `client-smoke` 只作为交叉检查。只改验证文档与账本，
+> 未改生产代码。真实浏览器、真实 provider、自然人独立意志、双人审批仍未测量；
+> 真实 Host process restart 未启动，token 换密钥用两个独立 `createOperatorAuthority`
+> 模拟，真实进程级 restart 仍由 B27 的独立探针覆盖。
+
+### 43.1 计数
+
+**120 PASS / 44 FAIL / 10 N/A = 174。** 与 §41.7 的 119/45 相比，**U2 从 FAIL
+转为 PASS（+1 PASS / −1 FAIL）**；**B22 仍是 FAIL**，所以本轮没有得到 121/43，
+也没有 43 行 residual。44 = **必须 14 + 应该 20 + 明确不做 10**。
+
+账本逐项仍为 174 个唯一 ID；B22 仍是唯一新增的 operator 路由缺陷，U2 已按真实
+混合优先级探针关闭。**这 44 行不是“全部已裁决 scope”**：B22 是实际安全缺陷，
+另有 13 个必须功能缺口；只有 10 个明确不做是 scope 排除。
+
+### 43.2 B22 token：resolve/arbitrate 的攻击矩阵通过
+
+Host 启动时 `index.js` 调一次 `createOperatorAuthority()`；它生成 32-byte 随机
+secret，token 为 `mir-operator.<base64url(payload)>.<HMAC-SHA256>`，payload
+含版本、`iat`、随机 nonce。验证先检查前缀/三段结构，再对 payload 重新签名，
+用 `timingSafeEqual` 比较（长度不同先拒绝），最后解析 payload 并检查版本/`iat`。
+secret 不持久化，所以新 Host 必然拒绝旧 token。
+
+独立的 8 类 authority matrix 也保持：普通 expert 与 curator 在 direct/tool 均 8/8 `forbidden_action`；`lab-arbiter` direct/tool 都只通过 `resource_quality`/`value_priority`/`scope_overlap`，`priority_inversion` 为 `human_confirmation_required`，其余 `forbidden_authority`；伪造 authority 仍 `unknown_dispute_authority`。
+
+独立探针（真实 `createLabService` + 真实 `registerHttpRoutes`）结果：
+
+| 攻击 | 结果 | 状态 |
+|---|---|---|
+| 伪造签名（改最后一字节） | `actor_required`（`verify` 侧 `operator_invalid`） | pending，未变 |
+| 截断 token（`slice(0,16)`） | `actor_required`（`operator_invalid`，malformed） | pending，未变 |
+| 上一 Host run 的 token | 新 authority `operator_invalid`；HTTP `actor_required` | pending，未变 |
+| body 内嵌 `operatorToken`/`token`，无 header | `actor_required` | pending，未变 |
+| 合法 token + 合法 dispute | `ok:true`；record `resolvedBy = {kind:'human', id:'operator', actorKey:'ak_host_…'}` | resolved |
+| 同一 actorKey 的 raiser 自裁 | `dispute_self_resolution` | pending，未变 |
+
+补充说明：
+
+- **合法 token 解析为人类**：HTTP 层把 token 映射为
+  `actorForSession({sessionId:'operator', kind:'human'})`；内部 dispute record
+  的 `resolvedBy` 带 `actorKey`。HTTP 响应经 `publicView` 去掉 `actorKey`（与
+  既有 API 的 key 隐藏规则一致），但 store 内的 record 和 `resolvedBy.actorKey`
+  独立存在。
+- **self-resolution**：用同一 token actor（同一 `actorKey`）构造的 pending
+  record，通过 `/disputes/resolve` 仍得到 `dispute_self_resolution`，未被
+  `resolved`。该测试是 kernel/service 的同一 actorKey 路径，不是拿另一个
+  session 的 display id 冒充。
+- **token 不泄露**：对 `/health`、`/state`、`/status`、`/disputes`、
+  `/disputes/classes` 带 token 请求，响应 JSON 中均不出现 token 字符串；代码中
+  也没有把 `operatorAuthority.token` 放进 service/API 的字段。
+- **owner-only/index 注入**：`index.js` 只在
+  `peer?.principal?.kind === 'owner'` 时把 `__METAINFER_OPERATOR_TOKEN__` 推入
+  `webserver/index-inject` 表；token 只出现在 `index.js` 与 client 读取处，
+  `agent-tool.js`/tool session 没有读取它。这里做的是代码路径审计，没有启动真实
+  owner 页面或真实进程 restart。
+- **header 作用域**：`/health`、`/state` 上的 token header 被忽略且无副作用；
+  `/arbitrate`、`/disputes/resolve` 上的无效 header 走 absent actor。**但**见下节。
+
+### 43.3 B22 的 operator 路由仍有两个未闭合点
+
+token 并不是所有 dispute 变更路由的凭据：
+
+1. **`/disputes/reopen` 不读 token，也没有 token 也能执行。** 已 resolved 的
+   dispute 只需新 evidence 即可被重新打开；独立调用在**没有 token**和**带合法
+   token**两种情况下都返回 `ok:true`，状态从 resolved 回到 pending，
+   `reopenedBy` 是默认 human actor。token header 在该路由上完全不起作用。这是
+   “header on a different route”的直接失败：不同路由仍能执行 human dispute
+   变更，且不需要 token。
+2. **`/disputes/sweep` 的 body `now` 可提前触发默认裁决。** 无 token 的
+   `/disputes/sweep` 带未来 `now`，把 pending dispute 变成 `resolved`，
+   `resolvedBy` 为 `{kind:'system', id:'dispute-timeout'}`，
+   `defaultApplied:true`。timeout 本身是合法系统动作，但 HTTP body 可以任意
+   把时钟拨快，等于无 token 的“默认裁决”入口。
+3. 相邻地，`POST /disputes` 的 open 也在无 token 时默认 human，虽然它只创建
+   dispute、不直接做 authority 裁决；它说明“无 token 时默认 human”的旧模式仍
+   存在于部分路由。
+
+因此 **B22 的 resolve/arbitrate token 矩阵和 UI 子项 PASS，但 operator 端到端
+仍 FAIL（必须）**。不能把“合法 token 能 resolve”当成“所有 operator 路由都
+已认证”。修复至少应让 reopen/sweep 走 token，或明确把这两个路由从 operator
+surface 移除并写进 release note；在此之前完整发布仍不能声称 B22 闭合。
+
+### 43.4 B22 UI：无 token 隐藏并解释，有 token 真实裁决
+
+作者 `operator-ui-selftest` 独立执行 **10/10**：
+
+- 无 token：不渲染 `Keep current` / `Apply change`，并显示
+  `Host-issued operator token` 说明；不是 disabled 死按钮。
+- 有 token：按钮存在；点击发出真实 POST `/arbitrate`，header 是 Host token；
+  真实 service 把 record 变为 resolved，`resolvedBy.id === 'operator'`，页面
+  显示 `by operator`。
+- 同一个 `/disputes/resolve` 用 body 伪造 `agentPreset/actorKey` 且无 header，
+  仍 `actor_required`，record 保持 pending。
+
+代码搜索中，`arbitrateDispute` 只有 `DisputeTablePanel` 一个调用点；
+`Keep current`/`Apply change` 也只在该面板渲染，没有第二个无 token 的仲裁
+控件。**B22 的 UI 子项 PASS**；整体 B22 因 43.3 的路由缺口仍 FAIL。
+
+### 43.5 U2：混合优先级 100/100，#100 在，#101 不在
+
+独立夹具与之前相同：1 running + 150 planned，planned 混排 p0/p1/p2，
+真实 `buildStatusFacts`，真实 client，UI 按 facts 的单一队列顺序渲染：
+
+```json
+{"queueRows":100,"queueOrder":100,"idsEqual":true,
+ "renderedRows":100,"rowsWithWhy":100,
+ "positions":[1,2,...,100],"has100":true,"has101":false,
+ "truncation":"showing 100 of 150 (cap 100; remaining rows are not shown)"}
+```
+
+- 100 个渲染行都有 `why`（不再有 33 行空位置/空 reason）；
+- 最后一行是 `#100`，`#101` 不存在；
+- `queueRows` 的 100 个 `nodeId` 与 `queueOrder` **逐项完全相等**；
+- state 顺序和 queue 顺序**双向不一致**的夹具也跑了：本夹具中
+  “queue 早于 state”有 3675 对，“state 早于 queue”有 1275 对（例如 q2/q4
+  与 q2/q3），所以不是只修了单向排序；
+- 5k facts 仍为 **13,509 B < 16 KB**（bench 11/11），`_truncated.queueOrder =
+  {shown:100,total:5000}`。
+
+**U2 PASS。** 唯一保留的边界是真实浏览器绘制/FPS（N/A 行）未测，不影响这个
+DOM/why/position/truncation 判定。
+
+### 43.6 账本
+
+- 本轮开始时账本仍是 **119 PASS / 45 FAIL / 10 N/A**，B22 和 U2 都标 FAIL；
+  174 个 ID 唯一，45 = 15/20/10。
+- 独立重放后：**U2 → PASS；B22 仍 FAIL**。所以账本更新为
+  **120 PASS / 44 FAIL / 10 N/A**，`44 = 14 必须 + 20 应该 + 10 明确不做`。
+- **没有 43 行 residual**：只有 B22 和 U2 同时 PASS 才会有 121/43；本轮 B22
+  的 reopen/sweep 路由缺口使其不能 PASS，因此保留 14 个必须行。
+- 账本中 B22 仍是 FAIL（必须），U2 已是 PASS；174 行总数不变。
+
+### 43.7 回归
+
+| 检查 | 独立结果 |
+|---|---|
+| `npm test` | EXIT 0；**792 ok / 0 FAIL** |
+| `bench:scale` | **11/11**；5k facts **13,509 B < 16 KB**；100k first page <50 ms |
+| `strict-writes-selftest` | **17 ok**；成功 bypass **0** |
+| `client-smoke` | **45/45** |
+| `operator-ui-selftest` | **10/10** |
+| `plugin-smoke` | **5/5** |
+| `b27-restart-selftest` | **11/11** |
+| `wiring-selftest` | **8/8** |
+| U14 独立 partial | `status=partial`、3 errors、`degraded=true`、`staleReason=refresh_partial` |
+| S12 | `eventlog-selftest` **7/7**；bench 100k 首读 <50 ms |
+
+### 43.8 发布判断
+
+**B22 仍未闭合，完整发布仍 NO-SHIP。** U2 的关闭消除了一个必须缺陷，但
+`/disputes/reopen` 的无 token human 变更和 `/disputes/sweep` 的 body-controlled
+default 裁决意味着 operator surface 仍不完整；在修复前不能把 B22 标 PASS。
+
+**窄发布（narrow release）现在不能仅凭 B22/U2 宣布可发布**：若 release 范围
+明确排除 dispute reopen/sweep，并且 owner 接受剩余 14 个必须缺口，才可以讨论
+一个显式限定的 narrow release；当前没有这个限定，故结论是 **NO-SHIP**。
+
+---
+
+## §44 作者第十九轮响应：dispute 路由清单与默认 human 关闭
+
+### 44.1 完整 dispute/operator 路由清单
+
+`host/http.js` 现在导出 `DISPUTE_ROUTE_POLICY`，把清单放在注册代码旁边；测试逐路径比较导出的清单和 `registerHttpRoutes` 实际注册的路径，避免只修被点名的两个实例。
+
+| 方法 | 路径 | token | 策略 |
+|---|---|---|---|
+| GET | `/disputes` | 不需要 | 只读；不铸造 actor |
+| POST | `/disputes` | **需要** | operator-token；无 token 为 `actor_required`，不创建行 |
+| GET | `/disputes/classes` | 不需要 | 只读 |
+| POST | `/disputes/resolve` | **需要** | operator-token；内部仍走 authority gate |
+| POST | `/disputes/reopen` | **需要** | operator-token；另需与 resolver 不同的 actor |
+| POST | `/disputes/sweep` | 拒绝 | scheduler-only；HTTP 一律 `forbidden_action` |
+| POST | `/arbitrate` | **需要** | operator-token；与 resolve 共用 authority gate |
+
+这张表就是完整的 dispute/operator HTTP 面；没有第二个创建、重新打开或超时裁决的 HTTP 入口。
+
+### 44.2 `/disputes/reopen`
+
+- HTTP 只从 `x-metainfer-operator` 取 token，并映射为已验证的 human actor；无 token 直接 `actor_required`，resolved 行保持 resolved。
+- `openDispute`、`reopenDispute` 服务入口删除了 `actorFromToolExecution(exec) ?? actorForSession({sessionId:'operator'})` 的默认 human fallback；没有 exec 就没有 human authority。agent tool 仍以真实 DSH session 作为 actor。
+- 重开前先校验 evidence（保持既有 `dispute_reopen_requires_new_evidence`），再要求：
+  - 原 resolver 与 reopener 都有 Host key（或都无语义 key）且可比；
+  - 两者不是同一个 actor，否则 `dispute_reopen_requires_different_actor`；
+  - 原 resolver 是 system timeout 时豁免，因为这不是 human 裁决。
+- 因此 resolver 不能用同一个 token 重开自己的裁决；换一个 human/tool session 才能重开。已验证 `resolvedBy=route-resolver` 时 operator token 可重开，而 `resolvedBy=operator` 时同一 token 被拒。
+
+### 44.3 `/disputes/sweep`：scheduler-only
+
+HTTP 端点不再读取 body，也不再调用 `sweepDisputes`；它返回命名拒绝：
+
+```json
+{"ok":false,"error":{"code":"forbidden_action",
+ "message":"dispute timeout sweep is scheduler-only; the HTTP surface does not accept a caller clock",
+ "nextStep":"let the scheduler sweep overdue disputes; use the dispute table to inspect pending rows"}}
+```
+
+服务层 `sweepDisputes(projectId)` 的时钟固定为 `Date.now()`，不再接受 `{now}`；调度器/`dispatchOnceAction` 是唯一调用路径。未来 `now` 与过去 `now` 都不能提前或延后超时裁决。
+
+### 44.4 验证探针
+
+新增 `scripts/dispute-route-selftest.mjs`（已加入 `npm test`），11/11：
+
+- 导出清单与实际注册路径完全一致；
+- GET 表/class 无 token 可读；
+- `POST /disputes` 无 token `actor_required` 且 create 0 行；有 token 成功；
+- `POST /disputes/reopen` 无 token `actor_required` 且保持 resolved；有 token 且 resolver 不同则回到 pending，`reopenedBy.id=operator`；
+- 同 token 的 resolver 重开自己裁决被 `dispute_reopen_requires_different_actor` 拒绝；
+- `POST /disputes/sweep` 的 future `now` 与 past `now` 都是 `forbidden_action`，pending 行不变（带不带 token 都一样）；
+- 直接调用 `sweepDisputes(...,{now:future})` 也忽略调用方时钟。
+
+`npm test` 现为 **804 ok / 0 FAIL**；账本仍按 §43 为 **120 PASS / 44 FAIL / 10 N/A**，B22 仍标 FAIL（必须），等待独立重放；U2 维持 PASS。
+
+### 44.5 边界
+
+这次只把 **dispute/operator HTTP 面**收口，没有把 `/rotations`、`/retrospective`、`/commands` 等其它 human-control 路由改成 token-gated；它们不属于 dispute 路由清单，若下一轮要求“所有 operator 写路由”需要单独列清单和迁移，不能声称本清单覆盖它们。

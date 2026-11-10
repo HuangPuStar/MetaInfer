@@ -4385,7 +4385,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   async function openDispute(projectId, input = {}, exec = null) {
     const project = requireProject(projectId);
-    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    // Opening a dispute records its raiser. HTTP passes only a verified
+    // operator actor (or null); an absent caller must not become a human by
+    // default. Agent tool calls still arrive with their DSH session.
+    const actor = actorFromDisputeExecution(exec);
+    if (!actor) return rejection('actor_required', 'openDispute requires an authenticated actor; an absent caller is not the operator');
     const now = Date.now();
     const budget = Number(project?.config?.disputes?.budgetPerEpoch);
     if (Number.isFinite(budget) && budget >= 0) {
@@ -4462,12 +4466,28 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const project = requireProject(projectId);
     const current = (Array.isArray(project.disputes) ? project.disputes : []).find((row) => row.id === disputeId);
     if (!current) return rejection('dispute_not_found', `unknown dispute: ${disputeId}`);
-    const actor = actorFromToolExecution(exec) ?? actorForSession({ sessionId: 'operator' });
+    const actor = actorFromDisputeExecution(exec);
+    if (!actor) return rejection('actor_required', 'reopenDispute requires an authenticated actor; an absent caller is not the operator');
     let reopened;
     try {
       reopened = reopenDisputeRecord(current, { evidence: input.evidence, by: actor }, Date.now());
     } catch (error) {
       return rejection(error?.code ?? 'invalid_dispute_reopen', error?.message ?? String(error));
+    }
+    // Re-opening is a fresh decision about a resolution. The resolver cannot
+    // be the only participant in that challenge: require a comparable, and
+    // different, actor whenever the record names one. A system timeout is
+    // deliberately exempt because it is not a human decision.
+    const priorResolver = current.resolvedBy;
+    if (priorResolver && typeof priorResolver === 'object' && priorResolver.kind !== 'system') {
+      const priorKey = actorKeyOf(priorResolver);
+      const nextKey = actorKeyOf(actor);
+      if (Boolean(priorKey) !== Boolean(nextKey)) {
+        return rejection('dispute_reopen_actor_not_comparable', 'dispute resolver and reopener identities are not comparable');
+      }
+      if (sameActor(priorResolver, actor)) {
+        return rejection('dispute_reopen_requires_different_actor', 'a dispute resolver cannot reopen their own resolution');
+      }
     }
     const result = await commitMutations(projectId, [{
       op: 'dispute.reopen',
@@ -4477,9 +4497,15 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return publicView({ ok: true, projectId, dispute: reopened, revision: store.getProject(projectId)?.revision ?? null });
   }
 
-  /** Production timeout sweep: every overdue pending dispute applies keep_current. */
-  async function sweepDisputes(projectId, { now = Date.now() } = {}) {
+  /**
+   * Production timeout sweep: every overdue pending dispute applies
+   * keep_current. The clock is always Host time; no caller (and no HTTP body)
+   * can advance it. This method is called by the scheduler, not exposed as an
+   * HTTP mutation.
+   */
+  async function sweepDisputes(projectId) {
     const project = requireProject(projectId);
+    const now = Date.now();
     const pending = (Array.isArray(project.disputes) ? project.disputes : [])
       .filter((row) => row.status === 'pending' && Number.isFinite(row.deadlineAt) && row.deadlineAt <= now);
     if (pending.length === 0) return { ok: true, projectId, timedOut: [] };

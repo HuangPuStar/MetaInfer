@@ -17,6 +17,25 @@ import { publicView } from './kernel/actors.js';
 import { actorForSession } from './kernel/policy.js';
 
 const PREFIX = '/api/metainfer-research-lab';
+
+/**
+ * Explicit inventory of the dispute/operator HTTP surface. This is kept next
+ * to the registrations so a review can compare the complete set instead of
+ * spotting individual routes. `read-only` routes never mint an actor;
+ * `operator-token` routes pass only a server-verified human actor;
+ * `refused` routes are registered to return a named refusal so a caller
+ * cannot mistake absence for an alternate credential path.
+ */
+export const DISPUTE_ROUTE_POLICY = Object.freeze([
+  Object.freeze({ method: 'GET', path: '/disputes', policy: 'read-only' }),
+  Object.freeze({ method: 'POST', path: '/disputes', policy: 'operator-token' }),
+  Object.freeze({ method: 'GET', path: '/disputes/classes', policy: 'read-only' }),
+  Object.freeze({ method: 'POST', path: '/disputes/resolve', policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: '/disputes/reopen', policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: '/disputes/sweep', policy: 'refused', reason: 'scheduler-only' }),
+  Object.freeze({ method: 'POST', path: '/arbitrate', policy: 'operator-token' }),
+]);
+
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
   'cache-control': 'no-store',
@@ -223,7 +242,7 @@ export function registerHttpRoutes(ctx, service) {
       }));
     }
     const body = await readJsonBody(request);
-    return okResult(await service.openDispute(body.projectId, body, null));
+    return okResult(await service.openDispute(body.projectId, body, operatorActor(request, service)));
   });
 
   route(`${PREFIX}/disputes/resolve`, ['POST'], async (request) => {
@@ -236,13 +255,19 @@ export function registerHttpRoutes(ctx, service) {
 
   route(`${PREFIX}/disputes/reopen`, ['POST'], async (request) => {
     const body = await readJsonBody(request);
-    return okResult(await service.reopenDispute(body.projectId, body.disputeId, body, null));
+    return okResult(await service.reopenDispute(body.projectId, body.disputeId, body, operatorActor(request, service)));
   });
 
-  route(`${PREFIX}/disputes/sweep`, ['POST'], async (request) => {
-    const body = await readJsonBody(request);
-    return okResult(await service.sweepDisputes(body.projectId, { now: body.now }));
-  });
+  // Timeout adjudication is a scheduler action. Refuse it on HTTP instead of
+  // allowing a caller-supplied clock to decide when a pending dispute expires.
+  route(`${PREFIX}/disputes/sweep`, ['POST'], async () => json({
+    ok: false,
+    error: publicView({
+      code: 'forbidden_action',
+      message: 'dispute timeout sweep is scheduler-only; the HTTP surface does not accept a caller clock',
+      nextStep: 'let the scheduler sweep overdue disputes; use the dispute table to inspect pending rows',
+    }),
+  }));
 
   route(`${PREFIX}/budgets`, ['GET'], async (request) => {
     const params = query(request);

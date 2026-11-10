@@ -42,6 +42,7 @@ const service = createLabService({
 });
 const human = { agent: { session: { id: 'b22-human' } } };
 const secondHuman = { agent: { session: { id: 'b22-second-human' } } };
+const thirdHuman = { agent: { session: { id: 'b22-third-human' } } };
 
 check('the eight conflict classes map to an authority, and only two ask a model',
   Object.keys(DISPUTE_CLASS_MAP).length === 8
@@ -122,11 +123,18 @@ const reopened = await service.reopenDispute(projectId, opened.dispute.id, { evi
 check('reopening without new evidence is rejected',
   reopened.ok === false && reopened.error?.code === 'dispute_reopen_requires_new_evidence', JSON.stringify(reopened));
 
-const reopenedOk = await service.reopenDispute(projectId, opened.dispute.id, {
+const sameResolver = await service.reopenDispute(projectId, opened.dispute.id, {
   evidence: [{ nodeId: 'branch-a', field: 'needs.gpu', quote: '8' }],
 }, secondHuman);
-check('reopening with new evidence returns a fresh pending record',
-  reopenedOk.ok === true && reopenedOk.dispute.status === 'pending' && reopenedOk.dispute.evidence.length === 2,
+check('the resolver cannot reopen their own resolution',
+  sameResolver.ok === false && sameResolver.error?.code === 'dispute_reopen_requires_different_actor', JSON.stringify(sameResolver));
+
+const reopenedOk = await service.reopenDispute(projectId, opened.dispute.id, {
+  evidence: [{ nodeId: 'branch-a', field: 'needs.gpu', quote: '8' }],
+}, thirdHuman);
+check('a different actor can reopen with new evidence into a fresh pending record',
+  reopenedOk.ok === true && reopenedOk.dispute.status === 'pending' && reopenedOk.dispute.evidence.length === 2
+  && reopenedOk.dispute.reopenedBy?.id === 'b22-third-human',
   JSON.stringify(reopenedOk.dispute));
 
 const timed = await service.openDispute(projectId, {
@@ -135,7 +143,7 @@ const timed = await service.openDispute(projectId, {
   target: { nodeId: 'branch-a' },
 }, human);
 await new Promise((resolve) => setTimeout(resolve, 60));
-const swept = await service.sweepDisputes(projectId, { now: Date.now() });
+const swept = await service.sweepDisputes(projectId);
 check('an overdue dispute applies keep_current by timeout',
   swept.ok === true && swept.timedOut.includes(timed.dispute.id)
   && service.listDisputes(projectId).disputes.find((row) => row.id === timed.dispute.id)?.resolution === 'keep_current'
