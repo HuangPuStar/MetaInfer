@@ -83,11 +83,15 @@ export function isDispatchableClass(priority) {
  *
  * @param {Array<object>} nodes candidates (each with `priority.by` as source)
  * @param {Map<string, {gpuSeconds: number, weight?: number}>} usageBySource
- * @param {{ slotSeconds?: number }} [options] nominal cost of one slot (default 3600)
- * @returns {Array<object>} a new, ordered array
+ * @param {{ slotSeconds?: number, limit?: number }} [options] nominal cost of one slot (default 3600)
+ *   and an optional cap on the returned prefix. The cap is a real optimisation:
+ *   the dispatcher only needs the next `maxStartsPerRound` nodes, and a full
+ *   order of 500+ candidates costs O(n²) priority normalisations on the hot path.
+ * @returns {Array<object>} a new, ordered array (at most `limit` entries)
  */
 export function fairOrder(nodes, usageBySource = new Map(), options = {}) {
   const slotSeconds = Number.isFinite(options.slotSeconds) && options.slotSeconds > 0 ? options.slotSeconds : 3600;
+  const limit = Number.isFinite(options.limit) && options.limit >= 0 ? Math.floor(options.limit) : Infinity;
   const weightOf = (source) => {
     const weight = usageBySource.get(source)?.weight;
     return weight && weight > 0 ? weight : 1;
@@ -102,7 +106,7 @@ export function fairOrder(nodes, usageBySource = new Map(), options = {}) {
   const pending = [...nodes];
   const bump = new Map();
   const out = [];
-  while (pending.length > 0) {
+  while (pending.length > 0 && out.length < limit) {
     let bestIndex = 0;
     for (let index = 1; index < pending.length; index += 1) {
       const candidate = pending[index];

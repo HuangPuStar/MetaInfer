@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node scripts/runnable-selftest.mjs && node scripts/advisor-merge-selftest.mjs && node scripts/kernel-selftest.mjs && node scripts/gang-planner-selftest.mjs && node scripts/dispatch-selftest.mjs && node scripts/migrate-domain-selftest.mjs && node scripts/cluster-fleet-selftest.mjs && node scripts/placement-selftest.mjs",
+    "test": "node scripts/runnable-selftest.mjs && node scripts/advisor-merge-selftest.mjs && node scripts/kernel-selftest.mjs && node scripts/gang-planner-selftest.mjs && node scripts/dispatch-selftest.mjs && node scripts/dispatch-once-selftest.mjs && node scripts/migrate-domain-selftest.mjs && node scripts/cluster-fleet-selftest.mjs && node scripts/placement-selftest.mjs",
     "sim:gang": "node scripts/sim/gang-starvation.mjs"
   },
   "description": "DSH research-experiment IDE plugin: DAG of editable prompt + git worktree + subagent sessions; advisor/scheduler, auto/confirm modes, GC, multi-parent merge, reviewer panel, per-node model/effort+attempts+cost, token/cost budgets, lightweight multi-instance whole-GPU cluster coordinator, push (M0–V3). remote GPU fleet over SSH/containers/NFS (V6). natural-language GPU placement policy (V7). native DSH trajectory reuse (V8). Windows host/fleet compatibility (V9). UI return/default prompts/dropdowns (V10). background expert live visibility + project Copilot (V11). embedded native Copilot drawer (V12).",

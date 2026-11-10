@@ -14,6 +14,7 @@
  */
 import { fairOrder } from '../kernel/priority.js';
 import { leaseRequestId } from './types.js';
+import { dispatchRound } from './round.js';
 
 const WAKE_TYPES = [
   'node/*',
@@ -48,32 +49,22 @@ export function createDeterministicStrategy({
 
   async function round() {
     const { projectId, view } = ctx;
-    const candidates = fairOrder(view.runnable(projectId, ctx.clock()), usageBySource());
-    let starts = 0;
-    for (const node of candidates) {
-      if (stopped || starts >= maxStartsPerRound) break;
-      const request = requestFor(projectId, node);
-      const broker = ctx.brokerFor(request);
-      let result;
-      try {
-        result = await broker.acquire(request);
-      } catch (error) {
-        lastOutcome.set(node.id, { status: 'error', message: String(error?.message ?? error) });
-        continue;
-      }
-      lastOutcome.set(node.id, { status: result.status, reason: result.reason ?? null, startAt: result.startAt ?? null });
-      if (result.status !== 'granted') continue;
-      const decision = await ctx.submit({
-        kind: 'start',
-        nodeId: node.id,
-        lease: result.lease,
-        basis: node.rev ?? 0,
-        reason: `deterministic: class=${node.priority?.class ?? 'p2'} rank=${starts + 1}`,
-        idempotencyKey: `start:${request.requestId}`,
-      });
-      if (decision.ok) starts += 1;
-    }
-    return starts;
+    const candidates = fairOrder(view.runnable(projectId, ctx.clock()), usageBySource(), {
+      // Backfill needs a little slack beyond the start budget: a queued broker
+      // answer for the head must not stop the round from filling smaller nodes.
+      limit: Math.max(maxStartsPerRound * 4, maxStartsPerRound),
+    });
+    const result = await dispatchRound({
+      projectId,
+      candidates,
+      requestFor,
+      brokerFor: (request) => ctx.brokerFor(request),
+      submit: (decision) => ctx.submit(decision),
+      maxStarts: maxStartsPerRound,
+      shouldStop: () => stopped,
+      lastOutcome,
+    });
+    return result.started;
   }
 
   function wake() {
