@@ -20,6 +20,7 @@ const NEXT_STEPS = Object.freeze({
   appeal_not_resolved: 'The target was appealed and the appeal was withdrawn, not resolved. Obtain an explicit resolution by a different human/system actor; the appeal TTL never clears a withdrawal.',
   appeal_window_caller_supplied: 'Do not send appealUntil; the Host computes the cooling-off window from the appeal record.',
   intent_action_mismatch: 'An appeal intent and claim.action must both name the appeal action; an action intent must carry the action it asks to perform.',
+  appeal_target_mismatch: 'An appeal must name the exact target node and the exact action it authorizes. An unscoped or differently-scoped appeal cannot authorize or resolve any irreversible action.',
   appeal_expired: 'The appeal window has expired; submit a new appeal with a fresh basis if the objection still holds.',
   intent_not_pending: 'This intent is no longer pending; list intents to see its current status.',
   appeal_pending: 'An appeal is open against this target. Wait for it to be withdrawn/expired, or ask the chief/human to resolve it before retrying.',

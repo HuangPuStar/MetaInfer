@@ -27,7 +27,7 @@ import { normalizePriority } from './kernel/priority.js';
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
 import { actorFromToolExecution } from './kernel/policy.js';
 import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
-import { ACTION_VERIFICATION, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
+import { ACTION_VERIFICATION, IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
 import { recallExperts } from './experts/similarity.js';
 import { applyNomination, createCurator } from './experts/curator.js';
@@ -3399,24 +3399,28 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
    * nor extend a cooling-off period, and a withdrawal does not erase the fact
    * that the target was appealed during this window.
    */
+  function appealActionOf(claim, input = null) {
+    const candidates = [
+      claim?.targetAction,
+      claim?.actionOnTarget,
+      claim?.forAction,
+      claim?.actionToAuthorize,
+      claim?.authorizedAction,
+      claim?.target && typeof claim.target === 'object' ? claim.target.action : null,
+      claim?.authorization && typeof claim.authorization === 'object' ? claim.authorization.action : null,
+      claim?.authorizes && typeof claim.authorizes === 'object' ? claim.authorizes.action : null,
+      claim?.scope && typeof claim.scope === 'object' ? claim.scope.action : null,
+      input?.targetAction,
+      input?.actionOnTarget,
+      input?.target && typeof input.target === 'object' ? input.target.action : null,
+      input?.action,
+    ];
+    return candidates.find((value) => typeof value === 'string' && value.length > 0) ?? null;
+  }
+
   function appealState(project, target, action, actor, now = Date.now()) {
-    const applies = (candidate) => {
-      // A manufactured `kind:'appeal'` record with another claim action is not
-      // an appeal. Requiring both fields here means it cannot open a window or
-      // borrow the appeal register.
-      if (candidate?.kind !== 'appeal' || candidate?.claim?.action !== 'appeal') return false;
-      // Deleting the project is project-wide: any appeal in the project is
-      // evidence that the project was under objection.
-      if (action === 'delete_project') return true;
-      const appealTarget = candidate.target ?? {};
-      if (!appealTarget.nodeId && !appealTarget.intentId && !appealTarget.parentId) return true;
-      if (target?.nodeId && appealTarget.nodeId === target.nodeId) return true;
-      if (target?.intentId && appealTarget.intentId === target.intentId) return true;
-      if (target?.parentId && appealTarget.parentId === target.parentId) return true;
-      return false;
-    };
-    const rows = (Array.isArray(project.intents) ? project.intents : [])
-      .filter(applies)
+    const records = (Array.isArray(project.intents) ? project.intents : [])
+      .filter((candidate) => candidate?.kind === 'appeal' && candidate?.claim?.action === 'appeal')
       .map((intent) => {
         // `expiresAt` is written by createIntent on the Host; `at` is the
         // opened timestamp and is the fallback for legacy records. Neither is
@@ -3425,19 +3429,36 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         const expiresAt = Number.isFinite(intent.expiresAt) ? intent.expiresAt : null;
         return {
           intent,
+          targetNodeId: typeof intent.target?.nodeId === 'string' && intent.target.nodeId ? intent.target.nodeId : null,
+          targetAction: appealActionOf(intent.claim),
           until: expiresAt !== null ? expiresAt : (openedAt !== null ? openedAt + INTENT_TTL_MS : null),
         };
       });
-    const live = rows.filter((row) => row.until !== null && row.until > now);
-    const pending = live.some((row) => row.intent.status === 'pending');
-    // Withdrawal is not a hearing and does not become permission when the
-    // original TTL passes. It stays unresolved until a different actor writes
-    // an explicit resolution. This single predicate is used for the block and
-    // for the window decision below, so expiry cannot clear one but not the
-    // other.
-    const unresolved = rows.some((row) => row.intent.status === 'withdrawn');
-    const windowed = rows.filter((row) => row.until !== null && (row.intent.status === 'resolved' || row.intent.status === 'pending'));
-    const confirmation = rows.find((row) => {
+    const scoped = records.filter((row) => row.targetNodeId !== null && row.targetAction !== null);
+    const malformed = records.length !== scoped.length;
+    const targetRows = target?.nodeId
+      ? scoped.filter((row) => row.targetNodeId === target.nodeId)
+      : [];
+    const exactRows = target?.nodeId
+      ? targetRows.filter((row) => row.targetAction === action)
+      : [];
+    const pending = targetRows.some((row) => row.intent.status === 'pending' && row.until !== null && row.until > now);
+    // A withdrawn appeal is not a hearing and does not become permission when
+    // the original TTL passes. It stays unresolved until a different actor
+    // writes an explicit resolution. This single predicate is used for the
+    // block and for the window decision below, so expiry cannot clear one but
+    // not the other.
+    const unresolved = targetRows.some((row) => row.intent.status === 'withdrawn');
+    const windowed = exactRows.filter((row) => row.until !== null && (row.intent.status === 'resolved' || row.intent.status === 'pending'));
+    const exactResolved = exactRows.some((row) => row.intent.status === 'resolved');
+    // Any resolved appeal that is not exactly this target+action is a
+    // differently-scoped record, not a wildcard authorization. The error is
+    // deliberately distinct so a caller can tell "no appeal" from "wrong
+    // appeal".
+    const foreignResolved = scoped.some((row) => row.intent.status === 'resolved'
+      && (row.targetNodeId !== target?.nodeId || row.targetAction !== action));
+    const targetMismatch = malformed || (foreignResolved && !exactResolved);
+    const confirmation = exactRows.find((row) => {
       if (row.intent.status !== 'resolved') return false;
       // A resolution that rejects the objection is not a confirmation to
       // execute. Only the affirmative resolution opens the human gate.
@@ -3447,24 +3468,27 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       if (typeof by.id !== 'string' || !by.id) return false;
       if (typeof actor?.id !== 'string' || !actor.id) return false;
       if (typeof row.intent.actor?.id !== 'string' || !row.intent.actor.id) return false;
-      // The resolver must be a different actor from both the requester and
-      // the actor who raised the appeal.
+      // Raiser, requester and resolver are three distinct actors. Comparing
+      // only the resolver to the raiser let a requester who raised the appeal
+      // authorize itself.
       if (by.id === actor.id) return false;
       if (by.id === row.intent.actor.id) return false;
+      if (row.intent.actor.id === actor.id) return false;
       return true;
     });
     // The same unresolved predicate gates both outcomes: while any withdrawn
     // appeal remains unresolved, neither a positive window nor a resolution
     // from another appeal can let the action through.
-    const hasWindow = !unresolved && windowed.length > 0;
+    const hasWindow = !unresolved && !targetMismatch && windowed.length > 0;
     return {
       pending,
       unresolved,
+      targetMismatch,
       // A corrupt/legacy appeal without a Host timestamp cannot grant a
       // window; and a withdrawn appeal has no window until it is resolved.
       hasWindow,
       until: hasWindow ? Math.max(...windowed.map((row) => row.until ?? 0)) : null,
-      humanConfirmation: confirmation
+      humanConfirmation: confirmation && !targetMismatch
         ? { appealId: confirmation.intent.id, by: confirmation.intent.resolvedBy }
         : null,
     };
@@ -3491,7 +3515,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (input?.appealUntil !== undefined || input?.claim?.appealUntil !== undefined) {
       return rejection('appeal_window_caller_supplied', 'appealUntil is computed by the Host from the appeal record; remove it from the request');
     }
-    const target = input?.target && typeof input.target === 'object'
+    let target = input?.target && typeof input.target === 'object'
       ? {
           nodeId: input.target.nodeId ?? input?.nodeId ?? null,
           parentId: input.target.parentId ?? input?.parentId ?? null,
@@ -3500,9 +3524,6 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       : (input?.nodeId || input?.parentId || input?.intentId
         ? { nodeId: input.nodeId ?? null, parentId: input.parentId ?? null, intentId: input.intentId ?? null }
         : null);
-    if (target?.nodeId && !store.getNode(projectId, target.nodeId)) {
-      return rejection('node_not_found', `unknown node: ${target.nodeId}`);
-    }
     let claim = input?.claim;
     // Confirmation is a Host-derived record, never a claim field. Strip any
     // caller-authored copy before it can reach the intent log.
@@ -3518,6 +3539,44 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     // the write boundary so it cannot create a Host window later.
     if (kind === 'appeal' && claim?.action !== 'appeal') {
       return rejection('intent_action_mismatch', 'an intent with kind "appeal" must carry claim.action "appeal"');
+    }
+    // An appeal authorizes exactly one (target node, action) pair. Unscoped
+    // appeals are not a wildcard; they are rejected at the write boundary.
+    if (kind === 'appeal') {
+      const scopeAction = appealActionOf(claim, input);
+      const claimTarget = claim?.target;
+      const authorization = claim?.authorization ?? claim?.authorizes;
+      const scope = claim?.scope;
+      const scopeNodeId = (typeof claimTarget === 'string' ? claimTarget : null)
+        ?? (claimTarget && typeof claimTarget === 'object' ? claimTarget.nodeId : null)
+        ?? (typeof claim?.targetNodeId === 'string' ? claim.targetNodeId : null)
+        ?? (typeof claim?.nodeId === 'string' ? claim.nodeId : null)
+        ?? (authorization && typeof authorization === 'object'
+          ? (authorization.nodeId
+            ?? (typeof authorization.target === 'string' ? authorization.target : null)
+            ?? (authorization.target && typeof authorization.target === 'object' ? authorization.target.nodeId : null))
+          : null)
+        ?? (typeof scope === 'string' ? scope : null)
+        ?? (scope && typeof scope === 'object'
+          ? (scope.nodeId ?? (scope.target && typeof scope.target === 'object' ? scope.target.nodeId : null))
+          : null)
+        ?? (typeof input?.targetNodeId === 'string' ? input.targetNodeId : null)
+        ?? null;
+      if (scopeNodeId && target?.nodeId && scopeNodeId !== target.nodeId) {
+        return rejection('appeal_target_mismatch', 'the appeal target node and the action target node disagree');
+      }
+      if (!target?.nodeId && scopeNodeId) {
+        target = { nodeId: scopeNodeId, parentId: null, intentId: null };
+      }
+      if (!target?.nodeId || !scopeAction || !IRREVERSIBLE_ACTIONS.includes(scopeAction)) {
+        return rejection('appeal_target_mismatch', 'an appeal must carry a target.nodeId and targetAction naming one irreversible action');
+      }
+      claim = { ...claim, targetAction: scopeAction };
+    }
+    // Target validation happens after appeal scope normalization so a node
+    // named inside the appeal claim is checked by the same path.
+    if (target?.nodeId && !store.getNode(projectId, target.nodeId)) {
+      return rejection('node_not_found', `unknown node: ${target.nodeId}`);
     }
     let verifiedStats = null;
     let verification = null;
@@ -3574,6 +3633,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         humanConfirmedBy,
         appealPending: appeal.pending,
         appealUnresolved: appeal.unresolved,
+        appealTargetMismatch: appeal.targetMismatch,
         serverAppealWindow: appeal.hasWindow,
         serverAppealUntil: appeal.until,
         now: Date.now(),
@@ -3610,6 +3670,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           chiefConfirmed,
           humanConfirmed,
           humanConfirmedBy,
+          appealTargetMismatch: appeal.targetMismatch,
           serverAppealUntil: appeal.until,
           appealPending: appeal.pending,
           appealUnresolved: appeal.unresolved,
@@ -3713,6 +3774,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (intent.kind !== 'appeal' || intent.claim?.action !== 'appeal') {
       return rejection('intent_action_mismatch', `intent ${intentId} is not a valid appeal record`);
     }
+    const scopeAction = appealActionOf(intent.claim);
+    if (!intent.target?.nodeId || !scopeAction || !IRREVERSIBLE_ACTIONS.includes(scopeAction)) {
+      return rejection('appeal_target_mismatch', `appeal ${intentId} does not name an exact target and irreversible action`);
+    }
     const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
     if (actor.kind !== 'human' && actor.kind !== 'system' && actor.preset !== 'lab-chief') {
       return rejection('forbidden_action', 'only a human or the chief may resolve an appeal');
@@ -3730,14 +3795,22 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (typeof intent.actor?.id === 'string' && intent.actor.id === actor.id) {
       return rejection('appeal_self_resolution', 'the actor who raised an appeal cannot resolve it; a different human or the chief must decide');
     }
-    const commit = await commitMutations(projectId, [{
-      op: 'intent.withdraw',
-      intentId,
-      resolve: true,
-      actor,
-      resolution: typeof input?.resolution === 'string' ? input.resolution : 'upheld',
-      reason: typeof input?.reason === 'string' ? input.reason : 'appeal resolved by operator',
-    }], { actor, causeId: `appeal-resolve:${intentId}` });
+    let commit;
+    try {
+      commit = await commitMutations(projectId, [{
+        op: 'intent.withdraw',
+        intentId,
+        expectedStatus: intent.status,
+        expectedRevision: project.revision ?? 0,
+        resolve: true,
+        actor,
+        resolution: typeof input?.resolution === 'string' ? input.resolution : 'upheld',
+        reason: typeof input?.reason === 'string' ? input.reason : 'appeal resolved by operator',
+      }], { actor, causeId: `appeal-resolve:${intentId}` });
+    } catch (error) {
+      if (error instanceof LabError) return rejection(error.code, error.message);
+      throw error;
+    }
     if (commit.ok !== true) return rejection(commit.code ?? 'internal_error', commit.message ?? 'appeal resolution failed');
     const fresh = store.getProject(projectId)?.intents?.find((candidate) => candidate.id === intentId) ?? null;
     return { ok: true, projectId, intent: fresh };
@@ -3763,12 +3836,20 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     // Withdrawal is not a hearing: it must not write `resolved`, `resolvedBy`
     // or `resolution`, and it cannot be used by an expert to impersonate the
     // resolver role. The TTL never turns the withdrawal into permission.
-    const commit = await commitMutations(projectId, [{
-      op: 'intent.withdraw',
-      intentId,
-      actor,
-      reason: typeof input?.reason === 'string' ? input.reason : 'withdrawn by operator',
-    }], { actor, causeId: `intent-withdraw:${intentId}` });
+    let commit;
+    try {
+      commit = await commitMutations(projectId, [{
+        op: 'intent.withdraw',
+        intentId,
+        expectedStatus: intent.status,
+        expectedRevision: project.revision ?? 0,
+        actor,
+        reason: typeof input?.reason === 'string' ? input.reason : 'withdrawn by operator',
+      }], { actor, causeId: `intent-withdraw:${intentId}` });
+    } catch (error) {
+      if (error instanceof LabError) return rejection(error.code, error.message);
+      throw error;
+    }
     if (commit.ok !== true) return rejection(commit.code ?? 'internal_error', commit.message ?? 'intent withdraw failed');
     const fresh = store.getProject(projectId)?.intents?.find((candidate) => candidate.id === intentId) ?? null;
     return { ok: true, projectId, intent: fresh };

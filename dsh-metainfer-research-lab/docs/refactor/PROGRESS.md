@@ -200,7 +200,8 @@
 | `7e19499` | P18.4(B27,U14,A20,S12) 可登记/可裁决的 appeal；L0/L1 不套 C7；partial 刷新按失败计 stale/降级/告警；冷段 head 缓存 + 首读不建 hot 索引 | `claims-selftest`（appeal 阻断/裁决）、`dashboard-selftest`（partial）、`scale-selftest`（restart 1.93 ms ≤50 ms）；`npm test` 36 文件 / 606 checks |
 | `P19.2` | Q3/5.3.2 `reservedSlots.p0`（默认 0）在候选排序前预留槽位；无 p0 等待时行为不变；项目内抢占仍未做 | `reserved-slots-selftest` 6/6；`npm test` 37 文件 / 612 checks |
 | `P19.5` | B27：撤回不再放行；`appealUntil` 不再由调用方提供；窗口由 Host 写入的 appeal expiresAt（opened 时间派生）计算；withdrawn 在窗口内挡 cancel/prune/delete | `claims-selftest` 66 checks（§28 四个探针）；`npm test` 37 文件 / 631 checks |
-| `P19.6` | B27 回退人工确认：L2/L3/L4 必须由请求者和申诉发起者之外的 human/system resolver 的 resolved appeal 确认；`humanConfirmed` 请求布尔值无效；withdrawn 的 TTL 永不放行，只有显式 resolution 可以；`kind:'appeal'` 必须 `claim.action:'appeal'`，`resolveAppeal` 双字段校验 | `claims-selftest` 78 checks（manufactured window / TTL / kind-claim mismatch / 独立确认）；`npm test` 37 文件 / 643 checks |
+| `P19.6` | B27 回退人工确认：L2/L3/L4 必须由独立 human/system resolver 的 resolved appeal 确认；`humanConfirmed` 请求布尔值无效；withdrawn 的 TTL 永不放行，只有显式 resolution 可以；`kind:'appeal'` 必须 `claim.action:'appeal'`，`resolveAppeal` 双字段校验 | `claims-selftest`（manufactured window / TTL / kind-claim mismatch / 独立确认） |
+| `P19.7` | B27 收口：appeal 必须携带精确 target node + `claim.targetAction`，resolution 只授权该 pair；raiser/requester/resolver 三者两两不同；`intent.withdraw` 用 expectedStatus/expectedRevision CAS，resolved 终态，并发 resolve 只有一个 `appeal/resolved`；unscoped/self-raised/cross-scope 返回 `appeal_target_mismatch` 或 `human_confirmation_required` | `claims-selftest` **89 checks**（unscoped、no-node、cross-action、cross-target、self-raised、Promise.all reject/upheld、resolve-vs-withdraw）；`npm test` 37 文件 / **654 checks** |
 
 状态：独立复核 §23 的 84 PASS / 80 FAIL 中，B27/U14/A20/S12 已由 `7e19499` 关闭；
 §24 的 20 个文档/口径行已逐项关闭，§25 独立复核为 103 PASS / 61 FAIL；§26 修复 B27 三项、5.3.16 与 1.3 的虚假 done 后，

@@ -16,25 +16,35 @@
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：第十轮独立复核（HEAD `70b32b3`，§28.4）确认 §27 的四个正向探针
-已经变绿：撤回后 prune/cancel 被 `appeal_not_resolved` 挡住，调用方提供的
-`appealUntil` 被 `appeal_window_caller_supplied` 拒绝，never-appealed 目标没有窗口。
-但 **B27 仍未闭**：`intent_submit` 接受 `kind:'appeal'` 搭配非 appeal 的
-`claim.action:'observe'`，再由另一 human resolve，就能**制造**一个不存在的
-Host 窗口并 prune `ok:true`；此外等待 `INTENT_TTL_MS` 后，withdrawn 的
-`appeal_not_resolved` 会被清除且 `hasWindow` 仍为真，prune 成功。因此独立计数
-仍是 **107 PASS / 57 FAIL / 10 未测量**：1 个阻断（B27）、56 个能力未建、
-0 个只差文档。作者 §28 的 108/56 没有确认。浏览器绘制仍 N/A。
+**一句话**：第十一轮独立复核（HEAD `4d30c3a`，§29.6）确认作者 §29 的
+manufactured/TTL/kind-action 三个红项已经变绿，`humanConfirmed` 请求字段也已从
+tool schema 移除；但 **B27 仍未闭**，且有两条新的可执行路径：
+
+1. **自提申诉 + 串通 human**：requester 自己（或自己控制的 raiser）提出 appeal，
+   再由一个串通 human resolve，`prune` 得到 `ok:true`。代码只比较
+   `resolvedBy.id` 与 requester/raiser 的 id；“distinct id”不等于“独立意志”。
+2. **并发 resolution 覆盖**：对同一条 withdrawn appeal 同时提交 `rejected` 和
+   `upheld` 两个 `resolveAppeal`，两个都 `ok:true`，产生两条
+   `appeal/resolved` 事件，最终状态是 `upheld`，随后 `prune` 成功；reducer
+   允许对已 `resolved` 的记录再次 `resolve:true`，没有状态/版本条件。
+
+因此独立计数仍是 **107 PASS / 57 FAIL / 10 未测量**：1 个阻断（B27）、56 个
+能力未建、0 个只差文档。作者 §29 的 108/56 没有确认。浏览器绘制仍 N/A。
+
+> 作者针对 §29.6.2/§29.6.3 的第十一轮整改见 **§30**，不替代独立复核。验证者
+> 重放 §30 的 scope/三 actor/CAS 探针前，独立总判定仍以 **§29.6** 的
+> **107 PASS / 57 FAIL / 10 未测量（NO-SHIP）** 为准。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
-> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核）。
-> 独立总判定以 **§28.4** 为准；§20/§22/§24/§26/§28/§29 是作者报告，不能代替独立复核。§22 曾声称关闭
+> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）；第九轮独立复核（`75963e5`）见 **§27**；第十轮作者整改见 **§28**，第十轮独立复核（`70b32b3`）见 **§28.4**；第十轮 B27 回退人工确认的作者整改见 **§29**（不替代独立复核），第十一轮独立复核（`4d30c3a`）见 **§29.6**。
+> 独立总判定以 **§29.6** 为准；§20/§22/§24/§26/§28/§29 是作者报告，不能代替独立复核。§22 曾声称关闭
 > B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了其中 B27/U14/S12/A20 四项；
 > §24 作者报告为 112 PASS / 52 FAIL，§25 复核为 103 PASS / 61 FAIL，§27 复核为
-> **107 PASS / 57 FAIL / 10 未测量**，§28.4 复核仍为 **107 / 57 / 10**。
+> **107 PASS / 57 FAIL / 10 未测量**，§28.4 复核仍为 **107 / 57 / 10**，
+> §29.6 复核仍为 **107 / 57 / 10（NO-SHIP）**。
 
 ### 0.1 判定口径
 
@@ -2543,6 +2553,9 @@ Host 重启仍 N/A”。
 
 > 本节是作者对 §28.4 两个 B27 红项的整改记录，不替代独立复核。独立总判定仍是
 > §28.4 的 **107 PASS / 57 FAIL / 10 未测量（NO-SHIP）**，直到验证者重放本节探针。
+> 第十一轮独立复核见 **§29.6**：精确探针通过，但 B27 仍有自提/串通与并发
+> resolution 覆盖两条失败路径；独立计数 **107 / 57 / 10（NO-SHIP）**，
+> 作者 108/56 不确认。
 
 ### 29.1 规则改变
 
@@ -2629,3 +2642,345 @@ Host 重启仍 N/A”。
 作者计数仍为 **108 PASS / 56 FAIL / 10 未测量**（B27 作者侧关闭，待独立复核）；
 未关闭的 56 行仍是能力桶，不是安全绕过后门。若验证者确认本节三条规则并重放通过，
 才应把独立计数改为 **108 / 56**。
+
+---
+
+## 29.6 第十一轮独立复核（HEAD `4d30c3a`，2026-11-10）
+
+> 复核人：独立验证者。只读复跑 + 独立探针；没有修改生产代码。采样时间
+> `2026-11-10T20:02:51+08:00`（`Asia/Shanghai`）；浏览器时区不可用。
+> 对象：作者 §29 的 B27 回退整改。结论：**§29.4 的六个精确探针通过，
+> 但 B27 仍未关闭**；独立计数 **107 PASS / 57 FAIL / 10 未测量**，
+> **NO-SHIP**。作者 §29.5 的 108/56 不确认。
+
+### 29.6.1 作者 §29.4 / §28.4 精确探针
+
+| 探针 | 独立结果 | 判定 |
+|---|---|---|
+| `kind:'appeal'` + `claim.action:'observe'` | `intent_action_mismatch` | 通过；写边界拒绝 |
+| `kind:'appeal'` + `claim.action:'prune_branch'` | `intent_action_mismatch` | 通过 |
+| pending appeal + `cancel_running` | `appeal_pending` | 通过 |
+| `intent.withdraw` 自己的 appeal | `ok:true`，`status:'withdrawn'`，无 `resolvedBy`/`resolution` | 通过 |
+| withdraw 后无窗口 prune | `appeal_not_resolved` | 通过 |
+| withdraw 后请求携带 `claim.appealUntil` | `appeal_window_caller_supplied` | 通过 |
+| withdraw 后 cancel | `appeal_not_resolved` | 通过 |
+| never-appealed + 请求携带窗口 | `appeal_window_caller_supplied` | 通过 |
+| never-appealed + 不携带窗口 | `human_confirmation_required` | 通过，但**行为已变**：人类确认在窗口检查前，旧 `appeal_window_required` 不再出现；这是更早的 fail-closed，不是放行 |
+| withdraw 后 fake clock +31 min prune | `appeal_not_resolved` | 通过；TTL 不清除 withdrawn |
+| `resolveAppeal` 作用于 `kind:'note'` / `claim.action:'observe'` | `intent_action_mismatch` | 通过 |
+| `createIntent` 直接构造 `kind:'appeal'` + 非 appeal action | 抛出 `intent_action_mismatch` | 通过（kernel 防御） |
+| 过期 pending appeal resolve | `appeal_expired` | 通过；不会变成 upheld |
+| 合法 appeal（advisor 发起、human-2 resolve、human-1 prune/cancel） | `ok:true`；`humanConfirmedBy={kind:'human',id:'human-2'}` | 通过；合法路径未被 removal 破坏 |
+
+补充：`resolution:'upheld '`（尾随空格）不被接受为确认；`claim.meta`、
+`claim.evidence`、`target`、`rationale` 里塞 `appealUntil` 都不产生窗口；
+顶层 `appealUntil` 和 `claim.appealUntil` 都在任何 target lookup 之前被
+`appeal_window_caller_supplied` 拒绝。
+
+### 29.6.2 B27 新失败一：自提申诉 + 串通 human（distinct id 不等于独立）
+
+用户要求攻击的正是这一点：“requester 让针对自己的 appeal 被提出，再让一个
+**串通 human** resolve；requester 同时控制两边时，distinct from requester and
+raiser 够不够？”独立结果是：**不够，prune 通过**。
+
+| 场景（隔离 target） | 结果 |
+|---|---|
+| `human-1` 自己 raise appeal，`human-2` resolve，`human-1` prune | `ok:true`；`humanConfirmedBy=human-2` |
+| `chief-1` 自己 raise appeal，`human-2` resolve，`chief-1` prune | `ok:true`；chief 的 prune 被人类确认 |
+| `advisor-A` raise appeal，`human-2` resolve，`human-1` prune | `ok:true`；requester（human-1）与 raiser（advisor-A）不同，但 human-2 是唯一的人类裁决者 |
+| **unscoped appeal**（`target:null`），`human-2` resolve，任意 target 的 prune | `ok:true`；一条无 target 的“人类裁决”可确认所有 target 的不可逆动作 |
+
+代码事实：
+
+- `appealState` 的 confirmation 只检查 `resolvedBy.id` 不等于**本次请求者**
+  且不等于**该 appeal 的 raiser**；它无法判断 requester 是否控制了 resolver
+  的 session/进程。
+- `resolveAppeal` 的 self-resolution 检查也只比较 raiser 与 resolver 的
+  `actor.id`；requester 自己 raise 再让另一个 human resolve 是允许的。
+- 因此“requester controls both”时，`human-2` 只是一个不同的 session id，
+  不是独立意志；B27 的“独立人类确认”性质不成立。
+
+边界：这不是一个**单模型 session** 能直接完成的路径——`resolveAppeal` 不在
+agent tool action 中；它需要至少一个 human 身份。但用户明确把“requester
+控制两边”的串通模型列为要攻击的目标，所以按该模型记为 **B27 FAIL**，不降级
+为“能力未建”。如果串通被明确排除在威胁模型外，这个探针只能算身份认证的
+残余风险；但 §29.6.3 仍是代码级失败，不能据此给出 narrow release。
+
+### 29.6.3 B27 新失败二：并发 resolution 覆盖，rejected 被重新读成 upheld
+
+这是本轮最硬的代码级失败，不依赖“两个不同 human 串通”的语义：
+
+对同一条 withdrawn appeal 并发提交两个 `resolveAppeal`：
+
+```js
+Promise.all([
+  service.resolveAppeal(p, id, { resolution: 'rejected', reason: 'reject' }, human2),
+  service.resolveAppeal(p, id, { resolution: 'upheld',   reason: 'uphold' }, human1),
+])
+```
+
+独立输出（隔离 target）：
+
+```json
+{
+  "first":  { "ok": true },
+  "second": { "ok": true },
+  "final":  { "status": "resolved", "resolution": "upheld", "resolvedBy": "human1" },
+  "events": [
+    { "type": "appeal/resolved", "reason": "reject" },
+    { "type": "appeal/resolved", "reason": "uphold" }
+  ],
+  "prune":  { "ok": true, "humanConfirmedBy": "human1" }
+}
+```
+
+同一 human resolver 也一样：
+
+```json
+{
+  "first":  true,
+  "second": true,
+  "final":  { "status": "resolved", "resolution": "upheld", "resolvedBy": "h2" },
+  "events": 2,
+  "prune":  { "ok": true, "humanConfirmedBy": "h2" }
+}
+```
+
+即一个 human 可以先写 `rejected`，同一批并发里的 `upheld` 会覆盖它；两条
+`appeal/resolved` 事件都留在 log 里，而 gate 只读最终状态，于是 **rejected
+resolution 被重新读成 upheld**，prune `ok:true`。
+
+根因是 TOCTOU，不是 resolve service 的单次检查：
+
+- `resolveAppeal` 在**旧的 project snapshot** 上检查
+  `status === 'pending' || 'withdrawn'`，然后才 `await commitMutations`。
+- 两个并发调用都能在第一个 commit 之前通过该检查。
+- `intent.withdraw` mutation（`host/kernel/mutations.js:394-423`）只拒绝
+  `expired`；它**允许**对当前已经是 `resolved` 的记录再次 `resolve:true`，
+  并且普通 withdraw 也不拒绝 `resolved`。没有 `expectedStatus`、revision 或
+  “一条 appeal 只能有一个 resolution”的原子条件。
+- 结果是 last-writer-wins；顺序版本（同一 appeal 先 rejected，再顺序 resolve
+  upheld）会被 `intent_not_pending` 拒绝，并发版本不会。
+
+对用户四个问题的直接回答：
+
+| 问题 | 顺序 | 并发 |
+|---|---|---|
+| rejected resolution 能否被重新读成 upheld？ | 不能；第二次 `intent_not_pending` | **能**；两个都 `ok`，最终 upheld |
+| expired resolution 能否被重新读成 upheld？ | 不能；pending 过期 resolve 返回 `appeal_expired` | 未发现独立可执行路径；但同一 reducer 无 `expiresAt` 复查，若 commit 跨过 TTL 仍是 TOCTOU 风险 |
+| withdrawn appeal 能否重复 resolve 出两条 resolved 记录？ | 不能；第二次 `intent_not_pending`，只有 1 条 resolved | **能产生两条 `appeal/resolved` 事件**；仍是 1 条 intent 记录，最终状态 last-writer-wins |
+| 两条 resolved 记录本身能否混淆 gate？ | 一个 rejected + 一个独立 upheld 的两条 appeal：gate 跳过 rejected、取 upheld，结果是合法 upheld，不是“混淆” | 同一 appeal 的两条事件最终覆盖为 upheld；**是**，见上 |
+
+补充失败面：`resolveAppeal` 对 **withdrawn** appeal 允许在 TTL 之后显式
+resolve（作者设计如此），所以“withdrawn + 过期”本身不是权限；但并发覆盖让
+**rejected** 的终局被抹掉，这是另一回事。`unresolved`/`confirmation`/`hasWindow`
+都读同一个 snapshot，没有版本校验；一个 action 在 snapshot 之后、commit 之前
+发生的 resolution 变化也可能不被看到（同源 TOCTOU），本轮先以可复现的
+resolve-vs-resolve 为准。
+
+### 29.6.4 system 冒充：真实 tool path 未发现
+
+| 路径 | 结果 |
+|---|---|
+| `tool.execute` 以 `lab-scheduler`（`kind:'system'`）调用 `intent_submit` | `forbidden_action` |
+| 同上调用 `intent_withdraw` | `forbidden_action` |
+| tool action 列表/枚举里调用 `resolveAppeal` | 不存在；`intent_submit`/`intent_withdraw` 是仅有的 intent action |
+| `actorFromToolExecution` 从请求 `input` 读取 actor/kind | 不读取；只从 session header preset/session id 派生 |
+| 直接 `service.resolveAppeal(..., systemExec)` | 可写入 `resolvedBy.kind:'system'`；这是 Host 内部 service 调用，不是注册给 agent 的 tool path |
+| 直接 `service.agentTool(..., systemExec)` | 绕过 policy wrapper；但生产 tool 注册走的是拒绝 system 的 wrapper，不是这个直调 |
+
+结论：**没有发现通过真实 tool path 冒充 system 的路径**。`lab-scheduler` 可做
+只读/DAG 动作，但不能提交/撤回 intent；`resolveAppeal` 只由 Host UI/服务调用。
+若把“任何 in-process 的 service 直调”都算攻击面，则 `exec` 参数本身没有认证，
+任意 Host 代码都能伪造 system；这属于 Host 内部信任边界，不是 agent tool
+边界。该项按 **tool path 通过** 记录，不能用来抵消 §29.6.2/§29.6.3。
+
+### 29.6.5 `humanConfirmed` 请求字段：已移除，未破坏仓内合法调用方
+
+| 检查 | 结果 |
+|---|---|
+| `host/agent-tool.js` tool schema 顶层 `humanConfirmed` | 不存在 |
+| `claim` 描述字段 | `{action, strategy?, reason?, evidence?}`；无 `humanConfirmed`/`humanConfirmedBy` |
+| `kind` enum | 无 `appeal`；`resolveAppeal` 不是 tool action |
+| 顶层 `humanConfirmed:true` 的 `delete_project`（无 resolution） | `human_confirmation_required` |
+| 顶层 + `claim.humanConfirmed` + `humanConfirmedBy` 的合法 resolved appeal 路径 | `ok:true`；stored claim 只剩 `action` 和 Host 写入的 `gate` |
+| `claim.humanConfirmed`/`humanConfirmedBy` 是否进入 intent log | 否；`submitIntent` 先 strip，gate 只用 Host 派生值 |
+| 顶层 `humanConfirmed` 是否被 service 读取 | 否；只用于旧 gate 单元测试，不是生产请求入口 |
+| 仓内合法调用方 | 没有发送该字段的生产 caller；`npm test` 643、claims 78、tool-surface 41、client 16 全绿 |
+
+因此“请求派生的 `humanConfirmed` 真没了”成立。**旧外部客户端**如果仍发送
+顶层字段，会因 tool schema `additionalProperties:false` 得到校验失败（或 service
+忽略后得到 `human_confirmation_required`）；这是有意的破坏性迁移，不是仓内
+合法 caller 被误伤。需要在发布说明中明确。
+
+### 29.6.6 回归（HEAD `4d30c3a`）
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT=0；37 files / **643 ok** |
+| `node scripts/claims-selftest.mjs` | EXIT=0；**78 checks** |
+| `node scripts/tool-surface-selftest.mjs` | EXIT=0；**41** |
+| `npm run bench:scale` | EXIT=0；**11/11**；100k first page 0.55 ms；restart first page 1.95 ms；dispatch max 29.8 ms / p95 28.4 ms / starts 161 |
+| `node scripts/strict-writes-selftest.mjs` | EXIT=0；**17**；bypass 0；“only the deliberate bypasses were rejected” |
+| `node scripts/policy-selftest.mjs` | EXIT=0；**120** |
+| `node scripts/client-smoke.mjs` | EXIT=0；**16/16** |
+| `node scripts/replay-client-selftest.mjs` | EXIT=0；**8** |
+| U14 partial probe | EXIT=0；restart 后 5 segments；first reopen 1.3 ms；list 81.5 ms；page1/page2 100/100；total 100000 |
+| S12 restart first page | EXIT=0；first same-store 1.9 ms；first after reopen 1.3 ms；5 segments；total 100000；last 100000 |
+| resource probe | EXIT=0；free/held/queue 可读；blockedBy `pool_gpu`；queue 3；无异常 |
+
+回归没有发现新红；但回归全绿不能覆盖 §29.6.2/§29.6.3 这两个安全探针。
+
+### 29.6.7 计数与判定
+
+| 判定 | 数量 |
+|---|---|
+| PASS | **107** |
+| FAIL | **57** |
+| 未测量 | **10**（浏览器 2 行 = 不适用） |
+| 合计 | **174** |
+
+**FAIL 分解**：
+
+- **1 个阻断（B27）**：§29.6.2 自提/串通 human + §29.6.3 并发 resolution 覆盖。
+  B27 仍 FAIL；不是“只剩能力”。
+- **56 个能力未建**：1.3、5.3.2/Q3、Stage 3–5 等既有能力缺口。
+- **0 个只差文档**。
+
+**明确判定：NO-SHIP。** 不满足“narrow release possible”。理由不是能力，
+而是 B27 仍可用两条路径拿到 `humanConfirmed:true` 并执行 `prune`：
+
+1. requester 自己/自己控制的 raiser 提 appeal，串通 human resolve；
+2. 同一条 withdrawn appeal 的 rejected/upheld 并发 resolve，rejected 被
+   last-writer-wins 覆盖成 upheld。
+
+即使把第 1 条降级为“串通不在威胁模型”，第 2 条仍是可复现的代码级状态机
+错误，必须修复后才能改判。**不软化结论**：作者 §29 的 108/56 不确认。
+
+**如果** §29.6.8 的并发修复完成，并且串通被明确接受为身份认证的残余风险
+（或加入独立的双人/外部身份机制），则独立计数可变为 **108/56/10**，届时才可
+给出“**narrow release possible**”；排除范围必须显式写成：
+`1.3`、`5.3.2`/Q3、Stage 3–5，以及未测量的 browser/provider/restart。
+在这些条件满足前，不得使用该措辞。
+
+### 29.6.8 修复建议（按优先级）
+
+1. **resolution 状态原子化（阻断）**：
+   - `intent.withdraw` 的 `resolve:true` 只允许当前
+     `status ∈ {pending, withdrawn}`；当前已是 `resolved` 必须拒绝
+     `intent_not_pending`。
+   - 普通 withdraw 也必须拒绝 `resolved`；不能被并发撤回覆盖。
+   - mutation 增加 `expectedStatus` / revision 条件（compare-and-set），不要只靠
+     service 的旧 snapshot 检查。
+   - 每条 appeal 只允许一个 resolution；重复 resolve 要么拒绝，要么幂等返回
+     原记录，不能写第二条 `appeal/resolved` 事件。
+   - 加并发 selftest：`Promise.all([rejected, upheld])` 必须一个成功、一个
+     `intent_not_pending`，最终状态由成功者唯一决定，事件恰好 1 条。
+2. **自提/串通（阻断或显式降级）**：
+   - 最低限度要求 appeal raiser 与 action requester 不同；但这挡不住 requester
+     让串通第三方 raise，只是缩小路径。
+   - 若威胁模型包含“requester 控制两个身份”，仅靠 `actor.id` 永远不够；需要
+     外部身份/双人确认/职责分离的信任根。当前代码不具备。
+   - 在未实现前，B27 不能声称闭合。
+3. **system**：保持 `resolveAppeal` 不在 agent tool action 中；如果 service
+   直调属于威胁模型，需对 `exec` 做 Host 认证，不要让任意 in-process caller
+   伪造 system。不要把 `lab-scheduler` 扩展成 intent 写权限。
+4. **schema**：`humanConfirmed` removal 保持；可在 service 层对顶层旧字段返回
+   明确迁移错误，而不是静默忽略；更新外部 caller 文档。
+5. **测试**：把 §29.6.2/§29.6.3 的探针加入 `claims-selftest`；现有 78 checks
+   没有覆盖并发与自提/串通。
+
+### 29.6.9 边界
+
+- 只修改了本文件；生产代码未改。
+- 未执行 sandbox escalation；未写用户 storage。
+- 浏览器二维未测；provider/restart 仍是既有未测量项，不因本轮回归全绿而消失。
+- 结论对 HEAD `4d30c3a` 有效；若后续提交修改 `lab-service`/`mutations`，必须
+  重新跑 §29.6.2/§29.6.3 并发探针，不能只跑 `npm test`。
+
+
+---
+
+## 30 第十一轮作者整改：scope + 三 actor + intent CAS（P19.7）
+
+> 本节是作者对 §29.6.2/§29.6.3 的整改记录，不替代独立复核。独立总判定仍以
+> **§29.6** 的 **107 PASS / 57 FAIL / 10 未测量（NO-SHIP）** 为准，直到验证者
+> 重放本节探针。作者侧 claims-selftest 的计数从 78 增至 **89**。
+
+### 30.1 authorizing resolution 必须精确 scope
+
+- appeal 记录必须同时携带：
+  - `target.nodeId`（具体节点，不允许 `null` 的 wildcard）；
+  - `claim.targetAction`（该 appeal 授权的那一个不可逆 action）。
+- `submitIntent` 在写边界拒绝 unscoped appeal，返回 `appeal_target_mismatch`。
+  兼容读取 `actionOnTarget` / `forAction` / `claim.target.action` /
+  `claim.authorization.action` 等别名字段，但落盘统一为 `claim.targetAction`。
+- `resolveAppeal` 对没有精确 target+action 的记录返回 `appeal_target_mismatch`。
+- `appealState` 只从精确 target+action 的 resolved appeal 派生 window 和 human
+  confirmation；同 target 不同 action、同 action 不同 target、或 malformed
+  legacy 记录都不能授权，并返回 `appeal_target_mismatch`。
+- pending/withdrawn 仍按 target 阻断，避免一个已提出但未裁决的 objection 被
+  action 绕过；授权本身严格按 pair。
+
+### 30.2 三个 actor 必须两两不同
+
+`appealState` 的 confirmation 现在要求：
+
+1. `resolvedBy.kind` 是 `human` 或 `system`；
+2. `resolution === 'upheld'`；
+3. `resolvedBy.id`、`intent.actor.id`（raiser）、action requester 的 `id` 三者
+   两两不同且均为非空字符串。
+
+因此 requester 自己 raise 的 appeal，即使由另一个 human resolve，也不会成为
+该 requester 的 human confirmation。`resolveAppeal` 仍保留 raiser != resolver
+的 self-resolution 检查。
+
+### 30.3 intent transition 的 compare-and-set
+
+`intent.withdraw`（同时服务 `resolveAppeal` 和 `withdrawIntent`）现在要求：
+
+- `expectedStatus`：mutation 内的当前状态必须与 service 读到的状态一致；
+- `expectedRevision`：project revision 必须与调用方读取时一致；
+- 状态比较先于 revision，因此并发 resolve 的失败方得到
+  `intent_not_pending`，而不是泛化的 `stale_basis`；
+- `resolved` 是终态：即使调用方省略 expected 字段，reducer 也拒绝再次
+  `resolve:true` 或普通 withdraw；
+- 每次 appeal 最多一条 `appeal/resolved` 事件。
+
+`resolveAppeal`/`withdrawIntent` 现在把 mutation 的 `LabError` 转成正常的
+`{ok:false,error:{code}}` rejection，所以并发调用不会以未捕获异常结束。
+
+### 30.4 精确探针
+
+| 探针 | 返回 |
+|---|---|
+| appeal 无 `claim.targetAction` | `appeal_target_mismatch` |
+| appeal 无 `target.nodeId` | `appeal_target_mismatch` |
+| resolved scope=`scope-target/prune_branch`，再 cancel 同一 target | `appeal_target_mismatch` |
+| resolved scope=`scope-target/prune_branch`，再 prune 另一 target | `appeal_target_mismatch` |
+| requester 自己 raise，另一 human resolve，requester 再 prune | `human_confirmation_required` |
+| 请求只带顶层 `humanConfirmed:true` | `human_confirmation_required` |
+| 并发 `rejected` / `upheld`（withdrawn appeal） | 一个 `ok:true`，一个 `intent_not_pending`；`appeal/resolved` 恰好 1 条 |
+
+race 原始输出（`claims-selftest` 的 `RACE` 行）：
+
+```text
+RACE {"withdrawn":true,"calls":[{"ok":true,"resolution":"rejected","resolvedBy":"human-reviewer"},{"ok":false,"code":"intent_not_pending"}],"stored":{"status":"resolved","resolution":"rejected","resolvedBy":"human-reviewer"},"resolvedEvents":1}
+RACE_WITHDRAW {"calls":[{"ok":true,"resolution":"upheld"},{"ok":false,"code":"intent_not_pending"}],"stored":{"status":"resolved","resolution":"upheld"},"transitionEvents":1}
+```
+
+同一组 CAS 也覆盖 `resolveAppeal` vs `withdrawIntent`：一个成功，另一个
+`intent_not_pending`，transition event 恰好 1 条。
+
+### 30.5 回归
+
+| 命令 | 结果 |
+|---|---|
+| `npm test` | EXIT=0；37 files / **654 checks** |
+| `node scripts/claims-selftest.mjs` | EXIT=0；**89 checks** |
+| `npm run bench:scale` | EXIT=0；**11/11** |
+| `node scripts/client-smoke.mjs` | EXIT=0；**16/16** |
+| `node scripts/strict-writes-selftest.mjs` | EXIT=0；所有 checks 通过 |
+
+作者侧 B27 的 §29.6.2/§29.6.3 两条红项已由本节探针覆盖；独立计数仍等待
+验证者重放，不由本节改写。

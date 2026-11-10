@@ -390,6 +390,23 @@ const reducers = {
     const current = Array.isArray(ws.project.intents) ? ws.project.intents : [];
     const index = current.findIndex((intent) => intent.id === intentId);
     if (index < 0) throw new MutationError('intent_not_found', `unknown intent ${intentId}`);
+    // CAS: the caller's status and revision are part of the mutation. A stale
+    // read must not transition an intent that another writer already changed.
+    // Status is checked before revision so a concurrent resolver receives the
+    // semantic `intent_not_pending`, not a generic stale error.
+    if (typeof m.expectedStatus === 'string' && current[index].status !== m.expectedStatus) {
+      throw new MutationError('intent_not_pending', `intent ${intentId} is now ${current[index].status}, expected ${m.expectedStatus}`);
+    }
+    if (Number.isInteger(m.expectedRevision) && (ws.project.revision ?? 0) !== m.expectedRevision) {
+      throw new MutationError('stale_basis', `intent ${intentId} was read at revision ${m.expectedRevision}, now ${ws.project.revision ?? 0}`);
+    }
+    // A resolved intent is terminal. Even a caller that omitted expectedStatus
+    // cannot overwrite one resolution with another; this is the backstop that
+    // makes "exactly one appeal/resolved event per appeal" true independently
+    // of the service checks.
+    if (current[index].status === 'resolved') {
+      throw new MutationError('intent_not_pending', `intent ${intentId} is already resolved`);
+    }
     if (current[index].status === 'expired') throw new MutationError('intent_expired', `intent ${intentId} has expired`);
     const resolving = m.resolve === true;
     // Withdrawal is terminal for a plain withdrawal, but a withdrawn appeal

@@ -27,6 +27,10 @@ await kernel.executor.commit(projectId, {
     { op: 'node.create', node: { id: 'child', title: 'beta child', status: 'planned', parentId: 'root', prompt: 'do beta', timestamps: { createdAt: 2 } } },
     { op: 'node.create', node: { id: 'clean-target', title: 'never appealed', status: 'planned', timestamps: { createdAt: 3 } } },
     { op: 'node.create', node: { id: 'withdrawn-target', title: 'withdrawn appeal', status: 'planned', timestamps: { createdAt: 4 } } },
+    { op: 'node.create', node: { id: 'scope-target', title: 'scope probe', status: 'completed', timestamps: { createdAt: 5 } } },
+    { op: 'node.create', node: { id: 'self-target', title: 'self-raised probe', status: 'completed', timestamps: { createdAt: 6 } } },
+    { op: 'node.create', node: { id: 'race-target', title: 'resolution race probe', status: 'completed', timestamps: { createdAt: 7 } } },
+    { op: 'node.create', node: { id: 'other-target', title: 'different target probe', status: 'completed', timestamps: { createdAt: 8 } } },
   ],
 });
 const nodes = store.listNodes(projectId);
@@ -136,25 +140,48 @@ check('prune_branch needs a Host-registered appeal window', gateClaimAction('pru
 check('C7 blocks a clean-but-thin history below the Wilson floor', gateClaimAction('cancel_running', { total: 20, failed: 4 }, {
   submitted: 2, chiefConfirmed: true, humanConfirmed: true,
 }).code === 'citation_confidence_too_low');
+check('gate rejects a differently-scoped resolution before evidence', gateClaimAction('prune_branch', { total: 20, failed: 0 }, {
+  submitted: 3, chiefConfirmed: true, humanConfirmed: true, serverAppealWindow: true, appealTargetMismatch: true,
+}).code === 'appeal_target_mismatch');
 
 const submitOn = (nodeId, claim, extra = {}) => service.submitIntent(projectId, { kind: 'note', nodeId, claim, ...extra }, null);
 const submit = (claim, extra = {}) => submitOn('child', claim, extra);
 const chiefExec = { agent: { session: { id: 'chief-1', header: { meta: { agentPreset: 'lab-chief' } } } } };
 const expertExec = { agent: { session: { id: 'advisor-1', header: { meta: { agentPreset: 'lab-advisor' } } } } };
 const humanExec = { agent: { session: { id: 'human-reviewer' } } };
+const humanExec2 = { agent: { session: { id: 'human-2' } } };
 const accepted = await submit({ action: 'observe', evidence: valid });
 check('a valid claim set is accepted', accepted.ok === true && accepted.intent?.claim?.verification?.failed === 0, JSON.stringify(accepted));
 // C7 needs a record: build 21 clean atoms before asking for an irreversible action.
 for (let index = 0; index < 2; index += 1) await submit({ action: 'observe', evidence: valid });
 // A resolved appeal is the only legitimate way to open the L3/L4 window
 // before the Host clock reaches the appeal's expiry.
-const setupAppeal = await service.submitIntent(projectId, {
-  kind: 'note', nodeId: 'child', claim: { action: 'appeal', reason: 'setup a resolvable window' },
-}, chiefExec);
-const setupResolved = await service.resolveAppeal(projectId, setupAppeal.intent.id, {
-  resolution: 'upheld', reason: 'human opens the window for the clean path',
-}, humanExec);
-check('a resolved appeal supplies the Host-side window for L3/L4', setupResolved.ok === true, JSON.stringify(setupResolved));
+const neverSupplied = await submitOn('clean-target', { action: 'prune_branch', evidence: valid.slice(0, 3) }, {
+  chiefConfirmed: true, appealUntil: Date.now() + 60_000,
+});
+check('a caller window on a never-appealed target is rejected', neverSupplied.ok === false
+  && neverSupplied.error?.code === 'appeal_window_caller_supplied', JSON.stringify(neverSupplied));
+const neverNoWindow = await submitOn('clean-target', { action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
+check('a never-appealed target has no independent human confirmation', neverNoWindow.ok === false
+  && neverNoWindow.error?.code === 'human_confirmation_required', JSON.stringify(neverNoWindow));
+const booleanOnly = await submitOn('clean-target', { action: 'cancel_running', evidence: valid }, {
+  chiefConfirmed: true, humanConfirmed: true,
+});
+check('a humanConfirmed request flag alone cannot unlock an irreversible action', booleanOnly.ok === false
+  && booleanOnly.error?.code === 'human_confirmation_required', JSON.stringify(booleanOnly));
+const setupAppeals = {};
+const setupResolved = [];
+for (const targetAction of ['cancel_running', 'prune_branch', 'delete_project']) {
+  const opened = await service.submitIntent(projectId, {
+    kind: 'note', nodeId: 'child', claim: { action: 'appeal', targetAction, reason: `setup a resolvable ${targetAction} window` },
+  }, chiefExec);
+  setupAppeals[targetAction] = opened;
+  setupResolved.push(await service.resolveAppeal(projectId, opened.intent.id, {
+    resolution: 'upheld', reason: `human opens the ${targetAction} window for the clean path`,
+  }, humanExec));
+}
+check('scoped resolved appeals supply the Host-side window for L2/L3/L4',
+  setupResolved.every((row) => row.ok === true), JSON.stringify(setupResolved));
 const selfConfirmed = await service.submitIntent(projectId, {
   kind: 'note', nodeId: 'child', claim: { action: 'cancel_running', evidence: valid },
   chiefConfirmed: true, humanConfirmed: true,
@@ -169,7 +196,7 @@ check('a clean history and the required evidence permit prune_branch', pruned.ok
 const deleted = await submit({ action: 'delete_project' }, {});
 check('a confirming human can submit delete_project', deleted.ok === true, JSON.stringify(deleted));
 const appeal = await service.submitIntent(projectId, {
-  kind: 'note', nodeId: 'child', claim: { action: 'appeal', reason: 'I object to pruning this branch' },
+  kind: 'note', nodeId: 'child', claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'I object to pruning this branch' },
 }, chiefExec);
 check('an appeal is stored as an appeal intent, not a note', appeal.ok === true && appeal.intent?.kind === 'appeal', JSON.stringify(appeal));
 const blocked = await submit({ action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
@@ -206,7 +233,7 @@ check('cancel_running cannot self-confirm without a chief', noChief.ok === false
 // Probe 2: an expert withdrawing its own appeal must not impersonate a
 // resolution. The appeal disappears (withdrawn), but no resolvedBy is written.
 const expertAppeal = await service.submitIntent(projectId, {
-  kind: 'note', nodeId: 'root', claim: { action: 'appeal', reason: 'expert objection' },
+  kind: 'note', nodeId: 'root', claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'expert objection' },
 }, expertExec);
 const expertWithdraw = await service.withdrawIntent(projectId, expertAppeal.intent.id, { reason: 'expert withdraws' }, expertExec);
 check('an expert cannot withdraw an appeal into a resolved record', expertWithdraw.ok === true
@@ -219,7 +246,7 @@ check('withdrawal emits intent/withdrawn, not appeal/resolved',
   && !store.listEvents(projectId, 0).some((event) => event.type === 'appeal/resolved' && event.data?.intentId === expertAppeal.intent.id));
 // Probe 3: the raiser cannot resolve their own appeal, even as lab-chief.
 const chiefAppeal = await service.submitIntent(projectId, {
-  kind: 'note', nodeId: 'root', claim: { action: 'appeal', reason: 'chief objection' },
+  kind: 'note', nodeId: 'root', claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'chief objection' },
 }, chiefExec);
 const selfResolve = await service.resolveAppeal(projectId, chiefAppeal.intent.id, {
   resolution: 'upheld', reason: 'chief decides own appeal',
@@ -229,7 +256,7 @@ check('the raiser cannot resolve their own appeal', selfResolve.ok === false && 
 // cannot manufacture a window. `withdrawn-target` has one withdrawn appeal;
 // `clean-target` has never been appealed.
 const withdrawnAppeal = await service.submitIntent(projectId, {
-  kind: 'note', nodeId: 'withdrawn-target', claim: { action: 'appeal', reason: 'withdrawn probe' },
+  kind: 'note', nodeId: 'withdrawn-target', claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'withdrawn probe' },
 }, expertExec);
 const withdrawn = await service.withdrawIntent(projectId, withdrawnAppeal.intent.id, { reason: 'withdraw probe' }, expertExec);
 check('withdraw-then-prune without a window is blocked', withdrawn.ok === true
@@ -242,19 +269,7 @@ check('withdraw-then-prune with a caller window is rejected', withdrawPruneSuppl
 const withdrawCancel = await submitOn('withdrawn-target', { action: 'cancel_running', evidence: valid }, { chiefConfirmed: true });
 check('withdraw-then-cancel is blocked without a window', withdrawCancel.ok === false
   && withdrawCancel.error?.code === 'appeal_not_resolved', JSON.stringify(withdrawCancel));
-const neverSupplied = await submitOn('clean-target', { action: 'prune_branch', evidence: valid.slice(0, 3) }, {
-  chiefConfirmed: true, appealUntil: Date.now() + 60_000,
-});
-check('a caller window on a never-appealed target is rejected', neverSupplied.ok === false
-  && neverSupplied.error?.code === 'appeal_window_caller_supplied', JSON.stringify(neverSupplied));
-const neverNoWindow = await submitOn('clean-target', { action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
-check('a never-appealed target has no independent human confirmation', neverNoWindow.ok === false
-  && neverNoWindow.error?.code === 'human_confirmation_required', JSON.stringify(neverNoWindow));
-const booleanOnly = await submitOn('clean-target', { action: 'cancel_running', evidence: valid }, {
-  chiefConfirmed: true, humanConfirmed: true,
-});
-check('a humanConfirmed request flag alone cannot unlock an irreversible action', booleanOnly.ok === false
-  && booleanOnly.error?.code === 'human_confirmation_required', JSON.stringify(booleanOnly));// Exact Round 10 probe: a manufactured appeal record (`kind:'appeal'` with a
+// Exact Round 10 probe: a manufactured appeal record (`kind:'appeal'` with a
 // non-appeal claim action) must not create a Host window. The write boundary
 // rejects it, and appealState also ignores any legacy malformed row.
 const manufactured = await service.submitIntent(projectId, {
@@ -312,7 +327,7 @@ const actorId = accepted.intent.actor.id;
 check('claim statistics are persisted per actor', stored.claimStats?.[actorId]?.total >= 56 && stored.claimStats?.[actorId]?.failed === 7, JSON.stringify(stored.claimStats));
 check('rejected claims write a claim/rejected event', store.listEvents(projectId, 0).filter((event) => event.type === 'claim/rejected').length >= 7);
 const negativeAppeal = await service.submitIntent(projectId, {
-  kind: 'note', nodeId: 'clean-target', claim: { action: 'appeal', reason: 'negative resolution probe' },
+  kind: 'note', nodeId: 'clean-target', claim: { action: 'appeal', targetAction: 'cancel_running', reason: 'negative resolution probe' },
 }, expertExec);
 const negativeResolve = await service.resolveAppeal(projectId, negativeAppeal.intent.id, {
   resolution: 'rejected', reason: 'human rejects the objection',
@@ -320,6 +335,95 @@ const negativeResolve = await service.resolveAppeal(projectId, negativeAppeal.in
 const negativeConfirm = await submitOn('clean-target', { action: 'cancel_running', evidence: valid }, { chiefConfirmed: true });
 check('a rejected appeal resolution is not human confirmation', negativeResolve.ok === true
   && negativeConfirm.ok === false && negativeConfirm.error?.code === 'human_confirmation_required', JSON.stringify(negativeConfirm));
+
+// Exact Round 11 probe: an appeal without a target/action scope is not a
+// wildcard. It is rejected at the write boundary, and a differently-scoped
+// resolution cannot authorize a different action on the same node.
+const unscopedAppeal = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'scope-target', claim: { action: 'appeal', reason: 'unscoped probe' },
+}, chiefExec);
+check('an appeal without an exact targetAction is rejected', unscopedAppeal.ok === false
+  && unscopedAppeal.error?.code === 'appeal_target_mismatch', JSON.stringify(unscopedAppeal));
+const unscopedNode = await service.submitIntent(projectId, {
+  kind: 'note', claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'no target node' },
+}, chiefExec);
+check('an appeal without a target node id is rejected', unscopedNode.ok === false
+  && unscopedNode.error?.code === 'appeal_target_mismatch', JSON.stringify(unscopedNode));
+const scopedAppeal = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'scope-target', claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'scope probe' },
+}, chiefExec);
+const scopedResolved = await service.resolveAppeal(projectId, scopedAppeal.intent.id, {
+  resolution: 'upheld', reason: 'human resolves the prune appeal only',
+}, humanExec);
+const wrongAction = await submitOn('scope-target', { action: 'cancel_running', evidence: valid }, { chiefConfirmed: true });
+check('a resolution scoped to prune does not authorize cancel', scopedResolved.ok === true
+  && wrongAction.ok === false && wrongAction.error?.code === 'appeal_target_mismatch', JSON.stringify(wrongAction));
+const wrongTarget = await submitOn('other-target', { action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
+check('a resolution scoped to one node does not authorize another node', wrongTarget.ok === false
+  && wrongTarget.error?.code === 'appeal_target_mismatch', JSON.stringify(wrongTarget));
+
+// Exact Round 11 probe: the requester may raise an appeal, but it cannot be
+// the raiser and the requester at the same time. A different human resolving
+// it is still not three distinct actors.
+const selfRaised = await submitOn('self-target', { action: 'appeal', targetAction: 'prune_branch' }, {});
+const selfRaisedResolved = await service.resolveAppeal(projectId, selfRaised.intent.id, {
+  resolution: 'upheld', reason: 'different human resolves a self-raised appeal',
+}, humanExec);
+const selfRaisedAction = await submitOn('self-target', { action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
+check('a requester that raised the appeal cannot use its resolution', selfRaisedResolved.ok === true
+  && selfRaisedAction.ok === false && selfRaisedAction.error?.code === 'human_confirmation_required', JSON.stringify({ selfRaisedResolved, selfRaisedAction }));
+
+// Exact Round 11 probe: concurrent rejected/upheld resolutions. The mutation
+// carries expectedStatus + expectedRevision, so exactly one commit wins and
+// exactly one appeal/resolved event exists.
+const raceAppeal = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'race-target', claim: { action: 'appeal', targetAction: 'prune_branch', reason: 'race probe' },
+}, chiefExec);
+// The verifier's exact case is a withdrawn appeal: withdrawal never expires
+// into permission, but it still permits one explicit resolution.
+const raceWithdrawn = await service.withdrawIntent(projectId, raceAppeal.intent.id, { reason: 'race setup withdrawal' }, humanExec);
+const raceResults = await Promise.all([
+  service.resolveAppeal(projectId, raceAppeal.intent.id, { resolution: 'rejected', reason: 'race rejected' }, humanExec),
+  service.resolveAppeal(projectId, raceAppeal.intent.id, { resolution: 'upheld', reason: 'race upheld' }, humanExec2),
+]);
+const raceWinners = raceResults.filter((row) => row.ok === true);
+const raceLoser = raceResults.find((row) => row.ok !== true);
+const raceStored = store.getProject(projectId).intents.find((row) => row.id === raceAppeal.intent.id);
+const raceEvents = store.listEvents(projectId, 0).filter((event) => event.type === 'appeal/resolved' && event.data?.intentId === raceAppeal.intent.id);
+console.log(`RACE ${JSON.stringify({
+  withdrawn: raceWithdrawn.ok === true,
+  calls: raceResults.map((row) => (row.ok ? { ok: true, resolution: row.intent?.resolution, resolvedBy: row.intent?.resolvedBy?.id } : { ok: false, code: row.error?.code })),
+  stored: { status: raceStored?.status, resolution: raceStored?.resolution, resolvedBy: raceStored?.resolvedBy?.id },
+  resolvedEvents: raceEvents.length,
+})}`);
+check('concurrent reject/upheld resolutions: exactly one wins', raceWinners.length === 1
+  && raceLoser?.error?.code === 'intent_not_pending', JSON.stringify(raceResults));
+check('concurrent resolutions emit exactly one appeal/resolved event', raceEvents.length === 1, String(raceEvents.length));
+check('the stored resolution matches the winning call', raceStored?.status === 'resolved'
+  && raceStored?.resolution === raceWinners[0]?.intent?.resolution
+  && raceStored?.resolvedBy?.id === raceWinners[0]?.intent?.resolvedBy?.id, JSON.stringify({ stored: raceStored, winner: raceWinners[0] }));
+
+// The same CAS discipline applies to the other external intent transition.
+const raceWithdrawAppeal = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'race-target', claim: { action: 'appeal', targetAction: 'cancel_running', reason: 'withdraw race probe' },
+}, chiefExec);
+const raceWithdrawResults = await Promise.all([
+  service.resolveAppeal(projectId, raceWithdrawAppeal.intent.id, { resolution: 'upheld', reason: 'resolve race' }, humanExec),
+  service.withdrawIntent(projectId, raceWithdrawAppeal.intent.id, { reason: 'withdraw race' }, humanExec),
+]);
+const raceWithdrawWinners = raceWithdrawResults.filter((row) => row.ok === true);
+const raceWithdrawLoser = raceWithdrawResults.find((row) => row.ok !== true);
+const raceWithdrawStored = store.getProject(projectId).intents.find((row) => row.id === raceWithdrawAppeal.intent.id);
+const raceWithdrawEvents = store.listEvents(projectId, 0).filter((event) => event.data?.intentId === raceWithdrawAppeal.intent.id
+  && (event.type === 'appeal/resolved' || event.type === 'intent/withdrawn'));
+console.log(`RACE_WITHDRAW ${JSON.stringify({
+  calls: raceWithdrawResults.map((row) => (row.ok ? { ok: true, resolution: row.intent?.resolution } : { ok: false, code: row.error?.code })),
+  stored: { status: raceWithdrawStored?.status, resolution: raceWithdrawStored?.resolution },
+  transitionEvents: raceWithdrawEvents.length,
+})}`);
+check('concurrent resolve/withdraw: exactly one transition wins', raceWithdrawWinners.length === 1
+  && raceWithdrawLoser?.error?.code === 'intent_not_pending', JSON.stringify(raceWithdrawResults));
+check('concurrent resolve/withdraw emits exactly one transition event', raceWithdrawEvents.length === 1, String(raceWithdrawEvents.length));
 
 console.log(failed === 0 ? '\nclaims-selftest: all checks passed' : `\nclaims-selftest: ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

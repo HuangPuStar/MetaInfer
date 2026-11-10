@@ -5,7 +5,7 @@
 > 每条要么给出**文件 · 函数 · 测试**，要么写 `未完成` + 原因。状态只有「完成 / 未完成」，
 > 没有「部分完成」——部分完成的条目拆成两条。
 >
-> 分支：`refactor/v2`。测试入口：`npm test`（37 个自测文件 / 643 checks，见文末）。
+> 分支：`refactor/v2`。测试入口：`npm test`（37 个自测文件 / 654 checks，见文末）。
 
 ## 1. 内核与写路径（B3/B5/B21/G1/G2，P1）
 
@@ -156,7 +156,7 @@
 | B20 建子节点自动撤回 defer 提名 | 完成 | `kernel/mutations.js` `node.create`：同提交把针对 parent 的 pending curate nomination 置 `withdrawn` 并发 `nomination/withdrawn{reason:child_created}`；curator 反向免疫有幼子的 parent | `experts-selftest.mjs`（真实 executor 建 child 后 parent nomination withdrawn） |
 | B24 evidence 指针与权限分级 | 完成 | 意图 claim 必带 action；描述符 `mayExecute: []`；curator 不能执行 | `intent-selftest.mjs`、`experts-selftest.mjs` |
 | 4.5 专家 hire/fire/drain | 完成 | `lab-service.hireExpert/drainExpert/fireExpert`：roster 存 `project.config.experts`；hire 拒绝 expert actor/self；drain 只置 `draining` 并保留 running；fire 要求先 drain、仍 running 返回 `expert_busy`、把未完成节点 `createdBy` 交还 human；`recallExpertFor` 只招 active；`expert_list` 返回 lifecycle；设置弹窗按状态显示 Hire/Drain/Retire | `expert-lifecycle-selftest.mjs`（15 checks：策略拒绝、hire、recall、drain 保活、busy fire、retire 移交、self-hire）；`ui-selftest.mjs` |
-| B27 7 谓词 claim 校验 + 5 级验证强度 | 完成 | `host/kernel/claims.js` `VERIFICATION_LEVELS` / `ACTION_VERIFICATION`：L0 planned=0、L1 defer=1、L2 cancel_running=2+chief+独立 human/system 确认、L3 prune_branch=3+chief+human/system 确认+appeal、L4 delete_project=human+human/system 确认+appeal；`gateClaimAction` 对 `IRREVERSIBLE_ACTIONS` 无条件要求 `humanConfirmed`，确认不是请求布尔值，而是 `lab-service.appealState` 从“解决者既非请求者也非申诉发起者的 resolved appeal”派生；`submitIntent` 仍只接受 human/chief 的 `chiefConfirmed`，并持久化 `claim.gate` | `claims-selftest.mjs`（5 级映射；每个不可逆动作一条证据被拒；2/3 条、chief、appeal、human confirmation 的 required set 通过；humanConfirmed 请求布尔值单独不能解锁；请求者不能复用自己写下的 appeal resolution）；`submitIntent` 将 `{action:'appeal'}` 写成 `kind:'appeal'`，同目标 pending appeal 以 `appeal_pending` 阻断不可逆动作；withdrawn 永不因 TTL 变成许可，显式 resolution 后才 `resolved`；`appealUntil` 不接受调用方输入，窗口由 Host 写入的 appeal expiresAt（opened 时间派生）计算；`kind:'appeal'` 必须 `claim.action:'appeal'`，`resolveAppeal` 同时检查 kind 与 claim.action，mismatch 返回 `intent_action_mismatch`；L0/L1 不套 C7 floor |
+| B27 7 谓词 claim 校验 + 5 级验证强度 | 完成 | `host/kernel/claims.js` `VERIFICATION_LEVELS` / `ACTION_VERIFICATION`：L0 planned=0、L1 defer=1、L2 cancel_running=2+chief+独立 human/system 确认、L3 prune_branch=3+chief+human/system 确认+appeal、L4 delete_project=human+human/system 确认+appeal；`gateClaimAction` 对 `IRREVERSIBLE_ACTIONS` 无条件要求 `humanConfirmed`，确认不是请求布尔值，而是 `lab-service.appealState` 从“raiser/requester/resolver 三者两两不同，且 target node + targetAction 精确匹配的 resolved appeal”派生；`submitIntent` 仍只接受 human/chief 的 `chiefConfirmed`，并持久化 `claim.gate` | `claims-selftest.mjs`（5 级映射；每个不可逆动作一条证据被拒；2/3 条、chief、appeal、human confirmation 的 required set 通过；humanConfirmed 请求布尔值单独不能解锁；请求者不能复用自己写下的 appeal resolution）；`submitIntent` 将 `{action:'appeal'}` 写成 `kind:'appeal'`，同目标 pending appeal 以 `appeal_pending` 阻断不可逆动作；withdrawn 永不因 TTL 变成许可，显式 resolution 后才 `resolved`；`appealUntil` 不接受调用方输入，窗口由 Host 写入的 appeal expiresAt（opened 时间派生）计算；`kind:'appeal'` 必须 `claim.action:'appeal'`，`resolveAppeal` 同时检查 kind 与 claim.action，mismatch 返回 `intent_action_mismatch`；L0/L1 不套 C7 floor；`claim.targetAction` 必填且必须是不可逆 action，unscoped/differently-scoped 返回 `appeal_target_mismatch`；`intent.withdraw` 并发 resolve 只有一个 `appeal/resolved`；`claims-selftest` 覆盖 unscoped、自提、cross-target、Promise.all reject/upheld |
 | C7 Wilson 下界 + 最少证据 | 完成 | `host/kernel/claims.js` `wilsonLowerBound`（95% one-sided, z=1.96）；`MIN_CITATION_EVIDENCE=20`、`MIN_CITATION_LOWER_BOUND=0.80`；`gateClaimAction` 在 B27 行动门槛之后强制历史 clean-rate 下界与原始 rate<5%，两条门控共用一次调用 | `claims-selftest.mjs`（20 clean 通过；19 条 floor；20 条 4 失败 confidence 拒绝；B27+C7 同时不可绕过） |
 | `experts_list` / `expert_upsert` / `curator_scan` 旧名 | 完成（移除） | 旧名保持从 `ACTION_ENUM`/`ACTION_CATALOG` 删除；`expert_list`/`expert_recall`/`intent_*`/`curator_nominate`/`curator_outcome`/`curator_reset` 是三表一致的实现 | `policy-selftest.mjs`、`tool-surface-selftest.mjs`（三表一致，不残留旧名） |
 | G3 只存 id/摘要 | 完成 | `lab-service` state 瘦身、`reportText` 删除、`_truncated` |
@@ -168,7 +168,7 @@
 - 完成：**85**；未完成：**4**（`maxPlannedInFlight`/抢占、schema 收窄、覆盖率哨兵、O12 文本审计）；拆分条目：**2**（U8、U12）
 - 未完成原因集中在：`maxPlannedInFlight`/抢占、Stage 5 组织化能力、覆盖率哨兵；
   浏览器绘制在本机不可测（无 Chromium/Playwright），已关闭为不适用，不再列为待办。
-- `npm test` 覆盖 **37** 个文件（**643** checks）：`strict-writes`（executor 覆盖 + 默认 throw + 删除守卫）、
+- `npm test` 覆盖 **37** 个文件（**654** checks）：`strict-writes`（executor 覆盖 + 默认 throw + 删除守卫）、
   `replay-client`（真实 HTTP 分页跟随）、`intent`（结构化 basis/claim）、`claims`（7 谓词/
   citationErrorRate）、`eventlog`（冷段/checksum/重启）、`dashboard`（Host facts/stale）、
   `experts`（描述符/三谓词召回/curator/生命周期）、`locale`（JSON 源 + 结构 parity），无重复执行。

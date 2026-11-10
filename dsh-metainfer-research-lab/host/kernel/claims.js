@@ -256,6 +256,7 @@ export function gateClaimAction(action, stats = {}, context = {}) {
     submitted,
     serverAppealUntil: Number.isFinite(context.serverAppealUntil) ? context.serverAppealUntil : null,
     humanConfirmedBy: context.humanConfirmedBy ?? null,
+    appealTargetMismatch: context.appealTargetMismatch === true,
   };
   const actor = context.actor ?? null;
   // A caller-supplied timestamp can never satisfy a cooling-off requirement.
@@ -271,6 +272,11 @@ export function gateClaimAction(action, stats = {}, context = {}) {
   // must be a separate early check.
   if (context.appealUnresolved === true && IRREVERSIBLE_ACTIONS.includes(action)) {
     return { ...base, code: 'appeal_not_resolved' };
+  }
+  // A resolved appeal for another target or action is not a wildcard
+  // authorization. Do not silently fall back to a boolean or a stale window.
+  if (context.appealTargetMismatch === true && IRREVERSIBLE_ACTIONS.includes(action)) {
+    return { ...base, code: 'appeal_target_mismatch' };
   }
   if (requirement.humanOnly && actor?.kind !== 'human') {
     return { ...base, code: 'human_only' };
