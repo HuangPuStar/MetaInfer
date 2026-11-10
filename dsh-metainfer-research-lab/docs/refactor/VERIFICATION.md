@@ -6458,3 +6458,50 @@ B22 是否从 FAIL 变为 PASS。
 ### 48.6 发布判断
 
 **完整发布：NO-SHIP。** 6 个必须行仍未关闭，不能再用“只剩明确不做”作为发布理由。窄发布也不成立：只要包含 `/metrics`、queue-wait、archive 或 rotation 任一条件，就必须把 O1/O2/O3/O4/O5/A21/C1/5.3.12 的缺口写进 release note；`B13`/`5.3.9`/`Q4` 的触发/预算语义也不能写成已实现。`5.4.2` 与 `5.4.6` 的只读计划/triage 边界可以保留，但它们不能抵消上述 11 行。
+
+## §49 作者修复 round 22 的 11 个反证（HEAD `0504af1`，待独立重放）
+
+> 本节是**作者探针**，不是独立复核。§48 的 `143 / 21 / 10` 仍是最后一个独立 verdict；本节只说明作者如何按清单字段/行为逐项修复，独立验证者仍须在 clean HEAD 重放。
+
+### 49.1 契约名与生产路径
+
+| 行 | 修复 | 探针 |
+|---|---|---|
+| O1 | `/metrics` 顶层改为 `cycle`、`byRole`；`byRole.<role>.duration.p50/p90/max`、`failRate` | `observability-selftest` 断言 `byRole.worker` 与 `cycle.p50/p90`，不再断言 `roles`/`cycles` |
+| O2 | `/metrics.advisor.inputBytes.p50/p90`、`advisor.tokens.p50/p90`、budget/tokenGuard 同路径 | `observability-selftest` 直接断言 `advisor.inputBytes.*`；`context-selftest` 仍验 <12 KB 夹具 |
+| O3 | `node.transition`/`node.update` 合并 `timestamps`，保留 `createdAt`；真实 `dispatchOnce` 的 `queueWaits/decisions` 进入 collector | `observability-selftest` 建 1h 前创建、1ms 前解除 `dispatchHold` 的节点，走真实 `dispatchOnce`，断言 `queueWait.count=1`、`decisions[-1].nodeId='held'` |
+| O4 | `queue.remainingMs` 来自 runnable timebox；deferred class + `deferUntil` 统一为唯一 deferred 计数；archived 排除 | `observability-selftest` 构造 class-deferred + `deferUntil` + archived-deferred，断言 `queue.runnable=1`、`deferred=2`、`remainingMs=60_000`、archived 只进 `counts.archived` |
+| O5 | `counts.planned`/`queue.runnable` 不再包含 deferred/`deferUntil`；`remainingMs` 只算 runnable | 同上；`runnable-selftest` 与 `auto-wip-selftest` 回归 |
+| A21 | 真实 `/metrics` 有 `cycle`、`byRole`、`queue.remainingMs` | `surface-bounds-selftest` 对 HTTP `/metrics` 三者显式断言 |
+| B13 | `evaluateEscalationTriggers` 实现 `conflict` / `budget_shift` / `new_direction` / `branch_death` / `low_confidence(<0.6)` / `ledger_conflict` | 纯事实 fixture 与真实 `observerSnapshot` 都断言六码完整；不再从 `TRIGGER_CODES` 自证 |
+| 5.3.9 | `evaluateThresholdTriggers`：planned>2×freeSlots 持续 5min、15min stalled、同 `errorKind` 连续 3 次、同专家 5 次被拒、预算 >80%、同假设 3 节点失败 | 纯 fixture 六阈值 + 真实 observer 先 0ms 再 +5min，断言 `queue_overload` 只在第二帧出现且六码全命中 |
+| Q4 | `budgetUsage` 改为 `queryWindow`（per-run max）、`tokenWindow`（last hour）、`wallClockWindow`（single-run max） | `stage5-selftest` 造 5 条 run（一条 9 queries、共 50k tokens、单次 30s），断言 false/true/true |
+| C1 | `node.archive` 后 `store.listNodes`、Projection、`getState` 都不返回；`metrics.counts.deferred` 与 `queue.deferred` 为 0，`counts.archived=1`；`getNode` 保留审计 | `priority-selftest` 断言四路投影与 metrics |
+| 5.3.12 | `commitRotation` 消费 `nextExpertId`，同一 commit 把 `createdBy` 移到新专家并写 `expertAssignedAt`；`rotationPlan` 的 due 携带 `nodeIds` | `stage5-selftest` 断言 `old-branch.createdBy='lab-reviewer'`、`node/expert_assigned` 事件、assignment 重建且不立即再次 due |
+
+### 49.2 反证（re-plant）
+
+| 破坏 | 期望 | 实测 |
+|---|---|---|
+| 生产 `metricsCollector.recordDispatch` 的 `queueWaits` 置空 | O3 红 | `observability-selftest` EXIT 1；O3 失败 |
+| `node.transition` 恢复为直接替换 `timestamps` | O3 红 | `observability-selftest` EXIT 1；O3 + status/trace 失败 |
+| 旧 `budgetUsage` 累积值 | Q4 红 | 新断言无 `queryWindow`，直接红 |
+| 旧 `cycles`/`roles` 别名 | O1/O2/A21 红 | 新断言路径不存在，直接红 |
+
+### 49.3 回归
+
+| 检查 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**933 ok / 0 FAIL** |
+| `bench:scale` | 11/11 |
+| `client-smoke` | 45/45 |
+| `operator-ui-selftest` | 全通过 |
+| `operator-route-selftest` | 48 route pairs |
+| `dispute-route-selftest` | 全通过 |
+| `plugin-smoke` | 5/5 |
+| `b27-restart-selftest` | 11/11 |
+| `strict-writes-selftest` | 17 ok / 0 unexpected bypass |
+
+### 49.4 账本
+
+作者账面更新为 **154 PASS / 10 FAIL / 10 N/A**；10 FAIL 全部为明确不做。**这不是新的独立 verdict**；独立重放前 `VERIFICATION` §48 的 143/21/10 仍是最后一次独立结论。
