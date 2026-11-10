@@ -14,6 +14,7 @@
  * - events keyed by `${projectId}__e${padded seq}` (per-record keys must match
  *   /^[a-zA-Z0-9_-]+$/, so "/" is not allowed)
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -98,7 +99,43 @@ export function unmigratedLegacyDomain() {
  * Open the domain once per Host process and return the storage facade.
  * @param ctx Cordis context with `storageDomain` injected.
  */
+/**
+ * Single-writer guard (G1, `kernel.strictWrites`).
+ *
+ * Records may only be mutated by the kernel executor. That invariant used to be
+ * documentation; this is the runtime check. `warn` counts unpermitted writes and
+ * logs once per operation, `throw` rejects them (tests use this to prove the
+ * executor's permit covers every write it performs), `off` disables the check.
+ *
+ * The permit travels in AsyncLocalStorage because a commit writes across awaits.
+ */
+const writePermit = new AsyncLocalStorage();
+
+export function withWritePermit(fn) {
+  return writePermit.run({ kernel: true }, fn);
+}
+
 export async function openStore(ctx) {
+  // Per-store state: a test process may open several stores, and one store's
+  // throw mode must never reject another store's setup writes.
+  const writeGuard = { mode: 'off', unpermitted: 0, byOp: {}, warnings: 0 };
+
+  function guardWrite(op) {
+    if (writeGuard.mode === 'off') return;
+    if (writePermit.getStore()?.kernel === true) return;
+    writeGuard.unpermitted += 1;
+    writeGuard.byOp[op] = (writeGuard.byOp[op] ?? 0) + 1;
+    if (writeGuard.mode === 'throw') {
+      const error = new Error(`unpermitted store write: ${op} (kernel.strictWrites=${writeGuard.mode})`);
+      error.code = 'unpermitted_write';
+      throw error;
+    }
+    if (writeGuard.warnings < 5) {
+      writeGuard.warnings += 1;
+      console.warn(`[metainfer-lab] unpermitted store write: ${op} (kernel.strictWrites=warn)`);
+    }
+  }
+
   // A failed activation can leave the storage-domain facility holding this domain
   // open (the close effect was never registered). Reuse that handle on reload so
   // a plugin reload can recover without restarting the whole Host.
@@ -253,6 +290,7 @@ export async function openStore(ctx) {
   }
 
   function saveProject(project) {
+    guardWrite('saveProject');
     return tables.projects.put(project.id, project);
   }
 
@@ -291,6 +329,7 @@ export async function openStore(ctx) {
   }
 
   function saveNode(projectId, node) {
+    guardWrite('saveNode');
     const entry = indexFor(projectId);
     const key = nodeStorageKey(projectId, node.id);
     const previous = entry.nodes.get(node.id);
@@ -306,6 +345,7 @@ export async function openStore(ctx) {
   }
 
   function deleteNode(projectId, nodeId) {
+    guardWrite('deleteNode');
     const entry = indexFor(projectId);
     entry.nodes.delete(nodeId);
     const at = entry.nodeOrder.findIndex((candidate) => candidate.id === nodeId);
@@ -334,6 +374,7 @@ export async function openStore(ctx) {
    * @returns {Promise<object>} the stored event.
    */
   async function appendEvent(project, type, payload = {}) {
+    guardWrite('appendEvent');
     project.counters = project.counters ?? {};
     project.counters.eventSeq = (project.counters.eventSeq ?? 0) + 1;
     const seq = project.counters.eventSeq;
@@ -446,6 +487,7 @@ export async function openStore(ctx) {
   }
 
   function saveRun(projectId, run) {
+    guardWrite('saveRun');
     const entry = indexFor(projectId);
     const at = entry.runs.findIndex((candidate) => candidate.id === run.id);
     if (at >= 0) entry.runs.splice(at, 1);
@@ -462,6 +504,7 @@ export async function openStore(ctx) {
   }
 
   function saveCycle(projectId, cycle) {
+    guardWrite('saveCycle');
     const entry = indexFor(projectId);
     const at = entry.cycles.findIndex((candidate) => candidate.id === cycle.id);
     if (at >= 0) entry.cycles.splice(at, 1);
@@ -479,8 +522,21 @@ export async function openStore(ctx) {
     return project?.counters?.eventSeq ?? 0;
   }
 
+  /** @param {'off'|'warn'|'throw'} mode */
+  function setStrictWrites(mode) {
+    if (!['off', 'warn', 'throw'].includes(mode)) throw new Error(`unknown strictWrites mode: ${mode}`);
+    writeGuard.mode = mode;
+  }
+
+  function writeStats() {
+    return { mode: writeGuard.mode, unpermitted: writeGuard.unpermitted, byOp: { ...writeGuard.byOp } };
+  }
+
   return {
     domainName: DOMAIN_NAME,
+    withWritePermit,
+    setStrictWrites,
+    writeStats,
     worktreeRootFor,
     withProjectLock,
     getProject,

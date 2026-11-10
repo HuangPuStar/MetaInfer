@@ -72,6 +72,11 @@ export async function apply(ctx) {
   const git = createGitEngine(ctx);
   // The kernel is the only writer for claims; the projection is kept in sync with
   // legacy writer paths by the store subscription inside createKernel.
+  // G1: the kernel executor is the only legal writer. `warn` in production keeps
+  // the 64 legacy direct-write sites observable without breaking a live Host;
+  // tests run `throw` to prove the permit covers every kernel write.
+  const strictWrites = ctx.config?.kernel?.strictWrites ?? 'warn';
+  store.setStrictWrites(strictWrites);
   const kernel = createKernel({ store, logger: ctx.logger });
   for (const project of store.listProjects()) kernel.load(project.id);
 

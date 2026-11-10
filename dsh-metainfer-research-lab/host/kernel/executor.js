@@ -176,9 +176,17 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
     return result;
   }
 
-  /** Apply a commit, taking the project lock. */
+  /**
+   * Apply a commit, taking the project lock. The write permit makes the kernel
+   * the only permitted writer when `kernel.strictWrites` is enabled: every store
+   * mutation performed inside a commit inherits it.
+   */
   function commit(projectId, spec) {
-    return store.withProjectLock(projectId, () => commitLocked(projectId, spec));
+    return store.withProjectLock(projectId, () => (
+      typeof store.withWritePermit === 'function'
+        ? store.withWritePermit(() => commitLocked(projectId, spec))
+        : commitLocked(projectId, spec)
+    ));
   }
 
   /**
@@ -187,7 +195,13 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
    * @returns {Promise<{redone: number, discarded: number}>}
    */
   async function recover(projectId) {
-    return store.withProjectLock(projectId, async () => {
+    return store.withProjectLock(projectId, () => (typeof store.withWritePermit === 'function'
+      ? store.withWritePermit(() => recoverLocked(projectId))
+      : recoverLocked(projectId)));
+  }
+
+  async function recoverLocked(projectId) {
+    return (async () => {
       const project = store.getProject(projectId);
       if (!project) return { redone: 0, discarded: 0 };
       const acknowledged = project.counters?.eventSeq ?? 0;
@@ -247,7 +261,7 @@ export function createExecutor({ store, clock = Date.now, projection = null, bus
       working.revision = lastRevision;
       await store.saveProject(working);
       return { redone, discarded };
-    });
+    })();
   }
 
   return { commit, commitLocked, recover };

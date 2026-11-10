@@ -2937,6 +2937,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       domain: store.domainName,
       storage: 'ready',
       projects: store.listProjects().length,
+      writes: typeof store.writeStats === 'function' ? store.writeStats() : null,
     };
   }
 
