@@ -170,5 +170,5 @@
 | curator 状态 | done | `c93e643` | 真实 dispatch/review claim 传入；10 分钟免疫边界测试；claims/reviews 排除；提名 intent 可撤回 |
 | 3.2/B5 人类 p0 | done | `c93e643`/`39748a6` | 人类后继默认 `p0/by=human`；p0→dispatch claim 21 ms（<1 s），真实 dispatcher |
 
-**测试**：`npm test` 27 个文件、435 checks 全绿。仍开着：冷段归档、dashboard 静默过期/来源徽标、
+**测试**：`npm test` 27 个文件、436 checks 全绿。仍开着：冷段归档、dashboard 静默过期/来源徽标、
 7 谓词 claim 校验与 `citationErrorRate`、浏览器绘制/FPS、Stage 5 组织化能力。

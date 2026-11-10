@@ -163,7 +163,7 @@
 - 完成：**81**；未完成：**8**；拆分条目（完成 X / 未完成 Y）：**4**
 - 未完成原因集中在：冷段归档、dashboard 子系统、7 谓词 claim 校验/citationErrorRate、
   无浏览器导致的 UI 绘制测量，以及部分 Stage 5 组织化能力。
-- `npm test` 覆盖 **27** 个文件（435 checks）：`strict-writes`（executor 覆盖 + 默认 throw + 删除守卫）、
+- `npm test` 覆盖 **27** 个文件（436 checks）：`strict-writes`（executor 覆盖 + 默认 throw + 删除守卫）、
   `replay-client`（真实 HTTP 分页跟随）、`intent`（claim/basis/explain）、`experts`（描述符/
   三谓词召回/curator/生命周期）、`locale`（JSON 源 + 结构 parity），无重复执行。
 
