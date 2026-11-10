@@ -152,6 +152,8 @@ await test('O1/A11: cycle and per-role latency expose p50/p90, not only p95', ()
   assert.equal(metrics.byRole.worker.failRate, Number((1 / 3).toFixed(3)));
   assert.equal(metrics.cycle.p50, 500);
   assert.equal(metrics.cycle.p90, 500);
+  assert.equal(metrics.cycle, metrics.cycles, 'the compatibility alias is the same object');
+  assert.equal(metrics.byRole, metrics.roles, 'the compatibility alias is the same object');
 });
 
 await test('O2: advisor input exposes byte/token percentiles and the byte guard', () => {
@@ -168,6 +170,10 @@ await test('O2: advisor input exposes byte/token percentiles and the byte guard'
   assert.equal(metrics.advisor.inputBytes.p90Utilization, Number((3_000 / 12_288).toFixed(3)));
   assert.equal(metrics.advisor.budgetBytes, 12_288);
   assert.deepEqual(metrics.advisor.tokenGuard, { maxTokens: 10_000, used: 0, remaining: 10_000 });
+  assert.equal(metrics.advisorInput.utilization, metrics.advisor.inputBytes.p50Utilization);
+  assert.equal(metrics.advisor, metrics.advisorInput, 'advisor and advisorInput are the same object');
+  assert.equal(metrics.advisorInput.utilization, Number((2_000 / 12_288).toFixed(3)));
+  assert.notEqual(metrics.advisorInput.utilization, null);
 });
 
 await test('metrics collector is bounded and aggregation is deterministic', () => {
@@ -273,10 +279,12 @@ await test('O3: production dispatchOnce records runnable->claimed queue wait', a
   assert.deepEqual(round.startedNodeIds, ['held']);
   const metrics = await service.metricsFor(projectId);
   assert.equal(metrics.dispatch.queueWait.count, 1, 'production dispatchOnce must feed the queue-wait ring');
-  assert.ok(metrics.dispatch.queueWait.p50 >= 3_500_000, `wait ${metrics.dispatch.queueWait.p50}`);
+  // The hold expired one millisecond before dispatch: wait starts at release,
+  // not at createdAt, so a 1h-old node has a near-zero queue wait.
+  assert.ok(metrics.dispatch.queueWait.p50 < 5_000, `wait ${metrics.dispatch.queueWait.p50}`);
   assert.equal(metrics.dispatch.decisions.at(-1)?.nodeId, 'held');
   assert.equal(metrics.dispatch.decisions.at(-1)?.status, 'started');
-  assert.ok(metrics.dispatch.decisions.at(-1)?.waitMs >= 3_500_000);
+  assert.ok(metrics.dispatch.decisions.at(-1)?.waitMs >= 0 && metrics.dispatch.decisions.at(-1)?.waitMs < 5_000);
 });
 
 let failed = 0;

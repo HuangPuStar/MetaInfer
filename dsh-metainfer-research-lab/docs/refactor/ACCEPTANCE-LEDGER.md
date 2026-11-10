@@ -1,6 +1,6 @@
-# 174 行验收账本（round 23 修复后，待独立重放）
+# 174 行验收账本（round 24 修复后，待独立重放）
 
-> 本文件是**账本**，不是独立的关闭记录。独立依据仍是 `VERIFICATION.md` §48（HEAD `4318607`）；§49 是作者对 §48 反证的修复，尚需独立重放。这里确保每个 ID 恰好一个状态，且 residual 可加总。
+> 本文件是**账本**，不是独立的关闭记录。最后一个独立依据是 `VERIFICATION.md` §50（HEAD `06964cc`，150/14/10）；§51 是作者对 §50 四个反证的修复，作者账面为 154/10/10，尚待独立重放。这里确保每个 ID 恰好一个状态，且 residual 可加总。
 
 ## 汇总
 
@@ -11,7 +11,7 @@
 | N/A（未测量/不适用） | **10** |
 | 合计 | **174** |
 
-推导：round 21 独立重放为 `121 / 43 / 10`；round 22 抽样把 11 行改判 FAIL，得到 `143 / 21 / 10`。§49 按清单契约修复这 11 行（O1/O2/O3/O4/O5/A21、B13/Q4/C1/5.3.9/5.3.12），作者账面回到 `154 / 10 / 10`；剩余 10 行全部为明确不做。**这 11 行仍需独立重放确认。**
+推导：round 21 独立重放为 `121 / 43 / 10`；round 22 抽样把 11 行改判 FAIL，得到 `143 / 21 / 10`。§49 修复 11 行后作者账面为 `154 / 10 / 10`；§50 独立重放发现 **O3/C1/B13/5.3.9 四行仍 FAIL**，独立账面为 `150 / 14 / 10`。§51 按 §50 的语义重新修复这四行（runnable→claimed 起点、Projection byId、escalate reasonCode、共享 queue-overload 定义），作者账面回到 `154 / 10 / 10`；N/A 仍 10。
 
 ## residual 范围
 
@@ -22,7 +22,7 @@
 | 明确不做 | **10** |
 | 合计 | **10** |
 
-10 个明确不做：`B11`、`B12`、`B14`、`B16`、`Q8`、`5.4`、`C2`、`C8`、`C14`、`5.3.10`。B22/U2 已独立 PASS，不计入。`A11`、`S5`、`5.3.7`、`5.4.2`、`5.4.6` 保持 PASS（见 §48.1）。§49 的 11 行修复是作者探针，不是新的独立复核。
+10 = **0 必须 + 0 应该 + 10 明确不做**。10 个明确不做：`B11`、`B12`、`B14`、`B16`、`Q8`、`5.4`、`C2`、`C8`、`C14`、`5.3.10`。B22/U2 已独立 PASS，不计入。`A11`、`S5`、`5.3.7`、`5.4.2`、`5.4.6` 保持 PASS（见 §48.1）；§49 的 O1/O2/O4/O5/A21/Q4/5.3.12 已由 §50 关闭；§50 的 O3/C1/B13/5.3.9 由 §51 关闭，待独立重放。
 
 ## 逐行账本
 
@@ -40,7 +40,7 @@
 | B10 | PASS | — | §1 baseline PASS |
 | B11 | FAIL | 明确不做 | D7 已选作用域分区，不建 branch/lead/chief 三级。 |
 | B12 | FAIL | 明确不做 | D7 无固定层级，不设单点 chief。 |
-| B13 | PASS | 应该 | §49：`evaluateEscalationTriggers` 实现清单六码 `conflict`/`budget_shift`/`new_direction`/`branch_death`/`low_confidence(<0.6)`/`ledger_conflict`；纯 fixture 与真实 `observerSnapshot` 各六码全命中。 |
+| B13 | PASS | 应该 | §51：`INTENT_KINDS`/`INTENT_ACTIONS` 加入 `escalate`，`semanticFallback` 路由到 human dispute；`createIntent` 与 `submitIntent` 都要求 `claim.reasonCode` ∈ 六码，缺失/非法分别返回 `escalation_reason_required`/`escalation_reason_invalid`，测试覆盖 kernel 与服务两个写边界。 |
 | B14 | FAIL | 明确不做 | chief 审批闸门不成立；dispute/arbiter 取代否决窗口。 |
 | B15 | PASS | — | §17 |
 | B16 | FAIL | 明确不做 | D6 明确不做驻留会话与 submit 工具。 |
@@ -58,7 +58,7 @@
 | Q1 | PASS | — | §24/§25 |
 | Q2 | PASS | — | §24/§25 |
 | Q3 | PASS | — | §36：已 PASS，不再列为剩余必须 |
-| Q4 | PASS | 应该 | §49：`budgetUsage` 改为 per-run queries、last-hour tokens、single-run wall clock 三个窗口；5 条 run 中 1 条 9 queries/总 50k tokens/单次 30s，窗口分别判 false/true/true。 |
+| Q4 | PASS | 应该 | §50：真实 `listExperts` 的 5 条 run、1 条 9 queries、总 50k tokens、单次 30s → `queryWindow.maxPerRun=9,within=false`、`tokenWindow.lastHourTokens=50000,within=true`、`wallClockWindow.maxRunMs=30000,within=true`。 |
 | Q5 | PASS | 必须 | §47：deferred 不占 maxNodes，独立 maxDeferred breaker；`auto-wip-selftest` 8/8。 |
 | Q6 | PASS | — | §1 baseline PASS |
 | Q7 | PASS | — | §1 baseline PASS |
@@ -90,7 +90,7 @@
 | 5.2 | PASS | — | §40 ledger correction：独立 verdict，不再并入 B22/B23 |
 | 5.3 | PASS | — | §40 ledger correction：独立 verdict，不再并入 B22/B23 |
 | 5.4 | FAIL | 明确不做 | D7 已取消分层评审，明确不做。 |
-| C1 | PASS | 应该 | §49：`node.archive` 后 `store.listNodes`、Projection、`getState` 均不再返回该节点；`metrics.counts.deferred`/`queue.deferred` 为 0，`counts.archived=1`，`getNode` 仍可审计。 |
+| C1 | PASS | 应该 | §51：Projection 的 `indexNode` 遇到 `archivedAt` 直接不写入 `byId`，archive 的 `node.merge` 经 `putNode` 先 unindex 再跳过；`projection.getNode` 返回 `undefined`，`checkConsistency` 为空，`store.listNodes`/`getState`/metrics 同步消失。 |
 | C2 | FAIL | 明确不做 | 以单一 chief 为前提，v2 不设 chief。 |
 | C3 | N/A | — | 真实浏览器绘制/时区 N/A；未测量。 |
 | C4 | N/A | — | 真实 provider/LLM 端到端 N/A。 |
@@ -123,10 +123,10 @@
 | 5.3.6 | PASS | — | §24/§25 |
 | 5.3.7 | PASS | 应该 | §47：父节点全完成自动创建 merge（去重、限一批）；`stage5-selftest` 通过。 |
 | 5.3.8 | PASS | 应该 | §47：默认 advisor 预算 240s（高于实测 180s p90），范围 30..1800；`stage5-selftest` 通过。 |
-| 5.3.9 | PASS | 应该 | §49：阈值改为 planned>2×freeSlots 持续 5min、15min 停滞、同 errorKind 连续 3 次、专家 5 次被拒、预算 >80%、同假设 3 节点失败；真实 observer 跨 5min 窗口发出六码。 |
+| 5.3.9 | PASS | 应该 | §51：`queueOverloadState` 是唯一 overload 定义（`planned > 2×freeSlots`），`observerSnapshot` 与 `evaluateThresholdTriggers` 共用；3 planned（含 1 deferred）、freeSlots=1 时 t0 不报、+5min 报 `queue_overload`，detail 为 `planned=3,queue=2`。 |
 | 5.3.10 | FAIL | 明确不做 | 与 D7 三级评审冲突，明确不做。 |
 | 5.3.11 | PASS | 应该 | §47：curator intent TTL 与 `intent/expired`；`experts-selftest` 通过。 |
-| 5.3.12 | PASS | 应该 | §49：轮换消费 `nextExpertId`，在同一 commit 把 `createdBy` 移到新专家并写 `expertAssignedAt`；`rotationPlan` 的 due 带 `nodeIds`，测试断言 `old-branch.createdBy='lab-reviewer'` 与 `node/expert_assigned` 事件。 |
+| 5.3.12 | PASS | 应该 | §50：真 `rotateDueExperts` 把 root+child 的 `createdBy` 从 `lab-advisor` 移到 `lab-chief`，写两个 `node/expert_assigned` 事件，`assignedNodeIds` 两个节点；重建 assignment 后 `due=[]`。 |
 | 5.3.13 | PASS | — | §40 |
 | 5.3.14 | PASS | — | §38 |
 | 5.3.15 | PASS | — | §1 baseline PASS |
@@ -155,11 +155,11 @@
 | U12 | PASS | — | §40 |
 | U13 | PASS | — | §21 |
 | U14 | PASS | — | §24/§25 |
-| O1 | PASS | 必须 | §49：`/metrics` 顶层改为清单契约 `cycle`/`byRole`；`observability-selftest` 断言 `byRole.worker.duration.p50/p90`、`cycle.p50/p90`。 |
-| O2 | PASS | 必须 | §49：`/metrics` 顶层 `advisor.inputBytes.p50/p90`、`advisor.tokens.p50/p90`；测试断言清单路径，不再断言 `advisorInput` 别名。 |
-| O3 | PASS | 必须 | §49：`node.transition`/`node.update` 合并 timestamps，保留 `createdAt`；真实 `dispatchOnce` 启动 1h 前创建、刚解除 hold 的节点后 `queueWait.count=1`、`decisions[0].nodeId='held'`。删掉生产 queueWaits 即红。 |
-| O4 | PASS | 必须 | §49：`runnableSummary` 把 `deferUntil` 与 deferred class 归入唯一 deferred 计数并排除 archived；`queue.remainingMs` 来自 runnable timebox，`queue.deferred` 不再含 archived。 |
-| O5 | PASS | 必须 | §49：`counts.planned`/`queue.runnable` 只含可运行节点；`deferUntil` 不再同时计入 planned/runnable/deferred；archived deferred 从队列与 metrics deferred 消失。 |
+| O1 | PASS | 必须 | §50：真实 HTTP `/metrics` 顶层有 `cycle`/`byRole`；`cycle.p50/p90=20000`，`byRole.advisor.failRate=0.25`。 |
+| O2 | PASS | 必须 | §50：真实 HTTP `/metrics.advisor.inputBytes.p50=3000`、`p90=5000`；`advisor.tokens.p50=1100`、`p90=1300`。 |
+| O3 | PASS | 必须 | §51：`runnableSince(node)` 取 `plannedAt`、`deferUntil`、`dispatchHold.untilMs` 的最大值，生产 dispatch 从该时刻算到 started；同一 1h-old/1ms-release fixture 的 `waitMs` 小于 5s，不再把 hold 时间算作 queue wait。 |
+| O4 | PASS | 必须 | §50：真实 `queue.remainingMs=60000`、`queue.runnable=1`、`queue.deferred=2`、`counts.archived=1`；archived deferred 不再进 queue/counts.deferred。 |
+| O5 | PASS | 必须 | §50：同一 fixture：`counts.planned=1`、`counts.runnable=1`、`queue.runnable=1`、`queue.deferred=2`；`deferUntil` 不再同时算 planned/runnable，archived 只进 `archived`。 |
 | O6 | PASS | 应该 | §47：`autoState` 持久化 idle/error streak、lastPause、pauseCounts；`auto-wip-selftest` 8/8。 |
 | O7 | PASS | — | §1 baseline PASS |
 | O8 | PASS | — | §17 |
@@ -187,7 +187,7 @@
 | A18 | PASS | — | §14 |
 | A19 | PASS | — | §1 baseline PASS |
 | A20 | PASS | — | §24/§25 |
-| A21 | PASS | 必须 | §49：真实 `/metrics` 有 `cycle.p50/p90`、`byRole`、`queue.remainingMs`；`surface-bounds-selftest` 对三者都有显式断言。 |
+| A21 | PASS | 必须 | §50：真实 HTTP `/metrics` 有 `cycle.p50/p90`、`byRole`、`queue.remainingMs`；`surface-bounds-selftest` 三者显式断言。 |
 | S1 | PASS | — | §1 baseline PASS |
 | S2 | PASS | — | §1 baseline PASS |
 | S3 | PASS | — | §1 baseline PASS |
@@ -207,5 +207,6 @@
 
 - 174 个 ID 全部出现一次；无重复、无合并行。
 - PASS 154 + FAIL 10 + N/A 10 = 174。
-- FAIL 10 = 明确不做 10。
+- FAIL 10 = **0 必须 + 0 应该 + 10 明确不做**。
 - `B22` 已在 round 21 独立 PASS（§46.7；48 对、token 矩阵、body actor、破坏性 gate）；`U2` 已独立 PASS；`5.2`、`5.3`、`5.3.3`、`Q3` 是独立 PASS，不是“由 B22/B23 覆盖”。
+- 最后一个独立重放（§50）为 150/14/10；§51 的 154/10/10 是作者修复后的账面，尚待独立重放，不能声称已是独立结论。

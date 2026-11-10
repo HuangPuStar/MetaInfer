@@ -65,6 +65,37 @@ check('C5: the intent record itself carries the executor/fallback route',
   semanticIntent.fallback?.code === 'human_review' && semanticIntent.fallback?.executor === 'human',
   JSON.stringify(semanticIntent.fallback));
 
+const escalateActor = actorForSession({ sessionId: 'claims-escalate', kind: 'expert' });
+const escalateIntent = createIntent({
+  id: 'intent-escalate-valid',
+  kind: 'escalate',
+  actor: escalateActor,
+  claim: { action: 'escalate', reasonCode: 'conflict', reason: 'two variants disagree' },
+  basis: { projectRevision: 0, snapshotAgeMs: 0, nodesSeen: 1 },
+});
+check('B13: escalate is a real intent kind with a human-dispute fallback',
+  escalateIntent.kind === 'escalate' && escalateIntent.claim.reasonCode === 'conflict'
+  && escalateIntent.fallback?.executor === 'human' && escalateIntent.fallback?.code === 'human_escalation',
+  JSON.stringify({ kind: escalateIntent.kind, fallback: escalateIntent.fallback }));
+function intentError(claim) {
+  try {
+    createIntent({
+      id: `intent-escalate-${claim.reasonCode ?? 'missing'}`,
+      kind: 'escalate', actor: escalateActor, claim,
+      basis: { projectRevision: 0, snapshotAgeMs: 0, nodesSeen: 1 },
+    });
+    return null;
+  } catch (error) {
+    return String(error?.message ?? error);
+  }
+}
+check('B13: createIntent rejects a missing reasonCode at the kernel write boundary',
+  intentError({ action: 'escalate' })?.startsWith('escalation_reason_required') === true,
+  String(intentError({ action: 'escalate' })));
+check('B13: createIntent rejects a non-checklist reasonCode at the kernel write boundary',
+  intentError({ action: 'escalate', reasonCode: 'stalled_node' })?.startsWith('escalation_reason_invalid') === true,
+  String(intentError({ action: 'escalate', reasonCode: 'stalled_node' })));
+
 const domain = memoryDomain();
 const store = await openStore(storeContext(domain));
 const kernel = createKernel({ store });

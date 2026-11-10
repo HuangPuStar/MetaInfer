@@ -232,6 +232,53 @@ export function computeProjectMetrics({
   const p50Bytes = snapshot?.p50 ?? advisor?.inputBytes?.p50 ?? null;
   const p90Bytes = snapshot?.p90 ?? advisor?.inputBytes?.p90 ?? null;
   const tokenBudget = Number(project?.config?.auto?.maxTokens ?? 0);
+  const p50Utilization = p50Bytes !== null && budget > 0 ? Number((p50Bytes / budget).toFixed(3)) : null;
+  const p90Utilization = p90Bytes !== null && budget > 0 ? Number((p90Bytes / budget).toFixed(3)) : null;
+  const utilization = snapshot?.last && budget > 0
+    ? Number((snapshot.last / budget).toFixed(3))
+    : p50Utilization;
+  const cycle = {
+    count: cycles.length,
+    ...summarizeDurations(cycleDurations),
+  };
+  const byRole = roles;
+  // B13/O2: one advisor object, rendered under both names. The legacy fields
+  // are projections of the same values, not a second calculation.
+  const advisorInput = {
+    inputBytes: {
+      p50: p50Bytes,
+      p90: p90Bytes,
+      max: snapshot?.max ?? advisor?.inputBytes?.max ?? null,
+      last: snapshot?.last ?? advisor?.inputBytes?.last ?? null,
+      budget,
+      p50Utilization,
+      p90Utilization,
+    },
+    tokens: {
+      p50: advisor?.tokens?.p50 ?? null,
+      p90: advisor?.tokens?.p90 ?? null,
+      max: advisor?.tokens?.max ?? null,
+      avg: advisor?.tokens?.avg ?? null,
+    },
+    budgetBytes: budget,
+    tokenGuard: {
+      maxTokens: tokenBudget,
+      used: Number(project?.counters?.tokensUsed ?? 0),
+      remaining: tokenBudget > 0 ? Math.max(0, tokenBudget - Number(project?.counters?.tokensUsed ?? 0)) : null,
+    },
+    lastBytes: snapshot?.last ?? advisor?.inputBytes?.last ?? null,
+    maxBytes: snapshot?.max ?? advisor?.inputBytes?.max ?? null,
+    p50Bytes,
+    p90Bytes,
+    avgTokens: advisor?.tokens?.avg ?? null,
+    p50Tokens: advisor?.tokens?.p50 ?? null,
+    p90Tokens: advisor?.tokens?.p90 ?? null,
+    maxTokens: advisor?.tokens?.max ?? null,
+    utilization,
+    p50Utilization,
+    p90Utilization,
+    tokenBudget,
+  };
   return {
     projectId: project?.id ?? null,
     generatedAt: now,
@@ -250,60 +297,14 @@ export function computeProjectMetrics({
       failed: rawCounts.failed ?? 0,
       proposed: rawCounts.proposed ?? 0,
     },
-    cycle: {
-      count: cycles.length,
-      ...summarizeDurations(cycleDurations),
-    },
-    byRole: roles,
-    // Backwards-compatible aliases for existing UI callers. The contract names
-    // above are what the checklist and the selftests assert.
-    cycles: {
-      count: cycles.length,
-      ...summarizeDurations(cycleDurations),
-    },
-    roles,
-    advisor: {
-      inputBytes: {
-        p50: p50Bytes,
-        p90: p90Bytes,
-        max: snapshot?.max ?? advisor?.inputBytes?.max ?? null,
-        last: snapshot?.last ?? advisor?.inputBytes?.max ?? null,
-        budget: budget,
-        p50Utilization: p50Bytes !== null ? Number((p50Bytes / budget).toFixed(3)) : null,
-        p90Utilization: p90Bytes !== null ? Number((p90Bytes / budget).toFixed(3)) : null,
-      },
-      tokens: {
-        p50: advisor?.tokens?.p50 ?? null,
-        p90: advisor?.tokens?.p90 ?? null,
-        max: advisor?.tokens?.max ?? null,
-      },
-      budgetBytes: budget,
-      tokenGuard: {
-        maxTokens: tokenBudget,
-        used: Number(project?.counters?.tokensUsed ?? 0),
-        remaining: tokenBudget > 0 ? Math.max(0, tokenBudget - Number(project?.counters?.tokensUsed ?? 0)) : null,
-      },
-    },
-    advisorInput: {
-      lastBytes: snapshot?.last ?? advisor?.inputBytes?.max ?? null,
-      maxBytes: snapshot?.max ?? advisor?.inputBytes?.max ?? null,
-      p50Bytes,
-      p90Bytes,
-      avgTokens: advisor?.tokens?.avg ?? null,
-      p50Tokens: advisor?.tokens?.p50 ?? null,
-      p90Tokens: advisor?.tokens?.p90 ?? null,
-      maxTokens: advisor?.tokens?.max ?? null,
-      budgetBytes: budget,
-      utilization: snapshot?.last ? Number((snapshot.last / budget).toFixed(3)) : null,
-      p50Utilization: p50Bytes !== null ? Number((p50Bytes / budget).toFixed(3)) : null,
-      p90Utilization: p90Bytes !== null ? Number((p90Bytes / budget).toFixed(3)) : null,
-      tokenBudget,
-      tokenGuard: {
-        maxTokens: tokenBudget,
-        used: Number(project?.counters?.tokensUsed ?? 0),
-        remaining: tokenBudget > 0 ? Math.max(0, tokenBudget - Number(project?.counters?.tokensUsed ?? 0)) : null,
-      },
-    },
+    cycle,
+    cycles: cycle,
+    // Compatibility aliases point at the same objects so a single response
+    // cannot grow two divergent truths.
+    byRole,
+    roles: byRole,
+    advisor: advisorInput,
+    advisorInput,
     dispatch: live?.dispatch ?? {
       count: 0, avgMs: null, p50Ms: null, p90Ms: null, p95Ms: null, p99Ms: null, maxMs: null,
       started: 0, skipped: 0, skipReasons: {}, queueWait: summarizeDurations([]), decisions: [], lastAt: null,

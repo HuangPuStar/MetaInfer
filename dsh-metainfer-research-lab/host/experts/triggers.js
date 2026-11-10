@@ -10,15 +10,9 @@
  * decides whether a trigger fired.
  */
 import { runnableQueue } from '../kernel/runnable.js';
+import { ESCALATION_REASON_CODES } from '../kernel/intent.js';
 
-export const ESCALATION_TRIGGER_CODES = Object.freeze([
-  'conflict',
-  'budget_shift',
-  'new_direction',
-  'branch_death',
-  'low_confidence',
-  'ledger_conflict',
-]);
+export const ESCALATION_TRIGGER_CODES = ESCALATION_REASON_CODES;
 
 // The old name is kept as an export alias because existing callers import it;
 // the values are now the checklist codes, not the implementation's old six.
@@ -37,6 +31,21 @@ const MINUTE = 60_000;
 const DEFAULT_QUEUE_OVERLOAD_MS = 5 * MINUTE;
 const DEFAULT_STALLED_MS = 15 * MINUTE;
 const DEFAULT_BUDGET_RATIO = 0.8;
+
+/**
+ * The single 5.3.9 queue-overload definition. `planned` (not runnable-only)
+ * is the checklist quantity; the observer and the threshold evaluator must use
+ * this helper so deferred nodes cannot make the two disagree.
+ */
+export function queueOverloadState(nodes, freeSlotsValue) {
+  const planned = nodes.filter((node) => node?.status === 'planned' && !node?.archivedAt).length;
+  const freeSlots = Math.max(0, Number(freeSlotsValue ?? 0));
+  return {
+    overloaded: freeSlots > 0 && planned > 2 * freeSlots,
+    planned,
+    freeSlots,
+  };
+}
 
 function confidenceOf(node) {
   const value = node?.confidence ?? node?.report?.confidence ?? node?.proposal?.confidence;
@@ -173,13 +182,14 @@ export function evaluateThresholdTriggers(input = {}) {
   const nodes = Array.isArray(input.nodes) ? input.nodes : [];
   const runs = Array.isArray(input.runs) ? input.runs : [];
   const queue = runnableQueue(nodes, now);
-  const planned = nodes.filter((node) => node?.status === 'planned' && !node?.archivedAt).length;
-  const freeSlots = Math.max(0, Number(input.freeSlots ?? 0));
+  const overload = queueOverloadState(nodes, input.freeSlots);
+  const planned = overload.planned;
+  const freeSlots = overload.freeSlots;
   const queueOverloadMs = Number.isFinite(input.queueOverloadMs) ? input.queueOverloadMs : DEFAULT_QUEUE_OVERLOAD_MS;
   const stalledMs = Number.isFinite(input.stalledMs) ? input.stalledMs : DEFAULT_STALLED_MS;
   const triggers = [];
 
-  const queueOverloaded = freeSlots > 0 && planned > 2 * freeSlots;
+  const queueOverloaded = overload.overloaded;
   if (queueOverloaded) {
     const since = Number(input.queueOverloadSince);
     const overMs = Number.isFinite(since) && since > 0 ? Math.max(0, now - since) : 0;

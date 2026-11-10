@@ -30,11 +30,11 @@ B27 撤销**，不再作为 B27 的排除项。
 arbiter matrix）独立通过，**B22 仍是 FAIL**：8 类 authority 元数据正确，但
 `resolveDispute` 不执行 authority 检查，专家可对全部 8 类 `apply_change`；
 5.3.13 的 long-poll/mid-sleep 通过，但只有 30s、只识别 stalled，缺
-starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准；第二十一轮以 §46.7 的 **121 / 43 / 10** 为准；第二十二轮以 §48 的 **143 / 21 / 10** 为准。
+starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准；第二十一轮以 §46.7 的 **121 / 43 / 10** 为准；第二十二轮以 §48 的 **143 / 21 / 10** 为准；第二十三轮以 §50 的 **150 / 14 / 10** 为准。
 
 > 作者第十四轮报告见 **§35**，第二十轮报告见 **§46**，不替代独立复核。
-> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；第二十一轮见 §46.7；第二十二轮见 §48；当前独立总判定以 §48 为准：143 PASS / 21 FAIL / 10 未测量。**
-> **B27 restart continuity 仍 PASS；U2 PASS；B22 在 round 21 独立重放通过（48 个 method+path 全部有 policy；14 个 token 路由 absent/forged 拒绝；递归剥离 body actor；/commands 破坏性操作仍走 human gate；authorizeIrreversibleTool(null) 不再铸造 human）。完整发布仍 NO-SHIP：round 22 §48 仍有 6 个必须行（O1/O2/O3/O4/O5/A21）未关闭。**
+> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；第二十一轮见 §46.7；第二十二轮见 §48；第二十三轮见 §50；当前独立总判定以 §50 为准：150 PASS / 14 FAIL / 10 未测量。**
+> **B27 restart continuity 仍 PASS；U2 PASS；B22 在 round 21 独立重放通过（48 个 method+path 全部有 policy；14 个 token 路由 absent/forged 拒绝；递归剥离 body actor；/commands 破坏性操作仍走 human gate；authorizeIrreversibleTool(null) 不再铸造 human）。完整发布仍 NO-SHIP：round 23 §50 仍有 1 个必须行（O3）和 3 个应该行（C1/B13/5.3.9）未关闭。**
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
@@ -6459,7 +6459,7 @@ B22 是否从 FAIL 变为 PASS。
 
 **完整发布：NO-SHIP。** 6 个必须行仍未关闭，不能再用“只剩明确不做”作为发布理由。窄发布也不成立：只要包含 `/metrics`、queue-wait、archive 或 rotation 任一条件，就必须把 O1/O2/O3/O4/O5/A21/C1/5.3.12 的缺口写进 release note；`B13`/`5.3.9`/`Q4` 的触发/预算语义也不能写成已实现。`5.4.2` 与 `5.4.6` 的只读计划/triage 边界可以保留，但它们不能抵消上述 11 行。
 
-## §49 作者修复 round 22 的 11 个反证（HEAD `0504af1`，待独立重放）
+## §49 作者修复 round 22 的 11 个反证（HEAD `0504af1`；§50 独立复核为 150/14/10）
 
 > 本节是**作者探针**，不是独立复核。§48 的 `143 / 21 / 10` 仍是最后一个独立 verdict；本节只说明作者如何按清单字段/行为逐项修复，独立验证者仍须在 clean HEAD 重放。
 
@@ -6504,4 +6504,101 @@ B22 是否从 FAIL 变为 PASS。
 
 ### 49.4 账本
 
-作者账面更新为 **154 PASS / 10 FAIL / 10 N/A**；10 FAIL 全部为明确不做。**这不是新的独立 verdict**；独立重放前 `VERIFICATION` §48 的 143/21/10 仍是最后一次独立结论。
+作者账面更新为 **154 PASS / 10 FAIL / 10 N/A**；10 FAIL 全部为明确不做。**这不是新的独立 verdict**；§50 独立重放后为 **150 / 14 / 10**，O3/C1/B13/5.3.9 仍 FAIL。
+
+## §50 独立复核（round 23，HEAD `06964cc`，2026-11-10T23:52:30+08:00 `Asia/Shanghai`）
+
+> 本节是独立重放，不是 §49 的复述。§49 的作者账面 `154 / 10 / 10` 不被接受；当前独立账面为
+> **150 PASS / 14 FAIL / 10 N/A**，residual **1 必须 / 3 应该 / 10 明确不做 = 14**。
+
+### 50.1 结论：11 个反证中 7 个关闭、4 个仍 FAIL
+
+在 clean HEAD `06964cc` 上重放 O1/O2/O3/O4/O5/A21/B13/5.3.9/Q4/C1/5.3.12 共 11 行：
+
+- **PASS（7）**：O1、O2、O4、O5、A21、Q4、5.3.12。
+- **FAIL（4）**：**O3**（wait 仍从 `createdAt` 算，把 dispatchHold 时间算成 runnable→claimed）、
+  **C1**（`Projection.getNode`/`checkConsistency` 仍保留 archived 节点）、
+  **B13**（六个 trigger code 有了，但 `escalate` 意图/合法 `reasonCode` 仍不存在）、
+  **5.3.9**（observer 的 queue-overload 计时用 `queue.length`，与清单的 `planned > 2×freeSlots` 不一致）。
+
+### 50.2 逐行证据
+
+| 行 | 结论 | 真实探针 |
+|---|---|---|
+| O1 | PASS | 真实 HTTP `/metrics` 顶层同时有 `cycle`、`byRole`；`cycle.p50/p90=20000`，`byRole.advisor.failRate=0.25`。 |
+| O2 | PASS | 真实 HTTP `/metrics.advisor.inputBytes.p50=3000`、`p90=5000`；`advisor.tokens.p50=1100`、`p90=1300`。 |
+| O3 | **FAIL** | 真 `dispatchOnce` 启动一个 `createdAt=now-1h`、`dispatchHold.untilMs=now-1ms` 的节点：`queueWait.count=1`，但 `queueWait.p50=3,600,011 ms`，`decisions[0].waitMs=3,600,011`。这证明 wait 是从 `createdAt` 起算并包含 hold 时间；节点在 hold 解除前 **不是 runnable**，所以不是清单的 runnable→claimed。`observability-selftest:276` 反而断言 `>=3,500,000`，把错误语义固化成契约。 |
+| O4 | PASS | 真实 `queue` 有 `remainingMs=60000`；`queue.runnable=1`、`queue.deferred=2`、`counts.archived=1`；archived deferred 不再进 queue/counts.deferred。 |
+| O5 | PASS | 同一 fixture：`counts.planned=1`、`counts.runnable=1`、`queue.runnable=1`、`queue.deferred=2`；`deferUntil` 节点不再同时算 planned/runnable，archived 节点只进 `archived`。 |
+| A21 | PASS | 真实 HTTP `/metrics` 有 `cycle.p50/p90`、`byRole`、`queue.remainingMs`；`surface-bounds-selftest` 对三者有显式断言。 |
+| B13 | **FAIL** | 六个 code `conflict`/`budget_shift`/`new_direction`/`branch_death`/`low_confidence`/`ledger_conflict` 都能从事实触发；但 `INTENT_KINDS` 仍是 `dispatch/priority/proposal/review/curate/note/appeal`，没有 `escalate`；`createIntent({kind:'escalate'})` 直接 `TypeError`。清单要求的“`escalate` 意图缺合法 `reasonCode` 一律拒收”仍没有实现路径，不能用“六个 code 存在”代替。 |
+| 5.3.9 | **FAIL** | 3 个 planned（2 个 runnable + 1 个 deferred）、`freeSlots=1` 时，`planned=3 > 2×1` 成立；但 `observerSnapshot` 第一次和 `+5min` 第二次都没有 `queue_overload`，因为 observer 用 `queue.length=2` 判断 overload，而 `evaluateThresholdTriggers` 用 `planned=3`。生产路径的 5 分钟窗口从未启动。 |
+| Q4 | PASS | 5 条 advisor run、其中 1 条 9 queries、总 50k tokens、单次 30s：`queryWindow={maxPerRun:9,within:false}`、`tokenWindow={lastHourTokens:50000,within:true}`、`wallClockWindow={maxRunMs:30000,within:true}`。 |
+| C1 | **FAIL** | `store.listNodes`/`getState`/`metrics` 已不返回 archived 节点；但 `projection.getNode('old-d')` 仍返回带 `archivedAt` 的节点，`projection.checkConsistency` 返回 `["extra old-d"]`。Projection 的 `byId` 热索引没有删除，只是 `listNodes` 过滤；清单要求“从 Projection 热索引移出”，故不通过。 |
+| 5.3.12 | PASS | 真 `rotateDueExperts` 把 root+child 的 `createdBy` 从 `lab-advisor` 移到 `lab-chief`，两个 `node/expert_assigned` 事件，`assignedNodeIds` 两个节点，重建 assignment 后 `due=[]`。 |
+
+### 50.3 别名策略：值当前一致，但不是“单一来源渲染两次”
+
+真实 HTTP `/metrics` 同时输出：
+
+- `cycle` 与 `cycles`：**深比较相等**（同一 `cycles` 数组、同 `summarizeDurations`）；
+- `byRole` 与 `roles`：**同一对象引用**；
+- `advisor` 与 `advisorInput`：p50/p90 值相等。
+
+因此**单次响应内没有观察到值分歧**。但实现不是单一来源：
+
+1. `cycle` 和 `cycles` 是**两个独立构造的对象**（两次 `{count, ...summarizeDurations(...)}`），只是当前输入相同；未来改一处系数就会漂移。应改成 `cycles: cycle`（同一引用）或删除旧字段。
+2. `byRole` 和 `roles` 是同一个对象引用，属于“一份数据渲染两次”，但 JSON 里仍重复输出；兼容期可保留，需注明旧字段是投影别名。
+3. `advisor` 和 `advisorInput` 是两套独立构造；`advisorInput.utilization` 仍只看 `snapshot.last`，在无 live snapshot 的探针里是 `null`，而新 `advisor.inputBytes.p50Utilization=0.244`。两字段不是严格等价别名，旧 UI 会看到 `null`。
+4. `queue.remainingMs` 与旧的 `queue.depth/planned/runnable` 当前一致；`counts.deferred` 与 `queue.deferred` 也一致。
+
+**判定**：这不是两个互相矛盾的真相，但确实是 **duplicated API state**；O1/O2/A21 的行为字段通过，别名重复作为非阻断的架构风险记录，不因此再改判一行 FAIL。若后续要“单一来源”，应让旧名指向新对象而不是重新计算。
+
+### 50.4 反证测试（re-plant，clean worktree）
+
+| 破坏 | 期望 | 实测 |
+|---|---|---|
+| `dispatchOnceAction` 的 `queueWaits.push` 置空 | O3 红 | `observability-selftest` EXIT 1；9/10，O3 报 `0 !== 1`。 |
+| `archiveDeferred` 直接返回空 | C1 红 | `priority-selftest` EXIT 1；C1 两条红。 |
+| `observerSnapshot` 的 `overloaded` 强制 false | 5.3.9 红 | `experts-selftest` EXIT 1；production 六阈值检查红，缺 `queue_overload`。 |
+| `queryWindow` 强制 `maxPerRun=0` | Q4 红 | `stage5-selftest` EXIT 1；Q4 红。 |
+| `commitRotation` 不写 `createdBy` | 5.3.12 红 | `stage5-selftest` EXIT 1；5.3.12 两条红。 |
+
+**解读**：这些 re-plant 证明新测试确实覆盖了实现，而不是只读常量；但 O3 的测试同时把“hold 时间算 queue wait”写成了 `>=3,500,000` 的断言，所以它虽然会随生产路径变红，覆盖的仍是错误语义。
+
+### 50.5 账本算术
+
+作者 `ACCEPTANCE-LEDGER.md` 的 174 行逐项计数为 **154/10/10**，residual 表为 **0 必须 / 0 应该 / 10 明确不做 = 10**；这次表内加总自洽，但四个状态是错的。
+
+本节的修正：
+
+- 11 行中 7 PASS、4 FAIL；
+- **150 = 154 - 4**；**14 = 10 + 4**；
+- 14 FAIL = **1 必须（O3）** + **3 应该（C1/B13/5.3.9）** + **10 明确不做**；
+- 174 = 150 + 14 + 10。
+
+**所以这不是第一次独立的 154/10/10。** 作者 §49 的 154 只在“四个残余都被接受”时成立，而它们没有。
+
+### 50.6 回归（HEAD `06964cc`）
+
+| 检查 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**934 ok / 0 FAIL**（44 个 selftest） |
+| `bench:scale` | **11/11** |
+| `strict-writes` | **17 ok / 0 unexpected bypass**；3 个 deliberate bypass 被拒 |
+| `client-smoke` | **45/45** |
+| `operator-ui` | **10/10** |
+| `operator-route` | **48 route pairs** |
+| `plugin-smoke` | **5/5** |
+| `b27-restart` | **11/11** |
+| U14 | `consecutiveFailures>=3`、`degraded`、`staleReason='refresh_partial'` |
+| S12/eventlog | **7/7** |
+| `git diff --check` | 0 |
+
+全绿回归不能抵消行为反证：本轮 4 个 FAIL 都发生在测试断言之外或测试自身固化了错误语义。
+
+### 50.7 发布判断
+
+**完整发布：NO-SHIP。** 仍有 **1 个必须行 O3**，以及 **3 个应该行 C1/B13/5.3.9**。O3 是 `/metrics` 的 queue-wait 契约本身，不能只靠别名或文档降级；C1 是 Projection 热索引的归档边界；B13 是 escalation 意图的 reasonCode 门；5.3.9 是生产 observer 的队列超载窗口。
+
+**窄发布**也不成立，除非明确排除 `/metrics` queue-wait、archive 热索引、escalation reasonCode 和 5.3.9 队列超载；这四项正好是本轮未关闭的部分。

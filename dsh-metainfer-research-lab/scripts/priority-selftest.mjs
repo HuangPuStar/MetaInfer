@@ -85,6 +85,8 @@ check('C1: archived node leaves the hot projection, state, listNodes and deferre
   store.getNode('p', 'deferred-old')?.archivedAt > 0
   && !store.listNodes('p').some((node) => node.id === 'deferred-old')
   && !kernel.projection.listNodes('p').some((node) => node.id === 'deferred-old')
+  && kernel.projection.getNode('p', 'deferred-old') === undefined
+  && kernel.projection.checkConsistency('p').length === 0
   && !stateAfterArchive.nodes.some((node) => node.id === 'deferred-old')
   && stateAfterArchive.archivedCount === 1
   && metricsAfterArchive.counts.archived === 1
@@ -93,6 +95,8 @@ check('C1: archived node leaves the hot projection, state, listNodes and deferre
   JSON.stringify({
     listed: store.listNodes('p').map((node) => node.id),
     projected: kernel.projection.listNodes('p').map((node) => node.id),
+    projectedGet: kernel.projection.getNode('p', 'deferred-old') ?? null,
+    consistency: kernel.projection.checkConsistency('p'),
     state: stateAfterArchive.nodes.map((node) => node.id),
     metrics: { counts: metricsAfterArchive.counts, queue: metricsAfterArchive.queue },
   }));

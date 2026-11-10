@@ -61,7 +61,7 @@ const threshold = evaluateThresholdTriggers({
   nodes: [
     { id: 'q1', status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: triggerNow - 600_000 } },
     { id: 'q2', status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: triggerNow - 600_000 } },
-    { id: 'q3', status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: triggerNow - 600_000 } },
+    { id: 'q3', status: 'planned', priority: { class: 'deferred' }, timestamps: { createdAt: triggerNow - 600_000 } },
     { id: 'stalled', status: 'running', timestamps: { startedAt: triggerNow - 20 * 60_000, lastActivityAt: triggerNow - 16 * 60_000 } },
     { id: 'f1', status: 'failed', hypothesis: 'converged direction' },
     { id: 'f2', status: 'failed', hypothesis: 'converged direction' },
@@ -85,7 +85,9 @@ check('5.3.9: the six checklist thresholds fire (queue 5m, stall 15m, errorKind 
   && new Set(thresholdCodes).size === CHECKLIST_THRESHOLD_CODES.length
   && threshold.find((row) => row.code === 'repeated_failure')?.detail?.streak === 3
   && threshold.find((row) => row.code === 'expert_rejected')?.detail?.count === 5
-  && threshold.find((row) => row.code === 'direction_converged')?.detail?.nodeIds?.length === 3,
+  && threshold.find((row) => row.code === 'direction_converged')?.detail?.nodeIds?.length === 3
+  && threshold.find((row) => row.code === 'queue_overload')?.detail?.planned === 3
+  && threshold.find((row) => row.code === 'queue_overload')?.detail?.queue === 2,
   JSON.stringify({ expected: CHECKLIST_THRESHOLD_CODES, fired: threshold }));
 
 const metrics = computeExpertMetrics({
@@ -200,7 +202,7 @@ kernel.load(thresholdProjectId);
 for (const [id, spec] of Object.entries({
   q1: { status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: t0 - 600_000 } },
   q2: { status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: t0 - 600_000 } },
-  q3: { status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: t0 - 600_000 } },
+  q3: { status: 'planned', priority: { class: 'deferred' }, timestamps: { createdAt: t0 - 600_000 } },
   stalled: { status: 'running', timestamps: { startedAt: t0 - 20 * 60_000, lastActivityAt: t0 - 16 * 60_000 } },
   f1: { status: 'failed', hypothesis: 'same dead direction' },
   f2: { status: 'failed', hypothesis: 'same dead direction' },
@@ -220,7 +222,9 @@ const observedCodes = (secondObserve.thresholdTriggers ?? []).map((row) => row.c
 check('5.3.9: the production observer emits all six threshold triggers and keeps the 5-minute window',
   CHECKLIST_THRESHOLD_CODES.every((code) => observedCodes.includes(code))
   && new Set(observedCodes).size === CHECKLIST_THRESHOLD_CODES.length
-  && (firstObserve.thresholdTriggers ?? []).every((row) => row.code !== 'queue_overload'),
+  && (firstObserve.thresholdTriggers ?? []).every((row) => row.code !== 'queue_overload')
+  && secondObserve.thresholdTriggers?.find((row) => row.code === 'queue_overload')?.detail?.planned === 3
+  && secondObserve.thresholdTriggers?.find((row) => row.code === 'queue_overload')?.detail?.queue === 2,
   JSON.stringify({ first: firstObserve.thresholdTriggers, second: secondObserve.thresholdTriggers }));
 
 // B13 production path: the observer receives the same facts the checker sees.

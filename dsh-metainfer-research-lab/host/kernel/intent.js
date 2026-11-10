@@ -8,7 +8,21 @@
  */
 import { ActorKeyError, actorKeyOf, ensureActorKey, isIssuedActorKey, withActorKey } from './actors.js';
 import { normalizeExpected } from './prediction.js';
-export const INTENT_KINDS = Object.freeze(['dispatch', 'priority', 'proposal', 'review', 'curate', 'note', 'appeal']);
+export const INTENT_KINDS = Object.freeze(['dispatch', 'priority', 'proposal', 'review', 'curate', 'note', 'appeal', 'escalate']);
+
+/**
+ * B13: the only reasonCode values an `escalate` intent may carry. Kept in the
+ * kernel because createIntent is the write boundary; the trigger evaluator
+ * imports the same frozen list instead of inventing a second vocabulary.
+ */
+export const ESCALATION_REASON_CODES = Object.freeze([
+  'conflict',
+  'budget_shift',
+  'new_direction',
+  'branch_death',
+  'low_confidence',
+  'ledger_conflict',
+]);
 
 /**
  * C5: every semantic action needs an explicit executor or an explicit
@@ -22,7 +36,7 @@ export const INTENT_KINDS = Object.freeze(['dispatch', 'priority', 'proposal', '
  * fallback so a semantic disagreement still reaches a decision-maker.
  */
 export const INTENT_ACTIONS = Object.freeze([
-  'observe', 'dispatch', 'set_priority', 'propose_node', 'review', 'curate', 'note', 'appeal',
+  'observe', 'dispatch', 'set_priority', 'propose_node', 'review', 'curate', 'note', 'appeal', 'escalate',
   'create_planned', 'defer_planned', 'apply_nomination', 'cancel_running', 'prune_branch', 'delete_project',
 ]);
 
@@ -35,6 +49,7 @@ export const SEMANTIC_ACTION_FALLBACKS = Object.freeze({
   curate: Object.freeze({ executor: 'expert', route: 'curator:outcome', code: 'expert_curate' }),
   note: Object.freeze({ executor: 'host', route: 'host:intentLog', code: 'host_note' }),
   appeal: Object.freeze({ executor: 'human', route: 'human:dispute', code: 'human_appeal' }),
+  escalate: Object.freeze({ executor: 'human', route: 'human:dispute', code: 'human_escalation' }),
   create_planned: Object.freeze({ executor: 'host', route: 'host:node.create', code: 'host_create' }),
   defer_planned: Object.freeze({ executor: 'host', route: 'host:setNodePriority', code: 'host_defer' }),
   apply_nomination: Object.freeze({ executor: 'expert', route: 'curator:applyNomination', code: 'expert_nominate' }),
@@ -173,6 +188,18 @@ export function createIntent(input) {
   const fallback = semanticFallback(action);
   if (input.kind === 'appeal' && action !== 'appeal') {
     throw new TypeError('intent_action_mismatch: an intent with kind "appeal" must carry claim.action "appeal"');
+  }
+  if (input.kind === 'escalate') {
+    if (action !== 'escalate') {
+      throw new TypeError('intent_action_mismatch: an intent with kind "escalate" must carry claim.action "escalate"');
+    }
+    const reasonCode = typeof claim.reasonCode === 'string' ? claim.reasonCode.trim() : '';
+    if (!reasonCode) {
+      throw new TypeError('escalation_reason_required: an escalate intent requires claim.reasonCode');
+    }
+    if (!ESCALATION_REASON_CODES.includes(reasonCode)) {
+      throw new TypeError(`escalation_reason_invalid: reasonCode must be one of ${ESCALATION_REASON_CODES.join(', ')}`);
+    }
   }
   if (Buffer.byteLength(JSON.stringify(claim), 'utf8') > MAX_CLAIM_BYTES) throw new TypeError('intent.claim is too large');
   const target = input?.target && typeof input.target === 'object'

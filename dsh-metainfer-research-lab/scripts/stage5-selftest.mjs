@@ -65,6 +65,31 @@ check('5.3.7: the existing exact-parent merge suppresses a duplicate join',
   joinedAgain.created.length === 0 && joins.length === 1, JSON.stringify(joinedAgain));
 
 const human = { agent: { session: { id: 'b22-human' } } };
+const escalationIntent = await service.submitIntent(projectId, {
+  kind: 'escalate',
+  claim: { action: 'escalate', reasonCode: 'conflict', reason: 'the two variants disagree' },
+}, human);
+check('B13: a valid escalate intent is written with its checklist reasonCode',
+  escalationIntent.ok === true && escalationIntent.intent.kind === 'escalate'
+  && escalationIntent.intent.claim.reasonCode === 'conflict'
+  && escalationIntent.intent.fallback?.executor === 'human',
+  JSON.stringify(escalationIntent));
+const missingReason = await service.submitIntent(projectId, {
+  kind: 'escalate', claim: { action: 'escalate' },
+}, human);
+check('B13: a missing reasonCode is rejected at the submit write boundary',
+  missingReason.ok === false && missingReason.error?.code === 'escalation_reason_required',
+  JSON.stringify(missingReason));
+const invalidReason = await service.submitIntent(projectId, {
+  kind: 'escalate', claim: { action: 'escalate', reasonCode: 'stalled_node' },
+}, human);
+check('B13: an invalid reasonCode is rejected at the submit write boundary',
+  invalidReason.ok === false && invalidReason.error?.code === 'escalation_reason_invalid',
+  JSON.stringify(invalidReason));
+check('B13: rejected escalate submits leave no intent rows',
+  (store.getProject(projectId).intents ?? []).filter((intent) => intent.kind === 'escalate').length === 1,
+  JSON.stringify((store.getProject(projectId).intents ?? []).filter((intent) => intent.kind === 'escalate')));
+
 const secondHuman = { agent: { session: { id: 'b22-second-human' } } };
 const thirdHuman = { agent: { session: { id: 'b22-third-human' } } };
 

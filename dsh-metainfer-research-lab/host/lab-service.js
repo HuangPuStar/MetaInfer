@@ -24,18 +24,18 @@ import { queryDag, dagGet, mapDag, walkDag, createDiffCache } from './context/da
 import { createExplorationBudget } from './context/limits.js';
 import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
-import { runnableQueue } from './kernel/runnable.js';
+import { runnableQueue, runnableSince } from './kernel/runnable.js';
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
 import { PRIORITY_CLASSES, classBudgetOf } from './dispatch/reservation.js';
 import { DISPUTE_CLASS_MAP, DISPUTE_DEFAULT_ACTION, createDisputeRecord, disputeActorVerdict, disputeAuthorityVerdict, effectiveDispute, expireDisputeRecord, reopenDisputeRecord, resolveDisputeRecord } from './kernel/disputes.js';
 import { DEFAULT_ROTATION_DAYS, rotationPlan } from './experts/rotation.js';
 import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
 import { actorKeyOf, hasActorIdentity, isIssuedActorKey, publicView, sameActor } from './kernel/actors.js';
-import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, detectIntentConflicts, intentBasis, intentId, intentMutation } from './kernel/intent.js';
+import { ESCALATION_REASON_CODES, INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, detectIntentConflicts, intentBasis, intentId, intentMutation } from './kernel/intent.js';
 import { ACTION_VERIFICATION, IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
 import { recallExperts } from './experts/similarity.js';
-import { evaluateEscalationTriggers, evaluateThresholdTriggers, THRESHOLD_TRIGGER_CODES, TRIGGER_CODES } from './experts/triggers.js';
+import { evaluateEscalationTriggers, evaluateThresholdTriggers, queueOverloadState, THRESHOLD_TRIGGER_CODES, TRIGGER_CODES } from './experts/triggers.js';
 import { applyNomination, createCurator } from './experts/curator.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
@@ -1530,7 +1530,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       .filter((row) => row.idleMs >= stallMs);
     const starving = runnableQueue(nodes, now)
       .map((node) => {
-        const queuedAt = Number(node.timestamps?.createdAt) || 0;
+        const queuedAt = runnableSince(node) ?? 0;
         return {
           nodeId: node.id,
           title: node.title ?? '',
@@ -1553,9 +1553,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const freeSlots = Object.keys(pools).length > 0
       ? Object.entries(pools).reduce((sum, [key, total]) => sum + Math.max(0, Number(total) - (held[key] ?? 0)), 0)
       : Math.max(0, Number(project.config?.maxRunningNodes ?? 1) - running.length);
-    const queue = runnableQueue(nodes, now);
-    const overloaded = freeSlots > 0 && queue.length > 2 * freeSlots;
-    if (!overloaded) queueOverloadSince.delete(projectId);
+    const overload = queueOverloadState(nodes, freeSlots);
+    if (!overload.overloaded) queueOverloadSince.delete(projectId);
     else if (!queueOverloadSince.has(projectId)) queueOverloadSince.set(projectId, now);
     const escalation = evaluateEscalationTriggers({ nodes, project, knownHypotheses: project.knownHypotheses ?? [], now });
     const thresholds = evaluateThresholdTriggers({
@@ -3347,17 +3346,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     // commit point; a pending dispute therefore cannot block forever.
     await sweepDisputes(projectId);
     const round = await dispatchOnce(projectId, options);
-    // O3: runnable→claimed latency is measured from the node's queue entry
-    // (timestamps.createdAt) to the dispatcher's transition to running. The
-    // same pass records the per-decision rows so a percentile can be audited
-    // back to a concrete node instead of being an opaque aggregate.
+    // O3: runnable→claimed latency is measured from the instant the node could
+    // actually enter the runnable queue (plannedAt, deferUntil or the release
+    // of dispatchHold), not from createdAt. The same pass records the
+    // per-decision rows so a percentile can be audited back to a concrete node.
     const afterNodes = new Map(store.listNodes(projectId).map((node) => [node.id, node]));
     const at = Date.now();
     const queueWaits = [];
     const decisions = [];
     for (const nodeId of round.startedNodeIds ?? []) {
       const node = afterNodes.get(nodeId);
-      const queuedAt = Number(node?.timestamps?.createdAt ?? node?.createdAt);
+      const queuedAt = runnableSince(node);
       const startedAt = Number(node?.timestamps?.startedAt ?? at);
       const waitMs = Number.isFinite(queuedAt) ? Math.max(0, startedAt - queuedAt) : null;
       if (waitMs !== null) queueWaits.push({ nodeId, waitMs });
@@ -4387,6 +4386,23 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     // An appeal is a first-class judgement, not a note with a flag. Forcing the
     // kind here means every transport gets the same registerable record.
     if (claim?.action === 'appeal') kind = 'appeal';
+    if (claim?.action === 'escalate') kind = 'escalate';
+    // B13: an escalate intent is only actionable when it names one of the six
+    // checklist reason codes. Validate at the write boundary, before the
+    // generic intent schema, so the caller gets a stable actionable code.
+    if (kind === 'escalate') {
+      if (claim?.action !== 'escalate') {
+        return rejection('intent_action_mismatch', 'an intent with kind "escalate" must carry claim.action "escalate"');
+      }
+      const reasonCode = typeof claim?.reasonCode === 'string' ? claim.reasonCode.trim() : '';
+      if (!reasonCode) {
+        return rejection('escalation_reason_required', 'an escalate intent requires claim.reasonCode', { allowed: [...ESCALATION_REASON_CODES] });
+      }
+      if (!ESCALATION_REASON_CODES.includes(reasonCode)) {
+        return rejection('escalation_reason_invalid', `reasonCode must be one of ${ESCALATION_REASON_CODES.join(', ')}`, { allowed: [...ESCALATION_REASON_CODES] });
+      }
+      claim = { ...claim, reasonCode };
+    }
     // The inverse is not optional: `kind:'appeal'` with a different claim
     // action is a manufactured appeal record, not an objection. Reject it at
     // the write boundary so it cannot create a Host window later.

@@ -47,6 +47,28 @@ export function isRunnableNode(node, now = Date.now()) {
   return runnableBlockReason(node, now) === null;
 }
 
+/**
+ * The instant the node actually entered the runnable queue.
+ *
+ * `createdAt` is not that instant when a node was created ahead of its start
+ * window: a deferred node becomes runnable at `deferUntil`, and a launch-
+ * backoff node at `dispatchHold.untilMs`. Measuring from creation would count
+ * the hold/defer interval as queue wait (round 23 O3).
+ *
+ * @param {object} node
+ * @returns {number|null}
+ */
+export function runnableSince(node) {
+  const created = Number(node?.timestamps?.createdAt ?? node?.createdAt);
+  const plannedAt = Number(node?.timestamps?.plannedAt);
+  let since = Number.isFinite(plannedAt) && plannedAt > 0 ? plannedAt : created;
+  const deferUntil = Number(node?.deferUntil);
+  if (Number.isFinite(deferUntil) && deferUntil > since) since = deferUntil;
+  const holdUntil = Number(node?.dispatchHold?.untilMs);
+  if (Number.isFinite(holdUntil) && holdUntil > since) since = holdUntil;
+  return Number.isFinite(since) && since > 0 ? since : null;
+}
+
 /** @returns {boolean} whether the node is deferred now (pruned class or scheduled `deferUntil`). */
 export function isDeferredNode(node, now = Date.now()) {
   if (!node || node.archivedAt) return false;

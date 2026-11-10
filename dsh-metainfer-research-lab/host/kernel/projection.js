@@ -64,6 +64,10 @@ export function createProjection({ store, strict = false, clock = Date.now }) {
   }
 
   function indexNode(index, node) {
+    // C1: an archived node is not part of the hot projection. Filtering only
+    // listNodes left it reachable via getNode() and made checkConsistency
+    // report it as an extra byId row.
+    if (node?.archivedAt) return;
     const stored = strict ? deepFreeze(structuredClone(node)) : node;
     index.byId.set(node.id, stored);
     addToSet(index.byStatus, node.status, node.id);

@@ -135,7 +135,13 @@ const reducers = {
     node.status = status;
     if (ctx.causeId && !node.causeId) node.causeId = ctx.causeId;
     node.priority = normalizePriority(input.priority, { by: ctx.actor.id, at: ctx.now });
-    node.timestamps = { ...(input.timestamps ?? {}), createdAt: input.timestamps?.createdAt ?? ctx.now, updatedAt: ctx.now };
+    const createdAt = input.timestamps?.createdAt ?? ctx.now;
+    node.timestamps = {
+      ...(input.timestamps ?? {}),
+      createdAt,
+      ...(status === 'planned' ? { plannedAt: input.timestamps?.plannedAt ?? createdAt } : {}),
+      updatedAt: ctx.now,
+    };
     ws.putNode(node);
     const event = nodeEvent(m.eventType ?? 'node/created', node, m.eventData ?? { status }, { op: 'node.put', nodeId: id, node });
     if (m.counters && typeof m.counters === 'object') {
@@ -246,7 +252,11 @@ const reducers = {
     const hadClaim = Boolean(node.claim);
     delete node.claim;
     if (ctx.causeId) node.lastCauseId = ctx.causeId;
-    node.timestamps = { ...nextTimestamps, updatedAt: ctx.now };
+    node.timestamps = {
+      ...nextTimestamps,
+      ...(to === 'planned' ? { plannedAt: ctx.now } : {}),
+      updatedAt: ctx.now,
+    };
     ws.putNode(node);
     return [nodeEvent(m.eventType ?? TRANSITION_EVENT[to], node, m.eventData ?? { from, to }, {
       op: 'node.merge', nodeId, set: { ...structuredClone(set), status: to, ...(ctx.causeId ? { lastCauseId: ctx.causeId } : {}) }, unset: hadClaim ? ['claim'] : [], updatedAt: ctx.now,
