@@ -111,6 +111,80 @@ await test('describe metrics: queue depth, cycle latency, per-role failure rate'
   assert.equal(metrics.stalls.noProgress, 2);
 });
 
+await test('O4/O5: queue/counts use the single runnable definition', () => {
+  const nodes = [
+    { id: 'r', status: 'running' },
+    { id: 'p', status: 'planned', priority: { class: 'p2' } },
+    { id: 'd', status: 'planned', priority: { class: 'deferred' } },
+    { id: 'c', status: 'planned', priority: { class: 'p1' }, claim: { status: 'claimed' } },
+    { id: 'h', status: 'planned', priority: { class: 'p1' }, dispatchHold: { untilMs: 500_000 } },
+    { id: 's', status: 'completed' },
+  ];
+  const metrics = computeProjectMetrics({ project: { id: 'p' }, nodes, now: 300_000 });
+  assert.equal(metrics.queue.depth, 1);
+  assert.equal(metrics.queue.runnable, 1);
+  assert.equal(metrics.queue.planned, 1);
+  assert.equal(metrics.queue.claimed, 1);
+  assert.equal(metrics.queue.held, 1);
+  assert.equal(metrics.queue.deferred, 1);
+  assert.equal(metrics.counts.planned, 1, 'planned count must exclude deferred');
+  assert.equal(metrics.counts.deferred, 1);
+  assert.equal(metrics.counts.total, 6);
+});
+
+await test('O1/A11: cycle and per-role latency expose p50/p90, not only p95', () => {
+  const runs = [
+    { role: 'worker', status: 'completed', startedAt: 0, endedAt: 100, inputBytes: 100, usage: { totalTokens: 10 } },
+    { role: 'worker', status: 'completed', startedAt: 100, endedAt: 300, inputBytes: 200, usage: { totalTokens: 20 } },
+    { role: 'worker', status: 'failed', startedAt: 300, endedAt: 600, inputBytes: 300, usage: { totalTokens: 30 } },
+  ];
+  const metrics = computeProjectMetrics({ project: { id: 'p' }, runs, cycles: [{ startedAt: 0, endedAt: 100 }, { startedAt: 100, endedAt: 600 }, { startedAt: 600, endedAt: 1_100 }] });
+  assert.equal(metrics.roles.worker.duration.p50, 200);
+  assert.equal(metrics.roles.worker.duration.p90, 300);
+  assert.equal(metrics.roles.worker.failRate, Number((1 / 3).toFixed(3)));
+  assert.equal(metrics.cycles.p50, 500);
+  assert.equal(metrics.cycles.p90, 500);
+});
+
+await test('O2: advisor input exposes byte/token percentiles and the byte guard', () => {
+  const runs = [
+    { role: 'advisor', status: 'completed', startedAt: 0, endedAt: 1, inputBytes: 1_000, usage: { totalTokens: 100 } },
+    { role: 'advisor', status: 'completed', startedAt: 1, endedAt: 2, inputBytes: 2_000, usage: { totalTokens: 200 } },
+    { role: 'advisor', status: 'completed', startedAt: 2, endedAt: 3, inputBytes: 3_000, usage: { totalTokens: 300 } },
+  ];
+  const metrics = computeProjectMetrics({ project: { id: 'p', config: { auto: { maxTokens: 10_000 } } }, runs });
+  assert.equal(metrics.advisorInput.p50Bytes, 2_000);
+  assert.equal(metrics.advisorInput.p90Bytes, 3_000);
+  assert.equal(metrics.advisorInput.p50Tokens, 200);
+  assert.equal(metrics.advisorInput.p90Tokens, 300);
+  assert.equal(metrics.advisorInput.p90Utilization, Number((3_000 / 12_288).toFixed(3)));
+  assert.equal(metrics.advisorInput.budgetBytes, 12_288);
+  assert.deepEqual(metrics.advisorInput.tokenGuard, { maxTokens: 10_000, used: 0, remaining: 10_000 });
+});
+
+await test('O3: dispatch queue-wait and per-decision rows are bounded and auditable', () => {
+  const collector = createMetricsCollector({ clock: () => 9, ring: 3 });
+  collector.recordDispatch('p', {
+    durationMs: 5,
+    started: 3,
+    skipped: [{ nodeId: 'n3', status: 'queued' }],
+    queueWaits: [{ nodeId: 'n1', waitMs: 10 }, { nodeId: 'n2', waitMs: 20 }, { nodeId: 'n3b', waitMs: 30 }],
+    decisions: [
+      { nodeId: 'n1', status: 'started', waitMs: 10 },
+      { nodeId: 'n2', status: 'started', waitMs: 20 },
+      { nodeId: 'n3b', status: 'started', waitMs: 30 },
+      { nodeId: 'n3', status: 'queued', code: null },
+    ],
+  });
+  const snap = collector.snapshot('p');
+  assert.equal(snap.dispatch.queueWait.count, 3);
+  assert.equal(snap.dispatch.queueWait.p50, 20);
+  assert.equal(snap.dispatch.queueWait.p99, 30);
+  assert.equal(snap.dispatch.decisions.length, 3, 'decision ring is bounded');
+  assert.deepEqual(snap.dispatch.decisions.map((row) => row.nodeId), ['n2', 'n3b', 'n3']);
+  assert.equal(snap.dispatch.p50, 5);
+});
+
 await test('metrics collector is bounded and aggregation is deterministic', () => {
   const collector = createMetricsCollector({ clock: () => 5, ring: 3 });
   for (let index = 0; index < 5; index += 1) collector.recordDispatch('p', { durationMs: index, started: 1, skipped: [{ status: 'queued' }] });

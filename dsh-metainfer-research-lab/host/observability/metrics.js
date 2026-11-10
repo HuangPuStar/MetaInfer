@@ -12,6 +12,8 @@
  * beyond the page the caller explicitly requests.
  */
 
+import { runnableSummary } from '../kernel/runnable.js';
+
 const DEFAULT_RING = 200;
 
 /** @returns {number|null} nearest-rank percentile. */
@@ -24,13 +26,24 @@ export function percentile(values, p) {
 
 export function summarizeDurations(values) {
   const list = (Array.isArray(values) ? values : []).filter((value) => Number.isFinite(value));
-  if (list.length === 0) return { count: 0, avg: null, p95: null, max: null, min: null, avgMs: null, p95Ms: null, maxMs: null, minMs: null };
+  if (list.length === 0) {
+    return {
+      count: 0, avg: null, p50: null, p90: null, p95: null, p99: null, max: null, min: null,
+      avgMs: null, p50Ms: null, p90Ms: null, p95Ms: null, p99Ms: null, maxMs: null, minMs: null,
+    };
+  }
   const sum = list.reduce((total, value) => total + value, 0);
   const avg = Math.round(sum / list.length);
+  const p50 = percentile(list, 50);
+  const p90 = percentile(list, 90);
   const p95 = percentile(list, 95);
+  const p99 = percentile(list, 99);
   const max = Math.max(...list);
   const min = Math.min(...list);
-  return { count: list.length, avg, p95, max, min, avgMs: avg, p95Ms: p95, maxMs: max, minMs: min };
+  return {
+    count: list.length, avg, p50, p90, p95, p99, max, min,
+    avgMs: avg, p50Ms: p50, p90Ms: p90, p95Ms: p95, p99Ms: p99, maxMs: max, minMs: min,
+  };
 }
 
 export function estimateTokens(bytes) {
@@ -49,6 +62,8 @@ export function createMetricsCollector({ clock = Date.now, ring = DEFAULT_RING }
     if (!entry) {
       entry = {
         dispatch: [],
+        dispatchQueueWait: [],
+        dispatchDecisions: [],
         snapshotBytes: [],
         dispatchStarted: 0,
         dispatchSkipped: 0,
@@ -77,6 +92,18 @@ export function createMetricsCollector({ clock = Date.now, ring = DEFAULT_RING }
       const key = skip?.code ?? skip?.status ?? 'unknown';
       entry.skipReasons[key] = (entry.skipReasons[key] ?? 0) + 1;
     }
+    for (const wait of Array.isArray(result.queueWaits) ? result.queueWaits : []) {
+      if (Number.isFinite(wait?.waitMs)) push(entry.dispatchQueueWait, wait.waitMs);
+    }
+    for (const decision of Array.isArray(result.decisions) ? result.decisions : []) {
+      push(entry.dispatchDecisions, {
+        nodeId: decision?.nodeId ?? null,
+        status: decision?.status ?? null,
+        code: decision?.code ?? null,
+        waitMs: Number.isFinite(decision?.waitMs) ? decision.waitMs : null,
+        at: Number.isFinite(decision?.at) ? decision.at : clock(),
+      });
+    }
     entry.lastDispatchAt = clock();
   }
 
@@ -92,12 +119,15 @@ export function createMetricsCollector({ clock = Date.now, ring = DEFAULT_RING }
     const entry = entryFor(projectId);
     const dispatch = summarizeDurations(entry.dispatch);
     const snapshots = summarizeDurations(entry.snapshotBytes);
+    const queueWait = summarizeDurations(entry.dispatchQueueWait);
     return {
       dispatch: {
         ...dispatch,
         started: entry.dispatchStarted,
         skipped: entry.dispatchSkipped,
         skipReasons: { ...entry.skipReasons },
+        queueWait,
+        decisions: [...entry.dispatchDecisions],
         lastAt: entry.lastDispatchAt,
       },
       snapshotBytes: {
@@ -171,16 +201,29 @@ export function computeProjectMetrics({
   now = Date.now(),
   budgetBytes = 12 * 1024,
 }) {
-  const counts = {};
-  const runnable = [];
-  let queueDepth = 0;
-  for (const node of nodes) {
-    counts[node.status] = (counts[node.status] ?? 0) + 1;
-    if (node.status === 'planned') {
-      queueDepth += 1;
-      runnable.push(node);
-    }
-  }
+  const rawCounts = {};
+  for (const node of nodes) rawCounts[node.status] = (rawCounts[node.status] ?? 0) + 1;
+  // O4/O5: queue facts come from the one runnable definition (B8), never from
+  // a raw `status === 'planned'` count. Deferred nodes are planned, but they are
+  // not waiting to run: reporting them as queue depth recreates the Q5 bug on
+  // the metrics surface.
+  const runnableFacts = runnableSummary(nodes, { now });
+  // `deferUntil` is a scheduled defer (a different mechanism from the
+  // `deferred` priority class). Keep it visible in the deferred tally so a
+  // paused-until node is not silently counted as runnable.
+  const scheduledDeferred = nodes.filter((node) => node?.status === 'planned'
+    && Number(node?.deferUntil) > now
+    && !(node?.priority?.class === 'deferred')).length;
+  const deferredTotal = runnableFacts.deferred + (rawCounts.deferred ?? 0) + scheduledDeferred;
+  const counts = {
+    ...rawCounts,
+    planned: runnableFacts.runnable,
+    runnable: runnableFacts.runnable,
+    claimed: runnableFacts.claimed,
+    held: runnableFacts.held,
+    deferred: deferredTotal,
+    total: nodes.length,
+  };
   const cycleDurations = cycles
     .filter((cycle) => Number.isFinite(cycle.startedAt) && Number.isFinite(cycle.endedAt))
     .map((cycle) => Math.max(0, cycle.endedAt - cycle.startedAt));
@@ -188,18 +231,25 @@ export function computeProjectMetrics({
   const advisor = roles.advisor ?? null;
   const snapshot = live?.snapshotBytes ?? null;
   const budget = budgetBytes;
+  const p50Bytes = snapshot?.p50 ?? advisor?.inputBytes?.p50 ?? null;
+  const p90Bytes = snapshot?.p90 ?? advisor?.inputBytes?.p90 ?? null;
+  const tokenBudget = Number(project?.config?.auto?.maxTokens ?? 0);
   return {
     projectId: project?.id ?? null,
     generatedAt: now,
     revision: project?.revision ?? 0,
-    counts: { ...counts, total: nodes.length },
+    counts,
     queue: {
-      depth: queueDepth,
-      running: counts.running ?? 0,
-      planned: counts.planned ?? 0,
-      failed: counts.failed ?? 0,
-      proposed: counts.proposed ?? 0,
-      deferred: nodes.filter((node) => node.status === 'planned' && node.deferUntil && Number(node.deferUntil) > now).length,
+      depth: runnableFacts.runnable,
+      runnable: runnableFacts.runnable,
+      claimed: runnableFacts.claimed,
+      held: runnableFacts.held,
+      deferred: deferredTotal,
+      total: runnableFacts.total,
+      running: rawCounts.running ?? 0,
+      planned: runnableFacts.runnable,
+      failed: rawCounts.failed ?? 0,
+      proposed: rawCounts.proposed ?? 0,
     },
     cycles: {
       count: cycles.length,
@@ -209,11 +259,27 @@ export function computeProjectMetrics({
     advisorInput: {
       lastBytes: snapshot?.last ?? advisor?.inputBytes?.max ?? null,
       maxBytes: snapshot?.max ?? advisor?.inputBytes?.max ?? null,
+      p50Bytes,
+      p90Bytes,
       avgTokens: advisor?.tokens?.avg ?? null,
+      p50Tokens: advisor?.tokens?.p50 ?? null,
+      p90Tokens: advisor?.tokens?.p90 ?? null,
+      maxTokens: advisor?.tokens?.max ?? null,
       budgetBytes: budget,
       utilization: snapshot?.last ? Number((snapshot.last / budget).toFixed(3)) : null,
+      p50Utilization: p50Bytes !== null ? Number((p50Bytes / budget).toFixed(3)) : null,
+      p90Utilization: p90Bytes !== null ? Number((p90Bytes / budget).toFixed(3)) : null,
+      tokenBudget,
+      tokenGuard: {
+        maxTokens: tokenBudget,
+        used: Number(project?.counters?.tokensUsed ?? 0),
+        remaining: tokenBudget > 0 ? Math.max(0, tokenBudget - Number(project?.counters?.tokensUsed ?? 0)) : null,
+      },
     },
-    dispatch: live?.dispatch ?? { count: 0, avgMs: null, p95Ms: null, maxMs: null, started: 0, skipped: 0, skipReasons: {}, lastAt: null },
+    dispatch: live?.dispatch ?? {
+      count: 0, avgMs: null, p50Ms: null, p90Ms: null, p95Ms: null, p99Ms: null, maxMs: null,
+      started: 0, skipped: 0, skipReasons: {}, queueWait: summarizeDurations([]), decisions: [], lastAt: null,
+    },
     stalls: {
       pauses: auto?.pauseCounts ?? {},
       noProgress: auto?.pauseCounts?.noProgress ?? 0,

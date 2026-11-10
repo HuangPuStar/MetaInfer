@@ -88,6 +88,16 @@ const project = {
   timestamps: { startedAt: 1_000 },
 };
 
+test('O2: a 100-node advisor payload is under 12 KB with byte headroom', () => {
+  const nodes = syntheticDag(100);
+  const payload = buildContextPayload({ project, nodes, ledger: ledgerView(syntheticLedger()), now: 10_000 });
+  const bytes = payloadBytes(payload);
+  assert.ok(bytes < CONTEXT_BUDGET_BYTES, `payload is ${bytes} bytes, budget ${CONTEXT_BUDGET_BYTES}`);
+  assert.ok(bytes < CONTEXT_BUDGET_BYTES - 2_048, `payload should leave headroom, got ${bytes}`);
+  assert.equal(payload.index.total, 100);
+  assert.equal(payload.focus.length, 8);
+});
+
 test('500 nodes: the advisor payload stays under the 12 KB budget', () => {
   const nodes = syntheticDag(500);
   const payload = buildContextPayload({ project, nodes, ledger: ledgerView(syntheticLedger()), now: 10_000 });

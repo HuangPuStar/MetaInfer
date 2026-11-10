@@ -124,6 +124,23 @@ check('replay carries a cursor', replay.nextSeq > 0 && replay.nextNodeCursor !==
 const replayBytes = Buffer.byteLength(JSON.stringify(replay), 'utf8');
 check('replay response stays under 1 MB', replayBytes < 1024 * 1024, `${replayBytes} B`);
 
+// --- A11/A21: /metrics exposes role latency/failure and queue/dispatch contract
+const metrics = await get('metrics', `projectId=${projectId}`);
+check('A11 metrics role latency has p50/p90 and failure rate',
+  metrics.roles?.advisor?.duration?.p50 !== undefined
+  && metrics.roles?.advisor?.duration?.p90 !== undefined
+  && metrics.roles?.advisor?.failRate === 0,
+  JSON.stringify(metrics.roles?.advisor));
+check('A21 metrics queue uses runnable/claimed/held/deferred',
+  metrics.queue?.runnable === 2500 && metrics.queue?.claimed === 0
+  && metrics.queue?.held === 0 && metrics.queue?.deferred === 0
+  && metrics.counts?.planned === 2500,
+  JSON.stringify(metrics.queue));
+check('A21 metrics dispatch has p50/p99 and queue-wait/decision rows',
+  metrics.dispatch && 'p50' in metrics.dispatch && 'p99' in metrics.dispatch
+  && metrics.dispatch.queueWait && Array.isArray(metrics.dispatch.decisions),
+  JSON.stringify({ p50: metrics.dispatch?.p50, p99: metrics.dispatch?.p99, qw: metrics.dispatch?.queueWait }));
+
 // --- HTTP /events default + /runs cursor -----------------------------------
 const eventsDefault = await get('events', `projectId=${projectId}`);
 check('events default page is bounded', eventsDefault.events.length === 1000 && eventsDefault.page?.hasMore === true, `${eventsDefault.events.length}`);

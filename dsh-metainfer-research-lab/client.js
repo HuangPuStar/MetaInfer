@@ -16076,6 +16076,10 @@ window.__ModuleLoader__.load({
 
     function DispatchQueuePanel({ projectId, t }) {
       const [snapshot, setSnapshot] = React.useState({ loading: true, state: null, facts: null, metrics: null, budgets: null, error: '', failed: {} });
+      // Q5: pruned/deferred nodes stay in the DAG for restoration, but are not
+      // part of the executable queue. Default to hiding them, with an explicit
+      // toggle so a human can audit what was pruned.
+      const [showDeferred, setShowDeferred] = React.useState(false);
       const load = React.useCallback(async (signal) => {
         setSnapshot((previous) => ({ ...previous, loading: previous.state === null && previous.facts === null, error: '' }));
         const results = await Promise.allSettled([
@@ -16114,6 +16118,7 @@ window.__ModuleLoader__.load({
       const running = nodes.filter((node) => node?.status === 'running');
       const queued = nodes.filter((node) => node?.status === 'planned' || node?.status === 'proposed' || node?.status === 'deferred');
       const blocked = queued.filter((node) => node?.resourceWait || node?.claim || node?.deferUntil);
+      const deferredNodes = queued.filter((node) => asObject(node?.priority).class === 'deferred');
       const metrics = asObject(snapshot.metrics);
       const facts = asObject(snapshot.facts);
       const summary = asObject(facts.summary);
@@ -16157,7 +16162,10 @@ window.__ModuleLoader__.load({
         h('span', { className: 'rl-card-meta' }, failed.state
           ? 'running — · queued — · blocked —'
           : `${running.length} running · ${queued.length} queued · ${blocked.length} blocked`),
-        h(LabButton, { label: 'Retry', variant: 'ghost', disabled: snapshot.loading, onClick: () => { const controller = new AbortController(); void load(controller.signal); } }));
+        h(LabButton, { label: 'Retry', variant: 'ghost', disabled: snapshot.loading, onClick: () => { const controller = new AbortController(); void load(controller.signal); } }),
+        h('label', { className: 'rl-hint', style: { display: 'inline-flex', gap: '6px', alignItems: 'center', marginLeft: '8px' } },
+          h('input', { type: 'checkbox', checked: showDeferred, onChange: (event) => setShowDeferred(event.target.checked), 'data-testid': 'show-deferred' }),
+          `show pruned (${deferredNodes.length})`));
       if (snapshot.loading) return h('section', { className: 'rl-card', 'data-testid': 'obs-dispatch-queue' }, head, h('p', { className: 'rl-hint' }, t('common.loading')));
       return h(
         'section',
@@ -16208,6 +16216,14 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'rl-mono' }, firstString(node?.id)),
                 h('span', null, firstString(node?.title) + (reason ? ' · ' + reason : '') + (node?.resourceWait ? ' · resource wait' : '')));
             }),
+        showDeferred && deferredNodes.length > 0
+          ? h('div', { 'data-testid': 'deferred-list' },
+              h('h4', { className: 'rl-card-title' }, 'Pruned / deferred'),
+              deferredNodes.map((node) => h('div', { key: node?.id, className: 'rl-log-row' },
+                h('span', { className: 'rl-mono' }, 'deferred'),
+                h('span', { className: 'rl-mono' }, firstString(node?.id)),
+                h('span', null, firstString(node?.title) + (node?.priority?.reason ? ' · ' + node.priority.reason : '')))))
+          : null,
         h('h4', { className: 'rl-card-title' }, 'Dispatch metrics'),
         failed.metrics || snapshot.error !== ''
           ? h('p', { className: 'rl-hint' }, 'Metrics are unavailable until /metrics succeeds.')

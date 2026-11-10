@@ -24,11 +24,11 @@ async function test(label, fn) {
   }
 }
 
-const node = (id) => ({
+const node = (id, cls = 'p2') => ({
   id,
   title: id,
   status: 'planned',
-  priority: { class: 'p2', by: 'advisor', depth: 0, failureRecovery: 0 },
+  priority: { class: cls, by: 'advisor', depth: 0, failureRecovery: 0 },
   needs: {},
   resourcesHeld: {},
   timestamps: { createdAt: 1 },
@@ -41,7 +41,7 @@ await test('default cap is max(2 * freeSlots, 4)', async () => {
   assert.equal(maxPlannedInFlightOf({ config: { maxRunningNodes: 4, maxPlannedInFlight: 3 } }, { runningCount: 0 }), 3);
 });
 
-async function drive(projectId, count, config = {}, dispatchResult = { started: 0, skipped: [] }) {
+async function drive(projectId, count, config = {}, dispatchResult = { started: 0, skipped: [] }, deferred = 0) {
   const store = await openStore(storeContext(memoryDomain()));
   await store.saveProject({
     id: projectId,
@@ -53,6 +53,7 @@ async function drive(projectId, count, config = {}, dispatchResult = { started: 
     config: { maxRunningNodes: 2, maxNodes: 100, resourcePools: {}, planning: { minRemainingMs: 3_600_000, planLatencyMs: 1_000, safetyFactor: 0.1, debounceMs: 0, minGapMs: 0 }, ...config },
   });
   for (let index = 0; index < count; index += 1) await store.saveNode(projectId, node(`n${index}`));
+  for (let index = 0; index < deferred; index += 1) await store.saveNode(projectId, node(`d${index}`, 'deferred'));
   let steps = 0;
   const kernel = createKernel({ store });
   const auto = createAutoController({
@@ -93,6 +94,17 @@ await test('a deterministic dispatch start skips the planner entirely', async ()
   assert.equal(steps, 0, 'planner must not run when dispatch started a node');
   assert.equal(status.lastDispatch?.started, 1);
   assert.ok((status.lastDispatch?.durationMs ?? 0) < 100);
+});
+
+await test('Q5: deferred nodes do not consume the maxNodes hot budget', async () => {
+  const { steps, status } = await drive('p-deferred-cap', 1, { maxNodes: 2, maxDeferred: 20 }, { started: 0, skipped: [] }, 5);
+  assert.equal(status.pauseReason, null, `deferred nodes must not trip maxNodes: ${status.pauseReason}`);
+  assert.equal(steps, 1, 'the one hot node leaves room for planning');
+});
+
+await test('Q5: the separate maxDeferred quota pauses the driver', async () => {
+  const { status } = await drive('p-deferred-quota', 1, { maxNodes: 100, maxDeferred: 2 }, { started: 0, skipped: [] }, 3);
+  assert.equal(status.pauseReason, 'maxDeferred');
 });
 
 await test('an explicit project cap overrides the derived default', async () => {

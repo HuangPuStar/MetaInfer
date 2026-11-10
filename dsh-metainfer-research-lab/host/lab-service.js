@@ -162,6 +162,9 @@ function normalizeConfig(raw, base = undefined) {
       : normalizeResourcePools(input.resourcePools),
     maxRunningNodes: integer(input.maxRunningNodes, 'config.maxRunningNodes', previous.maxRunningNodes ?? 4, 1, 64),
     maxNodes: integer(input.maxNodes, 'config.maxNodes', previous.maxNodes ?? 60, 1, 20_000),
+    // Q5: deferred/pruned nodes are held for restoration but do not consume a
+    // hot maxNodes slot; this separate quota bounds the cold set.
+    maxDeferred: integer(input.maxDeferred, 'config.maxDeferred', previous.maxDeferred ?? 20, 0, 20_000),
     // Cluster queue priority (higher starts sooner when several projects contend for one GPU).
     clusterPriority: integer(input.clusterPriority, 'config.clusterPriority', previous.clusterPriority ?? 0, 0, 100),
     nodeTimeoutMinutes,
@@ -1635,31 +1638,36 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const afterSeq = Number.isFinite(options.afterSeq) ? Math.max(0, Math.trunc(options.afterSeq)) : 0;
     const nodeCursor = typeof options.nodeCursor === 'string' && options.nodeCursor ? options.nodeCursor : null;
     const state = await getState(projectId, undefined, { limit: nodeLimit, cursor: nodeCursor });
-    const allEvents = store.listEvents(projectId, afterSeq);
-    const events = allEvents.slice(0, eventLimit);
-    const nextSeq = events.length > 0 ? events[events.length - 1].seq : afterSeq;
+    // S5: replay events use the same bounded page as /events. Reading all
+    // events just to slice the first N made 10k+ event projects O(all) and
+    // ignored the cursor even though the response already advertised one.
+    const eventPage = store.pageEvents(projectId, { after: afterSeq, limit: eventLimit });
+    const events = eventPage.events;
+    const nextSeq = eventPage.nextSeq ?? (events.length > 0 ? events[events.length - 1].seq : afterSeq);
     // Replay spans the first node's creation through the last node activity,
-    // not project creation or the current wall clock.
-    const nodeTimes = [];
-    const nodeEventTimes = [];
+    // not project creation or the current wall clock. Accumulate extrema in a
+    // loop: spreading 10k+ timestamps into Math.min/Math.max can overflow the
+    // argument limit (S5).
+    let startAt = Infinity;
+    let endAt = -Infinity;
     for (const node of store.listNodes(projectId)) {
       const stamps = node.timestamps && typeof node.timestamps === 'object' ? node.timestamps : {};
       for (const value of Object.values(stamps)) {
         const stamp = Number(value);
-        if (Number.isFinite(stamp) && stamp > 0) nodeTimes.push(stamp);
+        if (!Number.isFinite(stamp) || stamp <= 0) continue;
+        if (stamp < startAt) startAt = stamp;
+        if (stamp > endAt) endAt = stamp;
       }
     }
     for (const event of events) {
       if (!event?.nodeId && !String(event?.type ?? '').startsWith('node/')) continue;
       const stamp = Number(event.at);
-      if (Number.isFinite(stamp) && stamp > 0) nodeEventTimes.push(stamp);
+      if (!Number.isFinite(stamp) || stamp <= 0) continue;
+      if (stamp < startAt) startAt = stamp;
+      if (stamp > endAt) endAt = stamp;
     }
-    const startCandidates = nodeTimes.length > 0 ? nodeTimes : nodeEventTimes;
-    const startAt = startCandidates.length > 0
-      ? Math.min(...startCandidates)
-      : (Number(state.project.createdAt) || Date.now());
-    const endCandidates = [...nodeTimes, ...nodeEventTimes];
-    let endAt = endCandidates.length > 0 ? Math.max(...endCandidates) : startAt + 1000;
+    if (!Number.isFinite(startAt)) startAt = Number(state.project.createdAt) || Date.now();
+    if (!Number.isFinite(endAt)) endAt = startAt + 1000;
     if (!(endAt > startAt)) endAt = startAt + 1000;
     return publicView({
       projectId,
@@ -1678,8 +1686,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       nextNodeCursor: state.nextCursor ?? null,
       _truncated: {
         nodes: state._truncated?.nodes ?? null,
-        events: allEvents.length > events.length
-          ? { shown: events.length, total: allEvents.length, max: eventLimit }
+        events: eventPage.total > events.length
+          ? { shown: events.length, total: eventPage.total, max: eventLimit }
           : null,
       },
     });
@@ -3225,11 +3233,32 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     // commit point; a pending dispute therefore cannot block forever.
     await sweepDisputes(projectId);
     const round = await dispatchOnce(projectId, options);
+    // O3: runnable→claimed latency is measured from the node's queue entry
+    // (timestamps.createdAt) to the dispatcher's transition to running. The
+    // same pass records the per-decision rows so a percentile can be audited
+    // back to a concrete node instead of being an opaque aggregate.
+    const afterNodes = new Map(store.listNodes(projectId).map((node) => [node.id, node]));
+    const at = Date.now();
+    const queueWaits = [];
+    const decisions = [];
+    for (const nodeId of round.startedNodeIds ?? []) {
+      const node = afterNodes.get(nodeId);
+      const queuedAt = Number(node?.timestamps?.createdAt ?? node?.createdAt);
+      const startedAt = Number(node?.timestamps?.startedAt ?? at);
+      const waitMs = Number.isFinite(queuedAt) ? Math.max(0, startedAt - queuedAt) : null;
+      if (waitMs !== null) queueWaits.push({ nodeId, waitMs });
+      decisions.push({ nodeId, status: 'started', code: null, waitMs, at });
+    }
+    for (const skip of round.skipped ?? []) {
+      decisions.push({ nodeId: skip?.nodeId ?? null, status: skip?.status ?? 'skipped', code: skip?.code ?? null, waitMs: null, at });
+    }
     metricsCollector.recordDispatch(projectId, {
       durationMs: round.durationMs ?? 0,
       started: round.started ?? 0,
       skipped: round.skipped ?? [],
-      at: Date.now(),
+      queueWaits,
+      decisions,
+      at,
     });
     if (options.includeStatus === false) return { ...round };
     return { ...round, status: await statusFacts(projectId) };
@@ -4821,6 +4850,15 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       ...(Number.isFinite(input?.score) ? { score: input.score } : {}),
       reason: typeof input?.reason === 'string' && input.reason.trim() ? input.reason.trim().slice(0, 500) : 'manual priority change',
     };
+    // Q5: pruning is a separate quota. Without this check a project could
+    // accumulate unbounded deferred nodes while maxNodes never moved.
+    if (priority.class === 'deferred' && normalizePriority(node.priority).class !== 'deferred') {
+      const maxDeferred = project.config?.maxDeferred ?? 20;
+      const deferredCount = store.listNodes(projectId).filter((candidate) => candidate.status === 'planned' && normalizePriority(candidate.priority).class === 'deferred').length;
+      if (deferredCount >= maxDeferred) {
+        return rejection('max_deferred_reached', `deferred quota is ${maxDeferred}; restore or archive a deferred node first`, { maxDeferred, deferred: deferredCount });
+      }
+    }
     const judgement = createIntent({
       id: intentId('priority', project.revision + 1, commitActor.id),
       kind: 'priority',

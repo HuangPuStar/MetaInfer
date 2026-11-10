@@ -4,12 +4,15 @@
  * human-confirmation mode (waiting proposals never block running nodes).
  */
 import { LabError } from './git-engine.js';
-import { runnableQueue, runnableSummary } from './kernel/runnable.js';
+import { isDeferredNode, runnableQueue, runnableSummary } from './kernel/runnable.js';
 import { createLowWaterPlanner, planningConfigOf } from './dispatch/low-water.js';
 import { anyFits, capacityOf } from './kernel/capacity.js';
 
 function newNodeCount(nodes) {
-  return nodes.length;
+  // Q5: a deferred (pruned) node is still in the DAG for restoration, but it
+  // must not consume a hot-node slot. Counting `nodes.length` let 40 pruned
+  // nodes permanently freeze the advisor's maxNodes budget.
+  return nodes.filter((node) => !isDeferredNode(node)).length;
 }
 
 /**
@@ -242,6 +245,8 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     if (state.startedAt && Date.now() - state.startedAt >= (auto.maxWallClockMs ?? 6 * 60 * 60 * 1000)) {
       return pause(projectId, 'maxWallClock');
     }
+    const maxDeferred = project.config.maxDeferred ?? 20;
+    if (nodes.filter(isDeferredNode).length > maxDeferred) return pause(projectId, 'maxDeferred');
     if (newNodeCount(nodes) >= (project.config.maxNodes ?? 60)) return pause(projectId, 'maxNodes');
     const tokenLimit = auto.maxTokens ?? 0;
     if (tokenLimit > 0 && tokensUsed(projectId) >= tokenLimit) return pause(projectId, 'maxTokens');
