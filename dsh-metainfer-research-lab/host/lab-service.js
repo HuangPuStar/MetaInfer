@@ -27,6 +27,7 @@ import { normalizePriority } from './kernel/priority.js';
 import { rejection, toActionable } from './kernel/errors.js';
 import { actorFromToolExecution } from './kernel/policy.js';
 import { INTENT_KINDS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
+import { IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
 import { recallExperts } from './experts/similarity.js';
 import { applyNomination, createCurator } from './experts/curator.js';
@@ -3017,6 +3018,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { ok: true, ...curator.recordOutcome({ falseClose: input?.falseClose === true }) };
   }
 
+  function claimStats(project, actorId) {
+    const row = project?.claimStats?.[actorId];
+    return {
+      total: Number.isInteger(row?.total) ? row.total : 0,
+      failed: Number.isInteger(row?.failed) ? row.failed : 0,
+    };
+  }
+
   /** Append one judgement to the project intent log (Stage 3). */
   async function submitIntent(projectId, input, exec = null) {
     const project = requireProject(projectId);
@@ -3029,6 +3038,61 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       : (input?.nodeId || input?.parentId ? { nodeId: input.nodeId ?? null, parentId: input.parentId ?? null } : null);
     if (target?.nodeId && !store.getNode(projectId, target.nodeId)) {
       return rejection('node_not_found', `unknown node: ${target.nodeId}`);
+    }
+    let claim = input?.claim;
+    let verifiedStats = null;
+    let verification = null;
+    if (claim && claim.evidence !== undefined) {
+      if (!Array.isArray(claim.evidence)) return rejection('bad_request', 'claim.evidence must be an array of predicates');
+      verification = verifyClaims(claim.evidence, store.listNodes(projectId));
+      const before = claimStats(project, actor.id);
+      verifiedStats = {
+        total: before.total + verification.total,
+        failed: before.failed + verification.failed,
+        updatedAt: Date.now(),
+      };
+      const rate = citationErrorRate(verifiedStats.failed, verifiedStats.total);
+      claim = {
+        ...claim,
+        verification: {
+          total: verification.total,
+          failed: verification.failed,
+          rate,
+          tier: citationTier(rate),
+        },
+      };
+      if (verification.failed > 0) {
+        const recorded = await commitMutations(projectId, [{
+          op: 'project.update',
+          set: { claimStats: { ...(project.claimStats ?? {}), [actor.id]: verifiedStats } },
+          eventType: 'claim/rejected',
+          eventData: { actorId: actor.id, total: verifiedStats.total, failed: verifiedStats.failed, failures: verification.failures.length },
+        }], { actor, causeId: `claim:${actor.id}` });
+        if (recorded.ok !== true) return rejection(recorded.code ?? 'internal_error', recorded.message ?? 'claim statistics write failed');
+        return rejection('claim_invalid', `claim failed ${verification.failed}/${verification.total} predicate(s); re-read the cited facts and resubmit`, {
+          failures: verification.failures.map((row) => ({ predicate: row.predicate, reason: row.reason, claim: row.claim })),
+          citationErrorRate: rate,
+        });
+      }
+    }
+    if (claim && IRREVERSIBLE_ACTIONS.includes(claim.action)) {
+      const stats = verifiedStats ?? claimStats(project, actor.id);
+      const gate = gateClaimAction(claim.action, stats);
+      if (!gate.ok) {
+        if (verifiedStats) {
+          await commitMutations(projectId, [{
+            op: 'project.update',
+            set: { claimStats: { ...(project.claimStats ?? {}), [actor.id]: verifiedStats } },
+            eventType: 'claim/rejected',
+            eventData: { actorId: actor.id, total: verifiedStats.total, failed: verifiedStats.failed, gate: gate.code },
+          }], { actor, causeId: `claim:${actor.id}` });
+        }
+        return rejection(gate.code, `claim action ${claim.action} requires a citation error rate below 5% with at least one verified claim`, {
+          citationErrorRate: gate.rate,
+          tier: gate.tier,
+          total: gate.total,
+        });
+      }
     }
     let basis;
     try {
@@ -3065,7 +3129,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         id: intentId(kind, project.revision + 1, actor.id),
         kind,
         actor,
-        claim: input?.claim,
+        claim,
         basis,
         target,
         rationale: input?.rationale,
@@ -3073,7 +3137,16 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     } catch (error) {
       return rejection('bad_request', error instanceof Error ? error.message : String(error));
     }
-    const commit = await commitMutations(projectId, [intentMutation(intent)], {
+    const mutations = [intentMutation(intent)];
+    if (verifiedStats) {
+      mutations.push({
+        op: 'project.update',
+        set: { claimStats: { ...(project.claimStats ?? {}), [actor.id]: verifiedStats } },
+        eventType: 'claim/verified',
+        eventData: { actorId: actor.id, total: verifiedStats.total, failed: verifiedStats.failed },
+      });
+    }
+    const commit = await commitMutations(projectId, mutations, {
       actor,
       causeId: `intent:${intent.id}`,
     });
