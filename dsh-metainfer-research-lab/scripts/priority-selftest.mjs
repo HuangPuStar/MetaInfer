@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
+import { registerAgentTool } from '../host/agent-tool.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -72,6 +73,17 @@ try {
 }
 check('updateNode rejects priority on a running node', updateError !== null && updateError.code === 'priority_frozen', String(updateError?.code));
 check('updateNode did not rename the running node', store.getNode('p', 'running').title === 'running', store.getNode('p', 'running').title);
+
+// 3b. A tool call must be attributed to the real session, not to a fake human.
+const toolCtx = { tools: { register(definition) { toolCtx.tool = definition; return () => {}; } } };
+registerAgentTool(toolCtx, service);
+const chatExec = { agent: { session: { id: 'sess-chat-1', header: { meta: { agentPreset: 'lab-chat' } } } } };
+const chatCall = JSON.parse((await toolCtx.tool.execute({ action: 'set_priority', projectId: 'p', nodeId: 'planned', class: 'p1' }, chatExec)).result);
+check('lab-chat may change priority through the tool', chatCall.ok === true, JSON.stringify(chatCall));
+const priorityEvents = store.listEvents('p', 0).filter((event) => event.nodeId === 'planned' && event.type === 'node/priority_changed');
+const lastPriority = priorityEvents[priorityEvents.length - 1];
+check('priority event is attributed to the calling session', lastPriority?.actor?.id === 'sess-chat-1', JSON.stringify(lastPriority?.actor ?? null));
+check('priority event keeps the actor kind', lastPriority?.actor?.kind === 'expert', JSON.stringify(lastPriority?.actor ?? null));
 
 // 4. The kernel itself refuses the write, not only the service wrapper.
 const direct = await kernel.executor.commit('p', {

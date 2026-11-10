@@ -469,7 +469,12 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     // the whole event log.
     const activation = eventType === 'node/started' || eventType === 'node/resumed' || eventType === 'node/retried';
     const activationCause = `${node.id}-a${node.currentAttempt ?? node.attempt ?? 1}`;
-    const causeId = payload.causeId ?? (activation ? activationCause : (node.causeId ?? node.lastCauseId ?? null));
+    // Non-activation transitions still need a cause: a planned node cancelled
+    // before it ever started has no activation to point at, and merge/GC writes
+    // are not activations either. Synthesize a stable action cause so
+    // `explain_node` never returns an empty chain.
+    const actionCause = `${eventType}:${node.id}:a${node.currentAttempt ?? node.attempt ?? 1}`;
+    const causeId = payload.causeId ?? (activation ? activationCause : (node.causeId ?? node.lastCauseId ?? actionCause));
     if (causeId) {
       if (activation) node.causeId = causeId;
       else node.lastCauseId = causeId;

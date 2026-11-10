@@ -9,6 +9,7 @@ import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
 import { createReviewClaimBoard } from '../host/dispatch/review-claims.js';
+import { registerAgentTool } from '../host/agent-tool.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -44,6 +45,8 @@ await kernel.executor.commit('p', {
   ],
 });
 const exec = { agent: { session: { id: 'expert-1', header: { meta: { agentPreset: 'lab-advisor' } } } } };
+const toolCtx = { tools: { register(definition) { toolCtx.tool = definition; return () => {}; } } };
+registerAgentTool(toolCtx, service);
 
 async function call(action, input = {}) {
   return service.agentTool({ action, projectId: 'p', ...input }, exec);
@@ -55,8 +58,50 @@ const walk = await call('dag_walk', { from: 'n1', depth: 2 });
 check('dag_walk returns reachable nodes', walk.ok === true && walk.nodes.some((node) => node.id === 'n2'), JSON.stringify(walk));
 const diff = await call('dag_diff');
 check('dag_diff returns a snapshot diff', diff.ok === true && Array.isArray(diff.added) && diff.added.length === 2, JSON.stringify(diff));
+check('dag_map carries revision', Number.isFinite(map.revision), JSON.stringify(map.revision));
+check('dag_walk carries revision', Number.isFinite(walk.revision), JSON.stringify(walk.revision));
+check('dag_diff carries revision', Number.isFinite(diff.revision), JSON.stringify(diff.revision));
+const query = await call('dag_query', { limit: 1 });
+check('dag_query carries revision', Number.isFinite(query.revision), JSON.stringify(query.revision));
+const get = await call('dag_get', { nodeIds: ['n1'] });
+check('dag_get carries revision', Number.isFinite(get.revision), JSON.stringify(get.revision));
+
+// `sinceRevision` must be honoured, not just echoed: add one node after the
+// first snapshot and diff from that exact revision.
+const since = diff.revision;
+await kernel.executor.commit('p', {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{ op: 'node.create', node: { id: 'n3', title: 'after diff', status: 'planned', timestamps: { createdAt: 3 } } }],
+});
+const sinceDiff = await call('dag_diff', { sinceRevision: since });
+check('dag_diff honours sinceRevision', sinceDiff.ok === true && sinceDiff.fromRevision === since && sinceDiff.added.length === 1 && sinceDiff.added[0] === 'n3', JSON.stringify(sinceDiff));
+const unavailable = await call('dag_diff', { sinceRevision: 999 });
+check('dag_diff refuses an unknown sinceRevision', unavailable.ok === false && unavailable.code === 'diff_unavailable', JSON.stringify(unavailable));
+
+// Byte budgets: 5,000 distinct owners used to produce 372,846 B for dag_map.
+await store.saveProject({ id: 'big', revision: 0, counters: { eventSeq: 0 }, config: { maxRunningNodes: 2, resourcePools: {}, maxNodes: 20000 }, updatedAt: 0, createdAt: 0 });
+kernel.load('big');
+const LONG = 'x'.repeat(300);
+for (let index = 0; index < 5000; index += 1) {
+  await store.saveNode('big', {
+    id: index === 0 ? 'root' : `n-${index}`,
+    title: LONG,
+    status: 'planned',
+    createdBy: `owner-${index}`,
+    ...(index === 0 ? {} : { parentId: 'root', parentIds: ['root'] }),
+    timestamps: { createdAt: index },
+  });
+}
+const bigMap = JSON.parse((await toolCtx.tool.execute({ action: 'dag_map', projectId: 'big', by: 'owner' }, exec)).result);
+const bigMapBytes = Buffer.byteLength(JSON.stringify(bigMap), 'utf8');
+check('dag_map stays under its 6 KB budget', bigMapBytes <= 6 * 1024, `${bigMapBytes} B`);
+check('dag_map reports group truncation', bigMap._truncated?.groups?.total === 5000 && bigMap._truncated.groups.shown < 5000, JSON.stringify(bigMap._truncated));
+const bigWalk = JSON.parse((await toolCtx.tool.execute({ action: 'dag_walk', projectId: 'big', from: 'root', depth: 2 }, exec)).result);
+const bigWalkBytes = Buffer.byteLength(JSON.stringify(bigWalk), 'utf8');
+check('dag_walk stays under its 24 KB budget', bigWalkBytes <= 24 * 1024, `${bigWalkBytes} B`);
+check('dag_walk reports byte truncation', bigWalk.truncated?.reason === 'bytes' && bigWalk.truncated.shown < 201, JSON.stringify(bigWalk.truncated));
 const nodesPage = await call('nodes_page', { limit: 1 });
-check('nodes_page returns a cursor page', nodesPage.ok === true && nodesPage.nodes.length === 1 && nodesPage.total === 2, JSON.stringify(nodesPage));
+check('nodes_page returns a cursor page', nodesPage.ok === true && nodesPage.nodes.length === 1 && nodesPage.total === 3, JSON.stringify(nodesPage));
 const secondPage = await call('nodes_page', { limit: 1, cursor: nodesPage.nextCursor });
 check('nodes_page accepts its own cursor', secondPage.ok === true && secondPage.nodes.length === 1 && secondPage.nodes[0].id !== nodesPage.nodes[0].id, JSON.stringify(secondPage));
 const eventsPage = await call('events_page', { limit: 1 });
@@ -77,17 +122,25 @@ check('release_review releases the claim', release.ok === true, JSON.stringify(r
 const released = await call('review_claims');
 check('claim board is empty after release', released.ok === true && released.claims.length === 0, JSON.stringify(released));
 
-// Removed actions must not linger in the service dispatcher or the enum.
+// Removed actions must not linger in the enum, and the real tool wrapper must
+// reject them with the exact documented code. `null` (silent acceptance) is a
+// failure, not a pass — that was the weak assertion the verifier caught.
 const { ACTION_CATALOG } = await import('../host/kernel/policy.js');
-for (const action of ['intent_submit', 'intent_list', 'experts_list', 'expert_upsert', 'curator_scan', 'curator_nominate']) {
+const removed = ['intent_submit', 'intent_list', 'experts_list', 'expert_upsert', 'curator_scan', 'curator_nominate'];
+/** @returns {{ok: boolean, code: string|null}} */
+async function removedVerdict(wrapper, action) {
+  const parsed = JSON.parse((await wrapper.execute({ action, projectId: 'p' }, exec)).result);
+  return { ok: parsed.ok, code: parsed.error?.code ?? null };
+}
+const rejectedUnknown = (verdict) => verdict.ok === false && verdict.code === 'unknown_action';
+// Mutation check: the predicate must go red for silent acceptance (the old
+// `thrown === null || ...` assertion passed exactly this shape).
+check('rejection predicate catches silent acceptance', rejectedUnknown({ ok: true, code: null }) === false);
+check('rejection predicate catches a different code', rejectedUnknown({ ok: false, code: 'internal_error' }) === false);
+for (const action of removed) {
   check(`${action} is not advertised`, !Object.hasOwn(ACTION_CATALOG, action));
-  let thrown = null;
-  try {
-    await call(action, {});
-  } catch (error) {
-    thrown = error;
-  }
-  check(`${action} is not silently accepted`, thrown === null || thrown.code === 'unknown_command', String(thrown?.code));
+  const verdict = await removedVerdict(toolCtx.tool, action);
+  check(`${action} is rejected with unknown_action`, rejectedUnknown(verdict), JSON.stringify(verdict));
 }
 
 console.log(`\n${failed === 0 ? 'tool-surface-selftest: all checks passed' : `tool-surface-selftest: ${failed} failed`}`);

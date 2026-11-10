@@ -25,6 +25,7 @@ import { createExplorationBudget } from './context/limits.js';
 import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
 import { rejection, toActionable } from './kernel/errors.js';
+import { actorFromToolExecution } from './kernel/policy.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
 // A state index row never carries a full prompt; the inspector loads the node.
@@ -665,12 +666,25 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         return { unchanged: true, revision: project.revision };
       }
     }
-    const rawNodes = runtime
+    const allRaw = runtime
       ? runtime.decorateNodes(projectId, store.listNodes(projectId))
       : store.listNodes(projectId);
+    // HTTP callers page this response; internal callers may pass `limit: null`
+    // to get the full index in one object.
+    const limit = Number.isFinite(options.limit) ? Math.max(1, Math.min(5000, Math.trunc(options.limit))) : null;
+    const cursor = typeof options.cursor === 'string' && options.cursor ? options.cursor : null;
+    let start = 0;
+    if (limit !== null && cursor) {
+      const at = allRaw.findIndex((node) => node.id === cursor);
+      start = at >= 0 ? at + 1 : 0;
+    }
+    const rawNodes = limit === null ? allRaw : allRaw.slice(start, start + limit);
+    const nextCursor = limit !== null && start + rawNodes.length < allRaw.length
+      ? rawNodes[rawNodes.length - 1]?.id ?? null
+      : null;
     const projected = options.full === true ? rawNodes : rawNodes.map(stateNode);
     const parentIds = new Set();
-    for (const node of rawNodes) {
+    for (const node of allRaw) {
       if (node.status === 'proposed') continue;
       const ids = Array.isArray(node.parentIds) && node.parentIds.length > 0
         ? node.parentIds
@@ -692,7 +706,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
     const pools = project.config?.resourcePools ?? {};
     const held = {};
-    for (const node of nodes) {
+    for (const node of allRaw) {
       if (node.status !== 'running' || !node.resourcesHeld) continue;
       for (const [key, amount] of Object.entries(node.resourcesHeld)) {
         held[key] = (held[key] ?? 0) + amount;
@@ -711,10 +725,32 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       worktreeRoot: project.repo?.worktreeRoot,
       revision: project.revision,
       lastEventSeq: project.counters?.eventSeq ?? 0,
-      pendingProposals: nodes.filter((node) => node.status === 'proposed').length,
+      pendingProposals: allRaw.filter((node) => node.status === 'proposed').length,
       auto: auto ? auto.statusOf(projectId) : { status: 'off', pauseReason: null },
       cluster: cluster ? cluster.getStatus() : { enabled: false, mode: 'local' },
       _indexed: options.full !== true,
+      nextCursor,
+      _truncated: nextCursor !== null ? { nodes: { shown: nodes.length, total: allRaw.length } } : null,
+    };
+  }
+
+  /** Bounded node list for MCP/host surfaces that must not dump the DAG. */
+  function listNodesPage(projectId, { limit = 100, cursor = null, status = null } = {}) {
+    const project = requireProject(projectId);
+    const size = Number.isFinite(limit) ? Math.max(1, Math.min(500, Math.trunc(limit))) : 100;
+    const page = store.listNodes(projectId, { limit: size, cursor: typeof cursor === 'string' && cursor ? cursor : null });
+    const nodes = status ? page.filter((node) => node.status === status) : page;
+    const nextCursor = page.length === size ? page[page.length - 1]?.id ?? null : null;
+    return {
+      ok: true,
+      projectId,
+      revision: project.revision,
+      nodes,
+      count: nodes.length,
+      total: store.countNodes(projectId),
+      nextCursor,
+      hasMore: nextCursor !== null,
+      _truncated: nextCursor !== null ? { nodes: { shown: nodes.length, total: store.countNodes(projectId) } } : null,
     };
   }
 
@@ -1126,14 +1162,19 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { events, next: store.maxEventSeq(projectId) };
   }
 
-  async function getReplay(projectId) {
-    const state = await getState(projectId);
-    const events = store.listEvents(projectId, 0);
+  async function getReplay(projectId, options = {}) {
+    const nodeLimit = Number.isFinite(options.nodeLimit) ? Math.max(1, Math.min(5000, Math.trunc(options.nodeLimit))) : 2000;
+    const eventLimit = Number.isFinite(options.limit) ? Math.max(1, Math.min(5000, Math.trunc(options.limit))) : 2000;
+    const afterSeq = Number.isFinite(options.afterSeq) ? Math.max(0, Math.trunc(options.afterSeq)) : 0;
+    const state = await getState(projectId, undefined, { limit: nodeLimit });
+    const allEvents = store.listEvents(projectId, afterSeq);
+    const events = allEvents.slice(0, eventLimit);
+    const nextSeq = events.length > 0 ? events[events.length - 1].seq : afterSeq;
     // Replay spans the first node's creation through the last node activity,
     // not project creation or the current wall clock.
     const nodeTimes = [];
     const nodeEventTimes = [];
-    for (const node of state.nodes) {
+    for (const node of store.listNodes(projectId)) {
       const stamps = node.timestamps && typeof node.timestamps === 'object' ? node.timestamps : {};
       for (const value of Object.values(stamps)) {
         const stamp = Number(value);
@@ -1164,6 +1205,15 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       nodes: state.nodes,
       edges: state.edges,
       events,
+      revision: state.revision,
+      nextSeq,
+      nextNodeCursor: state.nextCursor ?? null,
+      _truncated: {
+        nodes: state._truncated?.nodes ?? null,
+        events: allEvents.length > events.length
+          ? { shown: events.length, total: allEvents.length, max: eventLimit }
+          : null,
+      },
     };
   }
 
@@ -1193,7 +1243,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     });
   }
 
-  async function updateNode(projectId, nodeId, input) {
+  async function updateNode(projectId, nodeId, input, actor = null) {
     // Priority is a separate executor commit (G1): apply it before the edit so
     // a terminal node's priority is rejected even when fields are also edited.
     let priorityResult = null;
@@ -1201,7 +1251,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       if (typeof input.priority !== 'object' || input.priority === null || Array.isArray(input.priority)) {
         throw new LabError('bad_request', 'priority must be {class, score?}', 400);
       }
-      priorityResult = await setNodePriority(projectId, nodeId, { ...input.priority, reason: input.reason });
+      priorityResult = await setNodePriority(projectId, nodeId, { ...input.priority, reason: input.reason }, actor);
       if (priorityResult.ok !== true) {
         const error = priorityResult.error ?? {};
         throw new LabError(error.code ?? 'priority_frozen', error.message ?? 'priority update failed', 409);
@@ -2448,7 +2498,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     };
   }
 
-  async function getSessionTranscript(projectId, sessionId, afterSeq = 0) {
+  async function getSessionTranscript(projectId, sessionId, afterSeq = 0, limit = 200) {
     const project = requireProject(projectId);
     const id = typeof sessionId === 'string' ? sessionId : '';
     if (!id) throw new LabError('bad_request', 'sessionId is required', 400);
@@ -2481,12 +2531,16 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       return { sessionId: id, rows: [], nextSeq: after, unavailable: true };
     }
     const rows = [];
+    const maxRows = Math.max(1, Math.min(1000, Number.isFinite(limit) ? Math.trunc(limit) : 200));
+    let hasMore = false;
+    let scannedThrough = after;
     const textOf = (blocks) => (Array.isArray(blocks) ? blocks : [])
       .map((block) => (block && block.type === 'text' && typeof block.text === 'string' ? block.text : ''))
       .filter(Boolean).join('\n').trim();
     for (const event of Array.isArray(snapshot?.events) ? snapshot.events : []) {
       const seq = event?.seq;
       if (!Number.isFinite(seq) || seq <= after) continue;
+      scannedThrough = seq;
       const data = event?.data ?? {};
       if (event.type === 'user/message') {
         const text = textOf(data.content);
@@ -2500,15 +2554,23 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       } else if (event.type === 'tool/result') {
         rows.push({ seq, at: event.time, kind: 'tool-result', text: textOf(data.message?.content), error: Boolean(data.message?.isError) });
       }
+      if (rows.length >= maxRows) { hasMore = true; break; }
     }
     rows.sort((a, b) => a.seq - b.seq || (a.at ?? 0) - (b.at ?? 0));
     const nextSeq = rows.length ? Math.max(...rows.map((row) => row.seq)) : after;
-    return { sessionId: id, header: snapshot?.header ?? null, rows, nextSeq };
+    return {
+      sessionId: id,
+      header: snapshot?.header ?? null,
+      rows,
+      nextSeq: hasMore ? Math.max(nextSeq, scannedThrough) : nextSeq,
+      hasMore,
+      _truncated: hasMore ? { rows: { shown: rows.length, max: maxRows } } : null,
+    };
   }
 
-  async function getTranscript(projectId, nodeId, afterSeq) {
+  async function getTranscript(projectId, nodeId, afterSeq, limit = 200) {
     if (!transcript) throw new LabError('unavailable', 'transcript reader is not wired', 503);
-    return transcript.read(projectId, nodeId, afterSeq);
+    return transcript.read(projectId, nodeId, afterSeq, limit);
   }
 
   async function step(projectId, trigger = 'manual') {
@@ -2685,17 +2747,21 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return explainer.traceExplain(projectId, nodeId, options);
   }
 
+  function projectRevision(projectId) {
+    return store.getProject(projectId)?.revision ?? 0;
+  }
+
   async function dagQuery(projectId, input, exec) {
     const budget = budgetFor(exec);
     const nodes = projectNodes(projectId);
-    const result = queryDag({
+    const result = { ...queryDag({
       nodes,
       filter: input?.filter ?? {},
       select: input?.select,
       limit: input?.limit,
       cursor: input?.cursor ?? null,
       order: input?.order,
-    });
+    }), revision: projectRevision(projectId) };
     const bytes = Buffer.byteLength(JSON.stringify(result), 'utf8');
     const charge = budget.charge({ bytes });
     if (!charge.ok) return { ok: false, error: { code: charge.code, dimension: charge.dimension, message: charge.message, nextStep: charge.nextStep } };
@@ -2704,7 +2770,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   async function dagGetAction(projectId, input, exec) {
     const budget = budgetFor(exec);
-    const result = dagGet({ nodes: projectNodes(projectId), nodeIds: input?.nodeIds ?? [], select: input?.select, neighbors: input?.neighbors !== false });
+    const result = { ...dagGet({ nodes: projectNodes(projectId), nodeIds: input?.nodeIds ?? [], select: input?.select, neighbors: input?.neighbors !== false }), revision: projectRevision(projectId) };
     const bytes = Buffer.byteLength(JSON.stringify(result), 'utf8');
     const charge = budget.charge({ bytes });
     if (!charge.ok) return { ok: false, error: { code: charge.code, dimension: charge.dimension, message: charge.message, nextStep: charge.nextStep } };
@@ -2715,7 +2781,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     requireProject(projectId);
     const by = ['status', 'depth', 'owner', 'parent'].includes(input?.by) ? input.by : 'status';
     const sample = Number.isFinite(input?.sample) ? Math.max(1, Math.min(20, input.sample)) : 5;
-    return mapDag({ nodes: projectNodes(projectId), by, sample });
+    return { ...mapDag({ nodes: projectNodes(projectId), by, sample }), projectId, revision: projectRevision(projectId) };
   }
 
   function dagWalkAction(projectId, input) {
@@ -2724,18 +2790,18 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const nodes = projectNodes(projectId);
     const result = walkDag({ nodes, from, direction: input?.direction === 'up' ? 'up' : 'down', depth: input?.depth, limit: input?.limit });
     if (result.ok !== true) return rejection(result.code ?? 'node_not_found', result.message ?? `node ${from} does not exist`);
-    return result;
+    return { ...result, projectId, revision: projectRevision(projectId) };
   }
 
   function dagDiffAction(projectId, input) {
     requireProject(projectId);
     const since = Number.isFinite(Number(input?.sinceRevision)) ? Math.max(0, Math.trunc(Number(input.sinceRevision))) : null;
     const nodes = projectNodes(projectId);
-    const revision = store.getProject(projectId)?.revision ?? 0;
-    // The cache holds the last snapshot this process served. A caller-supplied
-    // revision older than the cache cannot be reconstructed (events are the
-    // durable source) — say so instead of pretending the diff is complete.
-    return { ok: true, projectId, sinceRevision: since, ...diffCache.diff(projectId, nodes, revision) };
+    const revision = projectRevision(projectId);
+    // The cache keeps a bounded snapshot history. A caller-supplied revision
+    // older than that history cannot be reconstructed (events are the durable
+    // source) — the cache returns `diff_unavailable` instead of a wrong delta.
+    return { ...diffCache.diff(projectId, nodes, revision, since), projectId, revision };
   }
 
   async function nodesPageAction(projectId, input) {
@@ -2809,7 +2875,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { ok: true, projectId, event: { seq: event.seq, type: event.type }, ledger: ledgerReader.view(projectId) };
   }
 
-  async function setNodePriority(projectId, nodeId, input) {
+  async function setNodePriority(projectId, nodeId, input, actor = null) {
     const project = requireProject(projectId);
     const node = requireNode(projectId, nodeId);
     const classes = ['p0', 'p1', 'p2', 'p3', 'deferred'];
@@ -2827,7 +2893,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       );
     }
     if (!kernel?.executor) return rejection('internal_error', 'kernel executor is not wired');
-    const actor = { kind: 'human', id: 'operator' };
+    // Attribute the commit to the real caller. HTTP/UI passes no actor and is
+    // the human operator; a tool call passes its DSH session actor, so a
+    // `lab-chat` change is never recorded as a human intervention.
+    const commitActor = actor ?? { kind: 'human', id: 'operator' };
     const priority = {
       ...(input?.class !== undefined ? { class: input.class } : {}),
       ...(Number.isFinite(input?.score) ? { score: input.score } : {}),
@@ -2836,7 +2905,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     // G1/B7: the only write path is the kernel executor, so the change is an
     // event-sourced commit (same invariant as dispatch and node edits).
     const commit = await kernel.executor.commit(projectId, {
-      actor,
+      actor: commitActor,
       mutations: [{ op: 'node.setPriority', nodeId, priority }],
     });
     if (commit.ok !== true) {
@@ -2862,6 +2931,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   async function agentTool(input, exec = null) {
     const action = input?.action;
+    const actor = actorFromToolExecution(exec);
     if (action === 'projects') return { projects: await listProjects() };
     if (action === 'status') {
       if (!input?.projectId) return { projects: await listProjects() };
@@ -2919,7 +2989,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'changes_since') return changesSince(input?.projectId, input?.sinceRevision);
     if (action === 'get_node') return getNode(input?.projectId, input?.nodeId);
     if (action === 'update_project') return updateProject(input?.projectId, input ?? {});
-    if (action === 'update_node') return updateNode(input?.projectId, input?.nodeId, input ?? {});
+    if (action === 'update_node') return updateNode(input?.projectId, input?.nodeId, input ?? {}, actor);
     if (action === 'cluster') return getCluster(input?.projectId);
     if (action === 'cluster_config') return getClusterConfig();
     if (action === 'compile_placement') return compilePlacementPolicyForProject(input?.projectId, input?.text);
@@ -2951,13 +3021,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'cancel_node') return runtime.cancel(input?.projectId, input?.nodeId);
     if (action === 'message_node') return runtime.message(input?.projectId, input?.nodeId, input?.text);
     if (action === 'node_files') return ensureNodeWorktree(input?.projectId, input?.nodeId);
-    if (action === 'replay') return getReplay(input?.projectId);
+    if (action === 'replay') return getReplay(input?.projectId, { limit: input?.limit, afterSeq: input?.afterSeq, nodeLimit: input?.nodeLimit });
     if (action === 'dashboard_get') return getDashboard(input?.projectId);
     if (action === 'dashboard_update') return updateDashboard(input?.projectId, { spec: input?.dashboardSpec ?? input?.spec });
     if (action === 'dashboard_refresh') return refreshDashboard(input?.projectId, { force: true });
     if (action === 'dashboard_chat') return chatDashboard(input?.projectId, input?.text);
     if (action === 'dashboard_layout') return updateDashboardLayout(input?.projectId, input?.layouts);
-    if (action === 'transcript') return getTranscript(input?.projectId, input?.nodeId, input?.afterSeq);
+    if (action === 'transcript') return getTranscript(input?.projectId, input?.nodeId, input?.afterSeq, input?.limit);
     if (action === 'step') return orchestrator.step(input?.projectId, input?.trigger ?? 'manual');
     if (action === 'successor') return orchestrator.createSuccessor(input?.projectId, input?.nodeId, input);
     if (action === 'create_merge') return createMergeNode(input?.projectId, input);
@@ -3000,7 +3070,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'health') return health();
     if (action === 'ledger_read') return ledgerRead(input?.projectId, input?.limits);
     if (action === 'ledger_update') return ledgerUpdate(input?.projectId, input, exec);
-    if (action === 'set_priority') return setNodePriority(input?.projectId, input?.nodeId, input);
+    if (action === 'set_priority') return setNodePriority(input?.projectId, input?.nodeId, input, actor);
     throw new LabError('unknown_command', `unknown metainfer_lab action: ${String(action)}`, 400);
   }
 
@@ -3025,6 +3095,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     createProject,
     getState,
     getNode,
+    listNodesPage,
     changesSince,
     getEvents,
     getReplay,

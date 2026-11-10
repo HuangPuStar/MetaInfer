@@ -126,11 +126,13 @@ function createServer(service) {
     {
       title: 'Get project state',
       description: 'Read-only. Read the complete project state: project config, DAG nodes, edges, resources, auto status and cluster status.',
-      inputSchema: z.object({ projectId }),
+      inputSchema: z.object({ projectId, limit: z.number().int().positive().max(5000).optional(), cursor: z.string().optional() }),
       annotations: READ,
     },
-    async ({ projectId: id }) => {
-      try { return ok(await service.getState(id)); } catch (error) { return fail(error); }
+    async ({ projectId: id, limit, cursor }) => {
+      try {
+        return ok(await service.getState(id, undefined, { limit: limit ?? 1000, cursor: cursor ?? null }));
+      } catch (error) { return fail(error); }
     },
   );
 
@@ -142,14 +144,14 @@ function createServer(service) {
       inputSchema: z.object({
         projectId,
         status: z.string().min(1).max(32).optional(),
+        limit: z.number().int().positive().max(500).optional(),
+        cursor: z.string().optional(),
       }),
       annotations: READ,
     },
-    async ({ projectId: id, status }) => {
+    async ({ projectId: id, status, limit, cursor }) => {
       try {
-        const state = await service.getState(id);
-        const nodes = (state.nodes || []).filter((node) => !status || node.status === status);
-        return ok({ projectId: id, revision: state.revision, nodes, count: nodes.length });
+        return ok(service.listNodesPage(id, { limit: limit ?? 100, cursor: cursor ?? null, status: status ?? null }));
       } catch (error) { return fail(error); }
     },
   );
@@ -164,10 +166,8 @@ function createServer(service) {
     },
     async ({ projectId: id, nodeId: nid }) => {
       try {
-        const state = await service.getState(id);
-        const node = (state.nodes || []).find((candidate) => candidate.id === nid);
-        if (!node) return fail({ code: 'node_not_found', message: `unknown node: ${nid}` });
-        return ok({ node });
+        const detail = service.getNode(id, nid);
+        return ok({ node: detail.node, sealed: detail.sealed, isLeaf: detail.isLeaf });
       } catch (error) { return fail(error); }
     },
   );

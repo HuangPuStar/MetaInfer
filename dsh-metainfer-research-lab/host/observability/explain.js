@@ -78,7 +78,7 @@ export function createExplainer({ store, projection = null, clock = Date.now }) 
   function causeChain(projectId, startCauseId, events, node) {
     const chain = [];
     const seen = new Set();
-    let causeId = startCauseId ?? node?.causeId ?? null;
+    let causeId = startCauseId ?? node?.causeId ?? node?.lastCauseId ?? null;
     const byCause = new Map();
     for (const event of events) {
       if (event.causeId) byCause.set(event.causeId, event);
@@ -113,7 +113,7 @@ export function createExplainer({ store, projection = null, clock = Date.now }) 
     const window = Number.isFinite(options.window) ? Math.max(50, options.window) : DEFAULT_WINDOW;
     const { forNode, window: windowInfo } = recentEvents(projectId, nodeId, window);
     const events = forNode.slice(-MAX_EVENTS).map(summarizeEvent);
-    const chain = causeChain(projectId, node.causeId ?? null, forNode, node);
+    const chain = causeChain(projectId, node.causeId ?? node.lastCauseId ?? null, forNode, node);
     const parents = parentsOf(node).map((id) => {
       const parent = loadNode(projectId, id);
       return parent

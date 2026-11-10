@@ -15,6 +15,10 @@ import { createHash } from 'node:crypto';
 export const DEFAULT_QUERY_LIMIT = 50;
 export const MAX_QUERY_LIMIT = 200;
 export const MAX_GET_IDS = 50;
+/** Hard response budgets for the coarse map/walk views (B15). */
+export const DAG_MAP_MAX_BYTES = 6 * 1024;
+export const DAG_WALK_MAX_BYTES = 24 * 1024;
+const DIFF_HISTORY = 16;
 
 const ROW_FIELDS = ['id', 'title', 'status', 'priority', 'parentIds', 'rev', 'needs', 'timestamps', 'git', 'error', 'review', 'attempt', 'lease', 'dispatchHold', 'source'];
 const DEFAULT_SELECT = ['id', 'title', 'status', 'priority', 'parentIds', 'rev'];
@@ -217,7 +221,7 @@ export function childrenIndex(nodes) {
  * @param {'status'|'depth'|'owner'|'parent'} [input.by]
  * @param {number} [input.sample]
  */
-export function mapDag({ nodes, by = 'status', sample = 5 }) {
+export function mapDag({ nodes, by = 'status', sample = 5, maxBytes = DAG_MAP_MAX_BYTES }) {
   const groups = new Map();
   let depth = null;
   if (by === 'depth') {
@@ -248,13 +252,56 @@ export function mapDag({ nodes, by = 'status', sample = 5 }) {
     if (group.sample.length < sample) group.sample.push(node.id);
   }
   const sorted = [...groups.values()].sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
-  return {
+  const build = (kept, truncated) => ({
     ok: true,
     by,
-    groups: sorted,
+    groups: kept,
     total: nodes.length,
-    _truncated: null,
-  };
+    _truncated: truncated,
+  });
+  const fit = fitPrefix(sorted, maxBytes, (kept) => build(kept, kept.length < sorted.length
+    ? { groups: { shown: kept.length, total: sorted.length } }
+    : null));
+  let kept = fit.kept;
+  let truncated = kept.length < sorted.length
+    ? { groups: { shown: kept.length, total: sorted.length }, bytes: { max: maxBytes, used: fit.bytes } }
+    : null;
+  let result = build(kept, truncated);
+  // `bytes.used` itself costs a few bytes; trim until the final envelope fits.
+  while (truncated && Buffer.byteLength(JSON.stringify(result)) > maxBytes && kept.length > 0) {
+    kept = kept.slice(0, -1);
+    truncated = kept.length < sorted.length
+      ? { groups: { shown: kept.length, total: sorted.length }, bytes: { max: maxBytes, used: 0 } }
+      : null;
+    result = build(kept, truncated);
+  }
+  if (truncated) truncated.bytes.used = Buffer.byteLength(JSON.stringify(result));
+  return result;
+}
+
+/**
+ * Largest prefix of `items` whose serialized envelope is <= `maxBytes`.
+ * `build(kept)` must include the truncation metadata for `kept.length` so the
+ * budget covers the envelope callers actually receive, not just the payload.
+ */
+function fitPrefix(items, maxBytes, build) {
+  let low = 0;
+  let high = items.length;
+  let best = 0;
+  let bytes = Buffer.byteLength(JSON.stringify(build([])));
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = build(items.slice(0, mid));
+    const size = Buffer.byteLength(JSON.stringify(candidate));
+    if (size <= maxBytes) {
+      best = mid;
+      bytes = size;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return { kept: items.slice(0, best), bytes };
 }
 
 /**
@@ -267,14 +314,14 @@ export function mapDag({ nodes, by = 'status', sample = 5 }) {
  * @param {number} [input.depth]
  * @param {number} [input.limit]
  */
-export function walkDag({ nodes, from, direction = 'down', depth = 3, limit = 100 }) {
+export function walkDag({ nodes, from, direction = 'down', depth = 3, limit = MAX_QUERY_LIMIT, maxBytes = DAG_WALK_MAX_BYTES }) {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   if (!byId.has(from)) return { ok: false, code: 'node_not_found', message: `node ${from} does not exist` };
   const children = childrenIndex(nodes);
   const parents = new Map();
   for (const node of nodes) parents.set(node.id, parentsOf(node));
   const maxDepth = Math.max(1, Math.min(20, Number.isFinite(depth) ? depth : 3));
-  const maxNodes = Math.max(1, Math.min(MAX_QUERY_LIMIT, Number.isFinite(limit) ? limit : 100));
+  const maxNodes = Math.max(1, Math.min(MAX_QUERY_LIMIT, Number.isFinite(limit) ? limit : MAX_QUERY_LIMIT));
   const seen = new Set([from]);
   const edges = [];
   let frontier = [from];
@@ -299,7 +346,29 @@ export function walkDag({ nodes, from, direction = 'down', depth = 3, limit = 10
   }
   if (frontier.length > 0) truncated = true;
   const rows = [...seen].map((id) => projectRow(byId.get(id)));
-  return { ok: true, from, direction, depth: maxDepth, nodes: rows, edges, truncated: truncated ? { shown: rows.length, total: null } : null };
+  const build = (kept) => {
+    const ids = new Set(kept.map((row) => row.id));
+    return {
+      ok: true,
+      from,
+      direction,
+      depth: maxDepth,
+      nodes: kept,
+      edges: edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)),
+      truncated: (truncated || kept.length < rows.length)
+        ? { shown: kept.length, total: kept.length < rows.length ? rows.length : null, discovered: rows.length, reason: kept.length < rows.length ? 'bytes' : 'limit' }
+        : null,
+    };
+  };
+  const fit = fitPrefix(rows, maxBytes, build);
+  let kept = fit.kept;
+  let result = build(kept);
+  while (kept.length > 0 && Buffer.byteLength(JSON.stringify(result)) > maxBytes) {
+    kept = kept.slice(0, -1);
+    result = build(kept);
+  }
+  if (result.truncated) result.truncated.bytes = { max: maxBytes, used: Buffer.byteLength(JSON.stringify(result)) };
+  return result;
 }
 
 /**
@@ -339,25 +408,68 @@ export function diffSnapshots(before, afterNodes, revision = null) {
 }
 
 /**
- * Keep one bounded snapshot per project for delta queries. In-memory only:
- * a cold start returns the full node set as `added`, which is a valid delta.
+ * Keep a bounded history of node snapshots per project so `dag_diff` can
+ * honour an explicit `sinceRevision` instead of only "since the last call".
+ * A cold or too-old cursor returns a defined `diff_unavailable` error rather
+ * than silently claiming everything was added.
  */
 export function createDiffCache({ maxProjects = 16, clock = Date.now } = {}) {
   const cache = new Map();
-  function diff(projectId, nodes, revision) {
-    const before = cache.get(projectId) ?? null;
+  function snapshotOf(nodes, revision) {
+    return {
+      revision,
+      byId: new Map(nodes.map((node) => [node.id, {
+        id: node.id,
+        status: node.status,
+        rev: node.rev ?? 0,
+        priority: node.priority ?? null,
+        lease: node.lease ? { leaseId: node.lease.leaseId } : null,
+      }])),
+    };
+  }
+  function diff(projectId, nodes, revision, sinceRevision = null) {
+    const entry = cache.get(projectId) ?? { history: [] };
+    const since = Number.isFinite(sinceRevision) ? sinceRevision : null;
+    if (since !== null && Number.isFinite(revision) && since > revision) {
+      return {
+        ok: false,
+        code: 'diff_unavailable',
+        message: `revision ${since} is ahead of the project revision ${revision}`,
+        nextStep: 'pass a revision at or before the current project revision',
+        sinceRevision: since,
+        revision,
+      };
+    }
+    let before = null;
+    if (since === 0) {
+      // Revision 0 is the empty project; a cold caller from 0 gets every node
+      // as `added`, which is a complete and honest delta.
+      before = { revision: 0, byId: new Map() };
+    } else if (since !== null) {
+      for (const snapshot of entry.history) {
+        if (snapshot.revision <= since && (before === null || snapshot.revision > before.revision)) before = snapshot;
+      }
+      if (before === null) {
+        return {
+          ok: false,
+          code: 'diff_unavailable',
+          message: `no snapshot at or before revision ${since}`,
+          nextStep: 'call dag_diff without sinceRevision for a cold diff',
+          sinceRevision: since,
+          revision,
+        };
+      }
+    } else {
+      before = entry.history.length > 0 ? entry.history[entry.history.length - 1] : null;
+    }
     const result = diffSnapshots(before, nodes, revision);
-    const byId = new Map(nodes.map((node) => [node.id, {
-      id: node.id,
-      status: node.status,
-      rev: node.rev ?? 0,
-      priority: node.priority ?? null,
-      lease: node.lease ? { leaseId: node.lease.leaseId } : null,
-    }]));
+    const snapshot = snapshotOf(nodes, revision);
+    entry.history.push(snapshot);
+    if (entry.history.length > DIFF_HISTORY) entry.history.splice(0, entry.history.length - DIFF_HISTORY);
     cache.delete(projectId);
     if (cache.size >= maxProjects) cache.delete(cache.keys().next().value);
-    cache.set(projectId, { byId, revision, at: clock() });
-    return { ...result, coldStart: before === null };
+    cache.set(projectId, entry);
+    return { ...result, sinceRevision: since ?? before?.revision ?? null, coldStart: before === null };
   }
   return { diff, reset: (projectId) => cache.delete(projectId) };
 }

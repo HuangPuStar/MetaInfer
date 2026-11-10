@@ -121,7 +121,14 @@ export function registerHttpRoutes(ctx, service) {
     const params = query(request);
     const projectId = params.get('projectId');
     const revision = params.get('revision');
-    return ok(await service.getState(projectId, revision, { full: params.get('full') === '1' }));
+    const limit = Number(params.get('limit'));
+    const cursor = params.get('cursor');
+    return ok(await service.getState(projectId, revision, {
+      full: params.get('full') === '1',
+      // Every HTTP list is bounded; the client follows `nextCursor`.
+      limit: Number.isFinite(limit) && limit > 0 ? Math.min(5000, Math.trunc(limit)) : 1000,
+      cursor: cursor || null,
+    }));
   });
 
   route(`${PREFIX}/status`, ['GET'], async (request) => {
@@ -201,10 +208,12 @@ export function registerHttpRoutes(ctx, service) {
 
   route(`${PREFIX}/transcript`, ['GET'], async (request) => {
     const params = query(request);
+    const limit = Number(params.get('limit'));
     return ok(await service.getTranscript(
       params.get('projectId'),
       params.get('nodeId'),
       params.get('afterSeq') ?? 0,
+      Number.isFinite(limit) && limit > 0 ? Math.min(1000, Math.trunc(limit)) : 200,
     ));
   });
 
@@ -230,7 +239,15 @@ export function registerHttpRoutes(ctx, service) {
   });
 
   route(`${PREFIX}/replay`, ['GET'], async (request) => {
-    return ok(await service.getReplay(query(request).get('projectId')));
+    const params = query(request);
+    const limit = Number(params.get('limit'));
+    const nodeLimit = Number(params.get('nodeLimit'));
+    const afterSeq = Number(params.get('afterSeq'));
+    return ok(await service.getReplay(params.get('projectId'), {
+      limit: Number.isFinite(limit) && limit > 0 ? Math.min(5000, Math.trunc(limit)) : 2000,
+      nodeLimit: Number.isFinite(nodeLimit) && nodeLimit > 0 ? Math.min(5000, Math.trunc(nodeLimit)) : 2000,
+      afterSeq: Number.isFinite(afterSeq) ? Math.max(0, Math.trunc(afterSeq)) : 0,
+    }));
   });
 
   route(`${PREFIX}/dashboard`, ['GET', 'POST'], async (request) => {

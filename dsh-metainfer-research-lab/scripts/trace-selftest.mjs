@@ -9,10 +9,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore } from '../host/store.js';
-import { createExecutor } from '../host/kernel/executor.js';
-import { createProjection } from '../host/kernel/projection.js';
-import { createEventBus } from '../host/kernel/bus.js';
+import { createKernel } from '../host/kernel/instance.js';
 import { createExplainer } from '../host/observability/explain.js';
+import { createRuntime } from '../host/runtime.js';
 import { normalizeNodeReport, REPORT_LIMITS } from '../host/runtime.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
@@ -29,8 +28,11 @@ function check(name, condition, detail = '') {
 const store = await openStore(storeContext(memoryDomain()));
 let now = 10_000;
 const clock = () => now;
-const projection = createProjection({ store, strict: true, clock });
-const executor = createExecutor({ store, clock, projection, bus: createEventBus() });
+// Use the production kernel wiring (projection subscribes to store writes), so
+// legacy runtime writes are visible to `explain_node` exactly as in the Host.
+const kernel = createKernel({ store, clock });
+const projection = kernel.projection;
+const executor = kernel.executor;
 await store.saveProject({
   id: 'p',
   revision: 0,
@@ -39,7 +41,7 @@ await store.saveProject({
   updatedAt: 0,
   createdAt: 0,
 });
-projection.load('p');
+kernel.load('p');
 const human = { kind: 'human', id: 'operator' };
 
 // 1. Proposal -> start -> failure, each with an explicit cause, like the runtime.
@@ -73,11 +75,27 @@ const traced = explainer.traceExplain('p', 'n1');
 check('trace_explain exposes phases', Array.isArray(traced.phases) && traced.phases.some((phase) => phase.kind === 'start') && traced.phases.some((phase) => phase.kind === 'outcome'), JSON.stringify(traced.phases.map((phase) => phase.kind)));
 check('trace phases carry causeId', traced.phases.every((phase) => typeof phase.causeId === 'string' && phase.causeId.length > 0));
 
-// 2. The live write path must stamp causes too (static guard: no exported runtime).
+// 2. The live write path must stamp causes for non-activation transitions too.
+// A planned node has no activation, so `runtime.cancel()` is the probe that
+// catches a path that only stamps starts/resumes.
+await executor.commit('p', {
+  actor: human,
+  mutations: [{ op: 'node.create', node: { id: 'n2', title: 'cancel me', status: 'planned', timestamps: { createdAt: 2 } } }],
+});
+const runtime = createRuntime({ ctx: {}, store, git: null, onTerminated: () => {}, cluster: null });
+await runtime.cancel('p', 'n2');
+const cancelled = store.listEvents('p', 0).filter((event) => event.nodeId === 'n2' && event.type === 'node/cancelled');
+check('planned cancel emits an event', cancelled.length === 1, JSON.stringify(cancelled));
+check('planned cancel event has a causeId', typeof cancelled[0]?.causeId === 'string' && cancelled[0].causeId.length > 0, JSON.stringify(cancelled[0]?.causeId ?? null));
+const cancelledExplain = explainer.explainNode('p', 'n2');
+check('planned cancel is explainable', cancelledExplain.ok === true && cancelledExplain.causeChain.length > 0, JSON.stringify(cancelledExplain.causeChain));
+// Non-runtime writers (merge prep, GC, reconcile, dashboard) must not emit
+// causeless events either; the store stamps a stable fallback.
+const gcEvent = await store.appendEvent(store.getProject('p'), 'gc/finished', { data: { reclaimed: 1 } });
+check('gc event has a causeId', typeof gcEvent.causeId === 'string' && gcEvent.causeId.length > 0, JSON.stringify(gcEvent.causeId));
+const mergeEvent = await store.appendEvent(store.getProject('p'), 'merge/prepared', { nodeId: 'n2', data: {} });
+check('merge prep event has a causeId', typeof mergeEvent.causeId === 'string' && mergeEvent.causeId.length > 0, JSON.stringify(mergeEvent.causeId));
 const runtimeSource = readFileSync(path.join(ROOT, 'host/runtime.js'), 'utf8');
-check('persistNode emits causeId', /appendEvent\(project, eventType, \{[\s\S]*?causeId/.test(runtimeSource));
-check('runtime activation sets node.causeId', /node\.causeId = causeId/.test(runtimeSource));
-check('runtime persists non-activation causes as lastCauseId', /node\.lastCauseId = causeId/.test(runtimeSource));
 
 // 3. UI + HTTP explain path.
 const httpSource = readFileSync(path.join(ROOT, 'host/http.js'), 'utf8');

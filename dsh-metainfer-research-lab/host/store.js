@@ -385,6 +385,13 @@ export async function openStore(ctx) {
       type,
       ...payload,
     };
+    // Every durable event needs a cause, including writes that do not come
+    // from the runtime activation path (planned cancel, merge prep, GC,
+    // reconcile, dashboard edits). A type+seq fallback keeps `explain_node`
+    // and the cause chain non-empty without inventing a cross-node link.
+    if (event.causeId === undefined || event.causeId === null) {
+      event.causeId = `${type}:${project.id}:${seq}`;
+    }
     await tables.events.put(eventStorageKey(project.id, seq), event);
     const entry = indexFor(project.id);
     if ((entry.events[entry.events.length - 1]?.seq ?? 0) < seq) entry.events.push(event);

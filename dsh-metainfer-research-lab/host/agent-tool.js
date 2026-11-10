@@ -102,6 +102,8 @@ export function registerAgentTool(ctx, service) {
         nodeId: { type: 'string' },
         text: { type: 'string', description: 'message text for message_node, or natural-language placement policy for compile_placement' },
         afterSeq: { type: 'number', description: 'transcript cursor' },
+        limit: { type: 'number', description: 'page size for transcript/replay (bounded by the Host)' },
+        nodeLimit: { type: 'number', description: 'node page size for replay (bounded by the Host)' },
         config: { type: 'object', additionalProperties: true, description: 'config object: project config for create_project/update_project, cluster config patch for cluster_config_update' },
         force: { type: 'boolean', description: 'for cluster_config_update: allow applying while a GPU lease is active' },
         model: { type: 'object', additionalProperties: true, description: 'model selection {profileId} or {provider,model,reasoningEffort?} for node edit/retry/escalate/successor/merge' },

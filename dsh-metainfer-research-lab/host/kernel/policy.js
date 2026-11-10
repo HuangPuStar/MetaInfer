@@ -260,7 +260,8 @@ export function allowedActions(actor) {
   const preset = actor?.preset;
   if (!preset) return ALL_ACTIONS; // trusted operator/UI session
   const policy = PRESET_POLICIES[preset];
-  return [...(policy ? policy.allowed : DEFAULT_PRESET_ACTIONS)].sort();
+  // READ and DAG overlap; dedupe so `forbidden_action.allowed` is clean.
+  return [...new Set(policy ? policy.allowed : DEFAULT_PRESET_ACTIONS)].sort();
 }
 
 /**

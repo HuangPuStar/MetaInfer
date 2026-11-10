@@ -46,6 +46,7 @@ for (const preset of Object.keys(PRESET_POLICIES)) {
   check(`${preset} cannot run dangerous actions`, leaked.length === 0, leaked.join(','));
   const unknown = allowed.filter((action) => !ALL_ACTIONS.includes(action));
   check(`${preset} allowlist names only real actions`, unknown.length === 0, unknown.join(','));
+  check(`${preset} allowlist has no duplicate actions`, new Set(allowed).size === allowed.length, allowed.join(','));
 }
 
 // 3. The reported hole: lab-chat deleting a project.

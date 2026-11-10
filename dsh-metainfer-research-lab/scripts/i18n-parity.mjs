@@ -27,15 +27,22 @@ function dictBlock(name) {
   return source.slice(start, end);
 }
 function parseDict(block) {
+  // Both `'key':` and `key:` are legal object-literal syntax in the shipped
+  // dictionaries. Parse both, because an unquoted key later in the object
+  // silently overrides an earlier quoted one (that is exactly how the landing
+  // strings were shadowed).
   const keys = [];
   const duplicates = [];
+  const resolved = new Map();
   for (const line of block.split('\n')) {
-    const match = /^\s+'([^']+)':/.exec(line);
+    const match = /^\s+(?:'([^']+)'|([A-Za-z_$][\w$.-]*))\s*:\s*'(.*)',?$/.exec(line);
     if (!match) continue;
-    if (keys.includes(match[1])) duplicates.push(match[1]);
-    keys.push(match[1]);
+    const key = match[1] ?? match[2];
+    if (resolved.has(key)) duplicates.push(key);
+    keys.push(key);
+    resolved.set(key, match[3]);
   }
-  return { keys, duplicates, set: new Set(keys) };
+  return { keys, duplicates, set: new Set(keys), resolved };
 }
 
 const zh = parseDict(dictBlock('zh') ?? '');
@@ -44,8 +51,8 @@ check('client zh dictionary found', zh.keys.length > 100, String(zh.keys.length)
 check('client en dictionary found', en.keys.length > 100, String(en.keys.length));
 check('client dictionaries have no duplicate keys (zh)', zh.duplicates.length === 0, zh.duplicates.join(','));
 check('client dictionaries have no duplicate keys (en)', en.duplicates.length === 0, en.duplicates.join(','));
-const missingEn = [...zh.set].filter((key) => !en.set.has(key));
-const missingZh = [...en.set].filter((key) => !zh.set.has(key));
+const missingEn = [...zh.resolved.keys()].filter((key) => !en.resolved.has(key));
+const missingZh = [...en.resolved.keys()].filter((key) => !zh.resolved.has(key));
 check('every zh key has an en string', missingEn.length === 0, missingEn.join(','));
 check('every en key has a zh string', missingZh.length === 0, missingZh.join(','));
 
@@ -54,7 +61,7 @@ const used = new Set([
   ...[...source.matchAll(/\bt\('([^']+)'\)/g)].map((m) => m[1]),
   ...[...source.matchAll(/\bt\('([^']+)',\s*\{/g)].map((m) => m[1]),
 ]);
-const unresolved = [...used].filter((key) => !zh.set.has(key) && !en.set.has(key));
+const unresolved = [...used].filter((key) => !zh.resolved.has(key) && !en.resolved.has(key));
 check('every literal t() key exists in both dictionaries', unresolved.length === 0, unresolved.slice(0, 20).join(','));
 check('dictionary has no obviously unused keys (informational)', true, `${zh.keys.length} keys, ${used.size} literal call sites`);
 
@@ -85,8 +92,8 @@ function readDictValues(block) {
   }
   return values;
 }
-const zhValues = readDictValues(dictBlock('zh') ?? '');
-const enValues = readDictValues(dictBlock('en') ?? '');
+const zhValues = zh.resolved;
+const enValues = en.resolved;
 const placeholderMismatch = [];
 for (const [key, value] of zhValues) {
   const other = enValues.get(key);

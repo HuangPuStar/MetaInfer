@@ -163,10 +163,6 @@ window.__ModuleLoader__.load({
 
     // #region dictionaries — `zh` is the key-set source of truth; `en` mirrors it.
     const zh = {
-      'title': 'MetaInfer Research Lab',
-      'subtitle': '把研究实验组织成一张活的 DAG：每个节点拥有独立的 git worktree 与 subagent。',
-      'badge': '研究实验室',
-      'panel': 'MetaInfer Research Lab',
       panel: '科研实验台',
       'trajectory.panel': '轨迹与技能',
       'trajectory.open': '轨迹与技能',
@@ -1514,10 +1510,6 @@ window.__ModuleLoader__.load({
     };
 
     const en = {
-      'title': 'MetaInfer Research Lab',
-      'subtitle': 'Organise research as a living DAG: every node owns its git worktree and subagent.',
-      'badge': 'Research Lab',
-      'panel': 'MetaInfer Research Lab',
       panel: 'Research Lab',
       'trajectory.panel': 'Trajectories & Skills',
       'trajectory.open': 'Trajectories & Skills',
@@ -3608,10 +3600,36 @@ window.__ModuleLoader__.load({
       createProject(body, signal, t) {
         return requestJson(ROUTES.projects, { method: 'POST', body, signal }, t);
       },
-      fetchState(projectId, revision, signal, t) {
+      fetchState(projectId, revision, signal, t, cursor, limit) {
         let path = ROUTES.state + '?projectId=' + encodeURIComponent(projectId);
         if (typeof revision === 'number' && Number.isFinite(revision)) path += '&revision=' + encodeURIComponent(String(revision));
+        if (typeof cursor === 'string' && cursor) path += '&cursor=' + encodeURIComponent(cursor);
+        if (typeof limit === 'number' && Number.isFinite(limit)) path += '&limit=' + encodeURIComponent(String(limit));
         return requestJson(path, { signal }, t);
+      },
+      async fetchStateAll(projectId, revision, signal, t) {
+        const first = await this.fetchState(projectId, revision, signal, t, null, 1000);
+        if (first === null || typeof first !== 'object' || first.unchanged === true || !first.nextCursor) return first;
+        const nodes = Array.isArray(first.nodes) ? first.nodes.slice() : [];
+        const edges = Array.isArray(first.edges) ? first.edges.slice() : [];
+        let cursor = first.nextCursor;
+        let pages = 1;
+        while (cursor && pages < 20) {
+          const page = await this.fetchState(projectId, null, signal, t, cursor, 1000);
+          if (page === null || typeof page !== 'object' || page.unchanged === true) break;
+          if (Array.isArray(page.nodes)) nodes.push(...page.nodes);
+          if (Array.isArray(page.edges)) edges.push(...page.edges);
+          cursor = page.nextCursor ?? null;
+          pages += 1;
+        }
+        const seen = new Set();
+        const uniqueEdges = edges.filter((edge) => {
+          const key = `${edge.from}->${edge.to}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        return { ...first, nodes, edges: uniqueEdges, nextCursor: null, _truncated: null };
       },
       fetchFacts(projectId, signal, t) {
         return requestJson(ROUTES.facts + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
@@ -5530,7 +5548,7 @@ window.__ModuleLoader__.load({
                 return;
               }
             }
-            const data = await api.fetchState(projectId, revisionRef.current, controller.signal, t);
+            const data = await api.fetchStateAll(projectId, revisionRef.current, controller.signal, t);
             if (!alive) return;
             flights.state = null;
             if (data !== null && typeof data === 'object' && data.unchanged === true) {
