@@ -6,7 +6,7 @@
 | **权威来源（设计）** | [`metainfer-async-architecture-qa.md`](/root/mqa_baseline/metainfer-async-architecture-qa.md)，2015 行，2026-11-09，代码基线 `867d277`。**本文所有"来源"列都指向该文件的章节号** |
 | **参照来源（计划）** | [`metainfer-lab-refactor-plan.md`](/root/expert-review/metainfer-lab-async-refactor/metainfer-lab-refactor-plan.md)，1491 行，与仓库内 `docs/07-async-refactor-plan.md` **逐字相同**（`diff -q` 无差异） |
 | **状态来源** | [`PROGRESS.md`](PROGRESS.md)、[`spikes.md`](spikes.md)，以及 `host/` 实读 |
-| **状态基线（重要）** | 分支 `refactor/async-foundation`，提交 **`d8565d6`**（"P2.4(Q9): review claims…"；其上依次是 `0170092` P2.3、`8be444c` P2.2、`dd5ca19` P2.1），审计时间 **2026-11-10 11:50 +08:00**。**审计期间该分支每 10–20 分钟就有新提交**（P2.1→P2.4 全部落在本次审计窗口内），复核时请先 `git log --oneline -5` 对齐 |
+| **状态基线（重要）** | 分支 `refactor/async-foundation`，提交 **`76300ce`**（“P5.1: host-computed status facts, metrics collector, explain_node/trace_explain, cause pointers”）。**注意**：§1–§5 与 §6–§9 的行内证据大多是在 `a03b72f` 及更早的提交上取的，`76300ce` 之后部分行已被超越——见 §0.1。原始基线 **`a03b72f`**（"P1.4-Q6(B25): bounded 12 KB advisor context…"；其上依次是 `d8565d6` P2.4、`0170092` P2.3、`8be444c` P2.2、`dd5ca19` P2.1），审计时间 **2026-11-10 11:52 +08:00**。**审计期间该分支每 10–20 分钟就有新提交**（P2.1→P2.4→P1.4 全部落在本次审计窗口内，其中 `a03b72f` 还把我的在建文档一并提交了），复核时请先 `git log --oneline -5` 对齐 |
 | **覆盖范围** | §1–§5 = QA 文档的决策/结论/阶段/开放问题与矛盾；§6 = 人机交互易用性；§7 = 可观测性；§8 = 验收命令清单；§9 = 规模与卡顿。§6–§9 的条目同样逐条给出来源（QA 章节号 或 `AGENTS.md`） |
 | **本文不含** | 任何新决策。未在 QA 文档中出现的条目一律不写；含义不清处标 `需确认`，建议值一律标"建议·需确认" |
 
@@ -18,7 +18,7 @@
 - `todo`：不存在，或只有模块级实现但没有接入运行路径 / 指标不可观测。
 - `blocked`：存在一个必须先裁决的设计冲突，裁决前开工没有意义。
 
-**"在途"（不占状态词）：** 审计末期工作区仍有未提交改动：`host/context/`（`dag.js` / `ledger.js` / `limits.js` / `payload.js`）、`scripts/context-selftest.mjs`，以及被修改的 `host/orchestrator.js`、`host/snapshot.js`——这是 P4 导航/上下文那批工作，**尚未提交、尚未接入**。它们**不计为 done**。
+**"在途"（不占状态词）：** 审计收尾时工作区又有新的未提交改动：**`host/observability/`**（`status.js` / `explain.js` 等，看名字是 §7 要的那批指标与 `trace_explain`），以及被修改的 `host/auto.js`、`host/orchestrator.js`——**尚未提交、尚未接入**，**不计为 done**。（沿革：`host/context/` 那批已在 `a03b72f` 提交并接入；`policy.js` / `dispatch-once.js` 也已提交，但仍无调用方。）
 
 **最重要的一条方法论：本仓库的提交信息比代码乐观。** 审计期内四个"已提交"的 WP 里，两个的模块**没有任何生产调用方**（P2.2 的 `dispatchOnce`、P2.2 的 `policy.authorizeAction`），两个真正接进了运行路径（P2.1 的 `runnableQueue`、P2.3 的 `createLowWaterPlanner`）。所以"`git log` 里有这个 commit"**不等于**"这个能力生效了"——§3 的每一行都以"有没有调用方"为判据。
 
@@ -35,6 +35,20 @@
 - `PROGRESS.md` 记的是 **P 编号**。所以"附录 D 多数 todo"**不等于**"没有进展"：P1.1–P1.5、P3.1–P3.5 的模块已经落地，它们是附录 D 2.x / 3.2 的**底层**；审计时只有 **2.1** 一步因为并行改动（`dd5ca19`）真正达成了验证指标，其余步骤的指标都还不可观测（见 §3 每行依据）。
 
 ---
+
+## 0.1 审计截止之后落地的变更（截至 `76300ce`，务必先读）
+
+审计过程中该分支连提 5 个 commit（`dd5ca19` → `8be444c` → `0170092` → `d8565d6` → `a03b72f` → `76300ce`），其中最后一个**直接命中 §6–§9 的多行**。本清单保留"审计时点"的判定（它记录了真实的推进轨迹），但下列行**在 `76300ce` 之后应重新判定**：
+
+| 受影响的行 | `76300ce` 做了什么 | 需要重跑什么来确认 |
+|---|---|---|
+| §7 O1 / O2 / O5 / O6 / O7 | `host/observability/metrics.js`（`computeProjectMetrics` / `createMetricsCollector`）被 `host/lab-service.js:21` 引用；`host/observability/status.js` 的 `buildStatusFacts` 被 `lab-service.js:20` 引用——即"Host 计算的状态事实 + 指标"开始接入服务层 | 重跑 A21；若 `GET /metrics` 仍不存在（审计时 `host/http.js` **没有 metrics 路由**），说明指标只在 `state` 里或根本没有出口，O1/O7 仍是"有数据没出口" |
+| §7 O8 / O10 / §6 U9 | `explain_node` / `trace_explain` 已进 `ACTION_ENUM`（`host/agent-tool.js:32-33`，枚举从 49 → **51**）、`host/observability/explain.js` 被 `lab-service.js:22` 引用；`kernel/errors.js` 新增 | 重跑 A16；并确认事件是否真的带 `causeId`（"cause pointers"是 commit 标题的一部分，需要用 `curl /events` 验证而不是看标题） |
+| §9 S10 / S11 | `ACTION_ENUM` 新增 `changes_since` 与 `nodes_page`（`agent-tool.js:34-35`）——**增量读与分页开始有了工具面** | 重跑 A9 / A10：`state?revision=` 是否变 delta、`events` 是否支持 limit；再跑 A18 |
+| §6 U2 / U4 | 若 `buildStatusFacts` 把 `queue` / `blockedBy` / `why` 算进了 `state`，U2（"接下来启动什么、为什么"）与 U4（原因链）可能从"没有"变成"有数据、等 UI" | 看 `state` 响应里是否出现 `status` / `queue` / `explain` 字段 |
+| §3 2.2 / 3.1 / 3.3 | **未被 `76300ce` 触及**：`dispatchOnce` 仍无生产调用方、`authorizeAction` 仍无调用方、`dag_*` 仍不在 `ACTION_ENUM`（51 项里没有 `dag_map`/`dag_walk`/`dag_diff`/`dag_query`） | A13 / A14；§5.4.9 的不一致**依然成立** |
+
+**一句话**：`76300ce` 把"可观测性"和"解释入口"从零推到有实现，但**注册工具 ≠ 接线成功**——这个仓库已经三次出现"提交了、测过了、没调用方"（`dispatchOnce`、`policy`、`dag_*`）。复核时必须用 §8 的命令验，不要用 `git log` 验。
 
 ## 1. 附录 B 的 27 条决策
 
@@ -109,16 +123,16 @@
 | 步骤 | 内容 | 验证指标 | 当前状态（done / todo / blocked，依据） |
 |---|---|---|---|
 | **1.1** | `report.summary ≤ 500` 字符（schema + prompt） | 全库存储 1.3 MB → ~200 KB | **todo**。依据：`NODE_REPORT_SCHEMA.summary` 只有 `{type:'string'}`、**无 `maxLength`**（`host/runtime.js:26`）；`host/prompts.js` 的 `WORKER_RULES` 无长度规则；快照侧仍是 `MAX_REPORT = 700`（`host/snapshot.js:8`）。PROGRESS 无对应 WP；K16 只删了无调用方的 `reportSummary()`，`报告本身仍不截断`（迁移工具注释 `scripts/migrate-domain.mjs:118`） |
-| **1.2** | 截断显式化（`shown / total`） | 专家追问率 | **todo**。依据：全仓库 `grep -rn "_truncated\|shown.*total" host/ index.js` **为空**；`truncate()` 只追加一个 `…`（`host/snapshot.js:14–17`）；`metrics` 仍 `.slice(0, 8)` 无 `total`（`host/snapshot.js:125`） |
+| **1.2** | 截断显式化（`shown / total`） | 专家追问率 | **done（机制，`a03b72f`）**：`host/context/payload.js:161,241,269-271` 统一产出 `_truncated: {shown, total}`，并在 :287-300 用 `full:true` 标记整段省略；`scripts/context-selftest.mjs` 断言 500 节点载荷 < 12 KB。**遗留**：observability 侧另有一套 `_truncated`（未提交的 `host/observability/{status,explain}.js`），两套需合并成一处，否则又变成“同一事实两处定义” |
 | **1.3** | `running` 补 `elapsed` / `lastActivity` | 停滞判断可行 | **todo**。依据：advisor 快照 `running[]` 只有 `startedAt` / `deadlineAt`（`host/snapshot.js:176–184`）；scheduler 快照有 `elapsedMs`（`host/snapshot.js:295`）**但没有 `lastActivity`**；节点上 `timestamps.lastActivityAt` 已在多处写入（`host/runtime.js:321 / 382 / 603 / 1211` 等），但 `onSessionEvent` 只处理 `turn/end`（`host/runtime.js:1838`）——**worker 在一次 turn 之内干了多久仍然看不见**（即 K8 未修） |
-| **1.4** | 快照瘦身（`focus` 8 条 + `index`） | advisor 输入 46 KB → ~10 KB；延迟 129 s → ~40 s | **todo**。依据：`buildAdvisorSnapshot` 返回的是 `candidateParents` 全量 + `recentProposals` + `pendingProposals`，**没有 `focus` / `index` / `ledger` / `recentFailures` 字段**（`host/snapshot.js:233–260`）；`project.brief` 未截断（`host/snapshot.js:234`）。PROGRESS 未列该 WP（计划的处理方式是 P4 用导航 API 取代 `snapshot.js`，见 §5.2） |
+| **1.4** | 快照瘦身（`focus` 8 条 + `index`） | advisor 输入 46 KB → ~10 KB；延迟 129 s → ~40 s | **done（机制，`a03b72f`）**：`buildAdvisorSnapshot` 改由 `buildContextPayload(...)` 生成（`host/snapshot.js:108-117`），`host/context/payload.js` 输出 `focus` + `index`（只有计数）+ `navigation` 提示，`_truncated` 显式；旧的 `MAX_PROMPT = 800` / `MAX_REPORT = 700` **已从 snapshot.js 删除**。`scripts/context-selftest.mjs:91-99` 断言 **500 节点 < 12 KB** 且**体积不随 N 增长**（`abs(bytes - 小样本bytes) < 200`）。**未验证**：延迟是否真的从 129 s 降到 ~40 s（没有任何计时记录）；且计划里这一步**仍然没有 WP**（§5.2.2 的顺序冲突因此更尖锐：它已经在做了，却没有对应的验收与回滚安排） |
 | **2.1** | `runnable` 唯一口径（排除 deferred） | 不再误触发 `noProgress` | **done（`dd5ca19`，审计期间刚落地）**。依据：谓词抽到 `host/kernel/runnable.js`（`isRunnableNode` / `runnableQueue` / `runnableSummary`），并被**三处运行路径**引用——`host/auto.js:7,242`（`canRunPlanned` / `plannedFits` / `idleStreak` 全改用 `runnableQueue`）、`host/snapshot.js:6,271`（scheduler 快照的 `planned` 改为 `runnableQueue`）、`host/kernel/projection.js:12-14`（`runnable()` 复用它，不再各自实现）。`scripts/runnable-selftest.mjs` **11/11** 通过，其中 "a deferred node is planned but never runnable" 与 "runnableSummary counts the regression case instead of hiding it" 直接覆盖 Q5 的复现路径。**仍未做**：端到端演练（造 40 个 deferred 节点 + 3 轮空转，确认不再 `pause('noProgress')`），以及 `host/orchestrator.js:928` 与 `host/lab-service.js:744` 两处残留的 `status === 'planned'` 计数（前者是"父节点可生子"判定，后者是 UI 计数，均非派发口径） |
 | **2.2** | `dispatchOnce`（无 LLM）+ 派生队列 | 启动延迟 152 s → <100 ms | **todo（代码已提交，零调用方）**。`8be444c` 提交了 `host/dispatch/dispatch-once.js` + `scripts/dispatch-once-selftest.mjs`（断言 500 节点 DAG < 100 ms），但 `grep -rn "dispatchOnce(" host/ index.js` **只命中 `host/auto.js:258` 的一行注释**（“let dispatchOnce keep the slots full”）——**没有任何生产调用**。`applySchedulerOutput` 仍是串行 `await runtime.start`（`host/orchestrator.js:833-841`），`auto.js` 的 tick 仍走 `orchestrator.step`（cycle 路径）。⇒ **启动延迟仍不可观测**（基线 p50 152.3 s）。这是全文“模块级 ≠ 落地”最干净的样本 |
 | **2.3** | 低水位预触发 + 去抖 | GPU 空洞时长 | **done（机制）**：`0170092` 把 `createLowWaterPlanner` 接进 `auto.js`（`plannerOf` / `evaluate` / `beginPlanning` / `endPlanning`，`host/auto.js:29-40,247-282`），并新增 `kernel/capacity.js` 的 `anyFits` 给出容量等待原因；`scripts/low-water-selftest.mjs` 覆盖去抖与触发。**两处数值与 QA 不一致**：`debounceMs` 默认 **120 s**（QA Q7-1 说 **60 s**）、`minRemainingMs` 默认 **60 s**（QA Q7-3 说“剩余 < **5 min** 预触发”）——`host/dispatch/low-water.js:24-25`。**指标仍未测**：没有任何地方统计“GPU 空洞时长”，所以 done 只到机制层 |
 | **2.4** | 审查租约（review claim） | 同父并发提案数 | **done（机制）**：`d8565d6` 新增 `host/dispatch/review-claims.js`（`DEFAULT_TTL_MS = 180_000`，`claim` :63-90 / `releaseAll`），并在 `host/orchestrator.js:780`（advisor pass 前 claim）、`:865`（`releaseAll`）接入；`scripts/review-claims-selftest.mjs` 覆盖并发与 TTL。**未验证的指标**：同父并发提案数在接入前后没有对比测量，也没有“租约冲突”计数进事件或指标 |
 | **3.1** | `metainfer_lab` action 白名单（修 issue 0001） | 越权调用返回 `forbidden_action` | **todo（代码已提交，零调用方）**。`host/kernel/policy.js` 已随 P2.2 提交，内含 `ACTION_CATALOG` / `PRESET_POLICIES` / `actorForSession` / `authorizeAction`，`forbidden_action` 错误码定义在 `policy.js:221`；但 **`authorizeAction` / `allowedActions` 在 `host/` 内没有第二个引用**（`grep -rln` 只命中 `policy.js` 自己），`host/agent-tool.js` 的 `ACTION_ENUM` 仍是全局 **49** 项（`agent-tool.js:5-55`），`docs/issues/0001-agent-tool-scope-drift.md` 仍是“**待修**” |
 | **3.2** | 优先级四元组 + 提交点 | p0 从提交到启动 < 1 s | **todo**。依据：四元组比较已实现（`host/kernel/priority.js:55–68`，class → score 降序 → createdAt → seq，score clamp `[-1000,1000]`）；`node.setPriority` / `node.claim` 已实现（`host/kernel/mutations.js:191 / 209`）；但**未接入创建路径**（`runtime.js` / `orchestrator.js` 建节点仍直接 `store.saveNode`），`HUMAN_PRIORITY_CLASS = 'p0'` 只有声明**没有调用方**；目前只有离线迁移工具写 `priority`（`scripts/migrate-domain.mjs:98`，`user → p0`） |
-| **3.3** | `dag_map` / `dag_walk` / `dag_diff` | 单轮输入 token、决策所需调用次数 | **todo**。依据：`grep -rn "dag_map\|dag_walk\|dag_query\|dag_diff" host/ index.js` **为空**；唯一入口仍是 `buildAdvisorSnapshot` 的全量推送（`host/snapshot.js:173`），`metainfer_lab` 的 `state` 仍返回全量（~325k tokens 的来源） |
+| **3.3** | `dag_map` / `dag_walk` / `dag_diff` | 单轮输入 token、决策所需调用次数 | **todo（数据层已写、工具面没开）**：`host/context/dag.js` 已实现 `queryDag`（:74，支持 status / subtreeOf / depth / since / text + `limit` / `cursor`）与 `dagGet`（:161）；**但 `ACTION_ENUM`（`host/agent-tool.js:5-55`）仍是 49 项、不含任何 `dag_*`**，`mcp.js` 也没有——**而 advisor prompt 已经在教模型调用 `dag_query` / `dag_get`**（`host/orchestrator.js:147`、`host/context/payload.js:247`）。⇒ 模型被要求调用不存在的工具，这是**当前风险最高的一处不一致**（见 §5.4.9） |
 | **3.4** | `claim` + `basis` + 意图日志 | 陈旧分歧占比 | **todo**。依据：`executor.commit` 已有 `basis` 陈旧判定（`host/kernel/executor.js:97–105`，只比"目标节点 `rev`"）与进程内幂等表（`:51–57`）；**不存在 `intents` 表 / 意图日志 / 审查租约表**；agent 侧输出（`ADVISOR_SCHEMA` 的 proposals）**不带 `basis`** |
 | **4.1** | 专家描述符 + 绩效指标 | — | **todo**。依据：不存在 `host/experts/registry.js`；专家仍以 `project.config.advisor.reviewers[]`（lens + model）表达（`host/orchestrator.js:879–897`），无身份 / 状态 / 预算 / 绩效字段；`K17` 未修（`host/orchestrator.js:768,774` 仍写 `createdBy: 'advisor'`，不记 lens / 专家） |
 | **4.2** | 相似度召回（纯函数） | 精度 / 召回（人工标注 30 组） | **todo**。依据：不存在 `host/experts/similarity.js`；无 `tags` 字段的运行时写入（`tags` 只出现在迁移工具的 `--enrich` 入参与输出，`scripts/migrate-domain.mjs:27,136`）；无 LSH / MinHash 代码 |
@@ -130,7 +144,7 @@
 | **5.3** | 预测误差复盘 | 预测 vs 实际偏差分布 | **todo**。依据：无 `expected {metric, direction, magnitude}` 字段（`expected` 的现有命中是 `expectedInfoGain` 与错误消息里的字面量，不是该字段）；无 `retro/opened` 事件；无偏差阈值 |
 | **5.4** | 分层评审（如需要） | 覆盖率 / 压缩比 | **todo**（**blocked-by-decision**：计划 D7 已改为"作用域分区 + 升级路由，不做固定三级"，QA 附录 C 的 C4 仍在问"三级是否过重"，两侧未闭环 → 开工前必须先裁决，见 §5.2）。依据：无三级评审代码；`reviewers[]` 仍是"多个 lens 读**同一份** snapshot"（`host/orchestrator.js:879–897`，即 Q8 说的"冗余投票"） |
 
-**汇总（`d8565d6`）：done 3（2.1 唯一口径、2.3 低水位、2.4 审查租约） / todo 18（其中 2.2 与 3.1 **有提交但无调用方**） / blocked 0（5.4 为待裁决的 todo）。**
+**汇总（`a03b72f`）：done 5（1.2 截断显式化、1.4 有界上下文、2.1 唯一口径、2.3 低水位、2.4 审查租约） / todo 16（其中 2.2、3.1 **有提交但无调用方**，3.3 **有实现但没开工具面**） / blocked 0（5.4 为待裁决的 todo）。**
 
 **怎么读这个接近 0 的数字：** P1.1–P1.5、P3.1–P3.5 的模块、以及 `scripts/runnable-selftest.mjs`（11 项）、`kernel-selftest.mjs`（15 项）、`dispatch-selftest.mjs`（7 项）、`gang-planner-selftest.mjs`（14 项）、`migrate-domain-selftest.mjs`（11 项）都通过了——**它们是 2.2 / 2.1 / 3.2 的底层零件**，但附录 D 每一步的验证指标**一个都还没有被观测过**。唯一已经发生的"线上收益"是 PROGRESS 记录的 2026-11-10 割接后第一个 cycle（`created 0–1 → 2`、`started 1 → 10`、`planned 39 → 31`），它来自 K7 修复（提案宽度），**不对应附录 D 的任何一步**。
 
@@ -220,8 +234,12 @@
 | **5.4.6** | 计划 §3.2 缺陷表 K 编号 | K1/K2 已修（补丁）、K16 已修（`76c8eed`）、K7 已修（`fc81e2b`）、K15 **半修**（只删 persona 引用）；**K3 / K4 / K5 / K6 / K8 / K9 / K10 / K11 / K12 / K13 / K14 / K17 / K18 全部未修** | 逐一核对：K3 锁外写仍在（`host/auto.js:82–87` `saveEvent` 手工 `project.revision += 1`）；K4 `listNodes` 仍全表扫描；K6 = issue 0001 待修；K8 `onSessionEvent` 只处理 `turn/end`（`host/runtime.js:1838`）；K17 `createdBy: 'advisor'`（`host/orchestrator.js:768,774`）；K18 `starts.slice(0,20)` + 串行 start（`host/orchestrator.js:833–841`） |
 | **5.4.7** | `PROGRESS.md` 作为"唯一进度事实源" | 审计期间有**四个**提交绕过进度表：`dd5ca19`（P2.1）、`8be444c`（P2.2）、`0170092`（P2.3）、`d8565d6`（P2.4）全部落地（共改 20+ 文件、新增 4 个 selftest），但 `PROGRESS.md:36-38` 仍写 `P2.1 / P2.2 / P3.6 = todo`，P2.3 / P2.4 在表里**根本没有行**（P2 段只有 P2.1、P2.2 两行） | `git log --oneline -5` + `git status --short` 对比 `PROGRESS.md`；**建议**：每个提交同步改进度表，或在表头写明"本表以最后一次提交为准，`git log` 是权威"（这与 `AGENTS.md` 的"单一事实源"原则同构） |
 | **5.4.8** | 低水位阈值的数值 | QA 侧：Q7-1「`planning` 状态 + 去抖窗口 **60 s**」、Q7-3「`remainingMin < 5`（即 **300 s**）且 `!planningInFlight` 就触发」；代码侧：`host/dispatch/low-water.js:24-25` 默认 `minRemainingMs = 60_000`（**1 min**）、`debounceMs = 120_000`（**2 min**）——**两个数都比 QA 更保守且方向相反**：更低的水位（1 min 而非 5 min）意味着更容易出现空洞，更长的去抖（2 min 而非 60 s）意味着反应更慢。计划 P3.2 只写“低水位预触发”，没有给数 | `git show 0170092`；可用项目配置 `config.planning.{minRemainingMs,debounceMs}` 覆盖（`planningConfigOf`）。**需负责人确认**：默认值按 QA 的 5 min / 60 s 改，还是接受当前值并回写 QA |
+| **5.4.9** | **prompt 教模型调用不存在的工具** | QA Q6-4 / Q9-4 要求 `dag_map` / `dag_walk` / `dag_get` / `dag_diff` 是**可真调用的工具**；实现侧 `host/context/dag.js` 已有 `queryDag` / `dagGet`，`host/orchestrator.js:147` 与 `host/context/payload.js:247` 的 prompt **已经明确写“用 `dag_query` / `dag_get` 查任何不在 focus 里的东西”**，但 `ACTION_ENUM`（`host/agent-tool.js:5-55`）仍是 49 项、**不含任何 `dag_*`**，`mcp.js` 也没有 | `grep -n "dag_" host/agent-tool.js host/mcp.js` → 空；`grep -n "dag_query" host/orchestrator.js` → 命中 prompt。**后果**：专家会尝试调用不存在的工具，要么幻觉出一段返回值、要么报 `unknown action`，两种都污染台账。**须在 prompt 生效的同一提交里把工具开出来**（这正是 B15 / Q9-4 的验收点） |
+| **5.4.10** | 探索预算的默认值 | QA Q6-5：`maxQueries 4` / `maxQueryTokens 20k` / `wallClock 240 s`；Q9-9 目标“每轮 4 次调用、约 50–60 KB 输入”；实现侧 `host/context/limits.js:22-25` 默认 `maxQueries = 40`、`maxQueryTokens = 60_000`、`wallClockMs = 10 min`——**是 QA 的 10 倍 / 3 倍 / 2.5 倍**。注释自己写“否则 look around the DAG 变成无界循环”，但默认值给了 40 次 | `git show a03b72f` + `createExplorationBudget` 的入参。**需负责人确认**：40 次是“给驻留会话的余量”还是笔误（QA 的 4 次是按一次性激活算的；若 B16 被 D6 取代，QA 的 4 次也要重算） |
 
 ### 5.5 一句话总结
+
+**审计期内最刺眼的一条“实现自己打架”：prompt 已经教模型调用 `dag_query` / `dag_get`，而这两个工具根本没注册**（§5.4.9）——它同时违反 B15、Q9-4 与 §6 U10。在它修好之前，`a03b72f` 的有界上下文会在第一次工具调用时把专家打回原形。
 
 **设计侧（QA）与执行侧（计划）在四个点上正面冲突：专家是驻留还是无状态（B16 vs D6）、摘要该截还是不该截（B26 vs D16）、专家该分三级还是分区（B11 vs D7）、dispatcher 能不能有 LLM（B10 vs D3）。这四个点各自都改变了 P4/P5/P6 的代码形状，必须在开工前裁决。**
 
@@ -405,9 +423,9 @@
 |---|---|---|---|
 | §1 | 附录 B 决策 | **27** | 3 条已完全落地（B3 / B4 / B8）；6 条有零件未接入；18 条未开工 |
 | §2 | Q1–Q14 结论 | **14** | 15 处数字/字段可核对；`【已部分可用】` 3 题、`【defer】` 4 题 |
-| §3 | 附录 D 阶段步骤 | **21** | **done 3（2.1 / 2.3 / 2.4） / todo 18（2.2、3.1 有提交无调用方） / blocked 0** |
+| §3 | 附录 D 阶段步骤 | **21** | **done 5（1.2 / 1.4 / 2.1 / 2.3 / 2.4） / todo 16（2.2、3.1 有提交无调用方；3.3 有实现无工具面） / blocked 0** |
 | §4 | 附录 C 开放问题 | **14** | 已有提案答案 8、部分未决 4、部分已答 1、方向相反 1 |
-| §5 | 矛盾与缺口 | **35** | 5.1 冲突 6、5.2 顺序/指标 5、5.3 缺口 16、5.4 不一致 8 |
+| §5 | 矛盾与缺口 | **37** | 5.1 冲突 6、5.2 顺序/指标 5、5.3 缺口 16、5.4 不一致 10 |
 | §6 | 人机交互易用性 | **14** | 明确"没有"5 项（U2/U4/U7/U9/U14） |
 | §7 | 可观测性 | **12** | 不存在 3（O3/O8 链/O11 护栏）、有数据无出口 3（O2/O4/O7） |
 | §8 | 验收命令 | **21** | 现有 13（含 A14）、待实现 8 |
