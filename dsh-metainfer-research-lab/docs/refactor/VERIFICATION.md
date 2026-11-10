@@ -1734,7 +1734,7 @@ UI：`U1`、`U2`、`U3`、`U12`。
 
 ### 24.5 回归与边界
 
-- `npm test`：**EXIT=0**，36 个自测文件 / **606 个 `ok`**。
+- `npm test`：**EXIT=0**，37 个自测文件 / **612 个 `ok`**。
 - `npm run bench:scale`：**EXIT=0**，11/11；100k 进程内 0.66 ms、真实重启 1.93 ms。
 - `client-smoke`：**16/16**（15 个面板 + partial 告警）。
 - `auto-wip-selftest`：**5/5**（含 Q2 fast path）。

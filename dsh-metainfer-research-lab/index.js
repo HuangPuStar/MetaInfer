@@ -141,7 +141,11 @@ export async function apply(ctx, config = {}) {
       launcher: { start: (pid, nodeId, opts) => runtime.start(pid, nodeId, opts) },
       maxStarts: options.maxStarts ?? 8,
     });
-    return dispatcher.run({ maxStarts: options.maxStarts });
+    return dispatcher.run({
+      maxStarts: options.maxStarts,
+      config: project.config,
+      maxRunningNodes: project.config?.maxRunningNodes ?? Infinity,
+    });
   }
 
   const runtime = createRuntime({

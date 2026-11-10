@@ -18,6 +18,7 @@ import { DISPATCH_POLICY } from '../kernel/policy.js';
 import { createDispatchEnvelope } from './envelope.js';
 import { defaultRequestFor } from './deterministic-strategy.js';
 import { dispatchRound } from './round.js';
+import { applyReservation, reservedSlotsOf } from './reservation.js';
 
 /** Default broker choice: fleet nodes need the cluster broker, everything else the local pool. */
 export function defaultBrokerIdFor(request) {
@@ -65,7 +66,15 @@ export function createDispatchOnce({
     const budget = Number.isFinite(options.maxStarts) ? Math.max(0, Math.floor(options.maxStarts)) : maxStarts;
     const candidateStart = clock();
     const runnable = projection.runnable(projectId, candidateStart);
-    const candidates = fairOrder(runnable, usageBySource(), {
+    // Reserve capacity for waiting p0 work before ordering/limiting. The filter
+    // is round-local; the queue remains the projection, never a second store.
+    const reserved = options.reservedSlots ?? reservedSlotsOf(options.config);
+    const admitted = applyReservation(runnable, {
+      runningCount: projection.countByStatus(projectId).running ?? 0,
+      maxRunningNodes: options.maxRunningNodes ?? Infinity,
+      reservedSlots: reserved,
+    });
+    const candidates = fairOrder(admitted, usageBySource(), {
       // Slack so a queued head does not stop smaller nodes from backfilling.
       limit: Math.max(budget * 4, budget),
     });
