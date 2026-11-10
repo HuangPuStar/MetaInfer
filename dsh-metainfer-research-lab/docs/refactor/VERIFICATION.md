@@ -8,8 +8,8 @@
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **108** |
-| FAIL | **56** |
+| PASS | **112** |
+| FAIL | **52** |
 | 未测量 | **10**（其中浏览器 2 行 = 不适用） |
 | 合计 | **174** |
 
@@ -17,9 +17,9 @@
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
 **一句话**：§23 的独立复核判 84 PASS / 80 FAIL，并点名 B27/U14/S12/A20 四项硬缺口；
-§24 逐项整改并重放为 108 PASS / 56 FAIL。B27 的 appeal 现在可登记、可阻断、可裁决，
+§24 逐项整改并重放为 112 PASS / 52 FAIL。B27 的 appeal 现在可登记、可阻断、可裁决，
 L0/L1 不再被 C7 过头门控；partial 刷新按失败计 stale/降级/告警；真实重启后的 100k 首读
-1.93 ms ≤50 ms。剩余 56 行全部是 Stage 3–5 能力，不是文档口径；浏览器绘制仍 N/A。
+1.93 ms ≤50 ms。剩余 52 行全部是 Stage 3–5 能力，不是文档口径；浏览器绘制仍 N/A。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
@@ -1664,7 +1664,7 @@ UI：`U1`、`U2`、`U3`、`U12`。
 
 > 本节是作者对 §23 独立复核的整改记录，不是独立判决。§23 的 84 PASS / 80 FAIL
 > 仍然有效；本节只记录被它点名的 4 个阻断/能力缺口和 20 个文档/口径行如何关闭。
-> 总判定以本节末尾的 **108 PASS / 56 FAIL / 10 未测量** 为准。
+> 总判定以本节末尾的 **112 PASS / 52 FAIL / 10 未测量** 为准。
 
 ### 24.1 先承认被夸大的结论
 
@@ -1717,7 +1717,7 @@ UI：`U1`、`U2`、`U3`、`U12`。
 | **S13** | `bench:scale` 不存在，UI 绘制不在 CI | `bench:scale` 存在且 11/11；UI 预算是静态 view-model 测试，真实浏览器绘制仍 N/A | `package.json`、`bench-final7b.log`、`ui-selftest` 12/12 |
 | **U10** | `model_profile_unknown` 不可操作；UI 丢 hint | `NEXT_STEPS` 增加 model/dashboard/appeal 等 code；model 错误列出可用 profile；dashboard partial/error 带 `errorHint` 并在 UI 渲染 | `errors-selftest` 9/9；`dashboard-selftest` 断言 partial `errorHint`；`client-smoke` 断言 hint 进入告警 |
 
-### 24.4 最终计数
+### 24.4 计数（24.3 后，§24.6 再修正）
 
 | 判定 | §23 | §24 | 变化 |
 |---|---|---|---|
@@ -1728,7 +1728,7 @@ UI：`U1`、`U2`、`U3`、`U12`。
 
 - **+4**：B27、U14、S12、A20。
 - **+20**：§24.3 的二十行。
-- **剩余 56 FAIL**：全部是 Stage 3–5 组织/争议/预算/观测/UI 能力（§23.9 的 58 行减去已关的
+- **剩余 56 FAIL**（§24.6 再关四行后为 52）：全部是 Stage 3–5 组织/争议/预算/观测/UI 能力（§23.9 的 58 行减去已关的
   A20、S12；其中 B27/U14 已在阻断桶关闭）。不是“文档没写”。
 - **未测量 10 行**：含 2 行浏览器绘制 N/A；不再把 N/A 混入 PASS。
 
@@ -1741,3 +1741,28 @@ UI：`U1`、`U2`、`U3`、`U12`。
 - `strict-writes-selftest`：生产旁路 0；测试自身的故意 unpermitted 写仍被拒。
 - 未做：真实模型 provider、真实 DSH Host、浏览器帧、Stage 5 组织能力、`dispute` 表、
   预测误差复盘。它们属于剩余 56 行，不在本节冒充完成。
+
+### 24.6 额外关闭的四个能力行（不计入 §24.3 的二十行）
+
+这四行在 §23 里判 FAIL，但在 `7e19499`/`fed20d0` 上已有可重放证据；不把它们
+继续留在 56 行里充数。
+
+| 行 | §23 红 | 绿 | 证据 |
+|---|---|---|---|
+| **B26** | schema 无 maxLength，prompt 无 500 规则，运行时无 headline | `REPORT_LIMITS={summary:500,headline:300}`；`normalizeNodeReport` 在写入边界截断并由 Host 派生 headline；prompt 明确 500/300 | `trace-selftest`：summary=500、headline=300、列表项截断 |
+| **1.1** | 同 B26，源头未约束 | 同一实现；不是只在 snapshot 读的时候现切 | 同上；`runtime.js` `normalizeNodeReport` |
+| **U11** | zh/en 各缺 8 个 replay/dashboard 键，无 parity 脚本 | 两份字典各 1,378 键且集合相等；`scripts/locale-selftest.mjs` 每次跑 parity + 字面 key 扫描 + `locale:sync` 幂等 | `locale-selftest` 全过；`locale/en.json`、`locale/zh.json` |
+| **5.4.5** | 无 `kernel/eventlog.js`，无 50k 冷段归档 | `host/kernel/eventlog.js` 存在：zstd 段 + sha256 + `.head.json`；`store.js` 冷热合并读；段永不删除 | `eventlog-selftest`（冷/热分页、重启续写、checksum 失败）、`scale-selftest` 11/11 |
+
+### 24.7 修正后的总计
+
+| 判定 | §24.3 后 | 再关四行 | 最终 |
+|---|---|---|---|
+| PASS | 108 | +4 | **112** |
+| FAIL | 56 | −4 | **52** |
+| 未测量 | 10 | 0 | **10** |
+| 合计 | 174 | — | **174** |
+
+剩余 **52 FAIL** 仍是 Stage 3–5 组织/争议/预算/观测/UI 能力。`project-local preemption`
+仍明确未做（`reservedSlots.p0` 只关了半边，见 `IMPLEMENTATION.md` 的“部分完成”）；
+本轮不把它算进 PASS。
