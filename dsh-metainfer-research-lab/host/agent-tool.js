@@ -22,6 +22,7 @@ const ACTION_ENUM = [
   'release_review',
   'review_claims',
   'status_facts',
+  'resource_status',
   'metrics',
   'explain_node',
   'trace_explain',

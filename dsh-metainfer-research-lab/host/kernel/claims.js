@@ -256,6 +256,10 @@ export function gateClaimAction(action, stats = {}, context = {}) {
     submitted,
   };
   const actor = context.actor ?? null;
+  // A live appeal covers every action on its target, including L0/L1 and
+  // `cancel_running` (L2). This check must precede every level-specific rule:
+  // otherwise a level without `appeal: true` silently bypasses an open appeal.
+  if (context.appealPending === true) return { ...base, code: 'appeal_pending' };
   if (requirement.humanOnly && actor?.kind !== 'human') {
     return { ...base, code: 'human_only' };
   }
@@ -277,9 +281,6 @@ export function gateClaimAction(action, stats = {}, context = {}) {
   }
   if (requirement.appeal) {
     const now = Number.isFinite(context.now) ? context.now : Date.now();
-    // A live, registered appeal blocks the action even when the numeric window
-    // is still open. `appealUntil` alone is a timestamp, not a mechanism.
-    if (context.appealPending === true) return { ...base, code: 'appeal_pending' };
     const appealUntil = Number.isFinite(context.appealUntil) ? context.appealUntil : 0;
     if (appealUntil <= now) return { ...base, code: 'appeal_window_required' };
   }

@@ -66,6 +66,12 @@ const query = await call('dag_query', { limit: 1 });
 check('dag_query carries revision', Number.isFinite(query.revision), JSON.stringify(query.revision));
 const get = await call('dag_get', { nodeIds: ['n1'] });
 check('dag_get carries revision', Number.isFinite(get.revision), JSON.stringify(get.revision));
+const resource = await call('resource_status', { nodeId: 'n1' });
+check('resource_status is advertised and callable', resource.ok === true && resource.node?.nodeId === 'n1', JSON.stringify(resource));
+check('resource_status reports the project pools', resource.resources?.pools?.gpu === 4 && resource.resources?.free?.gpu === 4, JSON.stringify(resource.resources));
+check('resource_status reports the queue position', resource.queue?.position === 1 && resource.queue?.runnable >= 1, JSON.stringify(resource.queue));
+const resourceAggregate = await call('resource_status');
+check('resource_status works without a nodeId', resourceAggregate.ok === true && resourceAggregate.node === null && resourceAggregate.resources?.pools?.gpu === 4, JSON.stringify(resourceAggregate));
 
 // `sinceRevision` must be honoured, not just echoed: add one node after the
 // first snapshot and diff from that exact revision.

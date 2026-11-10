@@ -1,33 +1,35 @@
 # 独立验收报告 — `refactor/v2`
 
 > 验收人：独立验证者（未参与实现）。对象：`docs/refactor/DESIGN-CHECKLIST.md` §1–§9、
-> `docs/refactor/IMPLEMENTATION.md`、`refactor/v2` 代码；初始基线 `6beba88`，本轮 §24 为
-> HEAD `7e19499`。日期：2026-11-10。
+> `docs/refactor/IMPLEMENTATION.md`、`refactor/v2` 代码；初始基线 `6beba88`，第八轮
+> §25 的独立复核 HEAD 为 `2c50c54`。日期：2026-11-10。
 
 ## 0. 结论摘要
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **112** |
-| FAIL | **52** |
+| PASS | **103** |
+| FAIL | **61** |
 | 未测量 | **10**（其中浏览器 2 行 = 不适用） |
 | 合计 | **174** |
 
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：§23 的独立复核判 84 PASS / 80 FAIL，并点名 B27/U14/S12/A20 四项硬缺口；
-§24 逐项整改并重放为 112 PASS / 52 FAIL。B27 的 appeal 现在可登记、可阻断、可裁决，
-L0/L1 不再被 C7 过头门控；partial 刷新按失败计 stale/降级/告警；真实重启后的 100k 首读
-1.93 ms ≤50 ms。剩余 52 行全部是 Stage 3–5 能力，不是文档口径；浏览器绘制仍 N/A。
+**一句话**：§24 的作者报告重放为 112 PASS / 52 FAIL；第八轮 §25 独立复核推翻其中
+B27 和 4 个文档行，并把 §24.6 的四个“再关闭”识别为对 §23 已 PASS 行的重复计数，
+最终为 **103 PASS / 61 FAIL / 10 未测量**。B27 仍可被 `cancel_running` 和专家
+`intent_withdraw` 绕过；剩余不是“全部能力未建”：1 个阻断、3 个文档/口径、
+57 个能力未建。浏览器绘制仍 N/A。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
 > （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
-> 第七轮修复复核（`53ff695`）见 **§23**。总判定以 **§24** 为准；§20/§22 是作者报告，
-> 不能代替独立复核。§22 曾声称关闭 B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了
-> 其中 B27/U14/S12/A20 四项；§24 记录整改后的 108 PASS / 56 FAIL。
+> 第七轮修复复核（`53ff695`）见 **§23**；第八轮独立复核（`2c50c54`）见 **§25**；第九轮作者整改见 **§26**（基于 §25，不替代独立复核）。
+> 独立总判定以 **§25** 为准；§20/§22/§24/§26 是作者报告，不能代替独立复核。§22 曾声称关闭
+> B27/C7/U14/S12/A20（87 PASS / 77 FAIL），§23 推翻了其中 B27/U14/S12/A20 四项；
+> §24 作者报告为 112 PASS / 52 FAIL，§25 复核为 103 PASS / 61 FAIL。
 
 ### 0.1 判定口径
 
@@ -1664,7 +1666,7 @@ UI：`U1`、`U2`、`U3`、`U12`。
 
 > 本节是作者对 §23 独立复核的整改记录，不是独立判决。§23 的 84 PASS / 80 FAIL
 > 仍然有效；本节只记录被它点名的 4 个阻断/能力缺口和 20 个文档/口径行如何关闭。
-> 总判定以本节末尾的 **112 PASS / 52 FAIL / 10 未测量** 为准。
+> §24 作者报告为 **112 PASS / 52 FAIL / 10 未测量**；§25 复核为 103/61，§26 作者整改为 108/56。本节保留历史作者报告，不作为当前独立判决。
 
 ### 24.1 先承认被夸大的结论
 
@@ -1698,16 +1700,16 @@ UI：`U1`、`U2`、`U3`、`U12`。
 |---|---|---|---|
 | **B9** | 没有 5×6 权限矩阵测试 | 在 `policy-selftest` 增加 5 个 actor × 6 个 action 的逐格正/负断言，期望值独立于 `allowedActions()` 手写 | `policy-selftest` 120 checks 全过；含 `delete_project` 对 expert 行全拒 |
 | **B24** | 谓词验证器未算通过 | 7 谓词 + 提交时拒绝 + 统计已实现 | `claims-selftest` 7 个谓词各自正/负；`5.1` 依赖同一证据 |
-| **Q1** | issue 0001 的 action 白名单未落地 | `ACTION_CATALOG` 77 action + `PRESET_POLICIES` 默认拒绝；`get_node`/`dashboard_get` 入目录；三表一致 | `policy-selftest`（枚举/目录/处理器）、`tool-surface-selftest` |
+| **Q1** | issue 0001 的 action 白名单未落地 | `ACTION_CATALOG` 83 action + `PRESET_POLICIES` 默认拒绝；`get_node`/`dashboard_get` 入目录；三表一致 | `policy-selftest`（枚举/目录/处理器）、`tool-surface-selftest` |
 | **Q2** | 只有决策段测试，没有 fast-path 端到端 | 增加 auto tick 的“dispatch 已启动则 planner 0 次”测试；dispatch 决策 p95 29.2 ms | `auto-wip-selftest` 5/5；`scale-selftest` dispatch p95=29.2 ms <100 ms |
 | **5.1** | 依赖 B24 | B24 关闭 | 同上 |
 | **5.1.2** | 运行时 summary/headline 未落地 | `normalizeNodeReport` 在写入边界截 500/300，prompt 写明；迁移工具同形 | `trace-selftest`：summary=500、headline=300、list item 截断 |
-| **5.2.2** | 阶段顺序冲突未裁决 | 裁决为 kernel-first；阶段 1 的 1.1–1.4 已在 P1.4/P4.3/P6.6/runtime 落地，映射表记录 | [`APPENDIX-D-MAP.md`](APPENDIX-D-MAP.md) §5.2.2 |
-| **5.2.3** | 阶段 1 无 WP | 1.1→P6.6、1.2→P4.3、1.3→P4.5、1.4→P1.4-Q6 逐项映射 | 同上表 |
+| **5.2.2** | 阶段顺序冲突未裁决 | 裁决为 kernel-first；1.1/1.2/1.4 已落地，**1.3 明确标 FAIL**（`onSessionEvent` 仍只处理 `turn/end`）；不再声称四步全完成 | [`APPENDIX-D-MAP.md`](APPENDIX-D-MAP.md) §5.2.2 |
+| **5.2.3** | 阶段 1 无 WP | 1.1→P6.6、1.2→P4.3、1.4→P1.4-Q6 done；1.3 只映射到 P4.5-K8（todo）且仍 FAIL，映射表不把它写成 done | 同上表 |
 | **5.2.4** | 附录 D 5.4 无 WP | D7 已决定不做固定三级；5.4 标 `not needed`，不算实现缺口 | 同上 §5.2.4 |
-| **5.2.5** | 没有附录 D ↔ WP 映射表 | 新增 21 步映射表，逐行给 WP/状态/证据；5.2/5.3 诚实标 missing | [`APPENDIX-D-MAP.md`](APPENDIX-D-MAP.md) |
+| **5.2.5** | 没有附录 D ↔ WP 映射表 | 新增 21 步映射表，逐行给 WP/状态/证据；1.3 标 FAIL，5.2/5.3 诚实标 missing | [`APPENDIX-D-MAP.md`](APPENDIX-D-MAP.md) |
 | **5.3.6** | 无 drain/handover/孤儿归属 | `fireExpert` 要求先 drain、保留 running、孤儿 `createdBy` 转 human 并记 `orphanedFrom`；`expert/retired` 事件 | `expert-lifecycle-selftest`：`plan-1` 交回 human，`orphanedFrom=lab-advisor` |
-| **5.3.16** | 并集 7 工具只落 3 个 | `dag_map`/`dag_walk`/`dag_diff` 已注册并走真实 handler | `tool-surface-selftest` 驱动真实调用；`dag_*` 字节上限测试 |
+| **5.3.16** | 并集 7 工具只落 3 个 | `dag_map`/`dag_walk`/`dag_diff`/`resource_status` 均有目录项、service 分支和真实 handler；`resource_status` 返回 pools/queue/blockedBy/reservedStartAt | `tool-surface-selftest` 4 个新断言；`dag_*` 字节上限测试 |
 | **5.4.3** | P0.2/0.3/0.8/0.9 仍 todo，baseline 缺失 | P0 验收按 v2 重新裁决：P0.8 写入 `baseline.json`；P0.2/0.3 由 dispatch/cluster 测试取代；P0.9 因 D6 无驻留会话不适用 | [`baseline.json`](baseline.json) 的 `p0Acceptance`；`scale-selftest`/`cluster-fleet-selftest` |
 | **5.4.4** | 计划文件地图行数过期 | 更新 `docs/07` §3.1：3,967 / 2,138 / 1,434 / 203 | `wc -l host/{lab-service,runtime,orchestrator,snapshot}.js` |
 | **5.4.7** | P2.4/P2.5 无 WP 行 | `PROGRESS.md` 状态表补 P2.4 `d8565d6`、P2.5 `cc792d9`；提交表补齐第七/八轮 | `PROGRESS.md` L58–59、L199 |
@@ -1766,3 +1768,313 @@ UI：`U1`、`U2`、`U3`、`U12`。
 剩余 **52 FAIL** 仍是 Stage 3–5 组织/争议/预算/观测/UI 能力。`project-local preemption`
 仍明确未做（`reservedSlots.p0` 只关了半边，见 `IMPLEMENTATION.md` 的“部分完成”）；
 本轮不把它算进 PASS。
+
+---
+
+## 25. 第八轮独立复核（HEAD `2c50c54`）
+
+> 取证时间：**2026-11-10 19:16:57 +08:00**（Asia/Shanghai）。工作树在取证开始时
+> `git status --short` 为空；HEAD 为 `2c50c54`（`refactor/v2`）。本轮只改本文件，
+> 未修改任何生产代码。所有探针都在 `/tmp` 下，不进入仓库。
+>
+> 本轮重点不是重复作者的 selftest，而是重放四个上一轮口径：B27 的申诉阻断、
+> U14/A20 的 partial 新鲜度与告警、S12 的重启首读、20 个文档行的真实落点；
+> 另外单独验证 `reservedSlots.p0` 的边界。作者在 §24 承认 §22 的过度声明，但
+> §24 的 **112/52** 本身也不能直接采用，理由见 25.1。
+
+### 25.1 总数：103 PASS / 61 FAIL / 10 未测量
+
+| 判定 | §23（Round 7 独立） | §24（作者 Round 7 修正） | §25（本轮独立） | 变化 |
+|---|---|---|---|---|
+| PASS | 84 | 112 | **103** | +19 |
+| FAIL | 80 | 52 | **61** | −19 |
+| 未测量 | 10 | 10 | **10** | 0 |
+| 合计 | 174 | 174 | **174** | — |
+
+本轮不是把 §24 的 112 直接改小，而是按可重放证据重新计数：
+
+- §23 的 84 个 PASS **已经包含** `B26`、`1.1`、`U11`、`5.4.5`。它们在 §14 的
+  行级表（`B26`/`U11`/`1.1`）和 §21.4（`5.4.5`）已经是 PASS，不在 §23.9 的
+  80 个 FAIL 三桶内。§24.6 把这四行再次作为“再关四行”加在 108 上，
+  **是重复计数**；`112` 至少比作者自己的 108 多 4。
+- `B27` 在 §24 被计入 PASS，但本轮的申诉阻断仍有两条生产路径可绕过（25.2），
+  不能计入 PASS。
+- §24.3 的 20 个文档行中，本轮只确认 16 行；`5.2.2`、`5.2.3`、`5.2.5`、
+  `5.3.16` 的“关闭”不成立（25.6）。
+- 因此：`84 + U14/A20/S12 三行 + 16 个文档行 = 103`；
+  `80 − 3 − 16 = 61`。这与 §24 的 `112` 相差 **9**：
+  `+1 B27`、`+4 重复的 B26/1.1/U11/5.4.5`、`+4 文档行`，恰好是 9。
+
+> 结论先说：**NO-SHIP**。剩余 61 FAIL 不是“全是能力未建”：其中 1 行阻断上线
+> （B27）、3 行只差文档（5.2.2/5.2.3/5.2.5）、57 行能力未建（25.8）。
+
+### 25.2 B27：prune/delete 已阻断，但 `cancel_running` 与“专家自裁”仍绕过 — FAIL
+
+独立探针 `/tmp/r8-b27-probe.mjs`（真实 `createLabService` + 内存 store + kernel
+executor；不是 selftest 的文本断言）输出：
+
+| 子项 | 实测 | 判定 |
+|---|---|---|
+| `{action:'appeal'}` 登记 | `kind:'appeal'`, `status:'pending'`, actor=`lab-advisor` | PASS |
+| pending appeal 阻断 `prune_branch` | `ok:false, code:'appeal_pending'` | PASS |
+| pending appeal 阻断 `delete_project` | `ok:false, code:'appeal_pending'` | PASS |
+| pending appeal 阻断 `cancel_running` | **`ok:true, status:'pending'`** | **FAIL** |
+| 普通专家调 `resolveAppeal` | `forbidden_action` | PASS |
+| human `resolveAppeal` 记录 who/why | `resolvedBy:{kind:'human',id:'human'}`、`resolution:'upheld'`、`reason:'human heard'` | PASS |
+| resolve 后 prune 恢复 | `ok:true` | PASS |
+| 专家用 `withdrawIntent` 撤自己的 appeal | **`status:'resolved'`、`resolvedBy:{kind:'expert',id:'lab-advisor'}`、`resolution:'withdrawn'`；随后 prune `ok:true`** | **FAIL** |
+| `lab-chief` 自己申诉、自己 resolve | **`ok:true`**，resolver 是 `{kind:'expert',preset:'lab-chief'}` | **FAIL（按“专家不能自裁”字面）** |
+| L0 `create_planned` | `ok:true` | PASS |
+| L1 `defer_planned` | `ok:true` | PASS |
+| C7：20 条干净证据 / 19 条 / 4 条 | `ok` / `citation_evidence_floor` / `citation_confidence_too_low` | PASS（算术仍成立） |
+
+**根因是两处，不是一处：**
+
+1. `host/kernel/claims.js:35` 把 `cancel_running` 定为 L2，`appeal` 标志只在
+   L3/L4（`prune_branch`/`delete_project`）上；`gateClaimAction` 的
+   `requirement.appeal` 分支因此永远不会检查 `cancel_running` 的 pending appeal。
+   这正是上一轮“申诉是假机制”的同一类缺口，只是从 prune 挪到了 cancel。
+2. `host/lab-service.js:3596` 的 `withdrawIntent` 对 `kind === 'appeal'` 自动写入
+   `resolve:true, resolution:'withdrawn'`，但没有“不能撤自己的 appeal”的 actor
+   检查；`intent_withdraw` 是专家可见的 agent-tool 动作（`host/agent-tool.js`），
+   所以专家可以把自己的 appeal 从 `pending` 直接变成 `resolved`，再执行 prune。
+   `resolveAppeal` 本身对普通专家返回 `forbidden_action`，但它**没有**暴露成一个
+   agent-tool action；真正的生产逃逸口是 `intent_withdraw`。
+
+`resolveAppeal` 的 who/why 记录是正确的（human resolver、resolution、reason 都写入
+`intent` 与 `appeal/resolved` 事件），`lab-chief` 作为“chief”例外也是作者的设计；
+但按清单“专家不能解决自己的申诉”的字面，chief 自裁仍应拒绝或至少要求第二个
+actor。综合：**B27 仍是阻断项**，不能因为“prune/delete 被挡住了”就算关闭。
+
+### 25.3 U14/A20：partial 的新鲜度、退避与告警 — PASS
+
+独立探针 `/tmp/r8-u14-partial.mjs`：一个成功 widget + 一个失败 widget，连续
+`refreshDashboard({force:true})` 三次，然后读 `dashboardView` 与持久化的 `lastRun`：
+
+| 次数 | status | stale / reason | consecutiveFailures | degraded | lastSuccessAt | nextRunAt |
+|---|---|---|---|---|---|---|
+| 1 | partial | `true` / `refresh_partial` | 1 | false | 旧值（未推进） | 1× interval |
+| 2 | partial | `true` / `refresh_partial` | 2 | false | 同一旧值 | 2× interval |
+| 3 | partial | `true` / `refresh_partial` | 3 | **true** | 同一旧值 | 4× interval |
+
+三个 widget 的 `good` 是 `stale:false`、`bad` 是 `stale:true`；顶部视图
+`failureCount` 递增，`lastSuccessAt` 在三次 partial 中保持不变，`failedAt` 在每次
+失败时更新。没有“partial 但顶层 fresh”的路径：`host/lab-service.js:864` 把
+`partial` 和 `error` 一并算失败，`lastSuccessAt` 只在 `status === 'ok'` 时推进。
+
+A20 的告警独立验证：
+
+- `node scripts/client-smoke.mjs`：**16/16**，含
+  `Dashboard renders a partial-refresh alert`；`client-smoke` 没有覆盖关闭/重开。
+- 另跑 `/tmp/r8-alert/scripts/alert-smoke.mjs`（同一 DashboardPanel，额外点击
+  `.rl-dash-alert-dismiss`，等 5.2 s 后让下一次 partial 的 `failedAt` 变化）：
+  `partial alert is dismissible` 与 `partial alert reopens on a later failure`
+  两条额外断言均通过；官方 16/16 计数不变，因为这两条是独立探针。
+
+判定：**U14 PASS，A20 PASS**。`errorHint` 在 partial 上也会显示；本探针的
+script-based widget 返回的是通用 `error` 文案，不是 `model_profile_unknown`
+那一类具体 hint，但 `dashboard-selftest`/`errors-selftest` 已覆盖具体 code 的
+`NEXT_STEPS`，不把“通用文案”误判为 hint 丢失。
+
+### 25.4 S12：5 个冷段、真实 `openStore` 重启首屏 — PASS
+
+`/tmp/r7-s12-probe.mjs`（100,000 事件，5 个冷段，close 后重新 `openStore`）：
+
+| 指标 | 实测 | 预算 |
+|---|---|---|
+| 同 store 首次 `pageEvents(after=0,limit=100)` | 1.9 ms | ≤50 ms |
+| **fresh `openStore` 后首次** | **1.3 ms** | ≤50 ms |
+| reopen 后完整 `listEvents` | 88.9 ms | 非首屏，不纳入 50 ms |
+| 第 1/2 页 | 各 100 条，首尾 1..100、101..200 | 正确 |
+| total / last seq | 100000 / 100000 | 正确 |
+
+`/tmp/r8-s12-pages.mjs` 在 reopen 后抽 `after=0/99/500/1000/1500/5000/50000/
+99950/99999/100000`：所有页长度、首尾 seq、`next`、`hasMore`、`total` 一致，
+无重复/跳号；首屏 2.01 ms，后续页 8–18 ms。`bench:scale` 同 HEAD 为
+**11/11**，100k 进程内 0.47 ms、真实重启 **1.76 ms**（作者 §24 写 1.93–2.27；
+数值有波动，但都远低于 50 ms）。
+
+`host/kernel/eventlog.js` 为每个冷段写 `*.head.json`，`store.pageEvents` 对
+`after===0` 先读 head、用冷段元数据算 `start/total`，不足一页才回退整段；
+本探针的 1.3 ms 与分页正确性共同证明走的是 head 快速路径，不是“重启后偷偷
+全量解压”。判定：**S12 PASS**。
+
+### 25.5 `reservedSlots.p0`：机制正确，5.3.2 整行仍 FAIL
+
+`node scripts/reserved-slots-selftest.mjs`：**6/6**：
+
+- 默认 0，两种 config 形状（`reservedSlots.p0` 与 `scheduling.reservedSlots.p0`）；
+- p0 等待时只让 `free - reserved` 个非 p0 进入本轮候选，p0 自己保留；
+- 没有 p0 等待时全部类别照常使用槽位；
+- `reservedSlots=0` 与改动前行为一致；
+- 真实 dispatch 集成：一个空槽 + `reservedSlots.p0=1` 时启动 p0，不启动 p2；
+  配置了 reserve 但没有 p0 等待时 p2 仍启动。
+
+该机制没有改变 `maxRunningNodes`、broker 或第二队列，正确。**但 5.3.2 的原行还
+要求项目内 p0 抢占（运行超过 10 min 的 p2/p3 可被抢占）**；`IMPLEMENTATION.md`
+明确把“项目内 p0 抢占”列为未完成，当前只有默认关闭的集群级抢占。故：
+
+- `reservedSlots.p0` **窄机制 PASS**；
+- **5.3.2 整行仍 FAIL**、`Q3` 仍 FAIL；本轮不把“半边”算成 PASS。
+
+### 25.6 20 个文档行：16 行成立，4 行不成立
+
+逐行独立核对（不把作者表格的“done”当证据；以代码、测试和实际输出为准）：
+
+| 行 | 判定 | 独立依据 / 问题 |
+|---|---|---|
+| **B9** | PASS | `policy-selftest` 120 checks；5 个 actor × 6 action 的期望数组独立手写，含 `delete_project` 对 expert 行全拒 |
+| **B24** | PASS | `claims-selftest` 覆盖 7 谓词的正/负、提交时拒绝与 `citationErrorRate`；B27 的 5 级问题另归 B27 |
+| **Q1** | PASS | `ACTION_CATALOG` 实际 82 项、`PRESET_POLICIES` 默认拒绝；`policy-selftest` 与 `tool-surface-selftest` 双表 |
+| **Q2** | PASS | `auto-wip-selftest` 5/5（dispatch 已启动则 planner 0 次）；`bench` p95=33.7 ms <100 ms（作者写的 29.2 是上一轮数值，不改变判定） |
+| **5.1** | PASS | 与 B24 同一证据；7 谓词与 rate gate 实测 |
+| **5.1.2** | PASS | `normalizeNodeReport` 在写入边界截 500/300；`trace-selftest` summary=500、headline=300、列表项截断 |
+| **5.2.2** | **FAIL** | 裁决 kernel-first 可以，但“1.1–1.4 已全部落地”不成立：`1.3` 仍 FAIL（见下） |
+| **5.2.3** | **FAIL** | 把 `1.3→P4.5` 映射成 done，但 `1.3` 的 K8 缺口未关；WP 有名字不等于步骤完成 |
+| **5.2.4** | PASS | D7 明确不做固定三级，5.4 标 `not needed`；这是设计裁决，不是伪装实现 |
+| **5.2.5** | **FAIL** | 21 步映射表存在，但表内 `1.3` 写 done；把未完成写成 done 的表不是“改正后的行”，而是错误证据 |
+| **5.3.6** | PASS | `expert-lifecycle-selftest` 16/16；`plan-1` 交回 human、`orphanedFrom=lab-advisor`、`expert/retired` |
+| **5.3.16** | **FAIL（能力）** | 并集要求 7 个工具，`dag_map/walk/get/diff/query/trace_explain` 6 个存在；`resource_status` 在 `ALL_ACTIONS`/`ACTION_CATALOG` 中均不存在，`tool-surface-selftest` 也没有它 |
+| **5.4.3** | PASS（按改正行） | `baseline.json` 的 `p0Acceptance` 明确 P0.8 记录、P0.2/0.3 由 dispatch/cluster 测试取代、P0.9 因 D6 不适用；这是重新裁决，不是把 todo 写成 done |
+| **5.4.4** | PASS | `wc -l` 实测 `lab-service.js` 3,967、`runtime.js` 2,138、`orchestrator.js` 1,434、`snapshot.js` 203，与 `docs/07` 一致 |
+| **5.4.7** | PASS | `PROGRESS.md` 已有 P2.4 `d8565d6`、P2.5 `cc792d9` 行 |
+| **C12** | PASS | `baseline.json` 有 dispatch/event-page/getState/并发目标；GPU idle 明确标未测量而不是编造。基线数值会随机器波动（如 p95 33.7 vs 29.2），但预算关系成立 |
+| **C13** | PASS | `computeExpertMetrics` 的 `accepted` 只做观测；`expert_hire/drain/fire`、curator 排序不读它，`EXPERT-METRICS.md` 与代码一致 |
+| **O9** | PASS | `state-events-selftest` **17/17**：11 条合法转换各恰好 1 个稳定事件，含 `node/priority_changed`、`dispatch/claimed`、`dispatch/claim_released` |
+| **S13** | PASS | `bench:scale` 存在且 11/11；UI 是静态 view-model 预算，真实浏览器绘制仍 N/A（不据此判 FAIL） |
+| **U10** | PASS | `errors-selftest` 9/9；`model_profile_unknown` 列出可用 profile；dashboard partial/error 有 `errorHint`，client-smoke 断言 hint 进入告警 |
+
+**4 个失败行的共同问题**不是“文档写得不够漂亮”，而是**把未完成/不存在的
+落点写成完成**：
+
+- **5.2.2 / 5.2.3 / 5.2.5 的根因是 `1.3`。** `1.3` 在 §23 明确 FAIL：快照 running
+  行虽有 `elapsedMs/lastActivityMs`，但 `host/runtime.js:1927` 的
+  `onSessionEvent` 仍然 `if (event?.type !== 'turn/end') return;`，一次 turn 内的
+  活动不会更新 `lastActivityAt`，K8 仍未成立。APPENDIX-D-MAP 的 `1.3` 却写
+  “done”，证据是“runtime 所有生命周期写点 + completed 节点 process smoke”。
+  生命周期写点恰恰不能覆盖 turn 内活动；这不是新证据，是旧实现换了个说法。
+  因此 `5.2.2` 的“1.1–1.4 已落地”、`5.2.3` 的 `1.3→done`、`5.2.5` 的映射表
+  都不成立。
+- **5.3.16 的根因是缺 `resource_status`。** 6 个工具真实存在，第 7 个没有；
+  行要求的是并集 7 个，不能用“dag_map/walk/diff 已注册”代替。
+
+另外两个“看起来像关闭”的行，本轮判 PASS 但保留边界说明：
+
+- `5.2.4` 是 **D7 设计裁决**（不做固定三级），不是实现；
+- `5.4.3` 是 **P0 验收重新裁决**（P0.2/P0.3 superseded、P0.9 N/A），不是旧
+  simulator gate 全部跑过。它们符合“改正后的行”，但不应被读成“能力已实现”。
+
+### 25.7 回归与取证边界
+
+- `npm test`：**EXIT=0**，37 个 selftest 文件 / **612 个 `ok`**；作者 §24 的
+  606/36 是上一轮数值，HEAD 已增加 `reserved-slots-selftest`。
+- `npm run bench:scale`：**EXIT=0，11/11**；100k 首屏 0.47 ms、真实重启 1.76 ms、
+  dispatch p95 33.7 ms。
+- `strict-writes-selftest`：17 checks 全过；生产模块旁路 **0**；故意未授权的
+  `saveProject/deleteProject/deleteEventRecord` 仍被拒。
+- `policy-selftest`：120 checks；`replay-client-selftest`：8/8；`client-smoke`：16/16；
+  `state-events-selftest`：17/17；`eventlog-selftest`：7/7；`dashboard-selftest`：
+  含 repeated partial；`claims-selftest`：51/51。
+- 本轮**没有修改生产代码**；`git status --short` 在写 §25 前为空，写后应只有
+  `docs/refactor/VERIFICATION.md`。所有新增探针在 `/tmp`，不属于仓库交付物。
+
+未测量项仍是 10 行（含 2 行浏览器 N/A）；本轮没有把 N/A 混入 PASS，也没有用
+“selftest 全绿”替代真实浏览器、真实 provider 或 Stage 5 组织能力。
+
+### 25.8 61 个 FAIL 的三分解与上线裁决
+
+| 分桶 | 行数 | 行 |
+|---|---|---|
+| **阻断上线** | **1** | **B27**（`cancel_running` 不检查 pending appeal；专家可用 `intent_withdraw` 自裁，chief 可自裁） |
+| **能力未建** | **57** | §23.9 的 58 行减去已关的 A20、S12，再加 `5.3.16`（缺 `resource_status`）；含 `1.3`、`5.3.2`、`Q3` 等。`reservedSlots.p0` 只是 5.3.2 的半边，项目内抢占未做 |
+| **只差文档/口径** | **3** | `5.2.2`、`5.2.3`、`5.2.5`（同一 `1.3` 假 done） |
+| **合计** | **61** | 1 + 57 + 3 = 61 |
+
+- **不是所有剩余 FAIL 都是能力未建。** 有 1 个阻断（B27），3 个文档/口径行，
+  57 个能力未建。把 61 全部说成“Stage 3–5 能力没建”会掩盖 B27 和 `1.3` 的
+  假映射。
+- **NO-SHIP** 的直接原因仍是 B27：pending appeal 可以被 `cancel_running` 穿过，
+  也可以被专家自己的 `intent_withdraw` 解除；这两条都在真实 service 路径上，
+  不是测试辅助路径。
+- **可以并行收尾的**：`5.2.2/5.2.3/5.2.5` 把 `1.3` 改回 FAIL 并补真实
+  turn 内活动测试；`5.3.16` 补 `resource_status` 或把清单明确改成 6 工具并
+  获得 owner 裁决。它们不需要新架构，但不能用今天的表格冒充完成。
+- **不能靠文档收尾的**：B27 的 cancel/withdraw 两道门、`5.3.2` 的项目内抢占、
+  `1.3` 的 turn 内活动，以及 §23.9 能力桶里的 Stage 3–5 组织/争议/观测/UI；
+  这些需要代码和运行路径。
+
+> 本轮独立结论：**103 PASS / 61 FAIL / 10 未测量，NO-SHIP**。
+> 作者 §24 的 112/52 比可重放结果多 9 行：B27（1）+ 已 PASS 的
+> B26/1.1/U11/5.4.5 重复计数（4）+ 四个文档行（4）。其中 `5.3.16` 归能力桶，
+> 所以文档桶是 3 行；若把它留在文档桶，则是 4 行文档 + 56 行能力，总数仍为 61。
+
+---
+
+## 26. 第九轮整改（基于 §25 的 103 PASS / 61 FAIL）
+
+> 这是作者整改记录，不是独立判决。§25 的 103 PASS / 61 FAIL 仍是独立基线；
+> 本节只修 §25 点名的 B27 三个洞、5.3.16 和 1.3 的虚假 done。作者复核计数为
+> **108 PASS / 56 FAIL / 10 未测量**，等待下一轮独立复核。
+
+### 26.1 B27：三个洞的红→绿
+
+| 洞 | 红（§25 探针） | 修复 | 绿（真实 service 重放） |
+|---|---|---|---|
+| **1. `cancel_running` 绕过 open appeal** | `{action:'cancel_running'}` 在 pending appeal 下返回 `ok:true`；根因是 gate 只在 `requirement.appeal`（L3/L4）内查 appeal | `gateClaimAction` 在 `humanOnly`/证据/chief 等所有 level 规则**之前**检查 `context.appealPending`，L0–L4 一律返回 `appeal_pending` | `claims-selftest`: `an open appeal also blocks cancel_running (L2, no appeal flag in its level)`；probe 返回 `ok:false, code:'appeal_pending'` |
+| **2. 专家用 withdraw 伪造 resolve** | `withdrawIntent` 对 appeal 写 `resolve:true, resolution:'withdrawn'`，得到 `status:'resolved'`、`resolvedBy:{kind:'expert'}`，随后 prune `ok:true` | 删除 withdraw 上的 `resolve:true`；withdraw 只写 `withdrawnAt/withdrawnBy/withdrawReason`，事件为 `intent/withdrawn`；并限制普通专家只能撤自己的 appeal | `claims-selftest`: `an expert cannot withdraw an appeal into a resolved record`（status=`withdrawn`，`resolvedBy`/`resolution` 均为 undefined）与 `withdrawal emits intent/withdrawn, not appeal/resolved`；真实 probe 的 `resolvedBy` 不再出现 |
+| **3. lab-chief 自裁** | chief 自己 raise、自己 `resolveAppeal` 返回 `ok:true` | `resolveAppeal` 在 pending/expiry 检查后比较 `intent.actor.id` 与 resolver id，相同即 `appeal_self_resolution`；不按 role 放行 | `claims-selftest`: `the raiser cannot resolve their own appeal`（`ok:false, code:'appeal_self_resolution'`）；只有不同 actor 的 human/chief 仍可 resolve |
+
+补充边界：
+
+- `resolveAppeal` 现在拒绝非 pending、已过期和自裁；`intent_not_pending`、`appeal_expired` 有可执行 `nextStep`。
+- 普通专家仍不能 resolve（`forbidden_action`）；`lab-chief` 可以 resolve **别人的** appeal。
+- 撤回不是裁决：撤回后 appeal 不再 pending，因此 prune/cancel 可以继续；审计记录是 `withdrawn`，不是 `resolved`。这正是“撤回 ≠ 裁决”的语义，不是再次绕过。
+- 未做：把 `resource_status` 加进 **HTTP 路由**；本次只加 Host service/agent tool/policy，HTTP 仍走 `agentTool` 的 action 入口。
+
+### 26.2 5.3.16：`resource_status` 的 6/7 → 7/7
+
+`host/kernel/policy.js` 的 `ACTION_CATALOG` 增加 `resource_status: 'read'`（总数 83），
+`host/agent-tool.js` 的 `ACTION_ENUM` 同步，`host/lab-service.js` 增加真实
+`resourceStatus(projectId, nodeId)` 分支：
+
+- 返回 `resources.pools/free/held/maxRunningNodes`（来自 `statusFacts`）；
+- 返回 `queue.position/runnable/_truncated`；
+- 返回 `node.resourcesHeld/lease/resourceWait/blockedBy/reservedStartAt`；
+- 无 `nodeId` 时返回项目级资源视图。
+
+证据：`tool-surface-selftest` **41 checks**，其中 4 条直接驱动
+`resource_status`（可调用、pools、queue position、无 nodeId），并验证
+`get_node`/`dashboard_get` 仍在目录中；`policy-selftest` **120 checks**，
+`ACTION_ENUM` ↔ `ACTION_CATALOG` 83 项一一对应。
+
+### 26.3 1.3：停止声称完成，而不是补一个假测试
+
+独立复核说得很清楚：`host/runtime.js` 的 `onSessionEvent` 仍只处理 `turn/end`，
+turn 内的 assistant/tool 活动不会更新 `lastActivityAt`。本轮**没有**实现 turn 内
+活动跟踪；因此：
+
+- `APPENDIX-D-MAP.md` 的 1.3 从 `done` 改为 **FAIL（未完成）**，证据写明
+  `onSessionEvent` 的 `turn/end` early return；
+- `5.2.2` 不再说“1.1–1.4 已全部落地”，改为“1.1/1.2/1.4 done，1.3 FAIL”；
+- `5.2.3` 不再把 `1.3→P4.5` 写成 done，映射表保留 P4.5 但状态 FAIL；
+- `5.2.5` 的 21 步表因此不再含“假 done”。
+
+这三行是**文档/口径**关闭：表现在说的是事实，而不是把 1.3 的缺口藏起来。
+如果下一轮要求 1.3 本身 PASS，就必须实现 turn 内 activity 更新并加运行测试；
+本轮不冒充。
+
+### 26.4 计数与回归
+
+| 判定 | §25 独立 | §26 作者 | 变化 |
+|---|---|---|---|
+| PASS | 103 | **108** | +5（B27、5.2.2、5.2.3、5.2.5、5.3.16） |
+| FAIL | 61 | **56** | −5 |
+| 未测量 | 10 | **10** | 0 |
+| 合计 | 174 | **174** | — |
+
+- `npm test`: **EXIT=0**，37 个 selftest 文件 / **622 个 `ok`**。
+- `claims-selftest`: **57 checks**，含三个 B27 探针与 L0/L1 的 appeal 阻断。
+- `tool-surface-selftest`: **41 checks**，含 4 条 `resource_status`。
+- `policy-selftest`: **120 checks**，`ACTION_ENUM` 83 = `ACTION_CATALOG` 83。
+- 剩余 **56 FAIL** 仍包括：`1.3` turn 内活动、`5.3.2`/`Q3` 的项目内抢占（`reservedSlots.p0` 只是半边）、Stage 3–5 组织/争议/预算/观测/UI 能力。
+- 浏览器绘制、真实模型 provider、真实 Host 重启仍 N/A；本轮没有 sandbox escalation，也没有写 `~/.dsh/storages/*`。

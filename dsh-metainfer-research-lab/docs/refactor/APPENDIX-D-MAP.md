@@ -2,13 +2,14 @@
 
 > 本表回答“附录 D 的 21 步落在哪个 WP、当前是否可验证”。它是进度表的补充，
 > 不替代 `PROGRESS.md`；状态以 `refactor/v2` 的代码与 `npm test` 为准。
-> 生成基线：`7e19499`。步骤编号来自 QA 附录 D（L1965–2009）。
+> 生成基线：`2c50c54`（第八轮独立复核）；1.3 的状态按 §26 修正，不再声称 done。
+> 步骤编号来自 QA 附录 D（L1965–2009）。
 
 | 附录 D | 内容 | WP / 提交 | 状态 | 验收证据 |
 |---|---|---|---|---|
 | 1.1 | `report.summary ≤ 500`（schema + prompt） | P6.6 / `5f2ec13`；`host/runtime.js` `REPORT_LIMITS` | done | `trace-selftest`：500 字截断、headline 派生、prompt 写明上限 |
 | 1.2 | 截断显式化（`shown/total`） | P4.3 / `f67348f`；`_truncated` | done | `surface-bounds-selftest`、`dag_walk` 字节上限 |
-| 1.3 | `running` 补 `elapsed` / `lastActivity` | P4.5（K8）/ runtime `lastActivityAt` | done | runtime 所有生命周期写点；`process smoke` 的 completed 节点 |
+| 1.3 | `running` 补 `elapsed` / `lastActivity` | P4.5-K8（todo），**无 turn 内实现** | **FAIL（未完成）** | `host/runtime.js` `onSessionEvent` 仍只处理 `turn/end`；一次 turn 内的 assistant/tool 活动不会移动 `lastActivityAt`。生命周期写点只覆盖 start/finish/escalate，不能冒充 1.3 |
 | 1.4 | 快照瘦身（focus 8 + index） | P1.4-Q6 / `a03b72f` | done | `context-selftest`：500 节点 <12 KB，体积不随 N 增长 |
 | 2.1 | `runnable` 唯一口径（排除 deferred） | P2.1 / `8be444c` | done | `runnable-selftest` |
 | 2.2 | `dispatchOnce`（无 LLM）+ 派生队列 | P2.2 / `8be444c` | done | `dispatch-once-selftest`；100k/5k bench |
@@ -30,11 +31,16 @@
 
 ## 5.2.2 / 5.2.3 的顺序裁决
 
-计划选择 **kernel-first**（P1 是硬前置），但阶段 1 的四步已经在 v2 中以
-`P1.4-Q6`、`P4.3`、`P6.6` 和 runtime 的 `lastActivityAt` 落地并通过测试。
-因此“阶段 1 没有 WP、无法按序执行”描述的是**旧计划文本**，不是当前分支；
-两条路径的收益验证已由 `context-selftest`、`snapshot-size-selftest` 和
-`scale-selftest` 覆盖。没有重新排序，也没有把 1.4 的收益延迟到 P4。
+计划选择 **kernel-first**（P1 是硬前置）。阶段 1 的四步不是全部完成：
+
+- 1.1 → P6.6（report 500/headline 300）**done**
+- 1.2 → P4.3（`_truncated`）**done**
+- 1.3 → P4.5-K8（todo）只覆盖生命周期写点；**turn 内活动仍无实现**，本表明确标 **FAIL**
+- 1.4 → P1.4-Q6（快照预算）**done**
+
+所以 5.2.2 的裁决是“kernel-first，且阶段 1 仍有 1.3 未完成”，不是
+“1.1–1.4 已全部落地”。收益验证由 `context-selftest`、`snapshot-size-selftest`
+和 `scale-selftest` 覆盖；1.3 的缺口留给后续 WP，不在本轮冒充完成。
 
 ## 5.2.4 的裁决
 

@@ -2918,6 +2918,48 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { ...round, status: await statusFacts(projectId) };
   }
 
+  /**
+   * Resource-side facts for one node (or the project): queue position, held and
+   * free pools, the broker's blocked reason and any reserved start. This is the
+   * read-only tool experts use before proposing a smaller shape; it never
+   * mutates or reserves anything.
+   */
+  async function resourceStatus(projectId, nodeId = null) {
+    const facts = await statusFacts(projectId);
+    const node = nodeId ? requireNode(projectId, nodeId) : null;
+    const queueEntry = node ? facts.nextToStart.find((row) => row.nodeId === node.id) ?? null : null;
+    const position = queueEntry
+      ? facts.nextToStart.findIndex((row) => row.nodeId === node.id) + 1
+      : null;
+    const resourceWait = node?.resourceWait ?? null;
+    return {
+      ok: true,
+      projectId,
+      revision: facts.revision,
+      generatedAt: facts.generatedAt,
+      resources: facts.resources,
+      queue: {
+        runnable: facts._truncated?.nextToStart?.total ?? facts.nextToStart.length,
+        truncated: facts._truncated?.nextToStart ?? null,
+        position,
+      },
+      node: node
+        ? {
+            nodeId: node.id,
+            status: node.status,
+            priority: node.priority ?? null,
+            needs: node.needs ?? {},
+            resourcesHeld: node.resourcesHeld ?? {},
+            lease: node.lease ?? null,
+            resourceWait,
+            blockedBy: resourceWait?.reason ?? queueEntry?.why ?? null,
+            reservedStartAt: resourceWait?.startAt ?? resourceWait?.reservedStartAt ?? null,
+            why: queueEntry?.why ?? null,
+          }
+        : null,
+    };
+  }
+
   async function statusFacts(projectId) {
     const project = requireProject(projectId);
     let autoStatus = null;
@@ -3579,6 +3621,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (actor.kind !== 'human' && actor.kind !== 'system' && actor.preset !== 'lab-chief') {
       return rejection('forbidden_action', 'only a human or the chief may resolve an appeal');
     }
+    if (intent.status !== 'pending') {
+      return rejection('intent_not_pending', `appeal ${intentId} is already ${intent.status}`);
+    }
+    if (Number.isFinite(intent.expiresAt) && intent.expiresAt <= Date.now()) {
+      return rejection('appeal_expired', `appeal ${intentId} expired before it was resolved`);
+    }
+    // Separation of powers: the actor who raised an appeal cannot also decide
+    // it. This is by actor id, not by role, so a chief cannot self-certify.
+    if (typeof intent.actor?.id === 'string' && intent.actor.id === actor.id) {
+      return rejection('appeal_self_resolution', 'the actor who raised an appeal cannot resolve it; a different human or the chief must decide');
+    }
     const commit = await commitMutations(projectId, [{
       op: 'intent.withdraw',
       intentId,
@@ -3599,15 +3652,24 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const intent = (Array.isArray(project.intents) ? project.intents : []).find((candidate) => candidate.id === intentId);
     if (!intent) return rejection('intent_not_found', `unknown intent: ${intentId}`);
     if (intent.status === 'withdrawn') return { ok: true, projectId, intent, alreadyWithdrawn: true };
+    if (intent.status === 'resolved') return rejection('intent_not_pending', `intent ${intentId} is already resolved`);
     const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
     const appeal = intent.kind === 'appeal';
+    // Withdrawal is not a hearing, but it still removes a block: an expert may
+    // withdraw only the appeal it raised. A different expert cannot silence
+    // someone else's objection; a human or the chief can.
+    if (appeal && actor.kind === 'expert' && actor.preset !== 'lab-chief' && intent.actor?.id !== actor.id) {
+      return rejection('forbidden_action', 'an expert may withdraw only its own appeal; a human or the chief may withdraw another actor\'s appeal');
+    }
+    // Withdrawal removes the block but is not a hearing: it must not write
+    // `resolved`, `resolvedBy` or `resolution`, and it cannot be used by an
+    // expert to impersonate the resolver role.
     const commit = await commitMutations(projectId, [{
       op: 'intent.withdraw',
       intentId,
-      ...(appeal ? { resolve: true, resolution: 'withdrawn' } : {}),
       actor,
       reason: typeof input?.reason === 'string' ? input.reason : 'withdrawn by operator',
-    }], { actor, causeId: `${appeal ? 'appeal-resolve' : 'intent-withdraw'}:${intentId}` });
+    }], { actor, causeId: `intent-withdraw:${intentId}` });
     if (commit.ok !== true) return rejection(commit.code ?? 'internal_error', commit.message ?? 'intent withdraw failed');
     const fresh = store.getProject(projectId)?.intents?.find((candidate) => candidate.id === intentId) ?? null;
     return { ok: true, projectId, intent: fresh };
@@ -3806,6 +3868,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'intake_confirm') return confirmIntake(input?.intakeId, { start: input?.start === true });
     if (action === 'intake_discard') return discardIntake(input?.intakeId);
     if (action === 'status_facts') return statusFacts(input?.projectId);
+    if (action === 'resource_status') return resourceStatus(input?.projectId, input?.nodeId ?? null);
     if (action === 'dispatch_once') return dispatchOnceAction(input?.projectId, { maxStarts: input?.limit });
     if (action === 'metrics') return metricsFor(input?.projectId);
     if (action === 'explain_node') return explainNode(input?.projectId, input?.nodeId, { window: input?.window });

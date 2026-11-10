@@ -106,6 +106,12 @@ check('L1 defer_planned is not blocked by the C7 history floor', gateClaimAction
 check('a live appeal blocks prune_branch even with a future window', gateClaimAction('prune_branch', { total: 20, failed: 0 }, {
   submitted: 3, chiefConfirmed: true, appealUntil: Date.now() + 60_000, appealPending: true,
 }).code === 'appeal_pending');
+check('an open appeal blocks L0 create_planned too', gateClaimAction('create_planned', { total: 0, failed: 0 }, {
+  submitted: 0, appealPending: true,
+}).code === 'appeal_pending');
+check('an open appeal blocks L1 defer_planned too', gateClaimAction('defer_planned', { total: 0, failed: 0 }, {
+  submitted: 1, appealPending: true,
+}).code === 'appeal_pending');
 check('C7 blocks a clean-but-thin history below the Wilson floor', gateClaimAction('cancel_running', { total: 20, failed: 4 }, {
   submitted: 2, chiefConfirmed: true,
 }).code === 'citation_confidence_too_low');
@@ -121,12 +127,30 @@ const pruned = await submit({ action: 'prune_branch', evidence: valid.slice(0, 3
 check('a clean history and the required evidence permit prune_branch', pruned.ok === true, JSON.stringify(pruned));
 const deleted = await submit({ action: 'delete_project' }, { humanConfirmed: true, appealUntil: Date.now() + 600_000 });
 check('a confirming human can submit delete_project', deleted.ok === true, JSON.stringify(deleted));
+const chiefExec = { agent: { session: { id: 'chief-1', header: { meta: { agentPreset: 'lab-chief' } } } } };
+const expertExec = { agent: { session: { id: 'advisor-1', header: { meta: { agentPreset: 'lab-advisor' } } } } };
 const appeal = await service.submitIntent(projectId, {
   kind: 'note', nodeId: 'child', claim: { action: 'appeal', reason: 'I object to pruning this branch' },
-}, null);
+}, chiefExec);
 check('an appeal is stored as an appeal intent, not a note', appeal.ok === true && appeal.intent?.kind === 'appeal', JSON.stringify(appeal));
 const blocked = await submit({ action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true, appealUntil: Date.now() + 600_000 });
 check('an open appeal blocks a new prune_branch submission', blocked.ok === false && blocked.error?.code === 'appeal_pending', JSON.stringify(blocked));
+const cancelBlocked = await submit({ action: 'cancel_running', evidence: valid }, { chiefConfirmed: true });
+check('an open appeal also blocks cancel_running (L2, no appeal flag in its level)', cancelBlocked.ok === false && cancelBlocked.error?.code === 'appeal_pending', JSON.stringify(cancelBlocked));
+
+const expertResolve = await service.resolveAppeal(projectId, appeal.intent.id, {
+  resolution: 'upheld', reason: 'expert should not resolve',
+}, expertExec);
+check('only a human or chief can resolve an appeal', expertResolve.ok === false && expertResolve.error?.code === 'forbidden_action', JSON.stringify(expertResolve));
+const resolved = await service.resolveAppeal(projectId, appeal.intent.id, {
+  resolution: 'upheld', reason: 'human heard the objection',
+});
+check('resolving an appeal records who resolved it and why', resolved.ok === true
+  && resolved.intent?.status === 'resolved'
+  && resolved.intent?.resolvedBy?.kind === 'human'
+  && typeof resolved.intent?.resolvedBy?.id === 'string'
+  && resolved.intent?.resolution === 'upheld'
+  && /human heard/.test(resolved.intent?.resolutionReason ?? ''), JSON.stringify(resolved));
 
 for (const [action, extra] of [
   ['cancel_running', { chiefConfirmed: true }],
@@ -141,19 +165,28 @@ const oneAtomCancel = await submit({ action: 'cancel_running', evidence: [valid[
 check('one atom is rejected by the action-level evidence count', oneAtomCancel.ok === false && oneAtomCancel.error?.code === 'claim_evidence_required', JSON.stringify(oneAtomCancel));
 const noChief = await submit({ action: 'cancel_running', evidence: valid }, {});
 check('cancel_running cannot self-confirm without a chief', noChief.ok === false && noChief.error?.code === 'chief_confirmation_required', JSON.stringify(noChief));
-const expertResolve = await service.resolveAppeal(projectId, appeal.intent.id, {
-  resolution: 'upheld', reason: 'expert should not resolve',
-}, { agent: { session: { id: 'advisor-1', header: { meta: { agentPreset: 'lab-advisor' } } } } });
-check('only a human or chief can resolve an appeal', expertResolve.ok === false && expertResolve.error?.code === 'forbidden_action', JSON.stringify(expertResolve));
-const resolved = await service.resolveAppeal(projectId, appeal.intent.id, {
-  resolution: 'upheld', reason: 'human heard the objection',
-});
-check('resolving an appeal records who resolved it and why', resolved.ok === true
-  && resolved.intent?.status === 'resolved'
-  && resolved.intent?.resolvedBy?.kind === 'human'
-  && typeof resolved.intent?.resolvedBy?.id === 'string'
-  && resolved.intent?.resolution === 'upheld'
-  && /human heard/.test(resolved.intent?.resolutionReason ?? ''), JSON.stringify(resolved));
+// Probe 2: an expert withdrawing its own appeal must not impersonate a
+// resolution. The appeal disappears (withdrawn), but no resolvedBy is written.
+const expertAppeal = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'root', claim: { action: 'appeal', reason: 'expert objection' },
+}, expertExec);
+const expertWithdraw = await service.withdrawIntent(projectId, expertAppeal.intent.id, { reason: 'expert withdraws' }, expertExec);
+check('an expert cannot withdraw an appeal into a resolved record', expertWithdraw.ok === true
+  && expertWithdraw.intent?.status === 'withdrawn'
+  && expertWithdraw.intent?.resolvedBy === undefined
+  && expertWithdraw.intent?.resolution === undefined
+  && expertWithdraw.intent?.withdrawnBy?.kind === 'expert', JSON.stringify(expertWithdraw));
+check('withdrawal emits intent/withdrawn, not appeal/resolved',
+  store.listEvents(projectId, 0).some((event) => event.type === 'intent/withdrawn' && event.data?.intentId === expertAppeal.intent.id)
+  && !store.listEvents(projectId, 0).some((event) => event.type === 'appeal/resolved' && event.data?.intentId === expertAppeal.intent.id));
+// Probe 3: the raiser cannot resolve their own appeal, even as lab-chief.
+const chiefAppeal = await service.submitIntent(projectId, {
+  kind: 'note', nodeId: 'root', claim: { action: 'appeal', reason: 'chief objection' },
+}, chiefExec);
+const selfResolve = await service.resolveAppeal(projectId, chiefAppeal.intent.id, {
+  resolution: 'upheld', reason: 'chief decides own appeal',
+}, chiefExec);
+check('the raiser cannot resolve their own appeal', selfResolve.ok === false && selfResolve.error?.code === 'appeal_self_resolution', JSON.stringify(selfResolve));
 const noAppeal = await submit({ action: 'prune_branch', evidence: valid.slice(0, 3) }, { chiefConfirmed: true });
 check('prune_branch needs a live appeal window', noAppeal.ok === false && noAppeal.error?.code === 'appeal_window_required', JSON.stringify(noAppeal));
 

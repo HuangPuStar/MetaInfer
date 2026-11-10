@@ -43,6 +43,7 @@ export const ACTION_CATALOG = Object.freeze({
   ledger_read: 'read',
   status_facts: 'read',
   metrics: 'read',
+  resource_status: 'read',
   explain_node: 'read',
   trace_explain: 'read',
   changes_since: 'read',
@@ -111,7 +112,7 @@ export const ACTION_CATALOG = Object.freeze({
 export const ALL_ACTIONS = Object.freeze(Object.keys(ACTION_CATALOG).sort());
 
 const READ = ALL_ACTIONS.filter((action) => ACTION_CATALOG[action] === 'read');
-const DAG = Object.freeze(['dag_map', 'dag_query', 'dag_walk', 'dag_get', 'dag_diff', 'ledger_read']);
+const DAG = Object.freeze(['dag_map', 'dag_query', 'dag_walk', 'dag_get', 'dag_diff', 'ledger_read', 'resource_status']);
 const EXPERT_PROPOSE = Object.freeze(['claim_review', 'release_review', 'review_claims', 'ledger_update', 'intent_submit', 'intent_withdraw']);
 
 /**
@@ -138,6 +139,7 @@ export const DEFAULT_PRESET_ACTIONS = Object.freeze([
   'metrics',
   'health',
   'review_claims',
+  'resource_status',
 ]);
 
 /**

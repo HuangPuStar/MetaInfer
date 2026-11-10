@@ -5,7 +5,7 @@
 > 每条要么给出**文件 · 函数 · 测试**，要么写 `未完成` + 原因。状态只有「完成 / 未完成」，
 > 没有「部分完成」——部分完成的条目拆成两条。
 >
-> 分支：`refactor/v2`。测试入口：`npm test`（37 个自测文件 / 612 checks，见文末）。
+> 分支：`refactor/v2`。测试入口：`npm test`（37 个自测文件 / 622 checks，见文末）。
 
 ## 1. 内核与写路径（B3/B5/B21/G1/G2，P1）
 
@@ -63,6 +63,7 @@
 | Q9 `dag_query`（过滤/select/分页/行级截断） | 完成 | `host/context/dag.js` `queryDag`；`lab-service.dagQuery`；policy/工具已注册 | `wiring-selftest.mjs`（真实工具调用返回行） |
 | Q9 `dag_get` | 完成 | `dag.js` `dagGet`；`lab-service.dagGetAction` | 同上 |
 | Q9 `dag_map` / `dag_walk` / `dag_diff` | 完成 | `dag.js` 纯函数；`lab-service.dagMapAction/dagWalkAction/dagDiffAction` + `agentTool` 分支 | `tool-surface-selftest.mjs`（三种查询均返回真实结果） |
+| 5.3.16 `resource_status` | 完成 | `policy.js` `ACTION_CATALOG.resource_status`（总数 83）、`agent-tool.js` `ACTION_ENUM`、`lab-service.resourceStatus` 真实分支；返回 pools/free/held、queue position、blockedBy、reservedStartAt | `tool-surface-selftest.mjs` 4 条（可调用、pools、queue、无 nodeId）；`policy-selftest.mjs` 83=83 |
 | 分页工具 `nodes_page` / `events_page` | 完成 | `lab-service.nodesPageAction/eventsPageAction`（cursor/after + `hasMore`） | `tool-surface-selftest.mjs`（第二页 cursor） |
 | claim 工具 `claim_review`/`release_review`/`review_claims` | 完成 | `lab-service` 调用 `orchestrator.reviewClaims`（服务端 actor 作 expertId） | `tool-surface-selftest.mjs` |
 | Q6 探索预算 4 查询 / 20k token / 240 s | 完成 | `host/context/limits.js` 默认值；`lab-service` 每会话预算 | `context-selftest.mjs` |

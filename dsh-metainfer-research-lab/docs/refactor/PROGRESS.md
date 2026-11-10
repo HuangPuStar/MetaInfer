@@ -50,7 +50,7 @@
 | P2.2 Policy 能力表 | done | `cc792d9` `218fe32` | handler 层 `forbidden_action`；未列出的 preset 默认只读（`DEFAULT_PRESET_ACTIONS`），不再回落到全量；schema enum 仍全局（见 OPEN-QUESTIONS.md） |
 | P8.1 preset 默认拒绝 | done | `218fe32` | `lab-chat`/`lab-merge`/`lab-dashboard` 显式策略；`lab-rogue` 仅 15 个只读 action；逐 preset 测试 |
 | P8.2 优先级单写者 | done | `218fe32` | `setNodePriority`/`updateNode` 走 `kernel.executor.commit`；planned/proposed 之外返回 `priority_frozen`；kernel mutation 二次校验 |
-| P8.3 工具面一致 | done | `218fe32` | `dag_map/walk/diff`、`nodes_page/events_page`、`claim_review/release_review/review_claims`、`health` 可调用；`get_node`/`dashboard_get` 入目录；`intent_*`/`expert_*`/`curator_*` 均已实现并三表一致 |
+| P8.3 工具面一致 | done | `218fe32` | `dag_map/walk/diff`、`resource_status`、`nodes_page/events_page`、`claim_review/release_review/review_claims`、`health` 可调用；`get_node`/`dashboard_get` 入目录；`intent_*`/`expert_*`/`curator_*` 均已实现并三表一致 |
 | P9.3 工具契约与出口 | done | `f67348f` | `dag_map` 6 KB / `dag_walk` 24 KB 硬上限；`dag_*` 带 `revision`；`dag_diff` 使用 `sinceRevision`；`/state` 1,000 节点分页；transcript/replay/MCP 列表有界 |
 | P9.4 cause 全覆盖 | done | `f67348f` | planned cancel 用真实 runtime 探针；store 为 merge/GC/reconcile 等非激活写补稳定 `causeId`；`explain_node` 回退 `lastCauseId` |
 | P9.5 测试真实性 | done | `f67348f` | trace 用真实事件、tool-surface 断言精确 `unknown_action`、i18n 解析未加引号键、priority 断言真实 actor |
@@ -60,6 +60,7 @@
 | P3.6 接入 Dispatcher | done | `cc792d9` | `index.js` 构造 kernel/broker 映射；auto tick 与 `onTerminated` 都调 |
 | P3 dag_map/walk/diff | done | `218fe32` | 已接 `agentTool`；`tool-surface-selftest.mjs` 驱动真实调用 |
 | P3 意图日志 | done | `9bdd581` | `basis:{projectRevision,snapshotAgeMs,nodesSeen}` 对象；TTL/撤回/同目标陈旧冲突；dispatch/priority/proposal 生产写入 |
+| P4.5-K8 turn 内活动 | todo | — | `host/runtime.js` `onSessionEvent` 仍只处理 `turn/end`；1.3 保持 FAIL，尚无运行测试 |
 | P4.x 专家运行时 | done | `66d9ffe`/`652a545` | 描述符、绩效指标、相似度/curator、hire/drain/fire roster；专家仍只能提议 |
 | P5–P7 curator / 争议 / 竞争 | doing | `66d9ffe` | curator 提名/熔断已接；Stage 5 组织化与竞争策略仍未完成 |
 | A 可用性 | done | `76300ce` `f7036d4` | `explain_node`、Host facts 卡片（loading/empty/error）、优先级干预、可操作错误码 |
@@ -71,7 +72,7 @@
 ## 未完成项（进入下一轮）
 
 1. **P1.7 legacy 写点迁移**：仍有直写统计；生产写路径已走 executor，但逐个清理历史写点属于后续工作。
-2. **`maxPlannedInFlight` / 预留槽 / 抢占**：会改变线上吞吐，需先有观测基线。
+2. **项目内抢占**：`reservedSlots.p0` 已实现（`fed20d0`）；p0 抢占 p2/p3 仍需 runtime preempt、10 min 受害者选择和 `dispatch/preempt` 策略。
 3. **Stage 5 组织化能力**：多专家竞争/争议/组织级预算仍是 doing。
 4. **覆盖率哨兵 / schema 级 per-preset 收窄 / O12 文本审计**：设计条目仍未完成。
 5. **浏览器绘制/FPS**：本机无 Chromium/Playwright，已关闭为不可测；不再作为待办反复计数。
@@ -200,5 +201,6 @@
 | `P19.2` | Q3/5.3.2 `reservedSlots.p0`（默认 0）在候选排序前预留槽位；无 p0 等待时行为不变；项目内抢占仍未做 | `reserved-slots-selftest` 6/6；`npm test` 37 文件 / 612 checks |
 
 状态：独立复核 §23 的 84 PASS / 80 FAIL 中，B27/U14/A20/S12 已由 `7e19499` 关闭；
-§24 的 20 个文档/口径行已逐项关闭，最终 **112 PASS / 52 FAIL / 10 未测量**。
-剩余 52 行全部是 Stage 3–5 能力未建；浏览器绘制 2 行仍 N/A。
+§24 的 20 个文档/口径行已逐项关闭，§25 独立复核为 103 PASS / 61 FAIL；§26 修复 B27 三项、5.3.16 与 1.3 的虚假 done 后，
+作者计数为 **108 PASS / 56 FAIL / 10 未测量**。剩余 56 行仍含 1.3 turn 内活动、
+5.3.2/Q3 项目内抢占和 Stage 3–5 能力；浏览器绘制 2 行仍 N/A。
