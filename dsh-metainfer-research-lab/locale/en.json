@@ -1350,6 +1350,17 @@
     "ws.experts.library.empty": "No experts",
     "ws.experts.library.metrics": "{proposals} proposals · {completed} completed",
     "ws.experts.library.proposes": "May propose: {actions}",
-    "ws.experts.library.noExecute": "Proposes only, never executes"
+    "ws.experts.library.noExecute": "Proposes only, never executes",
+    "dashboard.ageHours": "{count}h ago",
+    "dashboard.ageMinutes": "{count}m ago",
+    "dashboard.ageNow": "just now",
+    "dashboard.commentary": "Agent commentary",
+    "dashboard.computedAt": "computed {at}",
+    "dashboard.facts": "Host facts",
+    "dashboard.fresh": "Live",
+    "dashboard.sourceAgent": "Agent",
+    "dashboard.sourceHost": "Host",
+    "dashboard.stale": "Stale · {age}",
+    "dashboard.staleRevision": "Project changed since the last refresh"
   }
 }

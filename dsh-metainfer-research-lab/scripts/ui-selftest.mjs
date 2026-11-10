@@ -148,5 +148,18 @@ await test('expert library UI reads the Host catalog, not a hardcoded list', () 
   assert.ok(source.includes("className: 'rl-expert-library'"), 'expert library section is rendered');
 });
 
+await test('dashboard separates Host facts from agent commentary', () => {
+  assert.ok(source.includes("className: 'rl-dash-facts'"), 'Host facts strip is rendered');
+  assert.ok(source.includes("t('dashboard.facts'"), 'Host facts label is localized');
+  assert.ok(source.includes("t('dashboard.commentary'"), 'agent commentary label is localized');
+  assert.ok(source.includes("className: 'rl-dw-source"), 'widgets carry a source badge');
+  assert.ok(source.includes("dashboard.dataSource"), 'widget source comes from the server view');
+});
+await test('dashboard stale state carries an age badge', () => {
+  assert.ok(source.includes("rl-dash-badge-stale"), 'stale badge is styled');
+  assert.ok(source.includes("t('dashboard.stale', { age: dashboardAge"), 'stale badge includes the age');
+  assert.ok(source.includes("dashboard.staleRevision"), 'revision drift has a reason');
+});
+
 console.log(`\n${results.length - failed}/${results.length} UI budget checks passed`);
 process.exit(failed === 0 ? 0 : 1);

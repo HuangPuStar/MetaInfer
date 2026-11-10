@@ -1350,6 +1350,17 @@
     "ws.experts.library.empty": "暂无专家",
     "ws.experts.library.metrics": "{proposals} 个提案 · {completed} 个完成",
     "ws.experts.library.proposes": "可提议：{actions}",
-    "ws.experts.library.noExecute": "只提议，不执行"
+    "ws.experts.library.noExecute": "只提议，不执行",
+    "dashboard.ageHours": "{count} 小时前",
+    "dashboard.ageMinutes": "{count} 分钟前",
+    "dashboard.ageNow": "刚刚",
+    "dashboard.commentary": "Agent 评论",
+    "dashboard.computedAt": "计算于 {at}",
+    "dashboard.facts": "Host 事实",
+    "dashboard.fresh": "实时",
+    "dashboard.sourceAgent": "Agent",
+    "dashboard.sourceHost": "Host",
+    "dashboard.stale": "已过期 · {age}",
+    "dashboard.staleRevision": "上次刷新后项目已变化"
   }
 }

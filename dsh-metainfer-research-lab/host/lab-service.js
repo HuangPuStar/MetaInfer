@@ -818,14 +818,80 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   function dashboardOf(project) {
     const stored = project.dashboard && typeof project.dashboard === 'object' ? project.dashboard : {};
+    const chat = (Array.isArray(stored.chat) ? stored.chat.slice(-60) : []).map((entry) => ({
+      ...entry,
+      // Attribution is structural, not a rendering choice: a chat reply is
+      // agent-authored even though it is stored next to Host facts.
+      source: entry?.role === 'user' ? 'human' : 'agent',
+    }));
     return {
       spec: sanitizeDashboardSpec(stored.spec ?? DEFAULT_DASHBOARD_SPEC, DEFAULT_DASHBOARD_SPEC),
       widgets: Array.isArray(stored.widgets) ? stored.widgets : [],
-      chat: Array.isArray(stored.chat) ? stored.chat.slice(-60) : [],
+      chat,
       lastRun: stored.lastRun ?? null,
       lastChat: stored.lastChat ?? null,
       nextRunAt: stored.nextRunAt ?? null,
       updatedAt: stored.updatedAt ?? null,
+    };
+  }
+
+  /** Host-computed facts only; no widget body, chat text or agent prose. */
+  function dashboardHostFacts(project) {
+    const nodes = store.listNodes(project.id);
+    return {
+      source: 'host',
+      computedAt: Date.now(),
+      projectRevision: project.revision ?? 0,
+      counts: {
+        total: nodes.length,
+        running: nodes.filter((node) => node.status === 'running').length,
+        planned: nodes.filter((node) => node.status === 'planned').length,
+        completed: nodes.filter((node) => node.status === 'completed').length,
+        failed: nodes.filter((node) => node.status === 'failed').length,
+        deferred: nodes.filter((node) => node.status === 'deferred').length,
+      },
+      resources: project.config?.resourcePools ?? {},
+    };
+  }
+
+  function dashboardView(project) {
+    const dash = dashboardOf(project);
+    const now = Date.now();
+    const staleAfterMs = Math.max(60_000, dash.spec.intervalMinutes * 2 * 60_000);
+    const widgets = dash.widgets.map((widget) => {
+      const config = widget.config && typeof widget.config === 'object' ? widget.config : {};
+      const at = Number.isFinite(widget.updatedAt) ? widget.updatedAt : null;
+      const ageMs = at === null ? null : Math.max(0, now - at);
+      return {
+        ...widget,
+        dataSource: config.collector === 'script' || config.script ? 'host' : 'agent',
+        ageMs,
+        stale: at === null || ageMs > staleAfterMs,
+      };
+    });
+    const times = widgets.map((widget) => widget.updatedAt).filter((at) => Number.isFinite(at));
+    if (Number.isFinite(dash.lastRun?.endedAt)) times.push(dash.lastRun.endedAt);
+    const commentaryAt = times.length > 0 ? Math.max(...times) : null;
+    const ageMs = commentaryAt === null ? null : Math.max(0, now - commentaryAt);
+    const revisionChanged = Number.isInteger(dash.lastRun?.revision) && dash.lastRun.revision !== (project.revision ?? 0);
+    const stale = commentaryAt === null || ageMs > staleAfterMs || revisionChanged;
+    const staleReason = commentaryAt === null ? 'never_generated' : revisionChanged ? 'revision_changed' : stale ? 'age' : null;
+    return {
+      projectId: project.id,
+      ...dash,
+      widgets,
+      hostFacts: dashboardHostFacts(project),
+      commentary: {
+        source: 'agent',
+        generatedAt: commentaryAt,
+        ageMs,
+        stale,
+        staleReason,
+        staleAfterMs,
+      },
+      stale,
+      ageMs,
+      staleReason,
     };
   }
 
@@ -970,7 +1036,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       const startedAt = Date.now();
       await store.withProjectLock(projectId, async () => {
         const locked = requireProject(projectId);
-        locked.dashboard = { ...(locked.dashboard ?? {}), lastRun: { status: 'running', startedAt, error: null } };
+        locked.dashboard = {
+          ...(locked.dashboard ?? {}),
+          lastRun: { status: 'running', startedAt, revision: project.revision ?? 0, error: null },
+        };
         await commitProjectFields(projectId, { dashboard: locked.dashboard });
       });
       const errors = [];
@@ -1023,6 +1092,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
             startedAt,
             endedAt: now,
             durationMs: now - startedAt,
+            revision: project.revision ?? 0,
             updated,
             errors,
             error: errors.length > 0 ? `${errors.length} widget(s) failed` : null,
@@ -1035,7 +1105,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           eventData: { updated, errors: errors.length, durationMs: now - startedAt },
         });
       });
-      return dashboardOf(requireProject(projectId));
+      return dashboardView(requireProject(projectId));
     })();
     dashboardRuns.set(projectId, task);
     return task;
@@ -1129,7 +1199,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         updatedAt: Date.now(),
       },
     });
-    return { ...dashboardOf(project), running: dashboardRuns.has(projectId) };
+    return { ...dashboardView(requireProject(projectId)), running: dashboardRuns.has(projectId) };
   }
 
   async function getDashboard(projectId) {
@@ -1154,7 +1224,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       });
       dash = dashboardOf(requireProject(projectId));
     }
-    return { projectId, ...dash, running: dashboardRuns.has(projectId), chatting: dashboardChatRuns.has(projectId) };
+    return { ...dashboardView(requireProject(projectId)), running: dashboardRuns.has(projectId), chatting: dashboardChatRuns.has(projectId) };
   }
 
   async function updateDashboard(projectId, input) {
@@ -1175,7 +1245,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       eventType: 'dashboard/spec_updated',
       eventData: { enabled: spec.enabled, intervalMinutes: spec.intervalMinutes },
     });
-    return { projectId, ...dashboardOf(requireProject(projectId)), running: dashboardRuns.has(projectId), chatting: dashboardChatRuns.has(projectId) };
+    return { ...dashboardView(requireProject(projectId)), running: dashboardRuns.has(projectId), chatting: dashboardChatRuns.has(projectId) };
   }
 
   async function tickDashboards() {

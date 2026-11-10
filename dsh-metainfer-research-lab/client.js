@@ -178,6 +178,9 @@ window.__ModuleLoader__.load({
       "createdBy.advisor": "专家组",
       "createdBy.seed": "种子",
       "createdBy.user": "用户",
+      "dashboard.ageHours": "{count} 小时前",
+      "dashboard.ageMinutes": "{count} 分钟前",
+      "dashboard.ageNow": "刚刚",
       "dashboard.agentMode": "Dashboard agent（lab-dashboard）周期收集/整理。",
       "dashboard.chart": "折线图",
       "dashboard.chartEmpty": "暂无图表数据",
@@ -191,11 +194,15 @@ window.__ModuleLoader__.load({
       "dashboard.chatWorkingHint": "Agent 正在读取项目数据和生成 widget，可能需要几分钟；你可以继续使用其他面板。",
       "dashboard.close": "关闭 Dashboard",
       "dashboard.collector": "采集器",
+      "dashboard.commentary": "Agent 评论",
+      "dashboard.computedAt": "计算于 {at}",
       "dashboard.configure": "查看 widget 运作机理",
       "dashboard.dragHint": "拖动标题栏移动 widget",
       "dashboard.empty": "还没有 widget。用 Dashboard Chat 描述你想跟踪的指标。",
       "dashboard.error": "dashboard 更新失败",
+      "dashboard.facts": "Host 事实",
       "dashboard.formula": "计算/展示规则",
+      "dashboard.fresh": "实时",
       "dashboard.generatedBy": "生成方式",
       "dashboard.hint": "Widget 通过 Dashboard Chat 添加/修改；后台按设定间隔更新，数据可由脚本或 dashboard subagent 提供。",
       "dashboard.layout": "布局",
@@ -216,6 +223,10 @@ window.__ModuleLoader__.load({
       "dashboard.script": "采集脚本",
       "dashboard.scriptMode": "项目仓库中的确定性脚本输出。",
       "dashboard.source": "数据来源",
+      "dashboard.sourceAgent": "Agent",
+      "dashboard.sourceHost": "Host",
+      "dashboard.stale": "已过期 · {age}",
+      "dashboard.staleRevision": "上次刷新后项目已变化",
       "dashboard.title": "仪表盘",
       "dashboard.toggle": "打开或关闭 Dashboard",
       "dashboard.updatedAt": "最近更新",
@@ -1528,6 +1539,9 @@ window.__ModuleLoader__.load({
       "createdBy.advisor": "advisor",
       "createdBy.seed": "seed",
       "createdBy.user": "user",
+      "dashboard.ageHours": "{count}h ago",
+      "dashboard.ageMinutes": "{count}m ago",
+      "dashboard.ageNow": "just now",
       "dashboard.agentMode": "Dashboard agent (lab-dashboard) collects/updates on schedule.",
       "dashboard.chart": "Line chart",
       "dashboard.chartEmpty": "No chart data yet",
@@ -1541,11 +1555,15 @@ window.__ModuleLoader__.load({
       "dashboard.chatWorkingHint": "The agent is reading project data and generating widgets; this can take several minutes and you can keep using other panels.",
       "dashboard.close": "Close dashboard",
       "dashboard.collector": "Collector",
+      "dashboard.commentary": "Agent commentary",
+      "dashboard.computedAt": "computed {at}",
       "dashboard.configure": "Inspect widget mechanism",
       "dashboard.dragHint": "Drag the title bar to move this widget",
       "dashboard.empty": "No widgets yet. Describe the metrics you want in Dashboard Chat.",
       "dashboard.error": "Dashboard refresh failed",
+      "dashboard.facts": "Host facts",
       "dashboard.formula": "Computation / rendering rule",
+      "dashboard.fresh": "Live",
       "dashboard.generatedBy": "Produced by",
       "dashboard.hint": "Widgets are added and edited through Dashboard Chat; the background refresh uses a script or dashboard subagent.",
       "dashboard.layout": "Layout",
@@ -1566,6 +1584,10 @@ window.__ModuleLoader__.load({
       "dashboard.script": "Collector script",
       "dashboard.scriptMode": "Deterministic script output from the project repository.",
       "dashboard.source": "Data source",
+      "dashboard.sourceAgent": "Agent",
+      "dashboard.sourceHost": "Host",
+      "dashboard.stale": "Stale · {age}",
+      "dashboard.staleRevision": "Project changed since the last refresh",
       "dashboard.title": "Dashboard",
       "dashboard.toggle": "Open or close the dashboard",
       "dashboard.updatedAt": "Last updated",
@@ -2922,6 +2944,18 @@ window.__ModuleLoader__.load({
       '.rl-dash-window { position: relative; display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; border: 0.5px solid color-mix(in srgb, var(--dsw-alias-border-l2) 78%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 72%, transparent); box-shadow: 0 24px 80px rgba(0, 0, 0, 0.36); overflow: hidden; }',
       '.rl-dash-head { display: flex; align-items: center; gap: 10px; flex: none; min-height: 44px; padding: 8px 12px; border-bottom: 0.5px solid color-mix(in srgb, var(--dsw-alias-border-l2) 70%, transparent); background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 82%, transparent); }',
       '.rl-dash-head-title { font-size: 14px; font-weight: 500; color: var(--dsw-alias-label-primary); }',
+      '.rl-dash-badge { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 11px; line-height: 18px; border: 1px solid var(--dsw-alias-border-l2); }',
+      '.rl-dash-badge-stale { color: var(--dsw-alias-label-secondary); background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-dash-badge-fresh { color: var(--dsw-alias-label-primary); }',
+      '.rl-dash-facts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 14px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-dash-facts-label { font-size: 11px; font-weight: 600; }',
+      '.rl-dash-fact { font-size: 11px; color: var(--dsw-alias-label-secondary); }',
+      '.rl-dash-facts-at { margin-left: auto; font-size: 11px; color: var(--dsw-alias-label-secondary); }',
+      '.rl-dash-commentary-tag { margin-left: 8px; font-size: 10px; font-weight: 400; color: var(--dsw-alias-label-secondary); }',
+      '.rl-dw-source { flex: none; padding: 0 5px; border-radius: 4px; font-size: 10px; line-height: 16px; border: 1px solid var(--dsw-alias-border-l2); }',
+      '.rl-dw-source-host { color: var(--dsw-alias-label-primary); }',
+      '.rl-dw-source-agent { color: var(--dsw-alias-label-secondary); }',
+      '.rl-dw-stale { flex: none; font-size: 10px; color: var(--dsw-alias-label-secondary); }',
       '.rl-dash-head-hint { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
       '.rl-dash-head-actions { display: flex; align-items: center; gap: 6px; flex: none; }',
       '.rl-dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) 310px; flex: 1 1 auto; min-height: 0; min-width: 0; }',
@@ -8246,6 +8280,12 @@ window.__ModuleLoader__.load({
     }
 
     /** One draggable dashboard widget. */
+    function dashboardAge(ms, t) {
+      if (!Number.isFinite(ms) || ms < 60_000) return t('dashboard.ageNow');
+      if (ms < 3_600_000) return t('dashboard.ageMinutes', { count: Math.floor(ms / 60_000) });
+      return t('dashboard.ageHours', { count: Math.floor(ms / 3_600_000) });
+    }
+
     function DashboardWidget({ widget, widgets, events, onLayout, onConfigure, t }) {
       const [dragging, setDragging] = React.useState(null);
       const [resizing, setResizing] = React.useState(null);
@@ -8334,6 +8374,11 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'rl-dw-head', onPointerDown, title: t('dashboard.dragHint') },
           h('span', { className: 'rl-dw-title' }, firstString(widget.title) || 'Widget'),
+          h('span', {
+            className: 'rl-dw-source rl-dw-source-' + (widget.dataSource === 'host' ? 'host' : 'agent'),
+            title: t(widget.dataSource === 'host' ? 'dashboard.sourceHost' : 'dashboard.sourceAgent'),
+          }, t(widget.dataSource === 'host' ? 'dashboard.sourceHost' : 'dashboard.sourceAgent')),
+          widget.stale ? h('span', { className: 'rl-dw-stale', title: t('dashboard.staleRevision') }, t('dashboard.stale', { age: dashboardAge(widget.ageMs, t) })) : null,
           h('button', {
             type: 'button',
             className: 'rl-dw-config',
@@ -8530,6 +8575,10 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'rl-dash-head' },
             h('span', { className: 'rl-dash-head-title' }, firstString(asObject(spec).title) || t('dashboard.title')),
+            h('span', {
+              className: 'rl-dash-badge ' + (dashboard?.stale ? 'rl-dash-badge-stale' : 'rl-dash-badge-fresh'),
+              title: dashboard?.staleReason === 'revision_changed' ? t('dashboard.staleRevision') : '',
+            }, dashboard?.stale ? t('dashboard.stale', { age: dashboardAge(dashboard?.ageMs, t) }) : t('dashboard.fresh')),
             h('span', { className: 'rl-dash-head-hint' }, t('dashboard.hint')),
             h('div', { className: 'rl-dash-head-actions' },
               h(LabButton, {
@@ -8540,6 +8589,13 @@ window.__ModuleLoader__.load({
               }),
               h(LabButton, { label: '✕', variant: 'ghost', title: t('dashboard.close'), onClick: onClose }),
             ),
+          ),
+          h(
+            'div',
+            { className: 'rl-dash-facts', 'aria-label': t('dashboard.facts') },
+            h('span', { className: 'rl-dash-facts-label' }, t('dashboard.facts')),
+            Object.entries(asObject(dashboard?.hostFacts?.counts)).map(([key, value]) => h('span', { key, className: 'rl-dash-fact' }, key + ' ' + value)),
+            h('span', { className: 'rl-dash-facts-at' }, t('dashboard.computedAt', { at: dashboard?.hostFacts?.computedAt ? new Date(dashboard.hostFacts.computedAt).toLocaleTimeString() : '—' })),
           ),
           h(
             'div',
@@ -8563,7 +8619,7 @@ window.__ModuleLoader__.load({
             h(
               'aside',
               { className: 'rl-dash-chat', 'aria-label': t('dashboard.chat') },
-              h('h3', { className: 'rl-dash-chat-title' }, t('dashboard.chat')),
+              h('h3', { className: 'rl-dash-chat-title' }, t('dashboard.chat'), h('span', { className: 'rl-dash-commentary-tag' }, t('dashboard.commentary'))),
               h('p', { className: 'rl-hint' }, t('dashboard.chatHint')),
               h(
                 'div',
