@@ -380,20 +380,24 @@ export async function openStore(ctx, config = {}) {
   }
 
   /** O(page) list of one project's nodes, oldest first (stable order S1). */
-  function listNodes(projectId, { limit = Infinity, cursor = null } = {}) {
+  function listNodes(projectId, { limit = Infinity, cursor = null, includeArchived = false } = {}) {
     const entry = indexFor(projectId);
+    let rows = includeArchived ? entry.nodeOrder : entry.nodeOrder.filter((node) => !node.archivedAt);
     let start = 0;
     if (cursor) {
-      const index = entry.nodeOrder.findIndex((node) => node.id === cursor);
+      const index = rows.findIndex((node) => node.id === cursor);
       start = index >= 0 ? index + 1 : 0;
     }
-    const end = Number.isFinite(limit) ? start + limit : undefined;
-    const rows = entry.nodeOrder.slice(start, end);
+    rows = Number.isFinite(limit) ? rows.slice(start, start + limit) : rows.slice(start);
     return rows.map((node) => ({ ...node }));
   }
 
   function countNodes(projectId) {
-    return indexFor(projectId).nodes.size;
+    return [...indexFor(projectId).nodes.values()].filter((node) => !node.archivedAt).length;
+  }
+
+  function countArchived(projectId) {
+    return [...indexFor(projectId).nodes.values()].filter((node) => node.archivedAt).length;
   }
 
   /** True when another node names `nodeId` as parent; O(1) via the child index. */
@@ -772,6 +776,7 @@ export async function openStore(ctx, config = {}) {
     getNode,
     listNodes,
     countNodes,
+    countArchived,
     hasChildren,
     saveNode,
     subscribeNodes,

@@ -74,7 +74,7 @@ export function createProjection({ store, strict = false, clock = Date.now }) {
   function load(projectId) {
     const index = createProjectIndex();
     index.revision = store.getProject(projectId)?.revision ?? 0;
-    for (const node of store.listNodes(projectId)) indexNode(index, structuredClone(node));
+    for (const node of store.listNodes(projectId, { includeArchived: true })) indexNode(index, structuredClone(node));
     projects.set(projectId, index);
     return index.revision;
   }
@@ -136,17 +136,19 @@ export function createProjection({ store, strict = false, clock = Date.now }) {
   }
 
   function listNodes(projectId) {
-    return [...indexFor(projectId).byId.values()];
+    return [...indexFor(projectId).byId.values()].filter((node) => !node.archivedAt);
   }
 
   function listByStatus(projectId, status) {
     const index = indexFor(projectId);
-    return [...(index.byStatus.get(status) ?? [])].map((id) => index.byId.get(id));
+    return [...(index.byStatus.get(status) ?? [])].map((id) => index.byId.get(id)).filter((node) => node && !node.archivedAt);
   }
 
   function countByStatus(projectId) {
     const out = {};
-    for (const [status, ids] of indexFor(projectId).byStatus) out[status] = ids.size;
+    for (const [status, ids] of indexFor(projectId).byStatus) {
+      out[status] = [...ids].map((id) => indexFor(projectId).byId.get(id)).filter((node) => node && !node.archivedAt).length;
+    }
     return out;
   }
 
@@ -155,7 +157,7 @@ export function createProjection({ store, strict = false, clock = Date.now }) {
     const index = indexFor(projectId);
     return [...(index.children.get(nodeId) ?? [])]
       .map((id) => index.byId.get(id))
-      .filter((node) => node && node.status !== 'proposed');
+      .filter((node) => node && !node.archivedAt && node.status !== 'proposed');
   }
 
   function isLeaf(projectId, nodeId) {

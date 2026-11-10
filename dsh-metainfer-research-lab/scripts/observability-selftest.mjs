@@ -15,6 +15,10 @@ import { createEventBus } from '../host/kernel/bus.js';
 import { buildStatusFacts, whyNotStarting } from '../host/observability/status.js';
 import { computeProjectMetrics, createMetricsCollector, percentile, roleMetrics, summarizeDurations } from '../host/observability/metrics.js';
 import { createExplainer } from '../host/observability/explain.js';
+import { createKernel } from '../host/kernel/instance.js';
+import { createLabService } from '../host/lab-service.js';
+import { createLocalPoolBroker } from '../host/dispatch/brokers.js';
+import { createDispatchOnce } from '../host/dispatch/dispatch-once.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 const results = [];
@@ -98,15 +102,15 @@ await test('describe metrics: queue depth, cycle latency, per-role failure rate'
   const live = { dispatch: { count: 2, avg: 12, p95: 18, max: 18, avgMs: 12, p95Ms: 18, maxMs: 18, started: 3, skipped: 1, skipReasons: { queued: 1 }, lastAt: 1 }, snapshotBytes: { count: 1, last: 9_000, max: 9_000, maxMs: 9_000 } };
   const metrics = computeProjectMetrics({ project: { id: 'p', revision: 9 }, nodes, runs, cycles, live, now: 300_000, auto: { status: 'running', pauseCounts: { noProgress: 2 } } });
   assert.equal(metrics.counts.total, 5);
-  assert.equal(metrics.queue.depth, 2);
+  assert.equal(metrics.queue.depth, 1, 'a scheduled defer is not runnable');
   assert.equal(metrics.queue.deferred, 1);
-  assert.equal(metrics.cycles.count, 2);
-  assert.equal(metrics.cycles.avgMs, 110_000);
-  assert.equal(metrics.roles.advisor.runs, 2);
-  assert.equal(metrics.roles.advisor.failRate, 0.5);
-  assert.equal(metrics.roles.advisor.inputBytes.max, 8_100);
-  assert.equal(metrics.advisorInput.lastBytes, 9_000);
-  assert.equal(metrics.advisorInput.utilization, Number((9_000 / 12_288).toFixed(3)));
+  assert.equal(metrics.cycle.count, 2);
+  assert.equal(metrics.cycle.avgMs, 110_000);
+  assert.equal(metrics.byRole.advisor.runs, 2);
+  assert.equal(metrics.byRole.advisor.failRate, 0.5);
+  assert.equal(metrics.byRole.advisor.inputBytes.max, 8_100);
+  assert.equal(metrics.advisor.inputBytes.last, 9_000);
+  assert.equal(metrics.advisor.inputBytes.p50Utilization, Number((8_000 / 12_288).toFixed(3)));
   assert.equal(metrics.dispatch.p95Ms, 18);
   assert.equal(metrics.stalls.noProgress, 2);
 });
@@ -114,22 +118,26 @@ await test('describe metrics: queue depth, cycle latency, per-role failure rate'
 await test('O4/O5: queue/counts use the single runnable definition', () => {
   const nodes = [
     { id: 'r', status: 'running' },
-    { id: 'p', status: 'planned', priority: { class: 'p2' } },
+    { id: 'p', status: 'planned', priority: { class: 'p2' }, timeboxMs: 60_000 },
     { id: 'd', status: 'planned', priority: { class: 'deferred' } },
     { id: 'c', status: 'planned', priority: { class: 'p1' }, claim: { status: 'claimed' } },
     { id: 'h', status: 'planned', priority: { class: 'p1' }, dispatchHold: { untilMs: 500_000 } },
     { id: 's', status: 'completed' },
+    { id: 'sched', status: 'planned', priority: { class: 'p2' }, deferUntil: 500_000, timeboxMs: 60_000 },
+    { id: 'arch', status: 'planned', priority: { class: 'deferred' }, archivedAt: 1, timeboxMs: 60_000 },
   ];
-  const metrics = computeProjectMetrics({ project: { id: 'p' }, nodes, now: 300_000 });
+  const metrics = computeProjectMetrics({ project: { id: 'p' }, nodes, archived: 1, now: 300_000 });
   assert.equal(metrics.queue.depth, 1);
   assert.equal(metrics.queue.runnable, 1);
   assert.equal(metrics.queue.planned, 1);
   assert.equal(metrics.queue.claimed, 1);
   assert.equal(metrics.queue.held, 1);
-  assert.equal(metrics.queue.deferred, 1);
+  assert.equal(metrics.queue.deferred, 2, 'deferred class + scheduled deferUntil, no double count');
+  assert.equal(metrics.queue.remainingMs, 60_000, 'runnable timebox sum');
   assert.equal(metrics.counts.planned, 1, 'planned count must exclude deferred');
-  assert.equal(metrics.counts.deferred, 1);
-  assert.equal(metrics.counts.total, 6);
+  assert.equal(metrics.counts.deferred, 2);
+  assert.equal(metrics.counts.archived, 1);
+  assert.equal(metrics.counts.total, 8, 'hot nodes + archived audit count');
 });
 
 await test('O1/A11: cycle and per-role latency expose p50/p90, not only p95', () => {
@@ -139,11 +147,11 @@ await test('O1/A11: cycle and per-role latency expose p50/p90, not only p95', ()
     { role: 'worker', status: 'failed', startedAt: 300, endedAt: 600, inputBytes: 300, usage: { totalTokens: 30 } },
   ];
   const metrics = computeProjectMetrics({ project: { id: 'p' }, runs, cycles: [{ startedAt: 0, endedAt: 100 }, { startedAt: 100, endedAt: 600 }, { startedAt: 600, endedAt: 1_100 }] });
-  assert.equal(metrics.roles.worker.duration.p50, 200);
-  assert.equal(metrics.roles.worker.duration.p90, 300);
-  assert.equal(metrics.roles.worker.failRate, Number((1 / 3).toFixed(3)));
-  assert.equal(metrics.cycles.p50, 500);
-  assert.equal(metrics.cycles.p90, 500);
+  assert.equal(metrics.byRole.worker.duration.p50, 200);
+  assert.equal(metrics.byRole.worker.duration.p90, 300);
+  assert.equal(metrics.byRole.worker.failRate, Number((1 / 3).toFixed(3)));
+  assert.equal(metrics.cycle.p50, 500);
+  assert.equal(metrics.cycle.p90, 500);
 });
 
 await test('O2: advisor input exposes byte/token percentiles and the byte guard', () => {
@@ -153,36 +161,13 @@ await test('O2: advisor input exposes byte/token percentiles and the byte guard'
     { role: 'advisor', status: 'completed', startedAt: 2, endedAt: 3, inputBytes: 3_000, usage: { totalTokens: 300 } },
   ];
   const metrics = computeProjectMetrics({ project: { id: 'p', config: { auto: { maxTokens: 10_000 } } }, runs });
-  assert.equal(metrics.advisorInput.p50Bytes, 2_000);
-  assert.equal(metrics.advisorInput.p90Bytes, 3_000);
-  assert.equal(metrics.advisorInput.p50Tokens, 200);
-  assert.equal(metrics.advisorInput.p90Tokens, 300);
-  assert.equal(metrics.advisorInput.p90Utilization, Number((3_000 / 12_288).toFixed(3)));
-  assert.equal(metrics.advisorInput.budgetBytes, 12_288);
-  assert.deepEqual(metrics.advisorInput.tokenGuard, { maxTokens: 10_000, used: 0, remaining: 10_000 });
-});
-
-await test('O3: dispatch queue-wait and per-decision rows are bounded and auditable', () => {
-  const collector = createMetricsCollector({ clock: () => 9, ring: 3 });
-  collector.recordDispatch('p', {
-    durationMs: 5,
-    started: 3,
-    skipped: [{ nodeId: 'n3', status: 'queued' }],
-    queueWaits: [{ nodeId: 'n1', waitMs: 10 }, { nodeId: 'n2', waitMs: 20 }, { nodeId: 'n3b', waitMs: 30 }],
-    decisions: [
-      { nodeId: 'n1', status: 'started', waitMs: 10 },
-      { nodeId: 'n2', status: 'started', waitMs: 20 },
-      { nodeId: 'n3b', status: 'started', waitMs: 30 },
-      { nodeId: 'n3', status: 'queued', code: null },
-    ],
-  });
-  const snap = collector.snapshot('p');
-  assert.equal(snap.dispatch.queueWait.count, 3);
-  assert.equal(snap.dispatch.queueWait.p50, 20);
-  assert.equal(snap.dispatch.queueWait.p99, 30);
-  assert.equal(snap.dispatch.decisions.length, 3, 'decision ring is bounded');
-  assert.deepEqual(snap.dispatch.decisions.map((row) => row.nodeId), ['n2', 'n3b', 'n3']);
-  assert.equal(snap.dispatch.p50, 5);
+  assert.equal(metrics.advisor.inputBytes.p50, 2_000);
+  assert.equal(metrics.advisor.inputBytes.p90, 3_000);
+  assert.equal(metrics.advisor.tokens.p50, 200);
+  assert.equal(metrics.advisor.tokens.p90, 300);
+  assert.equal(metrics.advisor.inputBytes.p90Utilization, Number((3_000 / 12_288).toFixed(3)));
+  assert.equal(metrics.advisor.budgetBytes, 12_288);
+  assert.deepEqual(metrics.advisor.tokenGuard, { maxTokens: 10_000, used: 0, remaining: 10_000 });
 });
 
 await test('metrics collector is bounded and aggregation is deterministic', () => {
@@ -238,6 +223,60 @@ await test('trace_explain walks proposal to outcome, and reports missing runs ho
   assert.ok(kinds.includes('outcome'));
   assert.deepEqual(trace._truncated.phases, null);
   assert.equal(trace.runs.length, 0);
+});
+
+await test('O3: production dispatchOnce records runnable->claimed queue wait', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const kernel = createKernel({ store });
+  const projectId = 'prod-o3';
+  const now = Date.now();
+  await store.saveProject({
+    id: projectId, revision: 0, counters: { eventSeq: 0 }, updatedAt: 0,
+    config: { maxRunningNodes: 1, resourcePools: { gpu: 1 }, maxNodes: 10 },
+  });
+  kernel.load(projectId);
+  const executor = kernel.executor;
+  const projection = kernel.projection;
+  await executor.commit(projectId, {
+    actor: human,
+    mutations: [{ op: 'node.create', node: {
+      id: 'held', title: 'held then released', status: 'planned', needs: { gpu: 1 },
+      timeboxMs: 600_000, priority: { class: 'p2' },
+      timestamps: { createdAt: now - 3_600_000 },
+      dispatchHold: { untilMs: now - 1 },
+    } }],
+  });
+  const local = createLocalPoolBroker({ limits: () => ({ maxRunningNodes: 1, resourcePools: { gpu: 1 } }) });
+  const brokers = new Map([['local-pool', local], ['cluster', local]]);
+  const dispatcher = createDispatchOnce({
+    projectId, executor, projection, brokers,
+    launcher: {
+      async start(id, nodeId, { lease }) {
+        await executor.commit(id, {
+          actor: { kind: 'system', id: 'runtime' },
+          mutations: [{ op: 'node.transition', nodeId, to: 'running', set: { lease: { leaseId: lease.leaseId, broker: lease.broker } } }],
+        });
+      },
+    },
+  });
+  const service = createLabService({
+    ctx: { effect: () => {}, logger: { info() {}, warn() {} } },
+    store, kernel, git: null, runtime: null, transcript: null, orchestrator: null,
+    auto: null, cluster: null, clusterAdmin: null,
+    dispatchOnce: (id, options = {}) => dispatcher.run({
+      ...options,
+      config: store.getProject(id)?.config,
+      maxRunningNodes: store.getProject(id)?.config?.maxRunningNodes ?? Infinity,
+    }),
+  });
+  const round = await service.dispatchOnce(projectId, { includeStatus: false, maxStarts: 1 });
+  assert.deepEqual(round.startedNodeIds, ['held']);
+  const metrics = await service.metricsFor(projectId);
+  assert.equal(metrics.dispatch.queueWait.count, 1, 'production dispatchOnce must feed the queue-wait ring');
+  assert.ok(metrics.dispatch.queueWait.p50 >= 3_500_000, `wait ${metrics.dispatch.queueWait.p50}`);
+  assert.equal(metrics.dispatch.decisions.at(-1)?.nodeId, 'held');
+  assert.equal(metrics.dispatch.decisions.at(-1)?.status, 'started');
+  assert.ok(metrics.dispatch.decisions.at(-1)?.waitMs >= 3_500_000);
 });
 
 let failed = 0;

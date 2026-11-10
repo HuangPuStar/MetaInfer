@@ -21,6 +21,7 @@ import { comparePriority, isDispatchableClass, normalizePriority } from './prior
 /** Why a node is not runnable. Stable machine-readable codes. */
 export const RUNNABLE_BLOCK = Object.freeze({
   NOT_PLANNED: 'not_planned',
+  ARCHIVED: 'archived',
   DEFERRED: 'deferred',
   CLAIMED: 'claimed',
   HELD: 'dispatch_hold',
@@ -32,8 +33,10 @@ export const RUNNABLE_BLOCK = Object.freeze({
  * @returns {string|null} a RUNNABLE_BLOCK code, or null when the node is runnable.
  */
 export function runnableBlockReason(node, now = Date.now()) {
-  if (!node || node.status !== 'planned') return RUNNABLE_BLOCK.NOT_PLANNED;
+  if (!node || node.archivedAt) return RUNNABLE_BLOCK.ARCHIVED;
+  if (node.status !== 'planned') return RUNNABLE_BLOCK.NOT_PLANNED;
   if (node.claim) return RUNNABLE_BLOCK.CLAIMED;
+  if (Number(node.deferUntil) > now) return RUNNABLE_BLOCK.DEFERRED;
   if (!isDispatchableClass(node.priority)) return RUNNABLE_BLOCK.DEFERRED;
   if (node.dispatchHold && Number(node.dispatchHold.untilMs) > now) return RUNNABLE_BLOCK.HELD;
   return null;
@@ -44,9 +47,12 @@ export function isRunnableNode(node, now = Date.now()) {
   return runnableBlockReason(node, now) === null;
 }
 
-/** @returns {boolean} whether the node is a deferred (pruned) planned node. */
-export function isDeferredNode(node) {
-  return node?.status === 'planned' && normalizePriority(node.priority).class === 'deferred';
+/** @returns {boolean} whether the node is deferred now (pruned class or scheduled `deferUntil`). */
+export function isDeferredNode(node, now = Date.now()) {
+  if (!node || node.archivedAt) return false;
+  if (node.status !== 'planned') return false;
+  if (normalizePriority(node.priority).class === 'deferred') return true;
+  return Number(node.deferUntil) > now;
 }
 
 /**
@@ -84,6 +90,7 @@ export function runnableSummary(nodes, options = {}) {
   const all = [];
   const runnable = [];
   for (const node of nodes) {
+    if (node?.archivedAt) continue;
     all.push(node);
     if (isRunnableNode(node, now)) runnable.push(node);
   }
@@ -97,7 +104,7 @@ export function runnableSummary(nodes, options = {}) {
   return {
     total: all.length,
     runnable: runnable.length,
-    deferred: all.filter(isDeferredNode).length,
+    deferred: all.filter((node) => isDeferredNode(node, now)).length,
     claimed: all.filter((node) => node?.status === 'planned' && node.claim).length,
     held: all.filter((node) => node?.status === 'planned' && !node.claim
       && isDispatchableClass(node.priority)

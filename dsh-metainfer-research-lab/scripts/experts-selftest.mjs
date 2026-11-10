@@ -10,7 +10,7 @@ import { registerAgentTool } from '../host/agent-tool.js';
 import { listExpertDescriptors, computeExpertMetrics } from '../host/experts/registry.js';
 import { dedupeSignature, nodeSimilarity, recallCandidates, recallExperts, similarityEvidence, variantConflict } from '../host/experts/similarity.js';
 import { applyNomination, createCurator } from '../host/experts/curator.js';
-import { evaluateTriggers, TRIGGER_CODES } from '../host/experts/triggers.js';
+import { ESCALATION_TRIGGER_CODES, THRESHOLD_TRIGGER_CODES, evaluateEscalationTriggers, evaluateThresholdTriggers } from '../host/experts/triggers.js';
 import { ACTION_CATALOG, allowedActions } from '../host/kernel/policy.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
@@ -30,17 +30,59 @@ check('curator is read-only and nominates', curatorDescriptor && curatorDescript
 check('descriptors are copies, not shared mutable state', listExpertDescriptors()[0] !== listExpertDescriptors()[0]);
 
 const triggerNow = Date.now();
-const triggerNodes = [
-  { id: 'running-stalled', status: 'running', title: 'duplicate title', priority: { class: 'p2' }, timestamps: { startedAt: triggerNow - 3_600_000, lastActivityAt: triggerNow - 3_600_000, createdAt: triggerNow - 3_600_000 } },
-  { id: 'queued-starving', status: 'planned', title: 'queued work', priority: { class: 'p0' }, timestamps: { createdAt: triggerNow - 3_600_000 } },
-  { id: 'duplicate-title', status: 'planned', title: 'duplicate title', priority: { class: 'p3' }, timestamps: { createdAt: triggerNow } },
-  { id: 'failed-node', status: 'failed', attempt: 3, title: 'failed work', timestamps: { createdAt: triggerNow } },
+const escalationFixtures = [
+  { id: 'c1', status: 'planned', hypothesis: 'same hypothesis', variant: 'lr=1e-3' },
+  { id: 'c2', status: 'planned', hypothesis: 'same hypothesis', variant: 'lr=3e-4' },
+  { id: 'nd', status: 'planned', hypothesis: 'a brand new direction' },
+  { id: 'bd', status: 'failed', branchDead: true },
+  { id: 'lc', status: 'planned', confidence: 0.59 },
 ];
-const triggerCodes = evaluateTriggers({ nodes: triggerNodes, auto: { status: 'paused', pauseReason: 'noProgress' }, now: triggerNow, stalledMs: 60_000, starvingMs: 60_000 }).map((row) => row.code);
-check('B13/5.3.9: all six trigger codes are deterministic predicates with detail',
-  TRIGGER_CODES.length === 6 && TRIGGER_CODES.every((code) => triggerCodes.includes(code))
-  && new Set(triggerCodes).size === 6,
-  JSON.stringify({ codes: TRIGGER_CODES, fired: triggerCodes }));
+const escalation = evaluateEscalationTriggers({
+  nodes: escalationFixtures,
+  project: { counters: { tokensUsed: 900, costUsd: 0 }, config: { auto: { maxTokens: 1_000 } } },
+  knownHypotheses: ['the old direction'],
+  ledger: [{ id: 'l1', target: 'c1', value: 'keep' }, { id: 'l2', target: 'c1', value: 'change' }],
+  now: triggerNow,
+});
+const escalationCodes = escalation.map((row) => row.code);
+check('B13: the six checklist escalation codes fire from deterministic facts',
+  ESCALATION_TRIGGER_CODES.length === 6
+  && ESCALATION_TRIGGER_CODES.every((code) => escalationCodes.includes(code))
+  && new Set(escalationCodes).size === 6
+  && escalation.every((row) => row.detail && typeof row.detail === 'object'),
+  JSON.stringify({ expected: ESCALATION_TRIGGER_CODES, fired: escalation }));
+
+const threshold = evaluateThresholdTriggers({
+  nodes: [
+    { id: 'q1', status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: triggerNow - 600_000 } },
+    { id: 'q2', status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: triggerNow - 600_000 } },
+    { id: 'q3', status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: triggerNow - 600_000 } },
+    { id: 'stalled', status: 'running', timestamps: { startedAt: triggerNow - 20 * 60_000, lastActivityAt: triggerNow - 16 * 60_000 } },
+    { id: 'f1', status: 'failed', hypothesis: 'converged direction' },
+    { id: 'f2', status: 'failed', hypothesis: 'converged direction' },
+    { id: 'f3', status: 'failed', hypothesis: 'converged direction' },
+  ],
+  runs: [
+    { id: 'r1', status: 'failed', errorKind: 'OOM', startedAt: triggerNow - 5_000 },
+    { id: 'r2', status: 'failed', errorKind: 'OOM', startedAt: triggerNow - 4_000 },
+    { id: 'r3', status: 'failed', errorKind: 'OOM', startedAt: triggerNow - 3_000 },
+  ],
+  intents: [1, 2, 3, 4, 5].map((index) => ({ id: `i${index}`, expertId: 'lab-advisor', status: 'rejected' })),
+  project: { counters: { tokensUsed: 850 }, config: { auto: { maxTokens: 1_000 } } },
+  freeSlots: 1,
+  queueOverloadSince: triggerNow - 5 * 60_000 - 1,
+  stalledMs: 15 * 60_000,
+  now: triggerNow,
+});
+const thresholdCodes = threshold.map((row) => row.code);
+check('5.3.9: the six checklist thresholds fire (queue 5m, stall 15m, errorKind 3x, reject 5x, budget >80%, 3 failed same hypothesis)',
+  THRESHOLD_TRIGGER_CODES.length === 6
+  && THRESHOLD_TRIGGER_CODES.every((code) => thresholdCodes.includes(code))
+  && new Set(thresholdCodes).size === 6
+  && threshold.find((row) => row.code === 'repeated_failure')?.detail?.streak === 3
+  && threshold.find((row) => row.code === 'expert_rejected')?.detail?.count === 5
+  && threshold.find((row) => row.code === 'direction_converged')?.detail?.nodeIds?.length === 3,
+  JSON.stringify({ expected: THRESHOLD_TRIGGER_CODES, fired: threshold }));
 
 const metrics = computeExpertMetrics({
   expertId: 'lab-advisor',
@@ -141,6 +183,68 @@ registerAgentTool(toolCtx, service);
 const curatorExec = { agent: { session: { id: 's-curator', header: { meta: { agentPreset: 'lab-curator' } } } } };
 const humanExec = { agent: { session: { id: 's-human', header: {} } } };
 const call = async (args, exec) => JSON.parse((await toolCtx.tool.execute(args, exec)).result);
+// 5.3.9 production path: the observer, not the test, owns the 5-minute window.
+const thresholdProjectId = 'threshold-p';
+const t0 = Date.now();
+await store.saveProject({
+  id: thresholdProjectId, revision: 0, counters: { eventSeq: 0, tokensUsed: 900 },
+  config: { maxRunningNodes: 1, resourcePools: { gpu: 1 }, maxNodes: 50, auto: { maxTokens: 1_000 } },
+  intents: [1, 2, 3, 4, 5].map((index) => ({ id: `reject-${index}`, expertId: 'lab-advisor', status: 'rejected' })),
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(thresholdProjectId);
+for (const [id, spec] of Object.entries({
+  q1: { status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: t0 - 600_000 } },
+  q2: { status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: t0 - 600_000 } },
+  q3: { status: 'planned', priority: { class: 'p2' }, timestamps: { createdAt: t0 - 600_000 } },
+  stalled: { status: 'running', timestamps: { startedAt: t0 - 20 * 60_000, lastActivityAt: t0 - 16 * 60_000 } },
+  f1: { status: 'failed', hypothesis: 'same dead direction' },
+  f2: { status: 'failed', hypothesis: 'same dead direction' },
+  f3: { status: 'failed', hypothesis: 'same dead direction' },
+})) {
+  await store.saveNode(thresholdProjectId, { id, title: id, timestamps: { createdAt: t0 }, ...spec });
+}
+for (let index = 0; index < 3; index += 1) {
+  await store.saveRun(thresholdProjectId, {
+    id: `fail-${index}`, projectId: thresholdProjectId, status: 'failed', errorKind: 'OOM',
+    startedAt: t0 - 5_000 + index, endedAt: t0 - 4_000 + index,
+  });
+}
+const firstObserve = service.observerSnapshot(thresholdProjectId, { now: t0 });
+const secondObserve = service.observerSnapshot(thresholdProjectId, { now: t0 + 5 * 60_000 + 1 });
+const observedCodes = (secondObserve.thresholdTriggers ?? []).map((row) => row.code);
+check('5.3.9: the production observer emits all six threshold triggers and keeps the 5-minute window',
+  THRESHOLD_TRIGGER_CODES.every((code) => observedCodes.includes(code))
+  && new Set(observedCodes).size === 6
+  && (firstObserve.thresholdTriggers ?? []).every((row) => row.code !== 'queue_overload'),
+  JSON.stringify({ first: firstObserve.thresholdTriggers, second: secondObserve.thresholdTriggers }));
+
+// B13 production path: the observer receives the same facts the checker sees.
+const escalationProjectId = 'escalation-p';
+await store.saveProject({
+  id: escalationProjectId, revision: 0, counters: { eventSeq: 0, tokensUsed: 900 },
+  config: { maxRunningNodes: 1, resourcePools: { gpu: 1 }, maxNodes: 50, auto: { maxTokens: 1_000 } },
+  knownHypotheses: ['the old direction'],
+  ledger: [{ id: 'l1', target: 'c1', value: 'keep' }, { id: 'l2', target: 'c1', value: 'change' }],
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(escalationProjectId);
+for (const node of [
+  { id: 'c1', title: 'c1', status: 'planned', hypothesis: 'same hypothesis', variant: 'lr=1e-3' },
+  { id: 'c2', title: 'c2', status: 'planned', hypothesis: 'same hypothesis', variant: 'lr=3e-4' },
+  { id: 'nd', title: 'nd', status: 'planned', hypothesis: 'a brand new direction' },
+  { id: 'bd', title: 'bd', status: 'failed', branchDead: true },
+  { id: 'lc', title: 'lc', status: 'planned', confidence: 0.59 },
+]) {
+  await store.saveNode(escalationProjectId, { ...node, timestamps: { createdAt: Date.now() } });
+}
+const escalationObserve = service.observerSnapshot(escalationProjectId, { now: Date.now() });
+const observedEscalationCodes = (escalationObserve.triggers ?? []).map((row) => row.code);
+check('B13: the production observer emits the six checklist escalation codes',
+  ESCALATION_TRIGGER_CODES.every((code) => observedEscalationCodes.includes(code))
+  && new Set(observedEscalationCodes).size === 6,
+  JSON.stringify({ expected: ESCALATION_TRIGGER_CODES, fired: escalationObserve.triggers }));
+
 const listed = await call({ action: 'expert_list', projectId }, curatorExec);
 check('expert_list returns descriptors with metrics', listed.ok === true && listed.experts.every((expert) => expert.metrics && expert.metrics.expertId === expert.id), JSON.stringify(listed.experts?.map((expert) => expert.id)));
 check('expert_list reports the curator breaker', listed.curator && typeof listed.curator.falseCloseRate === 'number');

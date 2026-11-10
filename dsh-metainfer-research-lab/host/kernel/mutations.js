@@ -207,9 +207,12 @@ const reducers = {
         throw new MutationError('protected_field', `${key} cannot be changed by node.update`);
       }
     }
-    Object.assign(node, structuredClone(set));
+    const nextSet = structuredClone(set);
+    const nextTimestamps = { ...(node.timestamps ?? {}), ...(nextSet.timestamps ?? {}) };
+    delete nextSet.timestamps;
+    Object.assign(node, nextSet);
     for (const key of unset) delete node[key];
-    node.timestamps = { ...(node.timestamps ?? {}), updatedAt: ctx.now };
+    node.timestamps = { ...nextTimestamps, updatedAt: ctx.now };
     ws.putNode(node);
     return [nodeEvent(m.eventType ?? 'node/edited', node, m.eventData ?? { fields: [...Object.keys(set), ...unset] }, {
       op: 'node.merge', nodeId, set: structuredClone(set), unset, updatedAt: ctx.now,
@@ -234,13 +237,16 @@ const reducers = {
       if (NODE_PROTECTED_FIELDS.has(key)) throw new MutationError('protected_field', `${key} cannot be set here`);
     }
     const from = node.status;
-    Object.assign(node, structuredClone(set));
+    const nextSet = structuredClone(set);
+    const nextTimestamps = { ...(node.timestamps ?? {}), ...(nextSet.timestamps ?? {}) };
+    delete nextSet.timestamps;
+    Object.assign(node, nextSet);
     node.status = to;
     // A node that leaves `planned` no longer holds a dispatch claim (commit point consumed).
     const hadClaim = Boolean(node.claim);
     delete node.claim;
     if (ctx.causeId) node.lastCauseId = ctx.causeId;
-    node.timestamps = { ...(node.timestamps ?? {}), updatedAt: ctx.now };
+    node.timestamps = { ...nextTimestamps, updatedAt: ctx.now };
     ws.putNode(node);
     return [nodeEvent(m.eventType ?? TRANSITION_EVENT[to], node, m.eventData ?? { from, to }, {
       op: 'node.merge', nodeId, set: { ...structuredClone(set), status: to, ...(ctx.causeId ? { lastCauseId: ctx.causeId } : {}) }, unset: hadClaim ? ['claim'] : [], updatedAt: ctx.now,
@@ -610,9 +616,12 @@ export function redoEffect(target, effect, revision) {
     case 'node.merge': {
       const node = target.getNode(effect.nodeId);
       if (!node) return;
-      Object.assign(node, structuredClone(effect.set ?? {}));
+      const set = structuredClone(effect.set ?? {});
+      const timestamps = { ...(node.timestamps ?? {}), ...(set.timestamps ?? {}), updatedAt: effect.updatedAt ?? node.timestamps?.updatedAt };
+      delete set.timestamps;
+      Object.assign(node, set);
       for (const key of effect.unset ?? []) delete node[key];
-      node.timestamps = { ...(node.timestamps ?? {}), updatedAt: effect.updatedAt ?? node.timestamps?.updatedAt };
+      node.timestamps = timestamps;
       node.rev = revision;
       target.putNode(node);
       return;

@@ -30,11 +30,11 @@ B27 撤销**，不再作为 B27 的排除项。
 arbiter matrix）独立通过，**B22 仍是 FAIL**：8 类 authority 元数据正确，但
 `resolveDispute` 不执行 authority 检查，专家可对全部 8 类 `apply_change`；
 5.3.13 的 long-poll/mid-sleep 通过，但只有 30s、只识别 stalled，缺
-starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准；第二十一轮以 §46.7 的 **121 / 43 / 10** 为准。
+starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准；第二十一轮以 §46.7 的 **121 / 43 / 10** 为准；第二十二轮以 §48 的 **143 / 21 / 10** 为准。
 
 > 作者第十四轮报告见 **§35**，第二十轮报告见 **§46**，不替代独立复核。
-> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；第二十一轮见 §46.7；当前独立总判定以 §46.7 为准：121 PASS / 43 FAIL / 10 未测量。**
-> **B27 restart continuity 仍 PASS；U2 PASS；B22 在 round 21 独立重放通过（48 个 method+path 全部有 policy；14 个 token 路由 absent/forged 拒绝；递归剥离 body actor；/commands 破坏性操作仍走 human gate；authorizeIrreversibleTool(null) 不再铸造 human）。完整发布仍 NO-SHIP：13 个必须行尚未关闭。**
+> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；第二十一轮见 §46.7；第二十二轮见 §48；当前独立总判定以 §48 为准：143 PASS / 21 FAIL / 10 未测量。**
+> **B27 restart continuity 仍 PASS；U2 PASS；B22 在 round 21 独立重放通过（48 个 method+path 全部有 policy；14 个 token 路由 absent/forged 拒绝；递归剥离 body actor；/commands 破坏性操作仍走 human gate；authorizeIrreversibleTool(null) 不再铸造 human）。完整发布仍 NO-SHIP：round 22 §48 仍有 6 个必须行（O1/O2/O3/O4/O5/A21）未关闭。**
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
@@ -6172,13 +6172,11 @@ human actor，`/preemption/appeal` 还能接受 body actor。只修 dispute 清�
 **窄发布目前不可宣布**：`/commands` 的无凭据写是安全面，不是“应该行”的质量
 缺口；在它关闭前，release note 不能把 B22 写成已闭合。
 
-**条件式**：如果未来 B22 真正关闭（包括 `/commands` 等），账本才会变为
-**121 / 43 / 10**，residual 为 **13 必须 / 20 应该 / 10 明确不做**。届时一个
-可辩护的 narrow-release scope 应明确排除：项目内 p0 抢占（5.3.2）、deferred
-配额/自动进展（Q5）、多写 DAG/intent 边界（Q12/Q14）、无代码出口的语义 fallback
-（C5）、O1–O5/A11/A21 的完整可观测性承诺，以及 S5 的 >10k replay 验收；这些
-不能靠“narrow”一词隐式包含。当前 B22 未关闭，所以这些只是条件式说明，不是
-本轮可发布的 scope。
+**条件式（历史）**：§46.7 关闭 B22 后账本确实变为 **121 / 43 / 10**；round 22 §48 进一步发现 11 个伪 PASS，当前为 **143 / 21 / 10**，residual **6 必须 / 5 应该 / 10 明确不做**。一个
+可辩护的 narrow-release scope 应明确排除当前 6 个必须（O1/O2/O3/O4/O5/A21）和
+5 个应该（B13/Q4/C1/5.3.9/5.3.12）；A11/S5/5.3.7/5.4.2/5.4.6 本轮已 PASS，
+不能再按旧条件式排除。B22 已关闭，但这些缺口仍使 narrow release 不能隐式包含
+`/metrics`、queue-wait、archive、rotation 或触发/预算语义。
 
 ---
 
@@ -6307,7 +6305,7 @@ B22 是否从 FAIL 变为 PASS。
 
 **46.7.7 判定**：**B22 PASS**。账本变为 **121 PASS / 43 FAIL / 10 N/A**，residual **13 必须 / 20 应该 / 10 明确不做 = 43**；U2 PASS。完整发布仍 **NO-SHIP**，因为 13 个必须行（不含 B22）未全部关闭；窄发布仍不可宣布，必须明确排除 5.3.2、Q5、Q12/Q14、C5、O1–O5/A11/A21、S5 等条件式范围。
 
-## 47. 作者关闭 13 必须 + 20 应该（HEAD `e89a5f0`，待独立重放）
+## 47. 作者关闭 13 必须 + 20 应该（HEAD `e89a5f0`；作者探针，已被 §48 否定）
 
 > 本节是**作者探针**，不是独立复核。B22 仍以 §46.7 的独立重放为准；本节不改变“完整发布 NO-SHIP 的独立结论”，只说明作者已把剩余可执行项逐行关闭并留下可重放的命令。
 
@@ -6378,3 +6376,85 @@ B22 是否从 FAIL 变为 PASS。
 - 没有真实 Host process restart、真实 provider/browser 测量或 `~/.dsh/storages/*` 写入。
 - B22 的 PASS 仍来自 §46.7 独立重放，不是本节作者探针。
 - `5.3.7` 的自动 join 仍以 `finish_merge` 为冲突兜底；本轮只证明“父节点全完成时自动创建 merge、去重、限一批”，没有宣称自动解决 git 冲突。
+
+## §48 独立复核（round 22，HEAD `4318607`，2026-11-10T23:39+08:00 `Asia/Shanghai`）
+
+> 本节是独立重放，不是作者 §47 的复述。§47 的作者账面（154/10/10）不被接受；当前独立账面为 **143 PASS / 21 FAIL / 10 N/A**，residual **6 必须 / 5 应该 / 10 明确不做 = 21**。作者 §47 写的是 `e89a5f0`，当前 clean HEAD 是 `4318607`；两处测试都是 928 ok，但 §47 的“逐行关闭”不是本节的 verdict。
+
+### 48.1 结论：11 个 PASS 是自证，不是验收
+
+抽样覆盖 must/should 共 16 行：`O1/O2/O3/O4/O5`、`A11/A21`、`S5`、`C1`、`B13`、`Q4`、`5.3.7`、`5.3.9`、`5.3.12`、`5.4.2`、`5.4.6`。其中 **11 行必须改判 FAIL**：
+
+| 行 | 范围 | 实测反证 |
+|---|---|---|
+| O1 | 必须 | 真实 `/metrics` 顶层键是 `cycles` / `roles`，没有清单要求的 `cycle` / `byRole`。测试直接断言 `metrics.cycles` / `metrics.roles`，断言的是实现别名，不是清单契约。 |
+| O2 | 必须 | 真实 `/metrics` 顶层是 `advisorInput.{p50Bytes,p90Bytes,...}`，没有清单要求的 `advisor.inputBytes.p50/p90`。100-node <12 KB 的 `context-selftest` 只证明夹具，不补这个出口契约。 |
+| O3 | 必须 | 真 `dispatchOnce` 启动一个 1 小时前创建、1 毫秒前才解除 `dispatchHold` 的节点，`startedNodeIds=['held']`，但 `/metrics.dispatch.queueWait.count=0`、`decisions=[]`。`node.transition` 用 `Object.assign` 替换 `timestamps`，`createdAt` 丢失，`queueWaits` 根本不会产生。测试直接往 collector 注入 `queueWaits`，从未走生产计算。 |
+| O4 | 必须 | `/metrics.queue` 没有清单要求的 `remainingMs`；`queue.deferred` 把已归档的 deferred 节点仍算进去。构造 archived + fresh deferred + `deferUntil` 三个节点时，`queue.depth=1`、`queue.deferred=3`，同一批节点口径互相矛盾。 |
+| O5 | 必须 | 构造 running/planned/failed/cancelled + 一个 `deferUntil` 节点：`counts.planned=2`、`queue.runnable=2`、`queue.deferred=1`；`deferUntil` 节点同时被算成 planned/runnable 和 deferred。清单要求 plan 计数走 `runnableQueue`，且不能把 deferred 算成待执行，未满足。 |
+| A21 | 必须 | 真实 `/metrics` 没有 `cycle` / `byRole`，`queue` 也没有 `remainingMs`；`surface-bounds-selftest` 的 A21 断言只覆盖 `queue.runnable/claimed/held/deferred` 与 `dispatch` 子集，从未断言清单里的 `cycle` / `byRole`。 |
+| B13 | 应该 | 清单要求 `conflict` / `budget_shift` / `new_direction` / `branch_death` / `low_confidence(<0.6)` / `ledger_conflict`；真实 `evaluateTriggers` 返回 `stalled_node` / `starving_node` / `driver_paused` / `repeated_failure` / `priority_inversion` / `duplicate_candidates`。六个要求的码 **一个都没有**。`experts-selftest` 只断言 `TRIGGER_CODES` 与同一实现返回的码一致，等于自证。 |
+| 5.3.9 | 应该 | 清单要求队列超载 `planned > 2×freeSlots` 持续 5 min、停滞 15 min、同 `errorKind` 连续 3 次、专家连续 5 次被拒、预算 >80%、同假设连续 3 节点失败；实现是 30 min 停滞、任意排队 starving、`attempt>=3`、priority inversion、duplicate title 等，阈值和谓词均不对应。测试同样只验证自身的六码。 |
+| Q4 | 应该 | `budgetUsage` 用全部历史 run 的总和：5 条 advisor run、每条 30k tokens/60s，得到 `withinQueries=false`、`withinTokens=false`、`withinWallClock=false`；这是累计值，不是 `queriesPerRun` / `tokensPerHour` / 单次 wall-clock 的窗口。且清单的六条 QA 触发（同 5.3.9）没有实现。`stage5-selftest` 只检查字段有限/布尔，故对错误语义仍是绿的。 |
+| C1 | 应该 | `archiveDeferred` 只写 `archivedAt`/`archivedBy`/`archiveReason`；真实 `getState` 仍返回 `old-d`，`store.listNodes` 仍在，`metrics.counts.deferred=3` 仍包含它。清单要求的“从 Projection 热索引移出、地图只显示聚合计数”没有发生；`node.archive` 注释声称会离开热索引，但实际没有投影/热索引变更。 |
+| 5.3.12 | 应该 | `rotateDueExperts` 只写 `project.expertRotations[branch]` 审计记录；`rotationPlan` 之后仍从 `node.createdBy` 计算 assignment，`nextExpertId` 从未被消费。探针里 root/child 的 `createdBy` 仍是 `lab-advisor`，实际归属没有轮换。`stage5-selftest` 只验 14 天策略和审计记录，不验实际归属。 |
+
+**保持 PASS 的抽样行**：
+
+- **A11 PASS**：真实 `/metrics.roles.advisor` 有 `duration.p50/p90`、`failRate`（4 runs、1 failed、0.25），满足“失败率/延迟可直接读”。
+- **S5 PASS**：10,500 events/nodes，replay 返回 100 events / 100 nodes、29,735 B、11.0 ms，低于 1 MB/2 s。
+- **5.3.7 PASS**：用真实 `createOrchestrator` + fake git 走 `autoJoinCompleted`，两个 completed child 生成 `n-0002` merge（`state:'pending'`），第二次调用不再创建；未调用 `finish_merge`，符合“自动创建、冲突仍手工收尾”的边界。
+- **5.4.2 PASS**：`retentionPlan` 返回 `destructive:false`，hot/cold/prune 分类正确；调用前后 `project.copilotSessions` 的 id 列表完全不变，没有静默删除。
+- **5.4.6 PASS**：`K-DEFECT-TRIAGE.md` 有 18 个唯一 K 编号，6 fixed / 1 accepted / 11 tracked；K3/K4/K8/K17/K18 仍标 tracked，没有把 open 项写成 fixed。
+
+### 48.2 这些测试为什么一直绿
+
+这不是“测试少”，而是**测试只测实现自己的形状**：
+
+1. **别名当契约**：O1/O2/A21 的测试断言 `cycles` / `roles` / `advisorInput`，清单却写 `cycle` / `byRole` / `advisor.inputBytes`；代码和测试一起改，永远不会红。
+2. **自证触发码**：B13/5.3.9 的测试从 `TRIGGER_CODES` 取期望值，再断言同一函数返回这些值；换掉六个码仍然是 6/6 绿，除非改测试。
+3. **注入而非生产**：O3 的 `queueWaits` 是测试直接喂给 collector 的；把 service 的 `queueWaits.length=0` 后，`observability-selftest` 仍 10/10、`surface-bounds-selftest` 仍全绿。
+4. **只看字段存在**：Q4 的测试只检查 `Number.isFinite` / 布尔；累计 5 条 run 的错误预算语义仍绿。
+5. **只看写字段，不看索引**：C1 只断言 `archivedAt` 与事件；节点仍在 `getState`/`listNodes`/metrics 中，测试不管。
+6. **只看审计记录，不看归属**：5.3.12 只断言 `expertRotations` 记录；`nextExpertId` 没有落到任何 assignment。
+
+### 48.3 反证测试（re-plant）
+
+在 clean worktree 逐项破坏实现，跑对应测试，再还原：
+
+| 破坏 | 测试结果 | 说明 |
+|---|---|---|
+| `summarizeDurations` 删除 p50/p90 | `observability-selftest` EXIT 1，7/10；O1/A11、O2、O3 全红 | 测试对 p50/p90 本身敏感 |
+| `archiveDeferred` 直接返回空 | `priority-selftest` EXIT 1，C1 红 | 只证明“归档函数被调用”，不证明热索引 |
+| `autoJoinCompleted` 直接返回空 | `stage5-selftest` EXIT 1，5.3.7 两条红 | 测试对自动建 merge 敏感 |
+| `listExperts` 删除 `budgetUsage` | `stage5-selftest` EXIT 1，Q4 红 | 测试对字段存在敏感，但对累计语义不敏感 |
+| `dispatchOnceAction` 把 `queueWaits`/`decisions` 清空 | `observability-selftest` **10/10 绿**；`surface-bounds-selftest` **全绿** | 生产 queue-wait 被移除，测试不红：O3 的测试是假探针 |
+
+### 48.4 账本算术
+
+- 174 行，每行一个状态；**143 + 21 + 10 = 174**。
+- 21 FAIL = **6 必须**（O1/O2/O3/O4/O5/A21）+ **5 应该**（B13/Q4/C1/5.3.9/5.3.12）+ **10 明确不做**（B11/B12/B14/B16/Q8/5.4/C2/C8/C14/5.3.10）。
+- 作者账本写 **154/10/10**，但同一文件的 residual 表写 **0 必须 / 2 应该 / 10 明确不做 = 12**；12 与 10 FAIL、与“20 应该全部关闭”三者不能同时成立。这是硬算术矛盾，不是措辞问题。
+- 10 个原 won't-do 的 FAIL 理由仍成立（D6/D7 未变），但**不能再声称“剩余 10 个全是明确不做”**：本轮新增 11 个必须/应该 FAIL。
+- **不背书未抽样的其余行**：§48 只把抽样中证伪的 11 行改判；未重放的作者 PASS 仍是“待独立复核”，不能当作已验收。
+
+### 48.5 回归（HEAD `4318607`）
+
+| 检查 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**928 ok / 0 FAIL**（44 个 selftest 全通过） |
+| `bench:scale` | **11/11**；5k facts 13,509 B；100k 首读 <50 ms |
+| `strict-writes-selftest` | **17 ok / 0 unexpected bypass**；只有 3 个 deliberate bypass 被拒 |
+| `client-smoke` | **45/45** |
+| `operator-ui-selftest` | **10/10** |
+| `operator-route-selftest` | **48 route pairs** |
+| `dispute-route-selftest` | 全通过 |
+| `plugin-smoke` | **5/5** |
+| `b27-restart-selftest` | **11/11** |
+| U14（`dashboard-selftest`） | `partial`、consecutiveFailures≥3、`degraded`、`staleReason='refresh_partial'` |
+| S12（`eventlog-selftest`） | **7/7** |
+| `git diff --check` | 0（文档改动前） |
+
+### 48.6 发布判断
+
+**完整发布：NO-SHIP。** 6 个必须行仍未关闭，不能再用“只剩明确不做”作为发布理由。窄发布也不成立：只要包含 `/metrics`、queue-wait、archive 或 rotation 任一条件，就必须把 O1/O2/O3/O4/O5/A21/C1/5.3.12 的缺口写进 release note；`B13`/`5.3.9`/`Q4` 的触发/预算语义也不能写成已实现。`5.4.2` 与 `5.4.6` 的只读计划/triage 边界可以保留，但它们不能抵消上述 11 行。

@@ -136,16 +136,19 @@ check('replay response stays under 1 MB', replayBytes < 1024 * 1024, `${replayBy
 
 // --- A11/A21: /metrics exposes role latency/failure and queue/dispatch contract
 const metrics = await get('metrics', `projectId=${projectId}`);
-check('A11 metrics role latency has p50/p90 and failure rate',
-  metrics.roles?.advisor?.duration?.p50 !== undefined
-  && metrics.roles?.advisor?.duration?.p90 !== undefined
-  && metrics.roles?.advisor?.failRate === 0,
-  JSON.stringify(metrics.roles?.advisor));
-check('A21 metrics queue uses runnable/claimed/held/deferred',
-  metrics.queue?.runnable === 2500 && metrics.queue?.claimed === 0
+check('A11 metrics byRole latency has p50/p90 and failure rate',
+  metrics.byRole?.advisor?.duration?.p50 !== undefined
+  && metrics.byRole?.advisor?.duration?.p90 !== undefined
+  && metrics.byRole?.advisor?.failRate === 0,
+  JSON.stringify(metrics.byRole?.advisor));
+check('A21 metrics has cycle/byRole and queue runnable/claimed/held/deferred/remainingMs',
+  metrics.cycle && 'p50' in metrics.cycle && 'p90' in metrics.cycle
+  && metrics.byRole?.advisor?.failRate === 0
+  && metrics.queue?.runnable === 2500 && metrics.queue?.claimed === 0
   && metrics.queue?.held === 0 && metrics.queue?.deferred === 0
+  && Number.isFinite(metrics.queue?.remainingMs)
   && metrics.counts?.planned === 2500,
-  JSON.stringify(metrics.queue));
+  JSON.stringify({ cycle: metrics.cycle, byRole: Object.keys(metrics.byRole ?? {}), queue: metrics.queue }));
 check('A21 metrics dispatch has p50/p99 and queue-wait/decision rows',
   metrics.dispatch && 'p50' in metrics.dispatch && 'p99' in metrics.dispatch
   && metrics.dispatch.queueWait && Array.isArray(metrics.dispatch.decisions),

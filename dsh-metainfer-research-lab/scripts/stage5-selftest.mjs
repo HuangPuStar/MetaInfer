@@ -91,13 +91,28 @@ check('5.3.5: the invited expert appears in the project roster while active',
   listedInvited.experts.some((row) => row.id === 'lab-advisor' && row.lifecycle?.temporary === true),
   JSON.stringify(listedInvited.experts.find((row) => row.id === 'lab-advisor')?.lifecycle));
 const invitedRow = listedInvited.experts.find((row) => row.id === 'lab-advisor');
+const q4Now = Date.now();
+for (let index = 0; index < 5; index += 1) {
+  await store.saveRun(projectId, {
+    id: `q4-run-${index}`, projectId, role: 'advisor', preset: 'lab-advisor', expertId: 'lab-advisor',
+    status: 'completed', startedAt: q4Now - (index + 1) * 60_000, endedAt: q4Now - (index + 1) * 60_000 + 30_000,
+    queries: index === 0 ? 9 : 2,
+    usage: { totalTokens: 10_000, queries: index === 0 ? 9 : 2 },
+  });
+}
+const listedQ4 = await service.listExperts(projectId);
+const q4Row = listedQ4.experts.find((row) => row.id === 'lab-advisor');
 check('Q4: expert identity, lifecycle, performance and budget usage are one row',
-  invitedRow?.lifecycle?.status === 'active'
-  && invitedRow?.metrics && Number.isFinite(invitedRow.metrics.proposals)
-  && invitedRow?.budget?.queriesPerRun >= 1
-  && Number.isFinite(invitedRow?.budgetUsage?.tokens)
-  && typeof invitedRow?.budgetUsage?.withinTokens === 'boolean',
-  JSON.stringify({ lifecycle: invitedRow?.lifecycle, metrics: invitedRow?.metrics, budget: invitedRow?.budget, usage: invitedRow?.budgetUsage }));
+  q4Row?.lifecycle?.status === 'active'
+  && q4Row?.metrics && Number.isFinite(q4Row.metrics.proposals)
+  && q4Row?.budget?.queriesPerRun >= 1
+  && q4Row?.budgetUsage?.queryWindow?.maxPerRun === 9
+  && q4Row?.budgetUsage?.queryWindow?.within === false
+  && q4Row?.budgetUsage?.tokenWindow?.lastHourTokens === 50_000
+  && q4Row?.budgetUsage?.tokenWindow?.within === true
+  && q4Row?.budgetUsage?.wallClockWindow?.maxRunMs === 30_000
+  && q4Row?.budgetUsage?.wallClockWindow?.within === true,
+  JSON.stringify({ lifecycle: q4Row?.lifecycle, metrics: q4Row?.metrics, budget: q4Row?.budget, usage: q4Row?.budgetUsage }));
 
 const projectWithExpired = store.getProject(projectId);
 await kernel.executor.commit(projectId, {
@@ -276,12 +291,21 @@ check('5.3.12 rotation threshold is a pinned 14-day policy value',
   && rotationStatus.policy?.minDays === 1 && rotationStatus.policy?.maxDaysLimit === 365,
   JSON.stringify(rotationStatus.policy));
 const rotationRun = await service.rotateDueExperts(projectId);
-check('rotation has a production dispatch call site and writes an auditable record',
+check('5.3.12 rotation consumes nextExpertId and moves the branch assignment',
   rotationStatus.due.some((row) => row.branchId === 'root')
   && rotationRun.rotated?.some((row) => row.branchId === 'root' && row.expertId === 'lab-advisor')
+  && rotationRun.rotated?.some((row) => row.branchId === 'root' && row.nextExpertId === 'lab-reviewer')
+  && rotationRun.rotated?.some((row) => (row.assignedNodeIds ?? []).includes('old-branch'))
+  && store.getNode(projectId, 'old-branch')?.createdBy === 'lab-reviewer'
   && store.getProject(projectId).expertRotations?.root?.nextExpertId === 'lab-reviewer'
-  && store.listEvents(projectId).some((event) => event.type === 'expert/rotated' && event.data?.branchId === 'root'),
-  JSON.stringify({ status: rotationStatus.due, run: rotationRun, rotations: store.getProject(projectId).expertRotations }));
+  && store.listEvents(projectId).some((event) => event.type === 'expert/rotated' && event.data?.branchId === 'root')
+  && store.listEvents(projectId).some((event) => event.type === 'node/expert_assigned' && event.data?.to === 'lab-reviewer'),
+  JSON.stringify({ status: rotationStatus.due, run: rotationRun, node: store.getNode(projectId, 'old-branch'), rotations: store.getProject(projectId).expertRotations }));
+const rotationAfter = service.rotationStatus(projectId);
+check('5.3.12 rotationPlan rebuilds the branch assignment and is not immediately due again',
+  rotationAfter.assignments.some((row) => row.branchId === 'root' && row.expertId === 'lab-reviewer')
+  && !rotationAfter.due.some((row) => row.branchId === 'root'),
+  JSON.stringify({ assignments: rotationAfter.assignments, due: rotationAfter.due }));
 
 const waited = await service.waitForEvents(projectId, { after: store.maxEventSeq(projectId), timeoutMs: 25, pollMs: 25 });
 check('long-poll times out without inventing an event', waited.ok === true && waited.timedOut === true && waited.events.length === 0, JSON.stringify(waited));

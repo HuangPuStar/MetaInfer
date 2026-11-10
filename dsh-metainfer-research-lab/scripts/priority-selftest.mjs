@@ -79,6 +79,24 @@ check('C1: deferred TTL sweep archives an old deferred node without deleting it'
   && store.listEvents('p', 0).some((event) => event.type === 'node/archived' && event.nodeId === 'deferred-old'),
   JSON.stringify({ archived, node: store.getNode('p', 'deferred-old')?.archivedAt }));
 
+const stateAfterArchive = await service.getState('p');
+const metricsAfterArchive = await service.metricsFor('p');
+check('C1: archived node leaves the hot projection, state, listNodes and deferred metric',
+  store.getNode('p', 'deferred-old')?.archivedAt > 0
+  && !store.listNodes('p').some((node) => node.id === 'deferred-old')
+  && !kernel.projection.listNodes('p').some((node) => node.id === 'deferred-old')
+  && !stateAfterArchive.nodes.some((node) => node.id === 'deferred-old')
+  && stateAfterArchive.archivedCount === 1
+  && metricsAfterArchive.counts.archived === 1
+  && metricsAfterArchive.counts.deferred === 0
+  && metricsAfterArchive.queue.deferred === 0,
+  JSON.stringify({
+    listed: store.listNodes('p').map((node) => node.id),
+    projected: kernel.projection.listNodes('p').map((node) => node.id),
+    state: stateAfterArchive.nodes.map((node) => node.id),
+    metrics: { counts: metricsAfterArchive.counts, queue: metricsAfterArchive.queue },
+  }));
+
 // 1. Planned node: accepted, and the write is an executor event.
 const beforeEvents = store.listEvents('p', 0).length;
 const ok = await service.setNodePriority('p', 'planned', { class: 'p0', reason: 'human says urgent' });

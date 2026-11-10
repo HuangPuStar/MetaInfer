@@ -34,7 +34,7 @@ export function rotationPlan({ nodes = [], experts = [], rotations = {}, now = D
     const expertId = typeof node?.createdBy === 'string' ? node.createdBy : '';
     if (!expertId || !active.includes(expertId)) continue;
     const branchId = branchIdOf(node, list) ?? node.id;
-    const createdAt = Number(node?.timestamps?.createdAt);
+    const createdAt = Number(node?.expertAssignedAt ?? node?.timestamps?.createdAt);
     if (!Number.isFinite(createdAt)) continue;
     const key = `${expertId}\u0000${branchId}`;
     const previous = byBranch.get(key);
@@ -64,6 +64,7 @@ export function rotationPlan({ nodes = [], experts = [], rotations = {}, now = D
       expertId: current,
       nextExpertId: next,
       since,
+      nodeIds: row.nodeIds,
       ageMs: now - since,
       reason: `expert ${current} owned branch ${row.branchId} for more than ${Math.round(windowMs / DAY_MS)} days`,
     });

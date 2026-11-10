@@ -35,7 +35,7 @@ import { INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, detectIntentConfli
 import { ACTION_VERIFICATION, IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
 import { recallExperts } from './experts/similarity.js';
-import { evaluateTriggers, TRIGGER_CODES } from './experts/triggers.js';
+import { evaluateEscalationTriggers, evaluateThresholdTriggers, THRESHOLD_TRIGGER_CODES, TRIGGER_CODES } from './experts/triggers.js';
 import { applyNomination, createCurator } from './experts/curator.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
@@ -852,6 +852,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       revision: project.revision,
       lastEventSeq: project.counters?.eventSeq ?? 0,
       pendingProposals: allRaw.filter((node) => node.status === 'proposed').length,
+      archivedCount: store.countArchived(projectId),
       // Q12: the UI and MCP can read the intent boundary and claim map without
       // scanning every event. `writer` makes the single-writer invariant explicit.
       intents: (() => {
@@ -1494,7 +1495,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return publicView({ events, next: store.maxEventSeq(projectId) });
   }
 
-  const OBSERVER_STALL_MS = 30 * 60_000;
+  const OBSERVER_STALL_MS = 15 * 60_000;
+  const queueOverloadSince = new Map();
   const OBSERVER_STARVE_MS = 10 * 60_000;
   // The cheap observer long-polls for a full minute; a shorter cap would make
   // the external model poll more often than the checklist (5.3.13) allows.
@@ -1543,6 +1545,28 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const openDisputes = (Array.isArray(project.disputes) ? project.disputes : [])
       .map((record) => effectiveDispute(record, now))
       .filter((record) => record.status === 'pending');
+    const pools = project.config?.resourcePools ?? {};
+    const held = {};
+    for (const node of running) {
+      for (const [key, amount] of Object.entries(node.resourcesHeld ?? {})) held[key] = (held[key] ?? 0) + Number(amount || 0);
+    }
+    const freeSlots = Object.keys(pools).length > 0
+      ? Object.entries(pools).reduce((sum, [key, total]) => sum + Math.max(0, Number(total) - (held[key] ?? 0)), 0)
+      : Math.max(0, Number(project.config?.maxRunningNodes ?? 1) - running.length);
+    const queue = runnableQueue(nodes, now);
+    const overloaded = freeSlots > 0 && queue.length > 2 * freeSlots;
+    if (!overloaded) queueOverloadSince.delete(projectId);
+    else if (!queueOverloadSince.has(projectId)) queueOverloadSince.set(projectId, now);
+    const escalation = evaluateEscalationTriggers({ nodes, project, knownHypotheses: project.knownHypotheses ?? [], now });
+    const thresholds = evaluateThresholdTriggers({
+      nodes,
+      runs: store.listRuns(projectId, 100),
+      intents: Array.isArray(project.intents) ? project.intents : [],
+      project,
+      now,
+      freeSlots,
+      queueOverloadSince: queueOverloadSince.get(projectId),
+    });
     return publicView({
       ok: true,
       projectId,
@@ -1555,8 +1579,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       stalled,
       starving,
       pauseReason,
-      triggers: evaluateTriggers({ nodes, auto: autoStatus, now, stalledMs: stallMs, starvingMs: starveMs }),
+      triggers: escalation,
       triggerCodes: [...TRIGGER_CODES],
+      thresholdTriggers: thresholds,
+      thresholdTriggerCodes: [...THRESHOLD_TRIGGER_CODES],
       openDisputes: openDisputes.map((record) => ({ id: record.id, type: record.type, deadlineAt: record.deadlineAt, authority: record.authority })),
       recentEvents: events.slice(-20).map((event) => ({ seq: event.seq, type: event.type, at: event.at, nodeId: event.nodeId ?? null })),
     });
@@ -3422,6 +3448,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return computeProjectMetrics({
       project,
       nodes: store.listNodes(projectId),
+      archived: store.countArchived(projectId),
       runs: store.listRuns(projectId, 100),
       cycles: store.listCycles(projectId, 100),
       live: metricsCollector.snapshot(projectId),
@@ -3662,14 +3689,34 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       rotatedAt: now,
       rotatedBy: { kind: actor?.kind ?? 'system', id: actor?.id ?? 'rotator' },
       reason: decision.reason,
+      assignedNodeIds: [],
     };
-    const result = await commitMutations(projectId, [{
-      op: 'project.update',
-      set: { expertRotations: { ...(project.expertRotations ?? {}), [record.branchId]: record } },
-      eventType: 'expert/rotated',
-      eventData: { ...record, title: `expert rotation: ${record.expertId} -> ${record.nextExpertId}` },
-    }], { actor, causeId: `rotation:${record.branchId}:${now}` });
-    return publicView({ ok: true, projectId, rotation: record, revision: store.getProject(projectId)?.revision ?? null });
+    // 5.3.12: consuming nextExpertId is a real assignment change, not just an
+    // audit row. Move createdBy for this branch and stamp the rotation epoch so
+    // the same branch is not immediately due again for the new expert.
+    const updates = [];
+    for (const nodeId of Array.isArray(decision.nodeIds) ? decision.nodeIds : []) {
+      const node = store.getNode(projectId, nodeId);
+      if (!node || node.archivedAt || node.createdBy !== record.expertId) continue;
+      updates.push({
+        op: 'node.update',
+        nodeId,
+        set: { createdBy: record.nextExpertId, expertAssignedAt: now },
+        eventType: 'node/expert_assigned',
+        eventData: { branchId: record.branchId, from: record.expertId, to: record.nextExpertId, at: now },
+      });
+      record.assignedNodeIds.push(nodeId);
+    }
+    const result = await commitMutations(projectId, [
+      ...updates,
+      {
+        op: 'project.update',
+        set: { expertRotations: { ...(project.expertRotations ?? {}), [record.branchId]: record } },
+        eventType: 'expert/rotated',
+        eventData: { ...record, title: `expert rotation: ${record.expertId} -> ${record.nextExpertId}` },
+      },
+    ], { actor, causeId: `rotation:${record.branchId}:${now}` });
+    return publicView({ ok: true, projectId, rotation: record, revision: store.getProject(projectId)?.revision ?? null, commitRevision: result.revision ?? null });
   }
 
   /** Explicit operator rotation (the production path also rotates automatically). */
@@ -3848,19 +3895,36 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         // whether this project is still inside it. `runs` is the same bounded
         // list the performance metrics use.
         const expertRuns = runs.filter((run) => run.expertId === descriptor.id || run.preset === descriptor.id || run.createdBy === descriptor.id);
-        const tokens = expertRuns.reduce((sum, run) => sum + Number(run.usage?.totalTokens ?? run.usage?.tokens ?? 0), 0);
-        const wallClockMs = expertRuns.reduce((sum, run) => {
+        // Q4 windows: queries are per run, tokens are per rolling hour, and
+        // wall clock is a single-run maximum. Summing all history makes every
+        // long-lived project look over budget even when each run is small.
+        const runQueries = (run) => Number(run.queries ?? run.usage?.queries ?? run.usage?.queryCount ?? 0);
+        const runTokens = (run) => Number(run.usage?.totalTokens ?? run.usage?.tokens ?? 0);
+        const runStarted = (run) => Number(run.startedAt ?? run.endedAt ?? run.finishedAt ?? 0);
+        const runWall = (run) => {
           const started = Number(run.startedAt ?? 0);
           const ended = Number(run.endedAt ?? run.finishedAt ?? 0);
-          return sum + (started > 0 && ended >= started ? ended - started : 0);
-        }, 0);
+          return started > 0 && ended >= started ? ended - started : 0;
+        };
+        const maxQueriesPerRun = expertRuns.reduce((max, run) => Math.max(max, runQueries(run)), 0);
+        const hourAgo = Date.now() - 60 * 60_000;
+        const recentRuns = expertRuns.filter((run) => runStarted(run) >= hourAgo);
+        const tokensLastHour = recentRuns.reduce((sum, run) => sum + runTokens(run), 0);
+        const maxRunWallClockMs = expertRuns.reduce((max, run) => Math.max(max, runWall(run)), 0);
+        const queryLimit = Number(descriptor.budget.queriesPerRun ?? Number.MAX_SAFE_INTEGER);
+        const tokenLimit = Number(descriptor.budget.tokensPerHour ?? Number.MAX_SAFE_INTEGER);
+        const wallLimit = Number(descriptor.budget.wallClockMs ?? Number.MAX_SAFE_INTEGER);
         const budgetUsage = {
           runs: expertRuns.length,
-          tokens,
-          wallClockMs,
-          withinQueries: expertRuns.length <= Number(descriptor.budget.queriesPerRun ?? Number.MAX_SAFE_INTEGER),
-          withinTokens: tokens <= Number(descriptor.budget.tokensPerHour ?? Number.MAX_SAFE_INTEGER),
-          withinWallClock: wallClockMs <= Number(descriptor.budget.wallClockMs ?? Number.MAX_SAFE_INTEGER),
+          windows: { query: 'per_run', token: 'per_hour', wallClock: 'per_run' },
+          queryWindow: { maxPerRun: maxQueriesPerRun, limit: queryLimit, within: maxQueriesPerRun <= queryLimit },
+          tokenWindow: { lastHourTokens: tokensLastHour, limit: tokenLimit, within: tokensLastHour <= tokenLimit, runs: recentRuns.length },
+          wallClockWindow: { maxRunMs: maxRunWallClockMs, limit: wallLimit, within: maxRunWallClockMs <= wallLimit },
+          tokens: tokensLastHour,
+          wallClockMs: maxRunWallClockMs,
+          withinQueries: maxQueriesPerRun <= queryLimit,
+          withinTokens: tokensLastHour <= tokenLimit,
+          withinWallClock: maxRunWallClockMs <= wallLimit,
         };
         return {
           ...descriptor,

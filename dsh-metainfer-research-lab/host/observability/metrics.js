@@ -200,21 +200,18 @@ export function computeProjectMetrics({
   auto = null,
   now = Date.now(),
   budgetBytes = 12 * 1024,
+  archived = 0,
 }) {
+  const hotNodes = (Array.isArray(nodes) ? nodes : []).filter((node) => !node?.archivedAt);
+  const archivedCount = Math.max(0, Number(archived) || 0);
   const rawCounts = {};
-  for (const node of nodes) rawCounts[node.status] = (rawCounts[node.status] ?? 0) + 1;
+  for (const node of hotNodes) rawCounts[node.status] = (rawCounts[node.status] ?? 0) + 1;
   // O4/O5: queue facts come from the one runnable definition (B8), never from
   // a raw `status === 'planned'` count. Deferred nodes are planned, but they are
   // not waiting to run: reporting them as queue depth recreates the Q5 bug on
   // the metrics surface.
-  const runnableFacts = runnableSummary(nodes, { now });
-  // `deferUntil` is a scheduled defer (a different mechanism from the
-  // `deferred` priority class). Keep it visible in the deferred tally so a
-  // paused-until node is not silently counted as runnable.
-  const scheduledDeferred = nodes.filter((node) => node?.status === 'planned'
-    && Number(node?.deferUntil) > now
-    && !(node?.priority?.class === 'deferred')).length;
-  const deferredTotal = runnableFacts.deferred + (rawCounts.deferred ?? 0) + scheduledDeferred;
+  const runnableFacts = runnableSummary(hotNodes, { now });
+  const deferredTotal = runnableFacts.deferred;
   const counts = {
     ...rawCounts,
     planned: runnableFacts.runnable,
@@ -222,7 +219,8 @@ export function computeProjectMetrics({
     claimed: runnableFacts.claimed,
     held: runnableFacts.held,
     deferred: deferredTotal,
-    total: nodes.length,
+    archived: archivedCount,
+    total: hotNodes.length + archivedCount,
   };
   const cycleDurations = cycles
     .filter((cycle) => Number.isFinite(cycle.startedAt) && Number.isFinite(cycle.endedAt))
@@ -245,17 +243,47 @@ export function computeProjectMetrics({
       claimed: runnableFacts.claimed,
       held: runnableFacts.held,
       deferred: deferredTotal,
+      remainingMs: runnableFacts.remainingMs,
       total: runnableFacts.total,
       running: rawCounts.running ?? 0,
       planned: runnableFacts.runnable,
       failed: rawCounts.failed ?? 0,
       proposed: rawCounts.proposed ?? 0,
     },
+    cycle: {
+      count: cycles.length,
+      ...summarizeDurations(cycleDurations),
+    },
+    byRole: roles,
+    // Backwards-compatible aliases for existing UI callers. The contract names
+    // above are what the checklist and the selftests assert.
     cycles: {
       count: cycles.length,
       ...summarizeDurations(cycleDurations),
     },
     roles,
+    advisor: {
+      inputBytes: {
+        p50: p50Bytes,
+        p90: p90Bytes,
+        max: snapshot?.max ?? advisor?.inputBytes?.max ?? null,
+        last: snapshot?.last ?? advisor?.inputBytes?.max ?? null,
+        budget: budget,
+        p50Utilization: p50Bytes !== null ? Number((p50Bytes / budget).toFixed(3)) : null,
+        p90Utilization: p90Bytes !== null ? Number((p90Bytes / budget).toFixed(3)) : null,
+      },
+      tokens: {
+        p50: advisor?.tokens?.p50 ?? null,
+        p90: advisor?.tokens?.p90 ?? null,
+        max: advisor?.tokens?.max ?? null,
+      },
+      budgetBytes: budget,
+      tokenGuard: {
+        maxTokens: tokenBudget,
+        used: Number(project?.counters?.tokensUsed ?? 0),
+        remaining: tokenBudget > 0 ? Math.max(0, tokenBudget - Number(project?.counters?.tokensUsed ?? 0)) : null,
+      },
+    },
     advisorInput: {
       lastBytes: snapshot?.last ?? advisor?.inputBytes?.max ?? null,
       maxBytes: snapshot?.max ?? advisor?.inputBytes?.max ?? null,
