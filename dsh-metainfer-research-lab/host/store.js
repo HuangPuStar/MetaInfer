@@ -117,7 +117,16 @@ export function withWritePermit(fn) {
   return writePermit.run({ kernel: true }, fn);
 }
 
-export async function openStore(ctx) {
+function readCtxConfig(ctx) {
+  try {
+    return ctx.config ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export async function openStore(ctx, config = {}) {
+  const cfg = config && Object.keys(config).length ? config : readCtxConfig(ctx);
   // Per-store state: a test process may open several stores, and one store's
   // throw mode must never reject another store's setup writes.
   const writeGuard = { mode: 'off', unpermitted: 0, byOp: {}, warnings: 0 };
@@ -153,11 +162,15 @@ export async function openStore(ctx) {
     events: domain.table('events'),
   };
   const archive = createEventArchive({
-    root: ctx.config?.kernel?.eventArchiveRoot ?? path.join(dshHome(), 'metainfer-research-lab', 'eventlog'),
-    hotEvents: ctx.config?.kernel?.hotEvents ?? 50_000,
-    segmentSize: ctx.config?.kernel?.eventArchiveSegment ?? 10_000,
+    root: cfg?.kernel?.eventArchiveRoot ?? path.join(dshHome(), 'metainfer-research-lab', 'eventlog'),
+    hotEvents: cfg?.kernel?.hotEvents ?? 50_000,
+    segmentSize: cfg?.kernel?.eventArchiveSegment ?? 10_000,
   });
   const coldCache = new Map();
+  // Merged cold+hot event view. Archived segments are immutable, so only the
+  // hot tail moves; rebuilding the whole 100k array on every page was the S12
+  // 60 ms first-page regression. Keep it warm and append the hot tail.
+  const timelineCache = new Map();
 
   /**
    * In-memory projection of the per-project read path.
@@ -414,6 +427,7 @@ export async function openStore(ctx) {
     guardWrite('deleteProject');
     indexes.delete(projectId);
     coldCache.delete(projectId);
+    timelineCache.delete(projectId);
     await archive.removeProject(projectId);
     const prefix = `${projectId}__`;
     for (const table of ['nodes', 'runs', 'cycles', 'events']) {
@@ -485,12 +499,28 @@ export async function openStore(ctx) {
     return coldCache.get(projectId);
   }
 
+  function rebuildTimeline(projectId, cold) {
+    const hot = indexFor(projectId).events;
+    const merged = [...cold, ...hot].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+    timelineCache.set(projectId, { cold, hotLength: hot.length, events: merged });
+    return merged;
+  }
+
   function allEvents(projectId) {
     const cold = coldEvents(projectId);
     if (cold.length === 0) return indexFor(projectId).events;
-    const merged = [...cold, ...indexFor(projectId).events];
-    merged.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-    return merged;
+    const hot = indexFor(projectId).events;
+    const cached = timelineCache.get(projectId);
+    if (cached && cached.cold === cold && cached.hotLength <= hot.length) {
+      const extra = hot.slice(cached.hotLength);
+      const lastSeq = cached.events[cached.events.length - 1]?.seq ?? 0;
+      if (extra.length === 0 || (extra[0]?.seq ?? 0) > lastSeq) {
+        cached.events.push(...extra);
+        cached.hotLength = hot.length;
+        return cached.events;
+      }
+    }
+    return rebuildTimeline(projectId, cold);
   }
 
   /**
@@ -509,6 +539,10 @@ export async function openStore(ctx) {
     for (const event of segment) await tables.events.delete(eventStorageKey(projectId, event.seq));
     entry.events.splice(0, segment.length);
     coldCache.delete(projectId);
+    timelineCache.delete(projectId);
+    // Pay the cold merge at the archive boundary, not on the next first page.
+    const cold = coldEvents(projectId);
+    if (cold.length > 0) rebuildTimeline(projectId, cold);
     return { archived: segment.length, ...descriptor, segments: (await archive.listSegments(projectId)).length };
   }
 

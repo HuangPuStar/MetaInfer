@@ -1,29 +1,31 @@
 # 独立验收报告 — `refactor/v2`
 
 > 验收人：独立验证者（未参与实现）。对象：`docs/refactor/DESIGN-CHECKLIST.md` §1–§9、
-> `docs/refactor/IMPLEMENTATION.md`、`refactor/v2` 代码（HEAD `6beba88`）。
-> 日期：2026-11-10。
+> `docs/refactor/IMPLEMENTATION.md`、`refactor/v2` 代码；初始基线 `6beba88`，本轮 §21 为
+> HEAD `ad396b7`。日期：2026-11-10。
 
 ## 0. 结论摘要
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **79** |
-| FAIL | **85** |
-| 未测量 | **10** |
+| PASS | **82** |
+| FAIL | **82** |
+| 未测量 | **10**（其中浏览器 2 行 = 不适用） |
 | 合计 | **174** |
 
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：§19 的五个硬缺口（B21 basis、B27、冷段归档、dashboard 归属/过期、4.5 生命周期）
-已在第五轮修复并由真实测试关闭；浏览器绘制因本机无 Chromium/Playwright 关闭为不适用。
-`npm test` 31 文件 / 495 checks 全绿；O12、Stage 5 等非本轮项仍未完成（见 §20）。
+**一句话**：第六轮独立复核确认 B21、冷段归档功能、U13 与 4.5 已关闭；但 B27 的 5 级
+验证强度、S12 的 100k 冷读预算、U14 的失败刷新/过期货真值仍有硬缺口，因此不能按 §20
+的“全部关闭”计。`npm test` 31 文件 / 495 checks 全绿只证明既有断言不回归；浏览器绘制
+因本机无 Chromium/Playwright 且 GUI 401 记为不适用。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
-> （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**。总判定以 §20 为准。
+> （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**。
+> 总判定以 §21 为准；§20 是作者报告，不能代替独立复核。
 
 ### 0.1 判定口径
 
@@ -1118,3 +1120,191 @@ GUI http://10.16.1.89:3080/ → 401 authentication required
 §19 的五个硬缺口（B21、B27、P1.2/S12、U13/U14、4.5）均已关闭；浏览器绘制按环境限制
 关闭为不适用。仍不在本轮范围的是 O12 文本审计、Stage 5 组织化、`maxPlannedInFlight`/
 抢占、schema 级 per-preset 收窄和覆盖率哨兵，不能据此宣称 174 行全部 PASS。
+
+---
+
+## 21. 第六轮独立复核（HEAD `ad396b7`，`5ee1376` 之后 7 个提交）
+
+> 只读验证。所有探针在 `/tmp/r6-*`，未改生产代码；本轮唯一改动是本文件。作者 §20 的
+> “五个硬缺口全部关闭”按独立证据逐项重放，不采信 selftest 名称或提交说明。
+
+### 21.1 最新总数与 delta
+
+| 判定 | §19（`5ee1376`） | §21（`ad396b7`） | 变化 |
+|---|---|---|---|
+| PASS | 79 | **82** | +3 |
+| FAIL | 85 | **82** | −3 |
+| 未测量 | 10 | **10** | 0 |
+| 合计 | 174 | **174** | — |
+
+**FAIL → PASS（3 行）**：`B21`、`5.4.5`、`U13`。
+**仍未关闭的相邻行**：`B27`、`S12`、`U14`（§20 把三者写成 PASS，但独立探针不成立）。
+`4.5` 在 §18 已是 PASS，本轮复核继续成立，不重复计入 delta。
+
+**关于浏览器**：`S8`/`S9` 由“未测量”明确记为**不适用（N/A）**，不再当作 FAIL 行；本机
+`command -v chromium chromium-browser google-chrome google-chrome-stable firefox` 全空，
+`playwright`/`playwright-core`/`puppeteer`/`@playwright/test` 均无法解析，
+`npx --no-install playwright --version` 失败，GUI `http://10.16.1.89:3080/` 返回 **HTTP 401**。
+此项只记录这一次；10 个“未测量”中包含这 2 个 N/A 和 8 个设计/端到端未测项。
+
+### 21.2 B21：精确 basis 与冲突键 — PASS
+
+独立探针 `/tmp/r6-b21-probe.mjs` 走真实 `lab-service.submitIntent`：
+
+- 不传 basis 时，持久化对象精确为 `{projectRevision:1,snapshotAgeMs:0,nodesSeen:1}`，
+  事件上的 basis 同形；自定义 `snapshotAgeMs:123` 原样保留。
+- 标量 `7`、缺字段 `{projectRevision,snapshotAgeMs}` 均返回 `bad_request`。
+- `projectRevision:999` 返回 `basis_ahead`。
+- 先以当前 revision 建立 pending intent，再用旧 revision 提交，返回
+  `stale_basis{conflictingIntentId,basis,currentRevision}`；比较键确实是
+  `basis.projectRevision`，不是节点/时间等旁路。
+- `snapshotAgeMs`/`nodesSeen` 只被持久化，不参与冲突比较；这与 B21 原文一致。
+- `intent-selftest` 18 checks 通过，作为交叉证据。
+
+### 21.3 B27：7 谓词/错误率通过，5 级验证强度仍未落地 — FAIL
+
+**已通过的子项**：`claims-selftest` 27 checks 全过；7 个谓词
+`nodeExists/statusIs/parentOf/metricIs/textContains/countWhere/reviewedBy` 都能在纯函数与
+真实 `submitIntent` 中被逐个改坏并拒绝；`citationTier` 的 4.9%/5%/15%/15.1% 边界存在；
+累计错误率 ≥5% 时不可逆动作被 `citation_error_rate` 拒绝。
+
+**仍 FAIL 的硬缺口**：B27 原文的 5 级表要求 cancel running = **2 条证据 + 首席确认**，
+砍整条分支 = **3 条 + 首席 + 人可申诉窗口**，删除项目 = **只能人做**。当前
+`host/kernel/claims.js` 的 `gateClaimAction` 只检查 `total > 0 && rate < 5%`，没有动作级
+证据条数、首席确认或申诉窗口。独立探针 `/tmp/r6-b27-levels.mjs` 在干净统计下用**一条**
+`nodeExists` 证据分别提交 `cancel_running`、`prune_branch`、`delete_project`，三次都返回
+`ok:true`，`tier:'full'`，`verification:{total:1,failed:0}`。这直接绕过了 2/3 条证据和
+首席门槛，属于不可逆动作的安全/正确性缺口，不能因 7 谓词测试全绿而判 PASS。
+
+### 21.4 冷段归档：功能关闭，S12 预算未达 — `5.4.5` PASS / `S12` FAIL
+
+**`5.4.5`（功能）PASS**：`eventlog-selftest` 7 checks 通过；真实 store 在 hot 表保留
+3 条时生成 2 个 `seg-*.jsonl.zst` + `.sha256`；`listEvents`/`pageEvents` 跨 cold+hot
+透明返回；同一 memory domain 重启后继续写，seq 无缺口；篡改段文件后 checksum 校验抛
+`archive_checksum_mismatch`，不是静默返回空/旧值；归档只把事件移出 hot，不删除。
+这些覆盖了本轮要求的“透明读、重启续写、坏 checksum 硬失败、事件不丢”。
+
+**`S12`（100k 读预算）FAIL**：独立探针 `/tmp/r6-cold-page.mjs` 造 100,000 条事件
+（hot 50,000、5 个段），**第一次** `pageEvents({after:0,limit:100})` 耗时 **60.9 ms**，
+超过清单的 **≤50 ms**；`listEvents` 首次约 68.5 ms。冷缓存已热后 page 约 5–7 ms，说明
+首读把全部 cold 段解压进 `allEvents` 仍是 O(全部)，不是按页读。`5.4.5` 的“有归档”与
+`S12` 的“100k 首读 ≤50 ms”是两行，不能合并判 PASS。
+附带证据：`getReplay` 仍先 `store.listEvents(projectId,afterSeq)` 再切片，
+`Math.min(...nodeTimes)` 也未消除，`S5` 的 O(全部) 路径仍在。
+
+### 21.5 Dashboard：hostFacts/归属通过，U14 过期货真值仍错 — `U13` PASS / `U14` FAIL
+
+**`U13` PASS**：`dashboardHostFacts` 只返回 `{source:'host',computedAt,projectRevision,
+counts,resources}`，不含 widget body/chat 散文；widget 有 `dataSource`，chat 有
+`source`；stale 徽标带 `ageMs`，revision 不一致时有 tooltip；2×interval 下限 60 s 也成立。
+`dashboard-selftest` 7 checks 通过。
+
+**`U14` FAIL（且是本轮回归）**：成功刷新后仍被判 stale。独立探针
+`/tmp/r6-dash-success.mjs` 的结果是 `lastRun.revision:0`、`projectRevision:2`、
+`stale:true, staleReason:"revision_changed"`。根因在 `refreshDashboard`：它在写 widget/
+dashboard 之前捕获 `lastRun.revision = project.revision`，而后续 commit 又递增
+`project.revision`，所以每次成功刷新都留下 revision 漂移，徽标永远显示过期。
+
+失败刷新更危险：`/tmp/r6-dash-fail2.mjs` 把一次失败刷新的 `lastRun.revision` 对齐到当前
+revision 后，`dashboardView` 返回 `stale:false`、`staleReason:null`，尽管
+`lastRun.status:"error"` 且 widget 仍是旧数据。也就是说顶栏可以用“时间新”掩盖失败；
+现有 UI 只有一个不可关闭的 `role="alert"` 错误段，没有失败次数/连续失败降级，也没有
+可关闭的顶部过期告警（`A20` 同样仍 FAIL）。这不是“徽标没有 age”，而是 age/revision
+真值在成功与失败两条路径都不成立。`U14` 判 FAIL。
+
+### 21.6 4.5 生命周期 — PASS
+
+独立探针 `/tmp/r6-lifecycle-http.mjs` 通过真实 HTTP `POST /api/metainfer-research-lab/commands`
+驱动，不直接调 service：
+
+- `expert_hire` → HTTP 200，lifecycle `active`。
+- `expert_drain` → HTTP 200，lifecycle `draining`，`runningPreserved:["run"]`，running
+  节点仍在。
+- running 未结束时 `expert_fire` → HTTP 200、`ok:false`、`expert_busy`。
+- 把 running 完成后 `expert_fire` → HTTP 200，lifecycle `retired`，未完成 planned 节点
+  重派为 `createdBy:"human"`、`orphanedFrom:"lab-advisor"`。
+- 专家 actor 调 `expert_hire` → `forbidden_action`（tool policy 先于 service 拒绝）；
+  service 层 self-hire 也返回 `self_hire_forbidden`。测试 16 checks 与上述独立结果一致。
+
+### 21.7 回归与测试
+
+- `npm test`：**EXIT=0**，31 个文件，**495 个 `ok`**。
+- `npm run bench:scale`：**EXIT=0**，10/10；dispatch p95 30.9 ms、max 35.6 ms（5,000 节点）。
+- 新 selftest：intent 18、claims 27、eventlog 7、dashboard 7、expert-lifecycle 16，均通过。
+- `ui-selftest`：11/11；但它只验证 view-model，不验证真实 DOM/帧率。
+- 没有测试回归；但 §21.5 的“成功刷新永久 stale”是行为回归/真值错误，§21.3/§21.4 是
+  未达清单的硬缺口。全绿测试不能覆盖这三项。
+
+### 21.8 82 个剩余 FAIL 的三分解
+
+分桶定义（严格一桶一行）：
+
+- **阻断上线**：会在真实运行路径上破坏正确性/安全，或让不可逆动作绕过应有门槛。
+- **能力未建**：清单要求的能力在代码里没有落点，或只有半套接口/枚举而没有运行路径。
+- **只差文档/口径**：实现已存在，但清单行是旧证据、纯文本冲突/未复核，或验收口径比
+  当前构建更严而未重新裁决。
+
+| 分桶 | 行数 |
+|---|---|
+| 阻断上线 | **3** |
+| 能力未建 | **59** |
+| 只差文档/口径 | **20** |
+| **合计** | **82** |
+
+#### 阻断上线（3 行，逐行）
+
+| 行 | 为什么阻断 | 独立证据 |
+|---|---|---|
+| **B27** | 不可逆动作的 5 级证据强度未实现；1 条证据即可提交 cancel/prune/delete，无首席确认/申诉窗口 | `/tmp/r6-b27-levels.mjs`：三次 `ok:true`、`tier:"full"`、`total:1`；`gateClaimAction` 只看 total>0 且 rate<5% |
+| **C7** | 引用错误率没有 Wilson 下界/最少证据要求；少量证据即可把 rate 压到 <5%，与 B27 叠加可绕过不可逆门槛 | `claims.js` 只有 `failed/total` 比率；`citationTier` 无样本量修正；B27 探针已证明 1 条证据即 full |
+| **U14** | 成功刷新永久 `revision_changed` stale；失败刷新在 revision 对齐时顶栏 `stale:false`，会把旧数据显示成新数据，且没有可关闭告警/连续失败降级 | `/tmp/r6-dash-success.mjs`（lastRun 0 vs project 2）、`/tmp/r6-dash-fail2.mjs`（status error 但 stale false）；A20 同因 FAIL |
+
+#### 能力未建（59 行）
+
+组织/评审：`B11`、`B12`、`B13`、`B14`、`B16`、`B18`、`B22`、`B23`。
+调度/专家/评审/记忆：`Q3`、`Q4`、`Q5`、`Q8`、`Q9`、`Q10`、`Q11`、`Q12`、`Q13`、`Q14`。
+进度：`1.3`。
+计划缺口：`5.2`、`5.3`、`5.3.1`、`5.3.2`、`5.3.3`、`5.3.4`、`5.3.5`、`5.3.7`、
+`5.3.8`、`5.3.9`、`5.3.10`、`5.3.11`、`5.3.12`、`5.3.13`、`5.3.14`、`5.4`、
+`5.4.2`、`5.4.6`。
+可观测性：`A11`、`A20`、`A21`。
+开放问题：`C1`、`C2`、`C5`、`C6`、`C8`、`C14`。
+指标：`O1`、`O2`、`O3`、`O4`、`O5`、`O6`、`O12`。
+规模：`S5`、`S12`。
+UI：`U1`、`U2`、`U3`、`U12`。
+
+> 这些行的共同证据是“没有运行路径/没有实现”，不是文档没写。典型例子：`B11/B12` 无
+> branch/lead/chief；`B16` 明确选择无驻留会话；`B22` 无 dispute 表；`B23` 无 expected/
+> retro；`Q3` 无 WIP/reservedSlots/抢占；`Q5` 的 deferred 仍占 `maxNodes`；`5.3.1` 无
+> `maxPlannedInFlight`；`5.3.13` 无 observer；`A21` 无 queue runnable/claimed/held；
+> `O4/O5` 的 queue/counts 口径错；`S12` 100k 首读 60.9 ms >50 ms；`U1/U2/U3/U12`
+> 的 elapsed/队列/失败归因/三态面板不存在。
+
+#### 只差文档/口径（20 行）
+
+`B9`、`B24`、`Q1`、`Q2`、`5.1`、`5.1.2`、`5.2.2`、`5.2.3`、`5.2.4`、`5.2.5`、
+`5.3.6`、`5.3.16`、`5.4.3`、`5.4.4`、`5.4.7`、`C12`、`C13`、`O9`、`S13`、`U10`。
+
+> 这 20 行都有实现或测试侧落点，但没有按原行重新验收：`B9` 有 policy/真实拒绝但无
+> 5×6 矩阵；`B24`/`5.1` 的 7 谓词/rate 已存在（5 级缺口归 B27）；`5.1.2` 的
+> summary/headline 已由 B26 落地，但该行是计划冲突未裁决；`5.3.6` 已由 4.5 的
+> drain/fire 移交覆盖；`5.3.16` 的 dag 工具已存在；`S13` 的 `bench:scale` 已存在，
+> 只剩 UI 绘制 N/A；`B9/Q1/Q2` 是旧证据/issue/端到端口径，不是新能力。`C12/C13`、
+> `5.2.2–5.2.5`、`5.4.3/5.4.4/5.4.7` 是 WP/基线/文本冲突；`O9` 是缺 6 状态转换测试；
+> `U10` 的 `forbidden_action` nextStep 已有，旧“三 preset 越权”证据已被 policy 推翻。
+
+> 三桶覆盖 §19 的 85 行减去 B21、5.4.5、U13 三个 FAIL→PASS 后的 82 行；B27/S12/U14
+> 重新放回 FAIL。没有第 83 行，也没有一行同时归属两桶。S8/S9 是 N/A，不在三桶内。
+
+### 21.9 结论与上线裁决
+
+**NO-SHIP。**
+
+- 3 个阻断上线项：B27（不可逆动作 1 条证据即可 full）、C7（引用错误率无样本量下界，
+  与 B27 叠加可绕过门槛）、U14（旧 dashboard 真值可显示为新）。
+- 82 个 FAIL 中 59 个是能力未建，主要是 Stage 3–5 的组织/争议/预算/观测和 UI 面板；
+  这不是“补文档”能解决的。
+- 20 个只差文档/口径的行可以并行收尾，但不能拿它们掩盖 3 个阻断项。
+- 浏览器绘制是环境性 N/A，不据此判 FAIL；但它也意味着真实 DOM/帧率没有被本轮验收。
+- 本轮没有修改生产代码；唯一改动是本文件。建议先修 B27/C7/U14 和 S12 首读预算，
+  再重跑 495 checks、100k 冷读探针与真实 HTTP 生命周期探针。

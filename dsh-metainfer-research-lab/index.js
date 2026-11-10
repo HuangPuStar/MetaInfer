@@ -58,8 +58,17 @@ async function writeActivationMarker(version) {
   }
 }
 
-export async function apply(ctx) {
-  const store = await openStore(ctx);
+function readCtxConfig(ctx) {
+  try {
+    return ctx.config ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export async function apply(ctx, config = {}) {
+  const cfg = config && Object.keys(config).length ? config : readCtxConfig(ctx);
+  const store = await openStore(ctx, config);
   // Fail loud when the v2 domain has never been migrated and a v1 domain with
   // data is still on disk: a silently empty lab looks like data loss.
   const legacy = unmigratedLegacyDomain();
@@ -75,7 +84,7 @@ export async function apply(ctx) {
   // G1: strictWrites defaults to `throw`. Every production writer goes through
   // kernel.executor (runtime/GC/reconcile/auto/service/orchestrator); any new
   // direct `store.save*` becomes a visible failure instead of silent drift.
-  const strictWrites = ctx.config?.kernel?.strictWrites ?? 'throw';
+  const strictWrites = cfg?.kernel?.strictWrites ?? 'throw';
   store.setStrictWrites(strictWrites);
   const kernel = createKernel({ store, logger: ctx.logger });
   for (const project of store.listProjects()) kernel.load(project.id);

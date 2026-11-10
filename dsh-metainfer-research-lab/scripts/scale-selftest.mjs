@@ -9,6 +9,9 @@
  * Run: `node scripts/scale-selftest.mjs`
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createDispatchOnce } from '../host/dispatch/dispatch-once.js';
@@ -101,6 +104,32 @@ await test('event pages stay under 50 ms with 20k events', async () => {
   assert.equal(page.events[0].seq, 15_001);
   assert.ok(elapsed < 50, `event page ${elapsed.toFixed(1)} ms < 50 ms`);
   console.log(`     event page 100 of 20k in ${elapsed.toFixed(2)} ms`);
+});
+
+await test('100k-event first page after cold archiving stays under 50 ms', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mir-s12-'));
+  const coldStore = await openStore(storeContext(memoryDomain(), {
+    kernel: { eventArchiveRoot: root, hotEvents: 50_000, eventArchiveSegment: 10_000 },
+  }));
+  try {
+    const project = { id: 'prj-100k', revision: 0, counters: { eventSeq: 0 }, config: {}, createdAt: 0, updatedAt: 0 };
+    await coldStore.saveProject(project);
+    for (let index = 0; index < 100_000; index += 1) {
+      await coldStore.appendEvent(project, 'node/edited', { nodeId: `n${index % 100}`, data: { index } });
+    }
+    await coldStore.saveProject(project);
+    const started = nowMs();
+    const page = coldStore.pageEvents('prj-100k', { after: 99_000, limit: 100 });
+    const elapsed = nowMs() - started;
+    assert.equal(page.total, 100_000);
+    assert.equal(page.events.length, 100);
+    assert.equal(page.events[0].seq, 99_001);
+    assert.ok(elapsed < 50, `first page ${elapsed.toFixed(1)} ms < 50 ms`);
+    console.log(`     100k-event first page in ${elapsed.toFixed(2)} ms`);
+  } finally {
+    await coldStore.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 await test('run pages are bounded at 50 ms', async () => {
