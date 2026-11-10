@@ -16,7 +16,7 @@ import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
 import { clampNodeTitle, isBlank } from './titles.js';
 import { createReviewClaimBoard } from './dispatch/review-claims.js';
 import { createLedgerReader } from './context/ledger.js';
-import { createIntent, intentId, intentMutation } from './kernel/intent.js';
+import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 
@@ -682,7 +682,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         title: node.title,
         expectedInfoGain: meta.expectedInfoGain ?? null,
       },
-      basis: project.revision,
+      basis: basisFor(project.revision, store.listNodes(project.id).length),
       target: { nodeId, parentId: parent.id },
       rationale: meta.rationale ?? null,
     });

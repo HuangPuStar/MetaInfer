@@ -90,7 +90,9 @@ await test('deterministic strategy starts by priority up to capacity, skips defe
   const intents = (env.store.getProject('p').intents ?? []).filter((intent) => intent.kind === 'dispatch');
   assert.equal(intents.length, 3, 'every claimed start writes one dispatch intent');
   assert.equal(intents[0].claim.action, 'claim_node');
-  assert.ok(Number.isInteger(intents[0].basis), 'dispatch intent records the basis revision');
+  assert.equal(intents[0].basis.projectRevision, claims[0].revision - 1, 'dispatch intent records the project revision it read');
+  assert.equal(intents[0].basis.snapshotAgeMs, 0);
+  assert.equal(intents[0].basis.nodesSeen, env.projection.listNodes('p').length);
   await dispatcher.stop();
 });
 

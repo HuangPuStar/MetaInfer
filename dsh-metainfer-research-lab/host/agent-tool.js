@@ -166,7 +166,17 @@ export function registerAgentTool(ctx, service) {
         target: { type: 'object', additionalProperties: true, description: 'for intent_submit: {nodeId?, parentId?}' },
         rationale: { type: 'string', description: 'for intent_submit: ≤2,000 characters' },
         intentId: { type: 'string', description: 'for intent_withdraw: the pending intent to withdraw' },
-        basis: { type: 'number', description: 'for intent_submit: project revision the judgement read (default current)' },
+        basis: {
+          type: 'object',
+          description: 'for intent_submit: {projectRevision, snapshotAgeMs, nodesSeen} the judgement read (default current revision with a fresh snapshot)',
+          properties: {
+            projectRevision: { type: 'integer', minimum: 0 },
+            snapshotAgeMs: { type: 'integer', minimum: 0 },
+            nodesSeen: { type: 'integer', minimum: 0 },
+          },
+          required: ['projectRevision', 'snapshotAgeMs', 'nodesSeen'],
+          additionalProperties: false,
+        },
         task: { type: 'string', description: 'for expert_recall: the task to match against expert descriptors' },
         falseClose: { type: 'boolean', description: 'for curator_outcome: the applied nomination was a false close' },
         apply: { type: 'boolean', description: 'for curator_outcome: must be false; the curator never executes' },

@@ -12,6 +12,8 @@ const MAX_TARGET = 160;
 const MAX_RATIONALE = 2_000;
 const MAX_CLAIM_BYTES = 4_096;
 export const INTENT_TTL_MS = 30 * 60_000;
+const MAX_SNAPSHOT_AGE_MS = 24 * 60 * 60_000;
+const MAX_NODES_SEEN = 100_000;
 
 function str(value, field, max) {
   if (value === undefined || value === null) return null;
@@ -28,12 +30,42 @@ function plain(value, field) {
 }
 
 /**
+ * B21: a judgement is only comparable when we know what world it saw. Keeping
+ * the three fields together prevents callers from comparing a revision from
+ * one snapshot with a node count from another.
+ *
+ * @param {{projectRevision: number, snapshotAgeMs: number, nodesSeen: number}} value
+ * @returns {{projectRevision: number, snapshotAgeMs: number, nodesSeen: number}}
+ */
+export function intentBasis(value) {
+  const basis = plain(value, 'intent.basis');
+  const projectRevision = basis.projectRevision;
+  const snapshotAgeMs = basis.snapshotAgeMs;
+  const nodesSeen = basis.nodesSeen;
+  if (!Number.isInteger(projectRevision) || projectRevision < 0) {
+    throw new TypeError('intent.basis.projectRevision must be a non-negative integer');
+  }
+  if (!Number.isInteger(snapshotAgeMs) || snapshotAgeMs < 0 || snapshotAgeMs > MAX_SNAPSHOT_AGE_MS) {
+    throw new TypeError(`intent.basis.snapshotAgeMs must be an integer between 0 and ${MAX_SNAPSHOT_AGE_MS}`);
+  }
+  if (!Number.isInteger(nodesSeen) || nodesSeen < 0 || nodesSeen > MAX_NODES_SEEN) {
+    throw new TypeError(`intent.basis.nodesSeen must be an integer between 0 and ${MAX_NODES_SEEN}`);
+  }
+  return { projectRevision, snapshotAgeMs, nodesSeen };
+}
+
+/** Build a basis for Host-authored intents from one indexed read. */
+export function basisFor(projectRevision, nodesSeen, snapshotAgeMs = 0) {
+  return intentBasis({ projectRevision, nodesSeen, snapshotAgeMs });
+}
+
+/**
  * @param {object} input
  * @param {string} input.id
  * @param {string} input.kind one of INTENT_KINDS
  * @param {{kind: string, id: string}} input.actor
  * @param {object} input.claim non-empty judgement payload (action + reason/strategy)
- * @param {number} input.basis project revision the decision read
+ * @param {{projectRevision: number, snapshotAgeMs: number, nodesSeen: number}} input.basis what the decision read
  * @param {{nodeId?: string, parentId?: string}} [input.target]
  * @param {string} [input.rationale]
  * @param {number} [input.at]
@@ -44,7 +76,7 @@ export function createIntent(input) {
   if (!INTENT_KINDS.includes(input?.kind)) throw new TypeError(`intent.kind must be one of ${INTENT_KINDS.join(', ')}`);
   const actor = input?.actor;
   if (!actor || typeof actor.id !== 'string' || !actor.id) throw new TypeError('intent.actor is required');
-  if (!Number.isInteger(input?.basis) || input.basis < 0) throw new TypeError('intent.basis must be a non-negative integer revision');
+  const basis = intentBasis(input?.basis);
   const claim = plain(input?.claim, 'intent.claim');
   const action = str(claim.action, 'intent.claim.action', 80);
   if (!action) throw new TypeError('intent.claim.action is required');
@@ -62,7 +94,7 @@ export function createIntent(input) {
     expiresAt: Number.isFinite(input?.expiresAt) ? input.expiresAt : (Number.isFinite(input?.at) ? input.at : Date.now()) + INTENT_TTL_MS,
     actor: { kind: typeof actor.kind === 'string' ? actor.kind : 'expert', id: actor.id },
     claim: structuredClone(claim),
-    basis: input.basis,
+    basis,
     target,
     rationale: str(input?.rationale, 'intent.rationale', MAX_RATIONALE),
     at: Number.isFinite(input?.at) ? input.at : Date.now(),

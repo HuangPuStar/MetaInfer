@@ -16,7 +16,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { validateDecision } from './types.js';
-import { createIntent, intentId, intentMutation } from '../kernel/intent.js';
+import { basisFor, createIntent, intentId, intentMutation } from '../kernel/intent.js';
 
 const LAUNCH_BACKOFF_BASE_MS = 30_000;
 const LAUNCH_BACKOFF_MAX_MS = 30 * 60_000;
@@ -82,7 +82,7 @@ export function createDispatchEnvelope({ projectId, executor, projection, broker
         reason: decision.reason ?? null,
         hardEndAt: decision.lease.hardEndAt ?? null,
       },
-      basis: Number.isInteger(decision.basis) ? decision.basis : (node.rev ?? 0),
+      basis: basisFor(projection.revision(projectId), projection.listNodes(projectId).length),
       target: { nodeId: node.id },
       rationale: decision.reason ?? null,
     });

@@ -156,12 +156,12 @@ const withdrawTarget = await call({ action: 'intent_submit', projectId, kind: 'n
 const withdrawn = await call({ action: 'intent_withdraw', projectId, intentId: withdrawTarget.intent.id }, curatorExec);
 check('intent_withdraw marks the record withdrawn', withdrawn.ok === true && withdrawn.intent?.status === 'withdrawn', JSON.stringify(withdrawn));
 const newer = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'd1', claim: { action: 'newer' } }, curatorExec);
-const stale = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'd1', claim: { action: 'stale' }, basis: 0 }, curatorExec);
+const stale = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'd1', claim: { action: 'stale' }, basis: { projectRevision: 0, snapshotAgeMs: 0, nodesSeen: 2 } }, curatorExec);
 check('stale-basis conflict is resolved with a defined code', stale.ok === false && stale.error?.code === 'stale_basis' && stale.error?.conflictingIntentId === newer.intent.id, JSON.stringify(stale));
 // TTL is enforced by the next intent write, not only displayed by list.
 await kernel.executor.commit(projectId, {
   actor: { kind: 'human', id: 'test' },
-  mutations: [{ op: 'intent.put', intent: { id: 'expired-intent', kind: 'note', status: 'pending', expiresAt: 1, basis: 0, actor: { kind: 'expert', id: 'lab-curator' }, claim: { action: 'old' }, target: { nodeId: 'd1' } } }],
+  mutations: [{ op: 'intent.put', intent: { id: 'expired-intent', kind: 'note', status: 'pending', expiresAt: 1, basis: { projectRevision: 0, snapshotAgeMs: 0, nodesSeen: 2 }, actor: { kind: 'expert', id: 'lab-curator' }, claim: { action: 'old' }, target: { nodeId: 'd1' } } }],
 });
 const afterExpiry = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'd1', claim: { action: 'after-expiry' } }, curatorExec);
 const expiredRecord = (store.getProject(projectId).intents ?? []).find((intent) => intent.id === 'expired-intent');

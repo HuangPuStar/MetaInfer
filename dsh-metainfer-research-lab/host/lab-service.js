@@ -26,7 +26,7 @@ import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
 import { rejection, toActionable } from './kernel/errors.js';
 import { actorFromToolExecution } from './kernel/policy.js';
-import { INTENT_KINDS, createIntent, intentId, intentMutation } from './kernel/intent.js';
+import { INTENT_KINDS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
 import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
 import { recallExperts } from './experts/similarity.js';
 import { applyNomination, createCurator } from './experts/curator.js';
@@ -3000,7 +3000,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           candidates: result.candidates,
           nominations: result.nominations.map((row) => ({ nodeId: row.nodeId, duplicateOf: row.duplicateOf, kind: row.kind, confidence: row.confidence })),
         },
-        basis: project.revision,
+        basis: basisFor(project.revision, nodes.length),
         target: { nodeId: result.nominations[0].nodeId },
         rationale: `deterministic recall produced ${result.candidates} candidate pair(s)`,
       });
@@ -3030,19 +3030,30 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (target?.nodeId && !store.getNode(projectId, target.nodeId)) {
       return rejection('node_not_found', `unknown node: ${target.nodeId}`);
     }
-    const basis = input?.basis === undefined ? project.revision : Number(input.basis);
-    if (!Number.isInteger(basis) || basis < 0) return rejection('bad_request', 'intent.basis must be a non-negative integer revision');
-    if (basis > project.revision) return rejection('basis_ahead', `basis ${basis} is newer than project revision ${project.revision}`);
+    let basis;
+    try {
+      basis = intentBasis(input?.basis === undefined
+        ? basisFor(project.revision, store.listNodes(projectId).length)
+        : input.basis);
+    } catch (error) {
+      return rejection('bad_request', error instanceof Error ? error.message : String(error));
+    }
+    if (basis.projectRevision > project.revision) {
+      return rejection('basis_ahead', `basis projectRevision ${basis.projectRevision} is newer than project revision ${project.revision}`);
+    }
+    // B21: only the project revision can make a judgement stale. Snapshot age
+    // and node count are carried for diagnosis; a larger node count from the
+    // same revision is not a different world.
     const conflict = (Array.isArray(project.intents) ? project.intents : []).find((candidate) => (
       candidate.status === 'pending'
       && (!Number.isFinite(candidate.expiresAt) || candidate.expiresAt > Date.now())
       && candidate.target?.nodeId
       && candidate.target.nodeId === target?.nodeId
-      && Number.isFinite(candidate.basis)
-      && candidate.basis > basis
+      && Number.isInteger(candidate.basis?.projectRevision)
+      && candidate.basis.projectRevision > basis.projectRevision
     ));
     if (conflict) {
-      return rejection('stale_basis', `intent ${conflict.id} already judged this target from revision ${conflict.basis}; re-read before submitting`, {
+      return rejection('stale_basis', `intent ${conflict.id} already judged this target from revision ${conflict.basis.projectRevision}; re-read before submitting`, {
         conflictingIntentId: conflict.id,
         basis: conflict.basis,
         currentRevision: project.revision,
@@ -3146,7 +3157,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       kind: 'priority',
       actor: commitActor,
       claim: { action: 'set_priority', from: normalizePriority(node.priority), to: normalizePriority(priority), reason: priority.reason },
-      basis: project.revision,
+      basis: basisFor(project.revision, store.listNodes(projectId).length),
       target: { nodeId },
       rationale: priority.reason,
     });

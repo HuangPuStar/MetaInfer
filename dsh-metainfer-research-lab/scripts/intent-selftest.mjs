@@ -52,7 +52,11 @@ const submitted = await call({
   rationale: 'split lowers timebox risk',
 });
 check('intent_submit returns an intent', submitted.ok === true && submitted.intent?.id, JSON.stringify(submitted));
-check('intent records claim and basis', submitted.intent?.claim?.action === 'propose_split' && Number.isInteger(submitted.intent?.basis), JSON.stringify(submitted.intent));
+const submittedBasis = submitted.intent?.basis;
+check('intent records claim and structured basis', submitted.intent?.claim?.action === 'propose_split'
+  && submittedBasis?.projectRevision === 0
+  && submittedBasis?.snapshotAgeMs === 0
+  && submittedBasis?.nodesSeen === 2, JSON.stringify(submitted.intent));
 check('intent is persisted in the project', (store.getProject(projectId).intents ?? []).some((intent) => intent.id === submitted.intent.id));
 check('intent event carries the intent cause', submitted.event?.causeId === `intent:${submitted.intent.id}` && submitted.event?.type === 'intent/submitted', JSON.stringify(submitted.event));
 
@@ -66,8 +70,12 @@ check('intent_list is bounded', listed._truncated === null && listed.total >= 1)
 
 const missingClaim = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'n1' });
 check('intent_submit rejects a claimless judgement', missingClaim.ok === false && missingClaim.error?.code === 'bad_request', JSON.stringify(missingClaim));
-const ahead = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'n1', claim: { action: 'observe' }, basis: 999 });
+const ahead = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'n1', claim: { action: 'observe' }, basis: { projectRevision: 999, snapshotAgeMs: 0, nodesSeen: 2 } });
 check('intent_submit rejects a basis ahead of the project', ahead.ok === false && ahead.error?.code === 'basis_ahead', JSON.stringify(ahead));
+const scalarBasis = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'n1', claim: { action: 'observe' }, basis: 0 });
+check('intent_submit rejects a scalar basis', scalarBasis.ok === false && scalarBasis.error?.code === 'bad_request', JSON.stringify(scalarBasis));
+const partialBasis = await call({ action: 'intent_submit', projectId, kind: 'note', nodeId: 'n1', claim: { action: 'observe' }, basis: { projectRevision: 0, snapshotAgeMs: 0 } });
+check('intent_submit rejects a partial basis', partialBasis.ok === false && partialBasis.error?.code === 'bad_request', JSON.stringify(partialBasis));
 const badKind = await call({ action: 'intent_submit', projectId, kind: 'delete_everything', nodeId: 'n1', claim: { action: 'nuke' } });
 check('intent_submit rejects an unknown kind', badKind.ok === false && badKind.error?.code === 'bad_request', JSON.stringify(badKind));
 
@@ -76,7 +84,10 @@ const prior = await call({ action: 'set_priority', projectId, nodeId: 'n1', clas
 check('set_priority succeeds', prior.ok === true, JSON.stringify(prior));
 const priorityIntents = store.getProject(projectId).intents.filter((intent) => intent.kind === 'priority');
 check('set_priority writes a priority intent automatically', priorityIntents.length === 1 && priorityIntents[0].claim?.action === 'set_priority', JSON.stringify(priorityIntents));
-check('priority intent carries the actor and basis', priorityIntents[0]?.actor?.kind === 'human' && Number.isInteger(priorityIntents[0]?.basis), JSON.stringify(priorityIntents[0]?.actor));
+check('priority intent carries the actor and basis', priorityIntents[0]?.actor?.kind === 'human'
+  && priorityIntents[0]?.basis?.projectRevision === submitted.revision
+  && Number.isInteger(priorityIntents[0]?.basis?.snapshotAgeMs)
+  && Number.isInteger(priorityIntents[0]?.basis?.nodesSeen), JSON.stringify(priorityIntents[0]));
 const priorityExplain = explainer.explainNode(projectId, 'n1');
 check('priority decision is explainable', priorityExplain.ok === true && priorityExplain.causeChain.some((entry) => entry.causeId === `intent:${priorityIntents[0].id}`), JSON.stringify(priorityExplain.causeChain));
 
