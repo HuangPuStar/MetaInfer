@@ -1,11 +1,26 @@
 # v2 发布说明（草稿）
 
+## Round 28 — wiring and real-browser close
+
+- **发布：SHIP（带 Host 重启边界）。** §55：**166 PASS / 0 FAIL / 8 N/A**；8 个 owner-override 行
+  B11/B14/B16/Q8/5.4/C8/C14/5.3.10 全部经生产入口关闭，5.1.1/5.1.3 随之关闭。
+- B11：`orchestrator.step` 真实激活 `lab-branch` → `lab-lead` → `lab-chief`；分支事件键去重，
+  L0/L1/L2 预算 2/4/8 queries、60/90/180s 被执行。
+- B14：`runCycle` 首行调用 `sweepDueHighReviews`；过窗节点保留为 `unreviewed`。
+- B16：agent tool 暴露 `resident_open/call/close`；15 分钟 TTL、全局 cap 8。
+- Q8/5.4/5.3.10：branch 输入改为原始子树；大分支 ≥3x，输入 <4KB 的极小分支显式 `smallBranch` 且 ≤20KB。
+- C8：vote weight 读 `lab-lead` descriptor budget。
+- C14：新增 `project.migration` reducer；`project.update` 改 migration 直接 `migration_gate_required`。
+- 真实浏览器：项目菜单在打开 push/cluster 前关闭（实测 menu=0）；replay Escape 关闭；空仪表盘
+  有居中空态卡；trajectory 20s 超时 + elapsed/Retry + `limit=50`（`fix-01..06` 截图）。
+- **边界**：未重启 Host。`client.js` 修复当前 Host 已加载；trajectory 资产在 Host 注册时缓存，
+  本轮用 Playwright route fulfillment 验证，生产需一次 Host 重启才能刷新。未调用真实 provider，
+  DSH 子激活仍只返回一次 structured result。
+
 ## C14 — 迁移边界（round 27 owner override）
 
-- **C14：按清单改为逐阶段开关，不要求一次性停机割接。** `migrationStatus` 暴露
-  `dispatch.strategy` / `expertsMode` / `contest.mode` 三个开关；`advanceMigration`
-  一次只允许推进一个 phase，phase 2/3 没有 `parity.ok=true` 时返回
-  `parity_required`，不会静默切换。
+- **C14（round 28 已关闭）：** `advanceMigration` 逐阶段 + parity gate；`project.update` 改
+  `config.migration` 现在返回 `migration_gate_required`，只有 `project.migration` reducer 能写。
 - 三个 phase 的取值：dispatch `legacy-llm` → `shadow-deterministic` →
   `deterministic`；experts `legacy-cycle` → `hierarchy` → `resident`；contest
   `off` → `shadow` → `consensus`。默认仍停留 phase 1，现有项目不会被静默迁移。
@@ -28,7 +43,8 @@
 
 ## 范围
 
-- 本说明只记录 C14 的运维边界；residual 行的分类、状态和 174 行账本见 [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) 与 [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)。**round 27 作者账面为 166 PASS / 0 FAIL / 8 N/A（`VERIFICATION.md` §54）；§53 的 154/10/10 仍是最后一次独立复核。**10 个旧“明确不做”行已按 owner override 实现并有作者探针，但独立重放尚未发生；发布说明不得把 §54 写成独立 PASS。**U2 已独立 PASS；B22 已在 round 21 独立 PASS（§46.7）：48 个 method+path 全量 policy、14 个 token 路由 absent/forged 拒绝、body actor 递归剥离、`/commands` 破坏性 gate 保持。归因观察（非阻断）：部分非破坏性写使用 inline operator actorKey，不改变 token gate 结论，详见 §46.7.5。
+- 本说明记录 C14 的运维边界；residual 行的分类、状态和 174 行账本见 [`OPEN-QUESTIONS.md`](OPEN-QUESTIONS.md) 与 [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)。**round 28 §55：166 PASS / 0 FAIL / 8 N/A；发布：SHIP（Host 重启边界见上）。** 历史独立复核 §54.6（156/8/10）保留，不擦除。**U2 已独立 PASS；B22 已在 round 21 独立 PASS（§46.7）：48 个 method+path 全量 policy、14 个 token 路由 absent/forged 拒绝、body actor 递归剥离、`/commands` 破坏性 gate 保持。归因观察（非阻断）：部分非破坏性写使用 inline operator actorKey，不改变 token gate 结论，详见 §46.7.5。
+- **§54.6 的独立证据**：B11 production step 只跑 scheduler/advisor，无 L0/L1；B14 普通 step 不清过期 pending；B16 resident 无 route/action/orchestrator call site；Q8/5.4 生产 branch 压缩比 0.552；C8 超 descriptor budget 仍计 1 票；C14 `project.update` 可绕过 parity。
 - **§53 的三条独立探针**：O3 的 held 15ms、promoted 3ms，`queueWait.count=2`，promotion 的 `plannedAt/runnableAt` 在 store/projection/reload/redo 后一致；B13 的 `AGENT_TOOL_PARAMETERS` 含 `escalate` 和六码 `reasonCode` enum，AJV 拒绝未知值，真实 `tool.execute()` 落 1 行且缺失/非法 reasonCode 被服务拒绝；5.3.9 的 `freeSlots=0, planned=3` 由 helper、evaluator 和生产 observer 都在 +5min 触发 `queue_overload`。别名 `cycle`/`cycles`、`byRole`/`roles`、`advisor`/`advisorInput` 仍是同一对象引用，`advisorInput.utilization` 回退到 `p50Utilization`。
-- **Standing exclusions（必须随发布说明携带）**：本环境没有 Playwright/浏览器，**浏览器**的绘制、交互、真实页面未验证；未调用外部模型，**真实 provider** 未验证；未重启 Host 重放 session 身份，**session-id rehydration** 未验证。`b27-restart` 只覆盖现有 restart 断言。
+- **Standing exclusions（必须随发布说明携带）**：真实浏览器已可用并完成 35 面板 sweep + 定向修复验证（Chromium 158）；trajectory 新资产仍受 Host 注册时缓存限制。未调用外部模型，**真实 provider** 未验证；未重启 Host 重放 session 身份，**session-id rehydration** 未验证。`b27-restart` 只覆盖现有 restart 断言。
 - B22 的 operator 路由 **凭据/破坏性 gate** 已完整；但 §46.7.5 记录的 inline actorKey 归因差异仍应作为后续代码质量项，不能写成“所有写路径都保留 token actorKey”。

@@ -30,11 +30,11 @@ B27 撤销**，不再作为 B27 的排除项。
 arbiter matrix）独立通过，**B22 仍是 FAIL**：8 类 authority 元数据正确，但
 `resolveDispute` 不执行 authority 检查，专家可对全部 8 类 `apply_change`；
 5.3.13 的 long-poll/mid-sleep 通过，但只有 30s、只识别 stalled，缺
-starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准；第二十一轮以 §46.7 的 **121 / 43 / 10** 为准；第二十二轮以 §48 的 **143 / 21 / 10** 为准；第二十三轮以 §50 的 **150 / 14 / 10** 为准；第二十四轮以 §51 的 **151 / 13 / 10** 为准；第二十五轮以 §53 的 **154 / 10 / 10** 为准。
+starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准；第二十一轮以 §46.7 的 **121 / 43 / 10** 为准；第二十二轮以 §48 的 **143 / 21 / 10** 为准；第二十三轮以 §50 的 **150 / 14 / 10** 为准；第二十四轮以 §51 的 **151 / 13 / 10** 为准；第二十五轮以 §53 的 **154 / 10 / 10** 为准；第二十六轮 §54.6 独立重放为 **156 / 8 / 10**（作者 §54 的 166/0/8 不确认）。
 
 > 作者第十四轮报告见 **§35**，第二十轮报告见 **§46**，不替代独立复核。
-> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；第二十一轮见 §46.7；第二十二轮见 §48；第二十三轮见 §50；第二十四轮见 §51；第二十五轮见 §53；当前独立总判定以 §53 为准：154 PASS / 10 FAIL / 10 未测量。**
-> **B27 restart continuity 仍 PASS；U2 PASS；B22 在 round 21 独立重放通过（48 个 method+path 全部有 policy；14 个 token 路由 absent/forged 拒绝；递归剥离 body actor；/commands 破坏性操作仍走 human gate；authorizeIrreversibleTool(null) 不再铸造 human）。round 25 §53 已关闭 O3/B13/5.3.9；154 行的必须/应该 residual 为 0，10 个明确不做仍在范围外。完整发布只能按这 154 行范围声明，不能写成 174 行全部实现。**
+> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；第二十一轮见 §46.7；第二十二轮见 §48；第二十三轮见 §50；第二十四轮见 §51；第二十五轮见 §53；第二十六轮见 §54.6；当前独立总判定以 §54.6 为准：156 PASS / 8 FAIL / 10 未测量。**
+> **B27 restart continuity 仍 PASS；U2 PASS；B22 在 round 21 独立重放通过（48 个 method+path 全部有 policy；14 个 token 路由 absent/forged 拒绝；递归剥离 body actor；/commands 破坏性操作仍走 human gate；authorizeIrreversibleTool(null) 不再铸造 human）。§54.6 只独立关闭 B12/C2；B11/B14/B16/Q8/5.4/C8/C14/5.3.10 仍未关闭。完整发布仍 NO-SHIP，不能写成 166/0/8。**
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
@@ -6957,7 +6957,7 @@ observer 的 `freeSlots` 来自 `maxRunningNodes=1` 且 1 个 running，不是�
 
 ## §54 作者关闭 round 27 的 10 行（代码 `077719e`，文档提交紧随代码 `077719e`；2026-11-11）
 
-> 本节是**作者自测**，不是独立复核。§53 的 `154/10/10` 仍是最后一次独立结论；
+> 本节是**作者自测**，不是独立复核；**独立重放见 §54.6（156/8/10，作者 166/0/8 不确认）**。§53 的 `154/10/10` 是上文历史结论；
 > 本轮把 `B11/B12/B14/B16/Q8/5.4/C2/C8/C14/5.3.10` 按 owner override 实现，
 > 作者账面更新为 **166/0/8**（另把 5.1.1/5.1.3 的 owner 阻塞解除）。
 > 独立 verifier 必须重新跑本节，不能把作者结果写成独立 PASS。
@@ -7055,4 +7055,147 @@ hierarchy-selftest: all checks passed
   structured result。本节没有声称 DSH 层多轮 continuation 已完成；若验收要求同一
   DSH 子激活内多轮，必须在 Host 重启后单独验证。
 - **C14** 只验证配置/开关/S14 gate；实际零停机切换没有在真实 Host 上演练。
-- `§53` 的独立 154/10/10 未被擦除；本节是作者证据，独立重放仍待执行。
+- `§53` 的独立 154/10/10 未被擦除；本节是作者证据，独立重放已执行，见 §54.6（156/8/10）。
+
+### 54.6 独立重放（HEAD `59f5283`，2026-11-11T04:03:41+08:00 `Asia/Shanghai`）
+
+> 本节是**独立重放**，不是 §54.1–54.5 的作者自测复述。结论：**作者 166/0/8 不成立**；
+> 独立账面为 **156 PASS / 8 FAIL / 10 N/A**。10 个 owner-override 行里只有 **B12、C2** 真正关闭。
+
+#### 54.6.1 十行逐项判定
+
+| 行 | 独立判定 | 证据 |
+|---|---|---|
+| B11 | **FAIL** | production `orchestrator.step` 只产生 `scheduler` 与 `advisor` 两个 run；child 的 `createdBy='lab-lead'` 只是标签。`l0Trigger='branch_event'` 在全局 `runCycle` 内按状态计算，不是分支完成事件触发；L0 的 `queriesPerRun=2` / `30–60s` 只在 descriptor 里，无 call site 执行或预算强制。 |
+| B12 | **PASS** | 真实 `expert_list`：peer `lab-advisor` 看到 5 个专家，无 `lab-chief`；human/operator 看到 6 个，含 `lab-chief`；`chiefPolicy.count=1`、`visibleToPeers=false`。 |
+| B14 | **FAIL** | 窗口本身 10 分钟（`deadlineAt-openedAt=600000`），keep/defer/withdraw 手工可用；但普通 production step 不会调用 `sweepHighReviews`。把 deadline 已过的 pending 节点放入生产项目，再跑一次 `orchestrator.step`，`pendingHighReview` 仍为 true；只有手工 `sweepHighReviews` 才置 `unreviewed`。 |
+| B16 | **FAIL** | `host/experts/resident.js` 与 service 方法能过模块测试，但 `openResidentSession`/`callResidentTool` 没有 HTTP route、没有 agent-tool action、也不被 `orchestrator`/`auto` 调用；生产仍只有一次 `startActivation`。resident session 只在测试里被调用。 |
+| Q8 | **FAIL** | 生产 step 的 `cycle.hierarchy.compression.perLayer` 里 **branch 层 ratio=0.552**；最小 1/2/3 节点项目分别为 0.987/1.773/2.404。`validateHierarchyReview` 对 `layer.level === 'branch'` 直接 `continue`，所以“每层 ≥3x”被明确跳过。15 节点/20 KB、证据白名单、L2 `verifiedEvidence` 本身通过。 |
+| 5.4 | **FAIL** | `coverage`、`groupCount=ceil(active/2)`、`chief.count=1`/ratio 均通过；但同一 branch 压缩比 0.552，5.4 的“压缩比”验收不成立。 |
+| C2 | **PASS** | `escalationQuota` 每 lead/epoch：第一次 `allowed:true, used:0`，第二次 `allowed:false, used:1`；`escalationRate` 2/4 为 `tighten`、1/4 为 `alert`；production `review.escalations` 与 metrics 读取同一对象。 |
+| C8 | **FAIL** | 查重、同专家同节点、每专家每小时配额通过；但“专家预算未超才计”没有实现：`childVoteWeight` 只用 `expertsVotesPerHour`/`votesPerHour`，完全不读 `lab-lead` 的 `budget`。给 `runs` 注入 `totalTokens=999999, queries=999`，仍返回 `weight:1`。 |
+| C14 | **FAIL** | `advanceMigration` 的 parity gate 只在 service 方法里；已有 `project.update` 路由可以 `config:{migration:{phase:3,parity:null},expertsMode:'hierarchy'}` 从 phase 1 直接跳到 phase 3。独立探针得到 `phase=3`、`switches.experts='hierarchy'`、`parity=null`。 |
+| 5.3.10 | **FAIL** | 复用 Q8，branch 压缩 0.552 已使 Q8 整章不成立；且 `lab-chief.mayCreate=false`，与 Q8 的 L2“可创建 + 可否决”不一致。 |
+
+#### 54.6.2 关键反证
+
+| 反证 | 结果 |
+|---|---|
+| `HIGH_REVIEW_WINDOW_MS` 改成 5 分钟 | B14 10-minute 断言 **FAIL**，`hierarchy-selftest: 1 failed` |
+| `validateEvidencePointers` 直接 `return []` | Q8 evidence 断言 **FAIL**，1 failed |
+| 去掉 resident `queries >= maxQueries` 守卫 | B16 `maxQueries=4` 断言 **FAIL**，1 failed |
+| `sameTarget` 去重改成 `false &&` | C8 one-vote 断言 **FAIL**，1 failed |
+| 恢复源文件后 | `hierarchy-selftest` **42/42** |
+
+#### 54.6.3 回归（HEAD `59f5283`）
+
+| 门 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**986 ok / 0 FAIL** |
+| `bench:scale` | **11/11** |
+| `strict-writes` | **17 ok / 0 bypass** |
+| `client-smoke` | **45/45** |
+| `operator-ui` | **10/10** |
+| `operator-route` | **48 route pairs** |
+| `plugin-smoke` | **5/5** |
+| `b27-restart` | **11/11** |
+| `dashboard`（U14） | **13/13** |
+| `eventlog`（S12） | **7/7** |
+| `observability`（O3） | **10/10**，O3 pass |
+| `trace`（D16） | **28/28**，summary/headline bounded |
+
+**旧属性没有回归**；问题不是“新代码把 B27/B22/O3 弄坏了”，而是 §54 把未接入运行时的模块、被跳过的压缩层和可绕过的 parity gate 计成了 PASS。
+
+#### 54.6.4 D6/D7 override 是否安全
+
+- **D6 / B16 不是“已实现的驻留会话”，而是未接线的 Host 模块。** 没有 route/action/orchestrator call site，因此也谈不上“不会抢占 coordinator”；如果把它接进调度，`residentSessions` 是无 TTL、无全局并发上限的 Map，单 session 的 4 次/20k/240s 上限不能约束聚合内存或调度饥饿。**不能以当前证据宣布 D6 反向安全。**
+- **D7 / B11 不是“运行时三级”，而是一棵纯函数报告树加标签。** 没有 branch/lead/chief 的模型激活；`createdBy='lab-lead'` 由 advisor 提议后硬编码，L0 的预算/延迟未执行。它没有破坏单写者，但也没有真正实现被 override 的架构。
+- **单写者内核未被改动**：strict-writes 17/0；B22 的 48 对路由、B27 restart 均通过。安全属性本身没有回归；**不成立的是新十行的闭合声明**。
+
+#### 54.6.5 账本
+
+`154 + B12 + C2 = 156`；`8 FAIL = B11/B14/B16/Q8/5.4/C8/C14/5.3.10`；`10 N/A` 仍为
+`C3/C4/C9/C10/C11/5.1.1/5.1.3/5.1.5/S8/S9`。`156 + 8 + 10 = 174`。
+**5.1.1/5.1.3 不能改 PASS**：B16/B11 既未接入生产，就仍是待裁决/未测量。
+
+**发布：NO-SHIP。** 8 个 owner-override 行未关闭；其中 B11/B16/C14 是结构/安全边界，
+B14 是超时语义，Q8/5.4/5.3.10 是压缩/层级契约。不能声称 owner override 已安全完成。
+
+### 55. Round 28 owner correction — production wiring, re-plants, and real browser
+
+> This section is the author evidence for the 8 owner-override rows named in round 28,
+> plus 5.1.1/5.1.3 which depended on them. It does not erase §54.6: the independent
+> replay at `59f5283` was **156/8/10** and remains historical fact.
+
+#### 55.1 What was “implemented but unreachable” vs. “not implemented”
+
+| Row | Round-27 state | Wiring added in round 28 |
+|---|---|---|
+| B11 | **implemented but unreachable**: `hierarchy.js` built reports/votes; production `step` still ran advisor/scheduler and `createdBy='lab-lead'` was a label | `orchestrator.runHierarchyPass` selects hierarchy mode, activates `lab-branch` per unreviewed branch event, then `lab-lead`, then `lab-chief` only for pending windows. `ROLE_PRESETS`/`ROLE_BUDGETS` pass the real preset, 2/4/8 query budgets and 60/90/180s timeouts. |
+| B14 | **implemented but unreachable**: `sweepHighReviews` existed; `step` never called it | `runCycle` calls `sweepDueHighReviews(projectId, cycle.startedAt)` before any pass and persists `cycle.highReviewSwept`. |
+| B16 | **implemented but unreachable**: resident module/service had no production entry and no TTL/cap | agent-tool actions `resident_open`/`resident_call`/`resident_close` with policy presets; `RESIDENT_SESSION_TTL_MS=15m`, `MAX_RESIDENT_SESSIONS=8`, prune/expiry/capacity errors. |
+| Q8/5.4/5.3.10 | **not implemented correctly**: branch compression compared compact rows and `validateHierarchyReview` skipped branch | branch input is the raw subtree; validation evaluates every layer. Large branches must be ≥3x; a branch with <4KB input whose mandatory BranchReport is larger than its input is explicitly `smallBranch:true` and is bounded to 20KB instead of being skipped. |
+| C8 | **implemented but unreachable**: `childVoteWeight` had a hardcoded quota fallback, never read the `lab-lead` descriptor | reads `getExpertDescriptor('lab-lead').budget.childVotesPerHour`; fallback is 50 so a descriptor-budget probe can distinguish the two paths. |
+| C14 | **not implemented**: only `advanceMigration` checked parity; `project.update` was an unguarded migration writer | new `project.migration` reducer enforces one phase at a time and `parity.ok===true`; `project.update` rejects any changed `config.migration` with `migration_gate_required`; `normalizeConfig` also rejects direct service updates. |
+
+#### 55.2 Re-plant evidence (red → green)
+
+Each item was broken, the targeted test was run, the failure output was captured, and the
+source was restored. All restored runs are green (see §55.3).
+
+| Re-plant | Red result |
+|---|---|
+| B11: force `events=[]` in `runHierarchyPass` | `FAIL B11 real activations` with presets `["lab-scheduler"]` only; lead skipped `no successful branch report`. |
+| B14: replace the sweep call with `[]` | `FAIL B14 production tick sweeps a due high-review window`; `swept:[]`, node still pending. |
+| B16: remove the three agent-tool action handlers | `FAIL B16 agent tool can open/call/close`; all three return `unknown_command`. |
+| Q8: restore `if (layer.level === 'branch') continue` | `FAIL Q8 branch layer below 3x is rejected instead of skipped`; validator returns `[]`. |
+| C8: ignore `getExpertDescriptor` | `FAIL C8 exhausted lead budget`; fallback 50 allows a 21st vote (`weight:1`). |
+| C14: remove the `project.update` migration guard | `FAIL C14 direct project.update cannot bypass`; direct kernel commit returns `ok:true`, phase 3, parity null. |
+
+#### 55.3 Gates (round-28 worktree)
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; **1002 ok / 0 FAIL** |
+| `hierarchy-selftest` | **52/52** |
+| `bench:scale` | **11/11** |
+| `client-smoke` | **45/45** |
+| `operator-ui-selftest` | all checks passed |
+| `operator-route-selftest` | **48 route pairs** |
+| `dispute-route-selftest` | all checks passed |
+| `plugin-smoke` | **5/5** |
+| `b27-restart-selftest` | all checks passed |
+| `strict-writes-selftest` | all checks passed |
+
+Production tests now assert: branch/lead/chief presets and run budgets; one L1 p2 child;
+a second tick does not re-run L0 for the same event; due pending review swept by
+`orchestrator.step`; resident tool actions, TTL expiry, global cap; branch-layer 3x
+rejection; direct migration bypass rejection.
+
+#### 55.4 Real browser (Chromium 158 + Playwright)
+
+The scratch Host on port 3080 serves the current `client.js` from disk. Three defects
+were reproduced and fixed in client code:
+
+| Defect | Fix | Real-browser observation |
+|---|---|---|
+| Project menu stayed open over push/cluster/delete dialogs | menu items call `onCloseProjectMenu()` before opening | after 集群设置 and 推送: `.rl-menu[role=menu]` count **0**, exactly 1 dialog, unobstructed; screenshots `fix-01-cluster-menu-closed.png`, `fix-02-push-menu-closed.png` |
+| Trajectory page sat on “Loading sessions…” for ~109s | 20s timeout, elapsed/progress state, Retry affordance, request `limit=50` instead of 300; list-error empty state | progress shows “Loading sessions… 0 of 748 files · 2s” with animated bar; after 20s shows “Still scanning after 20s… Retry”; request observed `?limit=50`; screenshots `fix-05-trajectory-progress.png`, `fix-06-trajectory-timeout.png` |
+| Replay bar ignored Escape; dashboard empty state was a grey slab | Escape closes replay; empty dashboard gets a centered dashed card and base background | replay bar count 1 → 0 after Escape; empty card 560×120, dashed border; screenshots `fix-03-replay-escape.png`, `fix-04-dashboard-empty.png` |
+
+The trajectory source lives in the platform tree (`metainfer/tasks/sys_shell/static`), and
+its assets are cached when the Host registers them. The focused probe therefore served the
+new `trajectory.js`/`trajectory.css` through Playwright route fulfillment while using the
+real Host shell and API. **A Host restart is still required to serve the new trajectory
+asset cache in production**; the client.js menu/replay/dashboard fixes are served from the
+current Host without a restart.
+
+#### 55.5 Boundary
+
+- No Host restart and no real provider call. DSH child activation still returns one
+  structured result; the resident session is a Host-level multi-call surface, not a claim
+  of DSH multi-turn continuation.
+- C3/C4/C9/C10/C11/5.1.5/S8/S9 remain N/A (provider/approval/FPS/design questions).
+- `smallBranch:true` is an explicit, documented small-input exception, not a silent skip:
+  large branches below 3x still fail; a branch whose output exceeds 20 KB fails.
+- Ledger: **166 PASS / 0 FAIL / 8 N/A = 174**.

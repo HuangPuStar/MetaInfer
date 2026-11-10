@@ -5,9 +5,11 @@ import { html } from "htm/preact";
 import { useEffect, useState } from "preact/hooks";
 
 const API_ROOT = "/api/sys-shell/trajectories";
+const LIST_PAGE_SIZE = 50;
+const LIST_TIMEOUT_MS = 20_000;
 
-async function getJson(url) {
-  const response = await fetch(url, { headers: { accept: "application/json" } });
+async function getJson(url, options = {}) {
+  const response = await fetch(url, { headers: { accept: "application/json" }, signal: options.signal });
   if (!response.ok) {
     let message = `HTTP ${response.status}`;
     try {
@@ -111,9 +113,12 @@ function MetricCard({ label, value, hint }) {
   `;
 }
 
-function SessionList({ sessions, selectedId, onSelect, loading, projectId = "" }) {
+function SessionList({ sessions, selectedId, onSelect, loading, error = "", projectId = "" }) {
   if (loading && sessions.length === 0) {
     return html`<div class="traj-list-empty">Loading sessions…</div>`;
+  }
+  if (error && sessions.length === 0) {
+    return html`<div class="traj-list-empty">Session list unavailable. Retry above.</div>`;
   }
   if (sessions.length === 0) {
     return html`<div class="traj-list-empty">${projectId ? "No DSH sessions found for this project." : "No DSH sessions found."}</div>`;
@@ -1330,6 +1335,7 @@ export function TrajectoryView({ onClose, initialQuery = "", projectId = "", pro
   const [sessions, setSessions] = useState([]);
   const [visibleCount, setVisibleCount] = useState(0);
   const [listLoading, setListLoading] = useState(true);
+  const [listElapsedMs, setListElapsedMs] = useState(0);
   const [listError, setListError] = useState("");
   const [query, setQuery] = useState(initialQuery || "");
   const [selectedId, setSelectedId] = useState(null);
@@ -1362,16 +1368,34 @@ export function TrajectoryView({ onClose, initialQuery = "", projectId = "", pro
 
   useEffect(() => {
     let cancelled = false;
+    let timedOut = false;
+    const controller = new AbortController();
+    const startedAt = Date.now();
     setListLoading(true);
+    setListElapsedMs(0);
+    setListError("");
+    const progress = setInterval(() => {
+      if (!cancelled) setListElapsedMs(Date.now() - startedAt);
+    }, 500);
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      clearInterval(progress);
+      if (cancelled) return;
+      setListError(`Still scanning after ${Math.round(LIST_TIMEOUT_MS / 1000)}s. The session index is incomplete; retry or narrow the search.`);
+      setListLoading(false);
+    }, LIST_TIMEOUT_MS);
     const timer = setTimeout(() => {
-      const params = new URLSearchParams({ limit: "300" });
+      const params = new URLSearchParams({ limit: String(LIST_PAGE_SIZE) });
       if (query.trim()) params.set("q", query.trim());
       if (projectId) params.set("projectId", projectId);
       if (repoPath) params.set("repoPath", repoPath);
       const suffix = `?${params.toString()}`;
-      getJson(`${API_ROOT}${suffix}`)
+      getJson(`${API_ROOT}${suffix}`, { signal: controller.signal })
         .then((data) => {
-          if (cancelled) return;
+          if (cancelled || timedOut) return;
+          clearTimeout(deadline);
+          clearInterval(progress);
           setSessions(data.sessions || []);
           setVisibleCount(Number(data.count ?? (data.sessions || []).length));
           setListError("");
@@ -1383,11 +1407,24 @@ export function TrajectoryView({ onClose, initialQuery = "", projectId = "", pro
         })
         .catch((error) => {
           if (cancelled) return;
-          setListError(String(error.message || error));
+          if (timedOut || error?.name === "AbortError") {
+            if (!timedOut) {
+              setListError(`Still scanning after ${Math.round(LIST_TIMEOUT_MS / 1000)}s. The session index is incomplete; retry or narrow the search.`);
+            }
+          } else {
+            setListError(String(error.message || error));
+          }
           setListLoading(false);
+          clearInterval(progress);
         });
     }, 200);
-    return () => { cancelled = true; clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearTimeout(timer);
+      clearTimeout(deadline);
+      clearInterval(progress);
+    };
   }, [query, reloadTick, projectId, repoPath]);
 
   useEffect(() => {
@@ -1502,7 +1539,22 @@ export function TrajectoryView({ onClose, initialQuery = "", projectId = "", pro
           ${configError ? html`<span class="traj-error-text">${configError}</span>` : null}
         </form>
       ` : null}
-      ${listError ? html`<div class="traj-page-error">${listError}</div>` : null}
+      ${listLoading ? html`
+        <div class="traj-page-progress" role="status" aria-live="polite">
+          <div class="traj-progress-head">
+            <span>Loading sessions… ${sessions.length} of ${health?.sessionFiles ?? "?"} files</span>
+            <span class="traj-progress-elapsed">${Math.ceil(listElapsedMs / 1000)}s</span>
+          </div>
+          <div class="traj-progress-track" aria-hidden="true"><span class="traj-progress-fill"></span></div>
+          <span class="traj-hint">Reading the session index (requesting up to ${LIST_PAGE_SIZE}); this page gives up after ${Math.round(LIST_TIMEOUT_MS / 1000)}s.</span>
+        </div>
+      ` : null}
+      ${listError ? html`
+        <div class="traj-page-error" role="alert">
+          <span>${listError}</span>
+          <button class="btn ghost" type="button" onClick=${() => setReloadTick((value) => value + 1)}>Retry</button>
+        </div>
+      ` : null}
       <div class="traj-body">
         <aside class="traj-sidebar">
           <input class="traj-search" type="search" placeholder="Search id, title, task, project, skill release, preset, model…"
@@ -1511,7 +1563,7 @@ export function TrajectoryView({ onClose, initialQuery = "", projectId = "", pro
             ${sessions.length} shown${health ? ` / ${fmtInt(health.sessionFiles)} files` : ""}
           </div>
           <${SessionList} sessions=${sessions} selectedId=${selectedId} projectId=${projectId}
-              onSelect=${setSelectedId} loading=${listLoading} />
+              onSelect=${setSelectedId} loading=${listLoading} error=${listError} />
         </aside>
         <section class="traj-main">
           <${Detail} detail=${detail} loading=${detailLoading} error=${detailError}

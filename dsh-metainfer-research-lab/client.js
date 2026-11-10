@@ -3016,7 +3016,8 @@ window.__ModuleLoader__.load({
       '.rl-dash-head-actions { display: flex; align-items: center; gap: 6px; flex: none; }',
       '.rl-dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) 310px; flex: 1 1 auto; min-height: 0; min-width: 0; }',
       '.rl-dash-canvas { position: relative; min-width: 0; min-height: 260px; overflow: auto; background-image: radial-gradient(color-mix(in srgb, var(--dsw-alias-border-l1) 60%, transparent) 0.5px, transparent 0.5px); background-size: 18px 18px; }',
-      '.rl-dash-empty { margin: 24px; color: var(--dsw-alias-label-tertiary); font-size: 12px; }',
+      '.rl-dash-canvas-empty { display: flex; align-items: center; justify-content: center; background-image: none; background: var(--dsw-alias-bg-base); }',
+      '.rl-dash-empty { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: min(560px, calc(100% - 48px)); min-height: 120px; margin: 24px; padding: 24px; border: 1px dashed color-mix(in srgb, var(--dsw-alias-border-l2) 75%, transparent); border-radius: 12px; background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 86%, transparent); color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 20px; text-align: center; }',
       '.rl-dw { position: absolute; display: flex; flex-direction: column; min-width: 0; border: 0.5px solid color-mix(in srgb, var(--dsw-alias-border-l2) 88%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 82%, transparent); box-shadow: 0 8px 24px rgba(0,0,0,.18); overflow: hidden; }',
       '.rl-dw-dragging { z-index: 5; box-shadow: 0 18px 46px rgba(0,0,0,.32); opacity: .94; }',
       '.rl-dw-resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 45%, color-mix(in srgb, var(--dsw-alias-label-tertiary) 60%, transparent) 46% 55%, transparent 56% 65%, color-mix(in srgb, var(--dsw-alias-label-tertiary) 60%, transparent) 66% 75%, transparent 76%); }',
@@ -8740,7 +8741,7 @@ window.__ModuleLoader__.load({
             { className: 'rl-dash-grid' },
             h(
               'div',
-              { className: 'rl-dash-canvas', role: 'region', 'aria-label': t('dashboard.widgets'), ref: canvasRef },
+              { className: 'rl-dash-canvas' + (widgets.length === 0 ? ' rl-dash-canvas-empty' : ''), role: 'region', 'aria-label': t('dashboard.widgets'), ref: canvasRef },
               widgets.length === 0
                 ? h('p', { className: 'rl-dash-empty' }, t('dashboard.empty'))
                 : widgets.map((widget) => h(DashboardWidget, {
@@ -9018,6 +9019,11 @@ window.__ModuleLoader__.load({
             setDeleteError('');
             return;
           }
+          if (replayOpen) {
+            setReplayOpen(false);
+            setReplayPlaying(false);
+            return;
+          }
           if (projectMenuOpen) {
             setProjectMenuOpen(false);
             return;
@@ -9046,7 +9052,7 @@ window.__ModuleLoader__.load({
         };
         document.addEventListener('keydown', onKeyDown);
         return () => document.removeEventListener('keydown', onKeyDown);
-      }, [continueNodeId, successorOpen, runsOpen, confirmRequest, autoConfirmOpen, settingsOpen, deleteOpen, projectMenuOpen, mergeCreateOpen, finishMergeNodeId, pushOpen, clusterOpen, clusterConfigOpen, copilotOpen]);
+      }, [continueNodeId, successorOpen, runsOpen, confirmRequest, autoConfirmOpen, settingsOpen, deleteOpen, projectMenuOpen, mergeCreateOpen, finishMergeNodeId, pushOpen, clusterOpen, clusterConfigOpen, replayOpen, copilotOpen]);
 
       React.useEffect(() => {
         if (confirmRequest === null) return;
@@ -9704,6 +9710,7 @@ window.__ModuleLoader__.load({
           onDeleteProject: requestDeleteProject,
           onPush: openPush,
           onOpenClusterConfig: openClusterConfig,
+          onCloseProjectMenu: () => setProjectMenuOpen(false),
           cluster: snapshot?.cluster,
           onOpenCluster: () => setClusterOpen(true),
           runs: runsFeed.state.runs,
@@ -10217,6 +10224,7 @@ window.__ModuleLoader__.load({
       onOpenSettings,
       projectMenuOpen,
       onToggleProjectMenu,
+      onCloseProjectMenu,
       onDeleteProject,
       onPush,
       onOpenClusterConfig,
@@ -10353,7 +10361,7 @@ window.__ModuleLoader__.load({
                       type: 'button',
                       className: 'rl-menu-item',
                       role: 'menuitem',
-                      onClick: onOpenClusterConfig,
+                      onClick: () => { onCloseProjectMenu(); onOpenClusterConfig(); },
                     },
                     t('ws.projectMenu.clusterConfig'),
                   ),
@@ -10363,7 +10371,7 @@ window.__ModuleLoader__.load({
                       type: 'button',
                       className: 'rl-menu-item',
                       role: 'menuitem',
-                      onClick: onPush,
+                      onClick: () => { onCloseProjectMenu(); onPush(); },
                     },
                     t('ws.projectMenu.push'),
                   ),
@@ -10373,7 +10381,7 @@ window.__ModuleLoader__.load({
                       type: 'button',
                       className: 'rl-menu-item rl-menu-item-danger',
                       role: 'menuitem',
-                      onClick: onDeleteProject,
+                      onClick: () => { onCloseProjectMenu(); onDeleteProject(); },
                     },
                     t('ws.projectMenu.delete'),
                   ),

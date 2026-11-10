@@ -381,10 +381,42 @@ const reducers = {
     for (const key of Object.keys(set)) {
       if (PROJECT_PROTECTED_FIELDS.has(key)) throw new MutationError('protected_field', `${key} cannot be changed`);
     }
+    // C14: migration config is not a normal editable field. Only the dedicated
+    // reducer below may advance it, so a raw project.update cannot set phase=3
+    // with parity=null (or skip a phase) and bypass advanceMigration.
+    const nextMigration = set.config?.migration;
+    const currentMigration = ws.project.config?.migration;
+    if (nextMigration !== undefined && JSON.stringify(nextMigration) !== JSON.stringify(currentMigration)) {
+      throw new MutationError('migration_gate_required', 'config.migration may only be changed through advanceMigration');
+    }
     Object.assign(ws.project, structuredClone(set));
     ws.project.updatedAt = ctx.now;
     ws.projectTouched = true;
     return [{ type: m.eventType ?? 'project/edited', data: m.eventData ?? { fields: Object.keys(set) }, effects: [{ op: 'project.merge', set: structuredClone(set), updatedAt: ctx.now }] }];
+  },
+
+  'project.migration'(ws, m, ctx) {
+    const config = requirePlainObject(m.config, 'config');
+    const migration = requirePlainObject(config.migration, 'config.migration');
+    const current = ws.project.config?.migration ?? { phase: 1, parity: null };
+    const currentPhase = Number(current.phase ?? 1);
+    const target = Number(migration.phase);
+    if (![1, 2, 3].includes(target)) throw new MutationError('bad_request', 'migration phase must be 1, 2 or 3');
+    if (target !== currentPhase && target !== currentPhase + 1) {
+      throw new MutationError('invalid_migration_step', `migration must advance one phase at a time (current ${currentPhase})`);
+    }
+    if (target > 1 && migration.parity?.ok !== true) {
+      throw new MutationError('parity_required', 'S14 parity must pass before phase 2 or 3');
+    }
+    const set = { config: structuredClone(config) };
+    Object.assign(ws.project, set);
+    ws.project.updatedAt = ctx.now;
+    ws.projectTouched = true;
+    return [{
+      type: 'project/migration_advanced',
+      data: { from: currentPhase, to: target, switches: { experts: config.expertsMode, dispatch: config.dispatch?.strategy, contest: config.contest?.mode } },
+      effects: [{ op: 'project.merge', set, updatedAt: ctx.now }],
+    }];
   },
 
   /** Append one judgement record to the project intent log (Stage 3). */

@@ -82,6 +82,9 @@ export const ACTION_CATALOG = Object.freeze({
   curator_outcome: 'control',
   set_priority: 'write',
   resolve_high_review: 'write',
+  resident_open: 'write',
+  resident_call: 'write',
+  resident_close: 'write',
   claim_review: 'write',
   release_review: 'write',
   // control (runtime / driver)
@@ -164,13 +167,23 @@ export const PRESET_POLICIES = Object.freeze({
   }),
   'lab-advisor': Object.freeze({
     kind: 'expert',
-    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update']),
+    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update', 'resident_open', 'resident_call', 'resident_close']),
     note: 'experts propose through intents and the ledger; they never start, cancel or delete',
   }),
   'lab-reviewer': Object.freeze({
     kind: 'expert',
     allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update']),
     note: 'reviewers propose through intents and the ledger',
+  }),
+  'lab-branch': Object.freeze({
+    kind: 'expert',
+    allowed: Object.freeze([...READ, ...DAG, 'resident_open', 'resident_call', 'resident_close']),
+    note: 'branch reviewers compress one subtree through a resident read session; they never write the DAG',
+  }),
+  'lab-lead': Object.freeze({
+    kind: 'expert',
+    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update', 'resident_open', 'resident_call', 'resident_close']),
+    note: 'leads materialize proposals through intents and use a resident session for multi-step work',
   }),
   'lab-curator': Object.freeze({
     kind: 'expert',
@@ -179,7 +192,7 @@ export const PRESET_POLICIES = Object.freeze({
   }),
   'lab-chief': Object.freeze({
     kind: 'expert',
-    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update', 'approve_node', 'reject_node', 'resolve_high_review']),
+    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update', 'approve_node', 'reject_node', 'resolve_high_review', 'resident_open', 'resident_call', 'resident_close']),
     note: 'the chief arbitrates proposals; it cannot start or cancel runs',
   }),
   // Stage 5.3.14: an arbiter can observe and resolve one dispute. It has no

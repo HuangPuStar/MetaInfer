@@ -14,6 +14,7 @@
  */
 
 import { evaluateEscalationTriggers } from './triggers.js';
+import { getExpertDescriptor } from './registry.js';
 
 export const EXPERT_LEVELS = Object.freeze(['branch', 'lead', 'chief']);
 
@@ -89,6 +90,9 @@ export const CHIEF_VETO_ACTIONS = Object.freeze(['defer', 'withdraw']);
 
 const LEVEL_BY_ID = new Map(HIERARCHY_DESCRIPTORS.map((descriptor) => [descriptor.id, descriptor.level]));
 const BRANCH_BYTES_LIMIT = 20_000;
+// A branch smaller than this cannot carry 3x because BranchReport has mandatory
+// evidence/health fields; larger branches must meet the 3x contract.
+const BRANCH_SMALL_INPUT_BYTES = 4_000;
 const BRANCH_NODE_LIMIT = 15;
 const LAYER_COMPRESSION = 3;
 const MAX_DEPTH = 3;
@@ -117,6 +121,11 @@ export function branchIdOf(nodeId, byId) {
     current = parents[0];
   }
   return seen.size > 0 ? [...seen][0] : nodeId;
+}
+
+export function branchEventKey(node) {
+  const version = node?.timestamps?.completedAt ?? node?.timestamps?.updatedAt ?? node?.timestamps?.createdAt ?? '';
+  return `${node?.id ?? ''}:${node?.status ?? ''}:${version}`;
 }
 
 export function branchNodes(nodes, branchId) {
@@ -167,7 +176,7 @@ export function buildBranchReport({ branchId, nodes = [], inputNodes = null, now
   const source = all.length > 0 ? all : (Array.isArray(inputNodes) ? inputNodes : []);
   const selected = [];
   const compact = [];
-  let inputBytes = 0;
+  const inputBytes = jsonBytes(source);
   for (const node of source.slice(0, BRANCH_NODE_LIMIT)) {
     const row = {
       id: node.id,
@@ -182,7 +191,6 @@ export function buildBranchReport({ branchId, nodes = [], inputNodes = null, now
     if (selected.length > 0 && candidateBytes > BRANCH_BYTES_LIMIT) break;
     selected.push(row);
     compact.push(node);
-    inputBytes = candidateBytes;
   }
   const verified = compact.filter((node) => node.status === 'completed')
     .map((node) => ({ nodeId: node.id, hypothesis: text(node.hypothesis ?? node.report?.hypothesis, 160), confidence: Number(node.report?.confidence ?? node.confidence ?? 0) }));
@@ -332,13 +340,19 @@ export function buildHierarchyReview({ project, nodes = [], now = Date.now() }) 
       if (escalations[branchId] && !escalations[branchId].includes(row.code)) escalations[branchId].push(row.code);
     }
   }
+  const reviewedEvents = new Set((Array.isArray(project?.branchReviews) ? project.branchReviews : []).map((row) => row?.eventKey).filter(Boolean));
+  const branchEvents = present
+    .filter((node) => node.status === 'completed' || node.status === 'failed')
+    .map((node) => ({ nodeId: node.id, branchId: branchIdOf(node.id, byId), eventKey: branchEventKey(node), status: node.status }))
+    .filter((event) => !reviewedEvents.has(event.eventKey));
   const completed = present.filter((node) => node.status === 'completed').length;
   const coveredCompleted = reports.reduce((sum, report) => sum + report.verified.length, 0);
   return {
     enabled: true,
     generatedAt: now,
-    l0Trigger: present.some((node) => node.status === 'completed' || node.status === 'failed') ? 'branch_event' : 'noop',
+    l0Trigger: branchEvents.length > 0 ? 'branch_event' : 'noop',
     eventDriven: true,
+    branchEvents,
     depth: layers.length,
     maxDepth: MAX_DEPTH,
     branchCount: branchIds.length,
@@ -348,7 +362,17 @@ export function buildHierarchyReview({ project, nodes = [], now = Date.now() }) 
     layers,
     compression: {
       perLayer: [
-        { level: 'branch', inputBytes: jsonBytes(present.slice(0, BRANCH_NODE_LIMIT * Math.max(1, branchIds.length))), outputBytes: branchBytes, ratio: branchBytes > 0 ? Number((jsonBytes(present.slice(0, BRANCH_NODE_LIMIT * Math.max(1, branchIds.length))) / branchBytes).toFixed(3)) : null },
+        {
+          level: 'branch',
+          inputBytes: jsonBytes(present),
+          outputBytes: branchBytes,
+          ratio: branchBytes > 0 ? Number((jsonBytes(present) / branchBytes).toFixed(3)) : null,
+          // A one-node branch cannot carry 3x because BranchReport has mandatory
+          // evidence/health fields. Mark that explicitly instead of skipping the
+          // layer silently; validateHierarchyReview still enforces the 3x rule for
+          // every branch whose raw slice is large enough.
+          smallBranch: jsonBytes(present) < BRANCH_SMALL_INPUT_BYTES && jsonBytes(present) < branchBytes * LAYER_COMPRESSION,
+        },
         { level: 'lead', inputBytes: branchBytes, outputBytes: leadBytes, ratio: leadBytes > 0 ? Number((branchBytes / leadBytes).toFixed(3)) : null },
         { level: 'chief', inputBytes: leadBytes, outputBytes: chiefBytes, ratio: chiefBytes > 0 ? Number((leadBytes / chiefBytes).toFixed(3)) : null },
       ],
@@ -405,7 +429,8 @@ export function childVoteWeight({ project = {}, nodes = [], parent = null, child
   const sameTarget = sameExpert.filter((vote) => vote.parentId === parent?.id && vote.nodeId === child?.id);
   if (sameTarget.length > 0) return { weight: 0, reason: 'same_expert_same_node' };
   const rosterConfig = Array.isArray(project.config?.experts) ? null : project.config?.experts;
-  const maxPerHour = Math.max(1, Number(project.config?.expertsVotesPerHour ?? rosterConfig?.votesPerHour ?? 20));
+  const descriptorBudget = getExpertDescriptor(expertId)?.budget ?? {};
+  const maxPerHour = Math.max(1, Number(project.config?.expertsVotesPerHour ?? rosterConfig?.votesPerHour ?? descriptorBudget.childVotesPerHour ?? 50));
   const hourAgo = now - 60 * 60_000;
   if (sameExpert.filter((vote) => Number(vote.at) >= hourAgo).length >= maxPerHour) return { weight: 0, reason: 'quota_exceeded' };
   const prompt = text(child?.prompt, 500);
@@ -426,9 +451,14 @@ export function validateHierarchyReview(review, nodes = review?.nodes ?? []) {
   const chain = Array.isArray(review.evidenceChain) ? review.evidenceChain : [];
   if (chain.length > 0) errors.push(...validateEvidencePointers(chain, nodes, { requireQuote: false }));
   for (const layer of review.compression?.perLayer ?? []) {
-    // L0 consumes a bounded 20 KB branch slice; its own report is capped at
-    // 20 KB rather than 3x. The lead and chief layers are the compression tree.
-    if (layer.level === 'branch') continue;
+    if (layer.level === 'branch' && layer.smallBranch === true && layer.inputBytes < BRANCH_SMALL_INPUT_BYTES) {
+      if (layer.outputBytes > BRANCH_BYTES_LIMIT) errors.push(`branch report ${layer.outputBytes} exceeds the ${BRANCH_BYTES_LIMIT} byte bound`);
+      continue;
+    }
+    if (layer.level === 'branch' && layer.smallBranch === true) {
+      errors.push(`branch smallBranch claim is invalid for ${layer.inputBytes} input bytes`);
+      continue;
+    }
     if (layer.inputBytes > 0 && !(layer.ratio >= LAYER_COMPRESSION)) errors.push(`${layer.level} compression ${layer.ratio} is below ${LAYER_COMPRESSION}x`);
   }
   return errors;

@@ -121,12 +121,16 @@ function normalizeNeeds(raw, project) {
   return { needs, error: null };
 }
 
-function normalizeConfig(raw, base = undefined) {
+function normalizeConfig(raw, base = undefined, { allowMigration = false } = {}) {
   const input = raw === undefined || raw === null ? {} : raw;
   if (typeof input !== 'object' || Array.isArray(input)) {
     throw new LabError('bad_request', 'config must be an object');
   }
   const previous = base ?? {};
+  if (input.migration !== undefined && !allowMigration
+    && JSON.stringify(input.migration) !== JSON.stringify(previous.migration)) {
+    throw new LabError('migration_gate_required', 'config.migration may only be changed through advanceMigration');
+  }
   const maxNodeTimeoutMinutes = integer(
     input.maxNodeTimeoutMinutes,
     'config.maxNodeTimeoutMinutes',
@@ -1905,16 +1909,29 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     };
     if (target >= 2 && expertsMode === 'legacy-cycle') return rejection('invalid_migration_step', 'phase 2 must select a hierarchy or resident expert mode');
     if (target >= 3 && contestMode === 'off') return rejection('invalid_migration_step', 'phase 3 must select contest shadow or consensus');
-    const commit = await commitProjectFields(projectId, { config: normalizeConfig(next, project.config) }, { eventType: 'project/migration_advanced', eventData: { from: current, to: target, switches: { expertsMode, contestMode } }, actor });
+    const normalized = normalizeConfig(next, project.config, { allowMigration: true });
+    const commit = await commitMutations(projectId, [{ op: 'project.migration', config: normalized }], { eventType: 'project/migration_advanced', eventData: { from: current, to: target, switches: { expertsMode, contestMode } }, actor, causeId: `migration:${projectId}:${target}` });
     if (commit?.ok !== true) return rejection(commit?.code ?? 'internal_error', commit?.message ?? 'migration commit failed');
     return { ok: true, projectId, phase: target, switches: { dispatch: next.dispatch.strategy, experts: expertsMode, contest: contestMode } };
   }
 
   const residentSessions = new Map();
+  const RESIDENT_SESSION_TTL_MS = 15 * 60_000;
+  const MAX_RESIDENT_SESSIONS = 8;
+
+  function pruneResidentSessions(now = Date.now()) {
+    for (const [sessionId, row] of residentSessions) {
+      if (Number(row.expiresAt) > now) continue;
+      try { row.session.dispose(); } catch { /* already disposed */ }
+      residentSessions.delete(sessionId);
+    }
+  }
 
   /** B16: open a resident Host session; its budget is enforced by the module. */
   function openResidentSession(projectId, input = {}, exec = null) {
     const project = requireProject(projectId);
+    pruneResidentSessions();
+    if (residentSessions.size >= MAX_RESIDENT_SESSIONS) return rejection('resident_capacity', `resident session cap ${MAX_RESIDENT_SESSIONS} reached`);
     const expertId = typeof input?.expertId === 'string' && input.expertId ? input.expertId : (exec?.agent?.session?.header?.meta?.agentPreset ?? 'lab-advisor');
     const sessionId = `resident-${projectId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const session = createResidentSession({
@@ -1924,14 +1941,25 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       maxTokens: input?.maxTokens ?? RESIDENT_LIMITS.maxTokens,
       wallClockMs: input?.wallClockMs ?? RESIDENT_LIMITS.wallClockMs,
     });
-    residentSessions.set(sessionId, { session, projectId, expertId });
-    return { ok: true, projectId, sessionId, expertId, snapshot: session.snapshot(), tools: session.tools.map((tool) => tool.name) };
+    const ttlMs = Math.max(1, Math.min(RESIDENT_SESSION_TTL_MS, Number(input?.ttlMs) || RESIDENT_SESSION_TTL_MS));
+    const expiresAt = Date.now() + ttlMs;
+    residentSessions.set(sessionId, { session, projectId, expertId, expiresAt });
+    return { ok: true, projectId, sessionId, expertId, expiresAt, ttlMs, snapshot: session.snapshot(), tools: session.tools.map((tool) => tool.name) };
   }
 
   /** B16: every tool call, including submit, goes through the same resident session. */
   async function callResidentTool(projectId, input = {}, exec = null) {
     const row = residentSessions.get(input?.sessionId);
-    if (!row || row.projectId !== projectId) return rejection('session_not_found', 'resident session not found');
+    if (!row || row.projectId !== projectId) {
+      pruneResidentSessions();
+      return rejection('session_not_found', 'resident session not found');
+    }
+    if (Number(row.expiresAt) <= Date.now()) {
+      try { row.session.dispose(); } catch { /* already disposed */ }
+      residentSessions.delete(input.sessionId);
+      return rejection('session_expired', 'resident session TTL elapsed');
+    }
+    pruneResidentSessions();
     const outcome = await row.session.invoke(input?.tool, input?.args ?? {});
     return { ok: outcome.ok === true, projectId, sessionId: input.sessionId, outcome, snapshot: row.session.snapshot() };
   }
@@ -5623,6 +5651,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'ledger_update') return ledgerUpdate(input?.projectId, input, exec);
     if (action === 'set_priority') return setNodePriority(input?.projectId, input?.nodeId, input, actor);
     if (action === 'resolve_high_review') return resolveHighReview(input?.projectId, input?.nodeId, { ...input, action: input?.decision }, exec);
+    if (action === 'resident_open') return openResidentSession(input?.projectId, input, exec);
+    if (action === 'resident_call') return callResidentTool(input?.projectId, input, exec);
+    if (action === 'resident_close') return closeResidentSession(input?.projectId, input?.sessionId);
     if (action === 'intent_submit') return submitIntent(input?.projectId, input, exec);
     if (action === 'intent_list') return listIntents(input?.projectId, { limit: input?.limit, kind: input?.kind ?? null });
     if (action === 'expert_list') return listExperts(input?.projectId, { actor: exec ? actorFromToolExecution(exec) : null });

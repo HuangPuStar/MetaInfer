@@ -129,8 +129,9 @@
 > 目的：把仍未关闭的能力行分成**承诺**、**可延后**、**明确不做**三档，
 > 并让 174 行账本每行恰好一个状态。逐行账本见
 > [`ACCEPTANCE-LEDGER.md`](ACCEPTANCE-LEDGER.md)；本节保留 **10 个明确不做** 的范围裁决。
-> 独立依据是 `VERIFICATION.md` §53（HEAD `63632fa`）；O3/B13/5.3.9 已独立 PASS，
-> 账面为 **154 PASS / 10 FAIL / 10 N/A**，residual 0 必须 / 0 应该 / 10 明确不做。
+> 本节是 round 25 的历史范围裁决；round 27 已被 §54.6 取代：
+> **156 PASS / 8 FAIL / 10 N/A**，residual 0 必须 / 0 应该 / 0 明确不做 + 8 owner-override 未关闭。
+> 旧 §53 的 154/10/10 只保留为历史事实。
 
 ### 裁决口径
 
@@ -176,9 +177,9 @@
 
 ### 影响
 
-- §53 独立账面为 **154 PASS / 10 FAIL / 10 N/A**；剩余 10 行全部为明确不做。**这是第一次独立的 154/10/10。**
-- **必须 0 / 应该 0 / 明确不做 10 = 10**；按这 154 行范围，发布门已清空；10 个明确不做仍是范围外。
-- 发布说明必须写明 **浏览器、真实 provider、session-id rehydration** 未验证；不能写成 174 行全部实现。
+- §53 历史账面为 **154 PASS / 10 FAIL / 10 N/A**；§54.6 独立重放为 **156/8/10**，只关闭 B12/C2。
+- **必须 0 / 应该 0 / 明确不做 0 / owner-override 未关闭 8**；发布门**没有**清空，发布为 **NO-SHIP**。
+- 发布说明必须写明 **浏览器、真实 provider、session-id rehydration** 未验证；不能写成 174 行全部实现，也不能写成 166/0/8。
 - C14 的停机割接边界见 [`RELEASE-NOTES.md`](RELEASE-NOTES.md)。
 
 ## 未决（下一轮开工前需要确认）
@@ -210,6 +211,10 @@
 > 本节是 owner 对 **B11、B12、B14、B16、Q8、5.4、C2、C8、C14、5.3.10**
 > 十个“明确不做”行的新裁决。它**明确推翻**下列旧裁决；旧裁决仍保留在上文作为历史，
 > 不再是本轮的验收口径。
+>
+> **独立复核（`VERIFICATION.md` §54.6，HEAD `59f5283`）：156 PASS / 8 FAIL / 10 N/A。**
+> 该历史结论保留。round 28 的接线证据见 **§55：166 PASS / 0 FAIL / 8 N/A**；
+> B11/B14/B16/Q8/5.4/C8/C14/5.3.10 经生产入口关闭，`5.1.1/5.1.3` 随之关闭。
 
 ### 裁决
 
@@ -259,8 +264,12 @@
 | C14 | 接受一次性停机割接 | 改为逐阶段开关 + parity gate；仍不重启 Host，zero-downtime 的可运行证据见 §54。 |
 | 5.3.10 | 与 Q8/5.4 同一套三级评审 | 不再是“同一套缺口的重复行”，而是复用已经落地的 hierarchy 实现。 |
 
+> **§54.6 的独立结论曾否定这 8 行；§55 是 round-28 的接线复核。** 生产 `orchestrator.step` 现在真实激活 branch/lead/chief，`runCycle` 调用 timeout sweep，agent tool 暴露 resident 会话，branch 压缩改为原始子树 + 全层校验，C8 读 `lab-lead` budget，C14 新增 `project.migration` 门。§55.2 记录了每一行的 red→green re-plant。
+
 ### 仍未验证的边界
 
-- 没有重启 Host，没有浏览器/真实 provider 测量；C3/C4/C10/C11 仍 N/A。
-- 独立 verifier 的 §53（154/10/10）仍是上一轮事实；本节的 10 行是**作者自测**
-  （`VERIFICATION.md` §54），独立重放尚未发生，不得写成独立 PASS。
+- 没有重启 Host；trajectory 新资产通过 Playwright route fulfillment 验证，生产 asset cache 仍需一次 Host 重启才能刷新。**client.js 的菜单/回放/空仪表盘修复已由当前 Host 直接从磁盘提供，并完成真实浏览器验证。**
+- 没有真实 provider 调用；DSH 子激活仍只返回一次 structured result。
+- 独立 verifier 的 §53（154/10/10）和 §54.6（156/8/10）都保留为历史事实；§55 作者账面为 **166/0/8**。
+- 仍未测量：C3/C4/C9/C10/C11/5.1.5/S8/S9。
+- **B12/C2 已独立 PASS**：B12 peer 不可见 chief；C2 每 lead/epoch quota 与 2/4 tighten、1/4 alert。

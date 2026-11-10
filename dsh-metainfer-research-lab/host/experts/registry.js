@@ -98,7 +98,7 @@ export const EXPERT_DESCRIPTORS = Object.freeze([
     tools: READ_TOOLS,
     triggers: ['branch.report', 'escalation'],
     mayPropose: ['proposal', 'priority', 'escalate'],
-    budget: { queriesPerRun: 4, tokensPerHour: 40_000, wallClockMs: 90_000 },
+    budget: { queriesPerRun: 4, tokensPerHour: 40_000, wallClockMs: 90_000, childVotesPerHour: 20 },
     schema: { type: 'object', required: ['teamId', 'proposals'] },
     level: 'lead',
     mayCreate: true,

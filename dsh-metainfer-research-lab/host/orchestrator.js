@@ -18,7 +18,7 @@ import { createReviewClaimBoard } from './dispatch/review-claims.js';
 import { createLedgerReader } from './context/ledger.js';
 import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
 import { baselineFor, normalizeExpected } from './kernel/prediction.js';
-import { HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, childVoteWeight, escalationQuota } from './experts/hierarchy.js';
+import { BRANCH_REPORT_SCHEMA, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 // 5.3.8: O1 measured advisor p90 at the old 180 s ceiling; the default budget
@@ -153,6 +153,77 @@ const SCHEDULER_SCHEMA = {
   additionalProperties: false,
 };
 
+const CHIEF_SCHEMA = {
+  type: 'object',
+  properties: {
+    decision: { type: 'string', enum: ['defer', 'withdraw', 'keep'] },
+    reasonCode: { type: 'string' },
+    verifiedEvidence: { type: 'array', items: { type: 'object' } },
+    evidenceChain: { type: 'array', items: { type: 'object' } },
+  },
+  required: ['decision', 'reasonCode', 'verifiedEvidence', 'evidenceChain'],
+  additionalProperties: false,
+};
+
+const ROLE_PRESETS = Object.freeze({ advisor: 'lab-advisor', scheduler: 'lab-scheduler', branch: 'lab-branch', lead: 'lab-lead', chief: 'lab-chief' });
+const ROLE_BUDGETS = Object.freeze({
+  branch: { maxQueries: 2, timeoutMs: 60_000 },
+  lead: { maxQueries: 4, timeoutMs: 90_000 },
+  chief: { maxQueries: 8, timeoutMs: 180_000 },
+});
+
+function branchPrompt(project, event, report) {
+  return [
+    'You are the L0 branch reviewer. Compress exactly one branch subtree into a BranchReport.',
+    'Do not create nodes, do not edit the ledger, and do not review other branches.',
+    'Return the BranchReport through structured_output: branchId, health, verified, ruledOut, candidates, escalate, evidence.',
+    'Every evidence pointer must cite a real nodeId, a whitelisted field and a quote from that field.',
+    `Budget: at most ${ROLE_BUDGETS.branch.maxQueries} read calls; finish within 60 seconds.`,
+    '',
+    '# Branch event',
+    JSON.stringify(event),
+    '',
+    '# Deterministic slice',
+    JSON.stringify(report),
+    '',
+    `Project: ${project.id}`,
+  ].join('\n');
+}
+
+function leadPrompt(project, review, branchRuns) {
+  return [
+    'You are the L1 lead. Use the bounded L0 BranchReports to materialize the next useful nodes.',
+    'Create at most one successor per completed leaf. Return proposals with parentId, title, prompt, rationale.',
+    'Escalate an exception instead of silently guessing; the chief is invisible to peers.',
+    `Budget: at most ${ROLE_BUDGETS.lead.maxQueries} read calls; finish within 90 seconds.`,
+    '',
+    '# Branch reports',
+    JSON.stringify(branchRuns),
+    '',
+    '# Review tree',
+    JSON.stringify({ branchCount: review.branchCount, activeBranchCount: review.activeBranchCount, groupedTeams: review.groupedTeams, escalations: review.escalations }),
+    '',
+    `Project: ${project.id}`,
+  ].join('\n');
+}
+
+function chiefPrompt(project, node, review) {
+  return [
+    'You are the L2 chief. Decide one routed exception. You may keep, defer or withdraw the node.',
+    'A keep requires at least one verified raw-data pointer and a non-empty evidence chain.',
+    'Do not create nodes or run the experiment; the lead already materialized the optimistic p2 child.',
+    `Budget: at most ${ROLE_BUDGETS.chief.maxQueries} read calls; finish within 180 seconds.`,
+    '',
+    '# Pending node',
+    JSON.stringify({ id: node.id, title: node.title, priority: node.priority, pendingHighReview: node.pendingHighReview }),
+    '',
+    '# Review tree',
+    JSON.stringify({ branchCount: review.branchCount, escalations: review.escalations, reports: review.reports.map((r) => ({ branchId: r.branchId, health: r.health, evidence: r.evidence })) }),
+    '',
+    `Project: ${project.id}`,
+  ].join('\n');
+}
+
 function advisorPrompt(project, snapshot, lens) {
   const custom = project.config?.prompts?.advisor;
   return [
@@ -238,10 +309,11 @@ function schedulerPrompt(project, snapshot) {
 }
 
 async function sessionUsage(ctx, sessionId) {
-  const totals = { inputTokens: 0, outputTokens: 0, totalTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const totals = { inputTokens: 0, outputTokens: 0, totalTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, toolCalls: 0 };
   try {
     const snapshot = await ctx.sessionQuery.readSurface(sessionId);
     for (const event of snapshot?.events ?? []) {
+      if (typeof event?.type === 'string' && /tool/.test(event.type) && !/result/.test(event.type)) totals.toolCalls += 1;
       if (event?.type !== 'assistant/message') continue;
       const usage = event?.data?.usage;
       if (!usage) continue;
@@ -424,7 +496,9 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     const model = options.modelOverride
       ? { ...options.modelOverride }
       : roleModel(project, role);
-    const preset = role === 'advisor' ? 'lab-advisor' : 'lab-scheduler';
+    const preset = ROLE_PRESETS[role] ?? 'lab-scheduler';
+    const roleBudget = ROLE_BUDGETS[role] ?? null;
+    const maxQueries = Number.isFinite(Number(options.maxQueries)) ? Number(options.maxQueries) : roleBudget?.maxQueries ?? null;
     const timeoutMs = Math.max(
       30_000,
       Math.min(1_800_000, Number(options.timeoutMs) || ROLE_RUN_TIMEOUT_MS),
@@ -439,7 +513,9 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       status: 'running',
       inputSnapshot,
       lens: options.lens ?? null,
+      preset,
       timeoutMs,
+      budget: maxQueries ? { maxQueries, timeoutMs } : { timeoutMs },
       startedAt: Date.now(),
       // Observability: the real prompt size in bytes, and the snapshot size as
       // a separate regression metric (B3 in the observability package).
@@ -496,10 +572,14 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
 
     record.endedAt = Date.now();
     record.usage = await sessionUsage(ctx, sessionId);
+    if (!failure && maxQueries && Number(record.usage.toolCalls ?? 0) > maxQueries) {
+      failure = new LabError('query_budget_exceeded', `${role} used ${record.usage.toolCalls} tool calls, budget ${maxQueries}`, 429);
+    }
     if (failure) {
       record.status = 'failed';
       record.stopReason = 'error';
       record.error = failure instanceof Error ? failure.message : String(failure);
+      record.errorCode = failure?.code ?? null;
     } else {
       record.status = 'completed';
       record.stopReason = 'completed';
@@ -1050,6 +1130,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       generatedAt: review.generatedAt,
       l0Trigger: review.l0Trigger,
       eventDriven: review.eventDriven,
+      branchEvents: review.branchEvents,
       depth: review.depth,
       branchCount: review.branchCount,
       activeBranchCount: review.activeBranchCount,
@@ -1069,6 +1150,198 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     };
   }
 
+  /**
+   * B14: a pending high-review window must expire in the production tick, not
+   * only when an operator remembers to call the service. The node stays
+   * materialized; only its review status becomes `unreviewed`.
+   */
+  async function sweepDueHighReviews(projectId, now = Date.now()) {
+    const due = store.listNodes(projectId).filter((node) => node.pendingHighReview
+      && Number(node.pendingHighReview.deadlineAt) > 0
+      && Number(node.pendingHighReview.deadlineAt) <= now);
+    const resolved = [];
+    for (const node of due) {
+      const next = structuredClone(node);
+      next.pendingHighReview = null;
+      next.highReview = {
+        ...(node.highReview ?? {}),
+        status: 'unreviewed',
+        resolvedAt: now,
+        resolvedBy: null,
+        reasonCode: 'window_timeout',
+      };
+      const commit = await kernel.executor.commit(projectId, {
+        actor: { kind: 'system', id: 'high-review-sweeper' },
+        mutations: [{ op: 'node.put', node: next, eventType: 'node/high_review_unreviewed', eventData: { deadlineAt: node.pendingHighReview.deadlineAt } }],
+        causeId: `high-review:${node.id}:timeout`,
+      });
+      if (commit.ok === true) resolved.push(node.id);
+    }
+    return resolved;
+  }
+
+  async function applyChiefActivation(projectId, node, output) {
+    const project = requireProject(projectId);
+    const decision = {
+      action: output?.decision,
+      reasonCode: typeof output?.reasonCode === 'string' ? output.reasonCode : null,
+      verifiedEvidence: Array.isArray(output?.verifiedEvidence) ? output.verifiedEvidence : [],
+      evidenceChain: Array.isArray(output?.evidenceChain) ? output.evidenceChain : (node.pendingHighReview?.evidenceChain ?? []),
+    };
+    const errors = validateChiefDecision(decision, store.listNodes(projectId));
+    if (errors.length > 0) return { ok: false, errors };
+    const now = Date.now();
+    const next = structuredClone(node);
+    next.pendingHighReview = null;
+    next.highReview = {
+      ...(node.highReview ?? {}),
+      status: decision.action === 'defer' ? 'deferred' : decision.action === 'withdraw' ? 'withdrawn' : 'kept',
+      resolvedAt: now,
+      resolvedBy: { kind: 'chief', id: 'lab-chief' },
+      reasonCode: decision.reasonCode,
+      evidenceChain: decision.evidenceChain,
+    };
+    if (decision.action === 'defer') next.priority = { ...(next.priority ?? {}), class: 'deferred', by: 'lab-chief', reason: 'high-review veto: defer', at: now };
+    if (decision.action === 'withdraw') {
+      next.status = 'cancelled';
+      next.cancelledAt = now;
+      next.cancelledBy = { kind: 'chief', id: 'lab-chief' };
+      next.cancelReason = 'high-review veto: withdraw';
+    }
+    if (decision.action === 'keep') next.ratifiedBy = 'lab-chief';
+    await commitMutations(projectId, [{
+      op: 'node.put',
+      node: next,
+      eventType: 'node/high_review_resolved',
+      eventData: { decision: decision.action, reasonCode: decision.reasonCode, by: 'lab-chief' },
+    }], { causeId: `high-review:${node.id}:${decision.action}`, actor: { kind: 'chief', id: 'lab-chief' } });
+    return { ok: true, node: next };
+  }
+
+  /**
+   * B11: a real hierarchy pass. A completed/failed branch event activates L0;
+   * only after the bounded BranchReports does L1 materialize; L2 is activated
+   * only for a routed pending window. The old advisor pass is not used in
+   * hierarchy mode, so `createdBy=lab-lead` is a real lead activation result,
+   * not a label attached to an advisor run.
+   */
+  async function runHierarchyPass(projectId, cycle) {
+    let project = requireProject(projectId);
+    const review = buildHierarchyReview({ project, nodes: store.listNodes(projectId), now: Date.now() });
+    cycle.hierarchy = hierarchySummary(review);
+    const events = Array.isArray(review.branchEvents) ? review.branchEvents : [];
+    if (events.length === 0) {
+      cycle.skipped.push({ stage: 'branch', reason: 'no completed/failed branch event' });
+    }
+    const byBranch = new Map();
+    for (const event of events) {
+      const rows = byBranch.get(event.branchId) ?? [];
+      rows.push(event);
+      byBranch.set(event.branchId, rows);
+    }
+    const branchRuns = [];
+    for (const [branchId, branchEvents] of byBranch) {
+      const report = review.reports.find((row) => row.branchId === branchId) ?? null;
+      const run = await runRole(
+        project,
+        'branch',
+        cycle,
+        branchPrompt(project, branchEvents, report),
+        BRANCH_REPORT_SCHEMA,
+        { branchId, events: branchEvents, report },
+        { lens: branchId, timeoutMs: ROLE_BUDGETS.branch.timeoutMs, maxQueries: ROLE_BUDGETS.branch.maxQueries },
+      );
+      cycle.branchRunIds = [...(cycle.branchRunIds ?? []), run.record.id];
+      if (run.failure) {
+        cycle.errors.push(`branch[${branchId}]: ${run.record.error}`);
+        continue;
+      }
+      branchRuns.push({ branchId, events: branchEvents, output: run.record.output ?? null, report });
+      const fresh = requireProject(projectId);
+      const reviewed = [...(Array.isArray(fresh.branchReviews) ? fresh.branchReviews : [])];
+      for (const event of branchEvents) {
+        reviewed.push({ branchId, eventKey: event.eventKey, nodeId: event.nodeId, at: Date.now(), runId: run.record.id });
+      }
+      await commitMutations(projectId, [{
+        op: 'project.update',
+        set: { branchReviews: reviewed.slice(-200) },
+        eventType: 'review/branch_reviewed',
+        eventData: { branchId, events: branchEvents.map((event) => event.eventKey) },
+      }], { causeId: `branch-review:${branchId}:${run.record.id}` });
+    }
+    cycle.branchReports = branchRuns;
+    for (const run of branchRuns) {
+      const codes = Array.isArray(run.output?.reasonCodes) ? run.output.reasonCodes : [];
+      if (codes.length === 0) continue;
+      const current = Array.isArray(cycle.hierarchy.escalations?.[run.branchId]) ? cycle.hierarchy.escalations[run.branchId] : [];
+      cycle.hierarchy.escalations = {
+        ...(cycle.hierarchy.escalations ?? {}),
+        [run.branchId]: [...new Set([...current, ...codes])],
+      };
+    }
+    cycle.hierarchy.branchEventCount = events.length;
+    cycle.hierarchy.branchRuns = cycle.branchRunIds ?? [];
+
+    // L1 only runs after at least one bounded branch report exists. It is the
+    // only role allowed to create nodes; applyAdvisorOutput is the same Host
+    // validator/materializer used by the old advisor path.
+    project = requireProject(projectId);
+    if (branchRuns.length === 0) {
+      cycle.skipped.push({ stage: 'lead', reason: 'no successful branch report' });
+      return;
+    }
+    const leadRun = await runRole(
+      project,
+      'lead',
+      cycle,
+      leadPrompt(project, { ...review, escalations: cycle.hierarchy.escalations }, branchRuns),
+      ADVISOR_SCHEMA,
+      { branchReports: branchRuns, review: { branchCount: review.branchCount, escalations: review.escalations } },
+      { timeoutMs: ROLE_BUDGETS.lead.timeoutMs, maxQueries: ROLE_BUDGETS.lead.maxQueries },
+    );
+    cycle.leadRunId = leadRun.record.id;
+    if (leadRun.failure) {
+      cycle.errors.push(`lead: ${leadRun.record.error}`);
+      return;
+    }
+    let applied = { createdNodeIds: [], rejected: [] };
+    if (leadRun.record.output && Array.isArray(leadRun.record.output.proposals)) {
+      try {
+        applied = await applyAdvisorOutput(projectId, cycle, leadRun.record.output);
+        cycle.createdNodeIds.push(...applied.createdNodeIds);
+      } catch (error) {
+        cycle.errors.push(`lead apply: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    leadRun.record.createdNodeIds = applied.createdNodeIds;
+    leadRun.record.rejected = applied.rejected;
+    await saveRun(projectId, leadRun.record, 'run/updated', { created: applied.createdNodeIds.length });
+
+    // L2 is exception-only: it activates only for a node that got a pending
+    // window in this cycle. No pending node means no chief run at all.
+    const pending = store.listNodes(projectId).filter((node) => applied.createdNodeIds.includes(node.id) && node.pendingHighReview);
+    cycle.chiefRunIds = [];
+    for (const node of pending) {
+      const chiefRun = await runRole(
+        project,
+        'chief',
+        cycle,
+        chiefPrompt(project, node, review),
+        CHIEF_SCHEMA,
+        { nodeId: node.id, pendingHighReview: node.pendingHighReview },
+        { timeoutMs: ROLE_BUDGETS.chief.timeoutMs, maxQueries: ROLE_BUDGETS.chief.maxQueries },
+      );
+      cycle.chiefRunIds.push(chiefRun.record.id);
+      if (chiefRun.failure) {
+        cycle.errors.push(`chief[${node.id}]: ${chiefRun.record.error}`);
+        continue;
+      }
+      const outcome = await applyChiefActivation(projectId, node, chiefRun.record.output);
+      if (!outcome.ok) cycle.errors.push(`chief[${node.id}]: ${outcome.errors.join('; ')}`);
+      await saveRun(projectId, chiefRun.record, 'run/updated', { reviewed: outcome.ok ? node.id : null });
+    }
+  }
+
   async function runCycle(projectId, trigger) {
     let project = requireProject(projectId);
     const cycle = {
@@ -1081,6 +1354,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       skipped: [],
       errors: [],
     };
+    cycle.highReviewSwept = await sweepDueHighReviews(projectId, cycle.startedAt);
     if (hierarchyMode(project)) {
       // B11/Q8/5.4: the review tree is planned from a bounded slice of the DAG
       // before any model call. L0 never writes; the summary is persisted so a
@@ -1094,6 +1368,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       eventData: { trigger },
     }], { causeId: `cycle:${cycle.id}:started` });
 
+    // --- hierarchy pass (real L0/L1/L2 activations) -------------------------
+    if (hierarchyMode(project)) {
+      await runHierarchyPass(projectId, cycle);
+    } else {
     // --- advisor pass -------------------------------------------------------
     project = requireProject(projectId);
     const allNodes = store.listNodes(projectId);
@@ -1162,6 +1440,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       } catch (error) {
         cycle.errors.push(`advisor: ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
     }
 
     // --- scheduler pass -----------------------------------------------------

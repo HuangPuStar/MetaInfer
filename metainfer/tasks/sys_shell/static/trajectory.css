@@ -31,12 +31,53 @@
   font-size: var(--fs-sm);
 }
 .traj-page-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--err);
   border-radius: var(--radius-sm);
   color: var(--err);
   background: rgba(248, 81, 73, 0.08);
   font-size: var(--fs-sm);
+}
+.traj-page-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--fg);
+  font-size: var(--fs-sm);
+}
+.traj-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.traj-progress-elapsed { color: var(--muted); font-family: var(--fs-mono); font-size: var(--fs-xs); }
+.traj-progress-track {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border-soft);
+}
+.traj-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 32%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: traj-progress-slide 1.15s ease-in-out infinite;
+}
+@keyframes traj-progress-slide {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(360%); }
 }
 
 .traj-body {
@@ -418,6 +459,25 @@
 
 /* Source configuration */
 .traj-page-actions { display: flex; gap: var(--sp-2); flex: none; }
+.traj-page .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--fs-sm);
+  line-height: 1.2;
+  cursor: pointer;
+}
+.traj-page .btn:hover { border-color: var(--accent); background: var(--panel); }
+.traj-page .btn.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.traj-page .btn.ghost { background: transparent; }
+.traj-page .btn:disabled { opacity: .5; cursor: default; }
 .traj-source {
   padding: 0 5px;
   border: 1px solid var(--border);

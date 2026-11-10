@@ -62,7 +62,7 @@ const review = buildHierarchyReview({ project: { config: { migration: { phase: 2
 check('Q8/5.3.10: hierarchy has exactly three levels and one chief', review.depth === 3 && review.chief.count === 1 && review.layers.map((layer) => layer.level).join(',') === 'branch,lead,chief', JSON.stringify({ depth: review.depth, chief: review.chief }));
 check('B11: L0 is triggered by branch completion/failure, not only the global cycle', review.l0Trigger === 'branch_event' && review.eventDriven === true, JSON.stringify({ l0Trigger: review.l0Trigger, eventDriven: review.eventDriven }));
 check('5.4: dynamic grouping is ceil(active branches / 2)', review.groupedTeams === Math.ceil(review.activeBranchCount / 2) && review.groupedTeams === groupCount(review.activeBranchCount), JSON.stringify({ active: review.activeBranchCount, groups: review.groupedTeams }));
-check('5.4: lead and chief layers each compress >= 3x', review.compression.perLayer.filter((layer) => layer.level !== 'branch').every((layer) => layer.ratio >= 3), JSON.stringify(review.compression.perLayer));
+check('5.4: every layer, including branch, compresses >= 3x', review.compression.perLayer.every((layer) => layer.ratio >= 3) && validateHierarchyReview(review, nodes).length === 0, JSON.stringify(review.compression.perLayer));
 check('5.4: completed coverage is counted, not asserted', review.coverage.ratio === 1 && review.coverage.coveredCompleted === review.coverage.completed, JSON.stringify(review.coverage));
 check('Q8: every BranchReport is <= 15 nodes and <= 20 KB', review.reports.every((report) => report.nodeCount <= 15 && report.outputBytes <= 20_000), JSON.stringify(review.reports.map((report) => [report.branchId, report.nodeCount, report.outputBytes])));
 const branchReport = buildBranchReport({ branchId: 'b4', nodes, now });
@@ -71,6 +71,9 @@ check('Q8: evidence pointers reject missing nodes and non-whitelisted fields', v
 check('Q8: hierarchy validation accepts the real tree and rejects bad compression', validateHierarchyReview(review, nodes).length === 0, JSON.stringify(validateHierarchyReview(review, nodes)));
 const broken = structuredClone(review);
 broken.compression.perLayer[2].ratio = 1;
+const badBranch = structuredClone(review);
+badBranch.compression.perLayer[0].ratio = 1;
+check('Q8: a branch layer below 3x is rejected instead of skipped', validateHierarchyReview(badBranch, nodes).some((error) => error.includes('branch compression')), JSON.stringify(validateHierarchyReview(badBranch, nodes)));
 check('Q8: a chief layer below 3x is rejected', validateHierarchyReview(broken, nodes).some((error) => error.includes('chief compression')), JSON.stringify(validateHierarchyReview(broken, nodes)));
 check('Q8: a chief decision needs verified raw evidence', validateChiefDecision({ action: 'keep', verifiedEvidence: [], evidenceChain: [{ nodeId: 'b4', field: 'report.summary', quote: 'evidence' }] }, nodes).some((error) => error.includes('verifiedEvidence')) && validateChiefDecision({ action: 'keep', verifiedEvidence: [{ nodeId: 'b4', field: 'report.summary', quote: 'verified summary' }], evidenceChain: [{ nodeId: 'b4', field: 'report.summary', quote: 'verified summary' }] }, nodes).length === 0, JSON.stringify(validateChiefDecision({ action: 'keep', verifiedEvidence: [], evidenceChain: [] }, nodes)));
 
@@ -100,7 +103,7 @@ const humanExec = { agent: { session: { id: 's-human', header: {} } } };
 async function savePending(id, nowAt, extra = {}) {
   await store.saveNode(projectId, {
     id, title: id, prompt: `prompt ${id}`, promptHash: `hash-${id}`, status: 'planned', parentId: 'root',
-    priority: { class: 'p2' }, createdBy: 'lab-lead', reviewLevel: 'lead', ratifiedBy: null,
+    priority: { class: 'p2' }, createdBy: 'seed', reviewLevel: 'lead', ratifiedBy: null,
     report: { summary: `evidence for ${id}` },
     pendingHighReview: { reasonCodes: ['low_confidence'], openedAt: nowAt, deadlineAt: nowAt + HIGH_REVIEW_WINDOW_MS, by: 'lab-lead', evidenceChain: [{ nodeId: id, field: 'report.summary', quote: `evidence for ${id}` }] },
     timestamps: { createdAt: nowAt },
@@ -149,6 +152,8 @@ const quotaProject = { ...voteProject, childVotes: [
   { expertId: 'lab-lead', parentId: 'p2', nodeId: 'c2', at: Date.now(), weight: 1 },
 ] };
 check('C8: one expert cannot exceed its per-hour vote quota', childVoteWeight({ project: quotaProject, nodes: [], parent: { id: 'root' }, child, expertId: 'lab-lead' }).weight === 0, JSON.stringify(childVoteWeight({ project: quotaProject, nodes: [], parent: { id: 'root' }, child, expertId: 'lab-lead' })));
+const descriptorBudgetProject = { config: {}, childVotes: Array.from({ length: 20 }, (_, index) => ({ expertId: 'lab-lead', parentId: `p${index}`, nodeId: `c${index}`, at: Date.now(), weight: 1 })) };
+check('C8: an exhausted lead budget suppresses the vote even without project quota config', childVoteWeight({ project: descriptorBudgetProject, nodes: [], parent: { id: 'root' }, child, expertId: 'lab-lead' }).weight === 0, JSON.stringify(childVoteWeight({ project: descriptorBudgetProject, nodes: [], parent: { id: 'root' }, child, expertId: 'lab-lead' })));
 
 // B16: resident session, multiple calls, submit-as-tool and compaction.
 const resident = createResidentSession({ expertId: 'lab-advisor', sessionId: 'resident-test' });
@@ -195,17 +200,30 @@ await kernel.executor.commit(prodId, {
   actor: { kind: 'human', id: 'test' },
   mutations: [{ op: 'node.create', node: { id: 'parent', title: 'parent', prompt: 'do parent', status: 'completed', confidence: 0.4, git: { headCommit: 'abc' }, report: { summary: 'parent done', confidence: 0.4 }, createdBy: 'seed', timestamps: { createdAt: 1, completedAt: 2 } } }],
 });
+await store.saveNode(prodId, {
+  id: 'sweep-node', title: 'sweep', prompt: 'due review', promptHash: 'h-sweep', status: 'planned',
+  priority: { class: 'p2' }, createdBy: 'seed', reviewLevel: 'lead',
+  pendingHighReview: { reasonCodes: ['low_confidence'], openedAt: Date.now() - HIGH_REVIEW_WINDOW_MS - 10, deadlineAt: Date.now() - 10, by: 'lab-lead', evidenceChain: [] },
+  timestamps: { createdAt: 1 },
+});
+const productionPresets = [];
 const prodCtx = {
   effect: () => {}, get: () => null, logger: { info() {}, warn() {} },
   agents: { get: () => null, resume: async () => { throw new Error('none'); }, create: async () => ({ agent: {} }) },
   agentPresets: { mount: async () => {} },
   agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-chat' }) },
   subagents: {
-    async startActivation() {
-      return {
-        result: Promise.resolve({ stopReason: 'completed', structured: { analysis: 'a', proposals: [{ parentId: 'parent', title: 'child', prompt: 'do child work', rationale: 'r', timeboxMinutes: 5 }] } }),
-        dispose: async () => {},
-      };
+    async startActivation(spec) {
+      const preset = spec.request.agentPreset;
+      productionPresets.push(preset);
+      const structured = preset === 'lab-branch'
+        ? { branchId: 'parent', health: 'watch', verified: [], ruledOut: [], candidates: [], escalate: true, reasonCodes: ['low_confidence'], evidence: [{ nodeId: 'parent', field: 'report.summary', quote: 'parent done' }] }
+        : preset === 'lab-lead'
+          ? { analysis: 'lead', proposals: [{ parentId: 'parent', title: 'child', prompt: 'do child work', rationale: 'r', timeboxMinutes: 5 }] }
+          : preset === 'lab-chief'
+            ? { decision: 'keep', reasonCode: 'low_confidence', verifiedEvidence: [], evidenceChain: [] }
+            : { analysis: 'x', proposals: [] };
+      return { result: Promise.resolve({ stopReason: 'completed', structured }), dispose: async () => {} };
     },
   },
 };
@@ -214,14 +232,66 @@ const stepped = await prodOrch.step(prodId, 'hierarchy-probe');
 const produced = store.listNodes(prodId).find((node) => node.createdBy === 'lab-lead');
 const prodProject = store.getProject(prodId);
 const prodCycle = store.listCycles(prodId, 1)[0];
-check('B11/B14/C8: production cycle builds L0 reports and materializes one L1 p2 child', stepped.created.length === 1 && produced?.reviewLevel === 'lead' && produced?.priority?.class === 'p2' && prodCycle?.hierarchy?.l0Trigger === 'branch_event' && prodCycle?.hierarchy?.branchCount === 1, JSON.stringify({ stepped, produced: produced && { id: produced.id, createdBy: produced.createdBy, reviewLevel: produced.reviewLevel, priority: produced.priority, pending: produced.pendingHighReview }, hierarchy: prodCycle?.hierarchy }));
+const sweptByCycle = store.getNode(prodId, 'sweep-node');
+check('B14: the production tick itself sweeps a due high-review window', prodCycle.highReviewSwept.includes('sweep-node') && sweptByCycle.highReview?.status === 'unreviewed' && sweptByCycle.pendingHighReview === null, JSON.stringify({ swept: prodCycle.highReviewSwept, node: sweptByCycle }));
+const prodRuns = store.listRuns(prodId);
+const branchProductionRun = prodRuns.find((run) => run.role === 'branch');
+const leadProductionRun = prodRuns.find((run) => run.role === 'lead');
+const chiefProductionRun = prodRuns.find((run) => run.role === 'chief');
+check('B11: production L0/L1/L2 are real activations, not labels', productionPresets.includes('lab-branch') && productionPresets.includes('lab-lead') && productionPresets.includes('lab-chief') && branchProductionRun?.budget?.maxQueries === 2 && branchProductionRun?.timeoutMs === 60_000 && leadProductionRun?.budget?.maxQueries === 4 && leadProductionRun?.timeoutMs === 90_000 && chiefProductionRun?.budget?.maxQueries === 8 && chiefProductionRun?.timeoutMs === 180_000, JSON.stringify({ productionPresets, budgets: prodRuns.map((run) => ({ role: run.role, budget: run.budget, timeoutMs: run.timeoutMs })) }));
+check('B11/B14/C8: production cycle builds L0 reports and materializes one L1 p2 child', stepped.created.length === 1 && produced?.reviewLevel === 'lead' && produced?.priority?.class === 'p2' && prodCycle?.hierarchy?.l0Trigger === 'branch_event' && prodCycle?.hierarchy?.branchCount >= 1, JSON.stringify({ stepped, produced: produced && { id: produced.id, createdBy: produced.createdBy, reviewLevel: produced.reviewLevel, priority: produced.priority, pending: produced.pendingHighReview }, hierarchy: prodCycle?.hierarchy }));
 check('B14: the escalated L1 child gets a 10-minute window; an unescalated child would not', produced?.pendingHighReview?.deadlineAt - produced?.pendingHighReview?.openedAt === 10 * 60_000 && prodProject?.reviewEscalations?.length === 1, JSON.stringify({ pending: produced?.pendingHighReview, escalations: prodProject?.reviewEscalations }));
 check('C8: the same production child creation records exactly one weighted vote', prodProject?.childVotes?.length === 1 && prodProject.childVotes[0].weight === 1 && prodProject.childVotes[0].nodeId === produced?.id, JSON.stringify(prodProject?.childVotes));
 const prodResolved = await service.resolveHighReview(prodId, produced.id, { action: 'keep', reasonCode: 'low_confidence', verifiedEvidence: [{ nodeId: produced.id, field: 'title', quote: 'child' }], evidenceChain: [{ nodeId: produced.id, field: 'title', quote: 'child' }] }, chiefExec);
 check('B14: the chief can ratify the production child inside the window', prodResolved.ok === true && prodResolved.node.ratifiedBy === 'lab-chief' && prodResolved.node.pendingHighReview === null, JSON.stringify(prodResolved));
 
+const presetsBeforeSecondStep = productionPresets.length;
+await prodOrch.step(prodId, 'hierarchy-probe-2');
+const secondStepPresets = productionPresets.slice(presetsBeforeSecondStep);
+check('B11: the second tick does not re-run L0 for an already-reviewed branch event', secondStepPresets.includes('lab-branch') === false, JSON.stringify(secondStepPresets));
+
+const budgetId = 'prod-budget';
+await store.saveProject({
+  id: budgetId, name: 'budget', brief: 'budget probe', revision: 0,
+  counters: { eventSeq: 0, nextNodeSeq: 1, nodes: 1 },
+  config: { maxRunningNodes: 1, resourcePools: { gpu: 1 }, maxNodes: 10, expertsMode: 'hierarchy', migration: { phase: 2 }, auto: { maxCycles: 1 } },
+  repo: { path: process.cwd(), worktreeRoot: '/tmp/hierarchy-wt', baseBranch: 'main', baseCommit: 'base' },
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(budgetId);
+await kernel.executor.commit(budgetId, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{ op: 'node.create', node: { id: 'parent', title: 'parent', prompt: 'do parent', status: 'completed', confidence: 0.4, git: { headCommit: 'abc' }, report: { summary: 'parent done', confidence: 0.4 }, createdBy: 'seed', timestamps: { createdAt: 1, completedAt: 2 } } }],
+});
+const budgetCtx = {
+  ...prodCtx,
+  sessionQuery: { readSurface: async () => ({ events: [{ type: 'tool/call' }, { type: 'tool/call' }, { type: 'tool/call' }] }) },
+};
+const budgetOrch = createOrchestrator({ ctx: budgetCtx, store, git: { async commitWorktree() { return { head: 'abc123' }; }, async tagCommit() {} }, runtime: { start: async () => {} }, cluster: null, kernel });
+await budgetOrch.step(budgetId, 'budget-probe');
+const budgetBranch = store.listRuns(budgetId).find((run) => run.role === 'branch');
+check('B11: the L0 query budget is executed, not just recorded', budgetBranch?.status === 'failed' && budgetBranch?.errorCode === 'query_budget_exceeded' && String(budgetBranch?.error ?? '').includes('budget 2') && budgetBranch?.usage?.toolCalls === 3, JSON.stringify(budgetBranch && { status: budgetBranch.status, error: budgetBranch.error, usage: budgetBranch.usage, budget: budgetBranch.budget }));
+
 const prodMetrics = await service.metricsFor(prodId);
 check('5.4/C2: production metrics expose coverage, compression, chief ratio and escalation rate', prodMetrics.review?.levels?.join(',') === 'branch,lead,chief' && prodMetrics.review.coverage?.completed >= 1 && prodMetrics.review.compression?.length === 3 && prodMetrics.review.chief?.count === 1 && typeof prodMetrics.review.escalationRate?.ratio === 'number', JSON.stringify(prodMetrics.review));
+
+const gateId = 'migration-gate-p';
+await store.saveProject({
+  id: gateId, name: 'gate', brief: 'gate probe', revision: 0, counters: { eventSeq: 0 },
+  config: { migration: { phase: 1 } }, repo: { path: process.cwd() }, createdAt: 0, updatedAt: 0,
+});
+kernel.load(gateId);
+let directMigrationError = null;
+try {
+  await service.updateProject(gateId, { config: { migration: { phase: 3, parity: null } } });
+} catch (error) {
+  directMigrationError = error;
+}
+const directKernel = await kernel.executor.commit(gateId, {
+  actor: { kind: 'human', id: 'operator' },
+  mutations: [{ op: 'project.update', set: { config: { ...store.getProject(gateId).config, migration: { phase: 3, parity: null } } } }],
+});
+check('C14: direct project.update cannot bypass the migration parity gate', directMigrationError?.code === 'migration_gate_required' && directKernel.ok === false && directKernel.code === 'migration_gate_required', JSON.stringify({ directMigrationError: directMigrationError && { code: directMigrationError.code, message: directMigrationError.message }, directKernel }));
 
 // C14: staged migration switches, S14 parity gate and P1 no-switch.
 const phase1 = service.migrationStatus(projectId);
@@ -239,6 +309,24 @@ const toolTwo = await service.callResidentTool(projectId, { sessionId: opened.se
 const hostSubmit = await service.callResidentTool(projectId, { sessionId: opened.sessionId, tool: 'submit', args: { payload: { ok: true, source: 'host' } } }, humanExec);
 const closed = service.closeResidentSession(projectId, opened.sessionId);
 check('B16: Host service executes multiple calls then submit on a resident session', opened.ok === true && toolOne.ok === true && toolTwo.ok === true && hostSubmit.ok === true && hostSubmit.outcome.submitted === true && closed.ok === true, JSON.stringify({ opened, hostSubmit, closed }));
+
+// B16 production reachability: the same session is exposed through the agent
+// tool (policy-checked), not only through a service method.
+const toolOpened = await callTool({ action: 'resident_open', projectId, expertId: 'lab-advisor' }, chiefExec);
+const toolCall = await callTool({ action: 'resident_call', projectId, sessionId: toolOpened.sessionId, tool: 'dag_get', args: { nodeId: 'root' } }, chiefExec);
+const toolClosed = await callTool({ action: 'resident_close', projectId, sessionId: toolOpened.sessionId }, chiefExec);
+check('B16: the agent tool can open/call/close a resident session', toolOpened.ok === true && Number(toolOpened.expiresAt) > Date.now() && toolOpened.ttlMs === 15 * 60_000 && toolCall.ok === true && toolClosed.ok === true, JSON.stringify({ toolOpened, toolCall, toolClosed }));
+
+const expiring = service.openResidentSession(projectId, { expertId: 'lab-advisor', ttlMs: 1 }, humanExec);
+await new Promise((resolve) => setTimeout(resolve, 5));
+const expiredCall = await service.callResidentTool(projectId, { sessionId: expiring.sessionId, tool: 'dag_get', args: { nodeId: 'root' } }, humanExec);
+check('B16: an expired resident session is evicted and cannot be called', expiredCall.ok === false && expiredCall.error?.code === 'session_expired', JSON.stringify(expiredCall));
+
+const capacitySessions = [];
+for (let index = 0; index < 8; index += 1) capacitySessions.push(service.openResidentSession(projectId, { expertId: 'lab-advisor' }, humanExec));
+const overCapacity = service.openResidentSession(projectId, { expertId: 'lab-advisor' }, humanExec);
+for (const session of capacitySessions) if (session.ok) service.closeResidentSession(projectId, session.sessionId);
+check('B16: the resident session map is bounded by a global concurrency cap', capacitySessions.every((session) => session.ok === true) && overCapacity.ok === false && overCapacity.error?.code === 'resident_capacity', JSON.stringify({ cap: overCapacity }));
 
 if (failed > 0) {
   console.error(`hierarchy-selftest: ${failed} failed`);
