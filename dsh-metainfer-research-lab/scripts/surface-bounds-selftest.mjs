@@ -160,7 +160,7 @@ check('events default page is bounded', eventsDefault.events.length === 1000 && 
 const eventsNext = await get('events', `projectId=${projectId}&after=${eventsDefault.page.nextSeq}`);
 check('events cursor advances', eventsNext.events[0]?.seq > eventsDefault.events.at(-1)?.seq, `${eventsNext.events[0]?.seq}`);
 const expertLibrary = await get('experts', `projectId=${projectId}`);
-check('experts route returns the read-only library', expertLibrary.experts.length === 4 && expertLibrary.experts.every((expert) => expert.mayExecute.length === 0 && expert.metrics), JSON.stringify(expertLibrary.experts?.map((expert) => expert.id)));
+check('experts route returns the read-only library', expertLibrary.experts.length === 6 && expertLibrary.experts.every((expert) => expert.mayExecute.length === 0 && expert.metrics) && expertLibrary.experts.map((expert) => expert.id).join(',') === 'lab-advisor,lab-reviewer,lab-curator,lab-chief,lab-branch,lab-lead', JSON.stringify(expertLibrary.experts?.map((expert) => expert.id)));
 const runsPage = await get('runs', `projectId=${projectId}&limit=1`);
 check('runs page is bounded with a cursor', runsPage.runs.length === 1 && runsPage.total === 3 && runsPage.nextCursor !== null, JSON.stringify({ count: runsPage.runs.length, total: runsPage.total, cursor: runsPage.nextCursor }));
 const runsNext = await get('runs', `projectId=${projectId}&limit=1&cursor=${encodeURIComponent(runsPage.nextCursor)}`);

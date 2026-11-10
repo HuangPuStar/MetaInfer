@@ -18,6 +18,7 @@ import { createReviewClaimBoard } from './dispatch/review-claims.js';
 import { createLedgerReader } from './context/ledger.js';
 import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
 import { baselineFor, normalizeExpected } from './kernel/prediction.js';
+import { HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, childVoteWeight, escalationQuota } from './experts/hierarchy.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 // 5.3.8: O1 measured advisor p90 at the old 180 s ceiling; the default budget
@@ -648,6 +649,8 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       parentId: parent.id,
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
+      ...(meta.reviewLevel ? { reviewLevel: meta.reviewLevel, ratifiedBy: null } : {}),
+      ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
       ...(meta.expected ? { expected: meta.expected, expectedBaseline: meta.expectedBaseline ?? null } : {}),
       ...(spec.model ? { model: spec.model } : {}),
       execution: spec.execution
@@ -728,10 +731,15 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       promptHash: promptHash(spec.prompt),
       successCriteria: spec.successCriteria ?? '',
       status: 'planned',
-      ...(meta.createdBy === 'user' ? { priority: { class: 'p0', by: 'human', reason: 'human request', at: now } } : {}),
+      ...(meta.createdBy === 'user'
+        ? { priority: { class: 'p0', by: 'human', reason: 'human request', at: now } }
+        : (meta.reviewLevel ? { priority: { class: 'p2', by: meta.createdBy, reason: 'lead materialization', at: now } } : {})),
+      ...(meta.escalationDenied ? { escalationDenied: meta.escalationDenied } : {}),
       parentId: parent.id,
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
+      ...(meta.reviewLevel ? { reviewLevel: meta.reviewLevel, ratifiedBy: null } : {}),
+      ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
       ...(meta.expected ? { expected: meta.expected, expectedBaseline: meta.expectedBaseline ?? null } : {}),
       ...(spec.model ? { model: spec.model } : {}),
       execution: spec.execution
@@ -762,7 +770,14 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       nextNodeSeq: (project.counters.nextNodeSeq ?? 2) + 1,
       nodes: (project.counters.nodes ?? 0) + 1,
     };
-    await commitMutations(project.id, [{
+    const hierarchy = meta.hierarchy === true;
+    const vote = hierarchy
+      ? childVoteWeight({ project, nodes: store.listNodes(project.id), parent, child: node, expertId: meta.createdBy, now })
+      : null;
+    if (vote && vote.weight === 0) {
+      throw new LabError(vote.reason === 'duplicate' ? 'duplicate_child' : 'vote_quota_exceeded', `child creation vote rejected: ${vote.reason}`, 409);
+    }
+    const mutations = [{
       op: 'node.create',
       node,
       counters,
@@ -773,8 +788,26 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         createdBy: node.createdBy,
         baseCommit: head,
         timeboxMinutes: spec.timeboxMinutes,
+        ...(vote ? { voteWeight: vote.weight } : {}),
       },
-    }], { causeId: `create:${nodeId}` });
+    }];
+    if (vote?.vote) {
+      mutations.push({
+        op: 'project.update',
+        set: { childVotes: [...(project.childVotes ?? []), vote.vote] },
+        eventType: 'review/vote_counted',
+        eventData: { expertId: vote.vote.expertId, nodeId: vote.vote.nodeId, parentId: vote.vote.parentId, weight: 1 },
+      });
+    }
+    if (meta.escalation) {
+      mutations.push({
+        op: 'project.update',
+        set: { reviewEscalations: [...(project.reviewEscalations ?? []), meta.escalation] },
+        eventType: 'review/escalated',
+        eventData: { leadId: meta.escalation.leadId, branchId: meta.escalation.branchId, codes: meta.escalation.codes, epoch: meta.escalation.epoch },
+      });
+    }
+    await commitMutations(project.id, mutations, { causeId: `create:${nodeId}` });
 
     await sealParent(project, parent, head);
     return store.getNode(project.id, nodeId);
@@ -876,22 +909,40 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         try {
           if (advisorModel?.model) check.spec.model = advisorModel.model;
           const acceptMode = project.config.advisor?.acceptMode ?? 'auto';
-          const node = acceptMode === 'confirm'
-            ? await createProposed(project, check.parent, check.spec, {
-                createdBy: 'advisor',
-                runId: cycle.advisorRunId,
-                rationale: proposal.rationale,
-                expectedInfoGain: proposal.expectedInfoGain,
-                expected,
-                expectedBaseline: baselineFor(check.parent, expected),
-              })
-            : await createChild(project, check.parent, check.spec, {
-                createdBy: 'advisor',
-                runId: cycle.advisorRunId,
-                rationale: proposal.rationale,
-                expected,
-                expectedBaseline: baselineFor(check.parent, expected),
-              });
+          const hierarchy = cycle.hierarchy?.enabled ? cycle.hierarchy : null;
+          const parentBranchId = hierarchy ? branchIdOf(check.parent.id, new Map(nodes.map((node) => [node.id, node]))) : null;
+          const reasonCodes = hierarchy?.escalations?.[parentBranchId] ?? [];
+          const now = Date.now();
+          const epoch = String(project.config?.reviewEpoch ?? project.revision ?? 0);
+          const quota = hierarchy && reasonCodes.length > 0 ? escalationQuota({ project, leadId: 'lab-lead', epoch }) : null;
+          const allowedEscalation = reasonCodes.length > 0 && quota?.allowed === true;
+          const evidenceChain = hierarchy?.reports?.find((report) => report.branchId === parentBranchId)?.evidence ?? [];
+          const pendingHighReview = allowedEscalation
+            ? { reasonCodes, openedAt: now, deadlineAt: now + HIGH_REVIEW_WINDOW_MS, by: 'lab-lead', evidenceChain }
+            : null;
+          const escalation = allowedEscalation
+            ? { leadId: 'lab-lead', branchId: parentBranchId, codes: reasonCodes, epoch, at: now }
+            : null;
+          const escalationDenied = reasonCodes.length > 0 && !allowedEscalation
+            ? { codes: reasonCodes, epoch, quota }
+            : null;
+          const reviewMeta = {
+            createdBy: hierarchy ? 'lab-lead' : 'advisor',
+            runId: cycle.advisorRunId,
+            rationale: proposal.rationale,
+            expected,
+            expectedBaseline: baselineFor(check.parent, expected),
+            ...(hierarchy ? { reviewLevel: 'lead', hierarchy: true } : {}),
+            ...(pendingHighReview ? { pendingHighReview } : {}),
+            ...(escalation ? { escalation } : {}),
+            ...(escalationDenied ? { escalationDenied } : {}),
+          };
+          // B14: the L1 proposal is materialized immediately as p2. The old
+          // `confirm` accept mode would hold it as proposed and never start the
+          // ten-minute chief window.
+          const node = !hierarchy && acceptMode === 'confirm'
+            ? await createProposed(project, check.parent, check.spec, { ...reviewMeta, expectedInfoGain: proposal.expectedInfoGain })
+            : await createChild(project, check.parent, check.spec, reviewMeta);
           applied.createdNodeIds.push(node.id);
           if (check.executionNote) {
             // Visible, non-fatal correction: the proposal asked for a profile this
@@ -987,6 +1038,37 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     return applied;
   }
 
+  function hierarchyMode(project) {
+    const mode = project?.config?.expertsMode ?? project?.config?.experts?.mode;
+    return mode === 'hierarchy' || mode === 'resident' || project?.config?.reviewHierarchy?.enabled === true;
+  }
+
+  function hierarchySummary(review) {
+    if (!review) return null;
+    return {
+      enabled: true,
+      generatedAt: review.generatedAt,
+      l0Trigger: review.l0Trigger,
+      eventDriven: review.eventDriven,
+      depth: review.depth,
+      branchCount: review.branchCount,
+      activeBranchCount: review.activeBranchCount,
+      groupedTeams: review.groupedTeams,
+      chief: review.chief,
+      compression: review.compression,
+      coverage: review.coverage,
+      escalations: review.escalations,
+      reports: review.reports.map((report) => ({
+        branchId: report.branchId,
+        health: report.health,
+        nodeCount: report.nodeCount,
+        totalNodes: report.totalNodes,
+        escalate: report.escalate,
+        evidence: report.evidence,
+      })),
+    };
+  }
+
   async function runCycle(projectId, trigger) {
     let project = requireProject(projectId);
     const cycle = {
@@ -999,6 +1081,12 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       skipped: [],
       errors: [],
     };
+    if (hierarchyMode(project)) {
+      // B11/Q8/5.4: the review tree is planned from a bounded slice of the DAG
+      // before any model call. L0 never writes; the summary is persisted so a
+      // restart can audit coverage/compression.
+      cycle.hierarchy = hierarchySummary(buildHierarchyReview({ project, nodes: store.listNodes(projectId), now: cycle.startedAt }));
+    }
     await commitMutations(projectId, [{
       op: 'cycle.put',
       cycle,

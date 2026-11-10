@@ -37,6 +37,8 @@ import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from
 import { recallExperts } from './experts/similarity.js';
 import { evaluateEscalationTriggers, evaluateThresholdTriggers, queueOverloadState, THRESHOLD_TRIGGER_CODES, TRIGGER_CODES } from './experts/triggers.js';
 import { applyNomination, createCurator } from './experts/curator.js';
+import { HIGH_REVIEW_WINDOW_MS, buildHierarchyReview, chiefActivationMetrics, chiefPolicy, childVoteWeight, escalationRate, filterVisibleExperts, validateChiefDecision } from './experts/hierarchy.js';
+import { createResidentSession, RESIDENT_LIMITS } from './experts/resident.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
 // A state index row never carries a full prompt; the inspector loads the node.
@@ -507,6 +509,43 @@ function normalizeConfig(raw, base = undefined) {
   config.routing = config.routing ?? { advisorMaySelectModels: false, autoUpgrade: false, maxAttempts: 2 };
   config.models = config.models ?? {};
   config.placementPolicy = config.placementPolicy ?? { text: '', spec: null, compiledAt: null, explanation: [], warnings: [], compiler: null };
+
+  // C14: the migration is staged, and every phase has an explicit switch. The
+  // defaults keep an existing project on the legacy cycle until an operator
+  // advances the phase; no project is silently moved between runtimes.
+  const migration = { ...(previous.migration ?? {}), ...(input.migration ?? {}) };
+  const phase = integer(migration.phase, 'config.migration.phase', previous.migration?.phase ?? 1, 1, 3);
+  const expertMode = input.expertsMode ?? previous.expertsMode ?? migration.expertMode ?? 'legacy-cycle';
+  if (!['legacy-cycle', 'hierarchy', 'resident'].includes(expertMode)) {
+    throw new LabError('bad_request', 'config.expertsMode must be legacy-cycle, hierarchy or resident');
+  }
+  if (input.expertsMode !== undefined && expertMode !== 'legacy-cycle' && phase < 2) {
+    throw new LabError('bad_request', 'config.expertsMode hierarchy/resident is only available from migration phase 2');
+  }
+  const dispatch = { ...(previous.dispatch ?? {}), ...(input.dispatch ?? {}) };
+  const dispatchStrategy = dispatch.strategy ?? previous.dispatch?.strategy ?? 'deterministic';
+  if (!['legacy-llm', 'shadow-deterministic', 'deterministic'].includes(dispatchStrategy)) {
+    throw new LabError('bad_request', 'config.dispatch.strategy must be legacy-llm, shadow-deterministic or deterministic');
+  }
+  const contest = { ...(previous.contest ?? {}), ...(input.contest ?? {}) };
+  const contestMode = contest.mode ?? previous.contest?.mode ?? 'off';
+  if (!['off', 'shadow', 'consensus'].includes(contestMode)) {
+    throw new LabError('bad_request', 'config.contest.mode must be off, shadow or consensus');
+  }
+  config.migration = {
+    phase,
+    expertMode,
+    dispatchStrategy,
+    contestMode,
+    switchedAt: migration.switchedAt ?? previous.migration?.switchedAt ?? null,
+    switchedBy: migration.switchedBy ?? previous.migration?.switchedBy ?? null,
+    // S14: the parity gate must be re-run against the same fixture before a
+    // phase switch; a missing result means the switch is not yet allowed.
+    parity: migration.parity ?? previous.migration?.parity ?? null,
+  };
+  config.expertsMode = expertMode;
+  config.dispatch = { ...dispatch, strategy: dispatchStrategy };
+  config.contest = { ...contest, mode: contestMode };
   return config;
 }
 
@@ -1802,6 +1841,107 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           : null,
       },
     });
+  }
+
+  /** C14: read the staged switches and the S14 parity gate as one object. */
+  function migrationStatus(projectId) {
+    const project = requireProject(projectId);
+    const migration = project.config?.migration ?? {};
+    return {
+      ok: true,
+      projectId,
+      phase: migration.phase ?? 1,
+      switches: {
+        dispatch: project.config?.dispatch?.strategy ?? 'deterministic',
+        experts: project.config?.expertsMode ?? 'legacy-cycle',
+        contest: project.config?.contest?.mode ?? 'off',
+      },
+      parity: migration.parity ?? null,
+      zeroDowntime: true,
+      staged: [
+        { phase: 1, switch: 'dispatch.strategy', values: ['legacy-llm', 'shadow-deterministic', 'deterministic'] },
+        { phase: 2, switch: 'expertsMode', values: ['legacy-cycle', 'hierarchy', 'resident'] },
+        { phase: 3, switch: 'contest.mode', values: ['off', 'shadow', 'consensus'] },
+      ],
+      p1NoSwitch: (project.config?.migration?.phase ?? 1) === 1,
+    };
+  }
+
+  /** C14: move one phase at a time; phase > 1 requires a passing S14 parity run. */
+  async function advanceMigration(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const actor = exec ? actorFromToolExecution(exec) : { kind: 'human', id: 'operator' };
+    if (actor.kind === 'expert') return rejection('forbidden_expert_action', 'experts may not advance the migration');
+    const target = Number(input.phase);
+    if (![1, 2, 3].includes(target)) return rejection('bad_request', 'phase must be 1, 2 or 3');
+    const current = project.config?.migration?.phase ?? 1;
+    if (target !== current && target !== current + 1) return rejection('invalid_migration_step', `migration must advance one phase at a time (current ${current})`);
+    const parity = input.parity ?? project.config?.migration?.parity ?? null;
+    if (target > 1 && parity?.ok !== true) return rejection('parity_required', 'S14 parity must pass before phase 2 or 3');
+    const currentExpertMode = project.config?.expertsMode ?? 'legacy-cycle';
+    const requestedExperts = input.expertsMode ?? null;
+    if (requestedExperts !== null && !['legacy-cycle', 'hierarchy', 'resident'].includes(requestedExperts)) {
+      return rejection('bad_request', 'expertsMode must be legacy-cycle, hierarchy or resident');
+    }
+    const expertsMode = target >= 2 ? (requestedExperts && requestedExperts !== 'legacy-cycle' ? requestedExperts : (currentExpertMode === 'legacy-cycle' ? 'hierarchy' : currentExpertMode)) : 'legacy-cycle';
+    const requestedContest = input.contestMode ?? null;
+    if (requestedContest !== null && !['off', 'shadow', 'consensus'].includes(requestedContest)) {
+      return rejection('bad_request', 'contestMode must be off, shadow or consensus');
+    }
+    const contestMode = target >= 3 ? (requestedContest && requestedContest !== 'off' ? requestedContest : (project.config?.contest?.mode === 'off' ? 'shadow' : project.config.contest.mode)) : 'off';
+    const requestedDispatch = input.dispatchStrategy ?? null;
+    if (requestedDispatch !== null && !['legacy-llm', 'shadow-deterministic', 'deterministic'].includes(requestedDispatch)) {
+      return rejection('bad_request', 'dispatchStrategy must be legacy-llm, shadow-deterministic or deterministic');
+    }
+    const dispatchStrategy = target === 1
+      ? (requestedDispatch ?? (project.config?.dispatch?.strategy === 'legacy-llm' ? 'shadow-deterministic' : project.config?.dispatch?.strategy ?? 'shadow-deterministic'))
+      : (requestedDispatch ?? project.config?.dispatch?.strategy ?? 'shadow-deterministic');
+    const next = {
+      ...project.config,
+      migration: { ...(project.config.migration ?? {}), phase: target, parity, switchedAt: Date.now(), switchedBy: { kind: actor.kind, id: actor.id } },
+      expertsMode,
+      contest: { ...(project.config.contest ?? {}), mode: contestMode },
+      dispatch: { ...(project.config.dispatch ?? {}), strategy: dispatchStrategy },
+    };
+    if (target >= 2 && expertsMode === 'legacy-cycle') return rejection('invalid_migration_step', 'phase 2 must select a hierarchy or resident expert mode');
+    if (target >= 3 && contestMode === 'off') return rejection('invalid_migration_step', 'phase 3 must select contest shadow or consensus');
+    const commit = await commitProjectFields(projectId, { config: normalizeConfig(next, project.config) }, { eventType: 'project/migration_advanced', eventData: { from: current, to: target, switches: { expertsMode, contestMode } }, actor });
+    if (commit?.ok !== true) return rejection(commit?.code ?? 'internal_error', commit?.message ?? 'migration commit failed');
+    return { ok: true, projectId, phase: target, switches: { dispatch: next.dispatch.strategy, experts: expertsMode, contest: contestMode } };
+  }
+
+  const residentSessions = new Map();
+
+  /** B16: open a resident Host session; its budget is enforced by the module. */
+  function openResidentSession(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const expertId = typeof input?.expertId === 'string' && input.expertId ? input.expertId : (exec?.agent?.session?.header?.meta?.agentPreset ?? 'lab-advisor');
+    const sessionId = `resident-${projectId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const session = createResidentSession({
+      expertId,
+      sessionId,
+      maxQueries: input?.maxQueries ?? RESIDENT_LIMITS.maxQueries,
+      maxTokens: input?.maxTokens ?? RESIDENT_LIMITS.maxTokens,
+      wallClockMs: input?.wallClockMs ?? RESIDENT_LIMITS.wallClockMs,
+    });
+    residentSessions.set(sessionId, { session, projectId, expertId });
+    return { ok: true, projectId, sessionId, expertId, snapshot: session.snapshot(), tools: session.tools.map((tool) => tool.name) };
+  }
+
+  /** B16: every tool call, including submit, goes through the same resident session. */
+  async function callResidentTool(projectId, input = {}, exec = null) {
+    const row = residentSessions.get(input?.sessionId);
+    if (!row || row.projectId !== projectId) return rejection('session_not_found', 'resident session not found');
+    const outcome = await row.session.invoke(input?.tool, input?.args ?? {});
+    return { ok: outcome.ok === true, projectId, sessionId: input.sessionId, outcome, snapshot: row.session.snapshot() };
+  }
+
+  function closeResidentSession(projectId, sessionId) {
+    const row = residentSessions.get(sessionId);
+    if (!row || row.projectId !== projectId) return { ok: false, code: 'session_not_found' };
+    const snapshot = row.session.dispose();
+    residentSessions.delete(sessionId);
+    return { ok: true, projectId, sessionId, snapshot };
   }
 
   async function updateProject(projectId, input) {
@@ -3444,16 +3584,38 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     } catch {
       autoStatus = null;
     }
-    return computeProjectMetrics({
+    const nodes = store.listNodes(projectId);
+    const runs = store.listRuns(projectId, 100);
+    const metrics = computeProjectMetrics({
       project,
-      nodes: store.listNodes(projectId),
+      nodes,
       archived: store.countArchived(projectId),
-      runs: store.listRuns(projectId, 100),
+      runs,
       cycles: store.listCycles(projectId, 100),
       live: metricsCollector.snapshot(projectId),
       auto: autoStatus,
       now: Date.now(),
     });
+    // C2/5.4: expose the hierarchy's chief ratio, escalation rate, pending
+    // windows and compression/coverage next to the ordinary run metrics.
+    const hierarchy = buildHierarchyReview({ project, nodes, now: Date.now() });
+    const chiefRuns = runs.filter((run) => run.preset === 'lab-chief' || run.expertId === 'lab-chief' || run.createdBy === 'lab-chief');
+    const completed = nodes.filter((node) => node.status === 'completed').length;
+    const escalationRows = Array.isArray(project.reviewEscalations) ? project.reviewEscalations : [];
+    return {
+      ...metrics,
+      review: {
+        levels: hierarchy.layers.map((layer) => layer.level),
+        branchCount: hierarchy.branchCount,
+        groupedTeams: hierarchy.groupedTeams,
+        chief: { ...chiefPolicy(project), ...chiefActivationMetrics({ activations: chiefRuns.length, completed }) },
+        escalationRate: escalationRate({ escalations: escalationRows, intents: Array.isArray(project.intents) ? project.intents : [] }),
+        pendingHighReview: nodes.filter((node) => node.pendingHighReview).length,
+        unreviewed: nodes.filter((node) => node.highReview?.status === 'unreviewed').length,
+        coverage: hierarchy.coverage,
+        compression: hierarchy.compression.perLayer,
+      },
+    };
   }
 
   function explainNode(projectId, nodeId, options = {}) {
@@ -3881,7 +4043,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   /** Expert descriptors plus Host-computed performance metrics (Stage 4.1). */
-  function listExperts(projectId) {
+  function listExperts(projectId, { actor = null } = {}) {
     const project = requireProject(projectId);
     const nodes = store.listNodes(projectId);
     const runs = store.listRuns(projectId);
@@ -3889,7 +4051,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       ok: true,
       projectId,
       revision: project.revision,
-      experts: listExpertDescriptors().map((descriptor) => {
+      experts: filterVisibleExperts(listExpertDescriptors(), actor).map((descriptor) => {
         // Q4: budget is a descriptor contract, so expose its measured usage and
         // whether this project is still inside it. `runs` is the same bounded
         // list the performance metrics use.
@@ -3940,9 +4102,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   /** Deterministic expert recall for a task (Stage 4.2 production call site). */
-  function recallExpertFor(projectId, task, { limit = 3 } = {}) {
+  function recallExpertFor(projectId, task, { limit = 3, actor = null } = {}) {
     const project = requireProject(projectId);
-    const descriptors = recruitabilityOf(project);
+    const descriptors = filterVisibleExperts(recruitabilityOf(project), actor);
     const recall = recallExperts(descriptors, typeof task === 'string' ? task : '', { limit });
     const nodes = store.listNodes(projectId);
     const runs = store.listRuns(projectId);
@@ -5151,6 +5313,90 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { ok: true, ...curator.reset() };
   }
 
+  /**
+   * B14: resolve one pending high-review window. The chief (or a human owner)
+   * can defer/withdraw, or keep with at least one verified raw-data pointer.
+   * The node was already materialized as p2, so the normal path is optimistic.
+   */
+  async function resolveHighReview(projectId, nodeId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const node = requireNode(projectId, nodeId);
+    if (!node.pendingHighReview) return rejection('no_pending_high_review', `node ${nodeId} has no pending high review`, { nodeId });
+    const actor = exec && (exec.kind || exec.agent) ? actorFromToolExecution(exec) : null;
+    if (!actor) return rejection('actor_required', 'high-review resolution requires an actor');
+    const chief = chiefPolicy(project);
+    if (!(actor.kind === 'human' || actor.id === chief.chiefId || actor.preset === chief.chiefId || actor.kind === 'chief')) {
+      return rejection('forbidden_action', 'only the chief or a human owner may resolve a high review', { chiefId: chief.chiefId });
+    }
+    const action = input?.action;
+    if (!['defer', 'withdraw', 'keep'].includes(action)) {
+      return rejection('bad_request', 'action must be defer, withdraw or keep');
+    }
+    const decision = {
+      action,
+      reasonCode: typeof input?.reasonCode === 'string' ? input.reasonCode : null,
+      verifiedEvidence: Array.isArray(input?.verifiedEvidence) ? input.verifiedEvidence : [],
+      evidenceChain: Array.isArray(input?.evidenceChain) ? input.evidenceChain : node.pendingHighReview.evidenceChain ?? [],
+    };
+    if (action === 'keep') {
+      const errors = validateChiefDecision(decision, store.listNodes(projectId));
+      if (errors.length > 0) return rejection('invalid_high_review', errors.join('; '), { errors });
+    }
+    const now = Date.now();
+    const next = structuredClone(node);
+    next.pendingHighReview = null;
+    next.highReview = {
+      ...(node.highReview ?? {}),
+      status: action === 'defer' ? 'deferred' : action === 'withdraw' ? 'withdrawn' : 'kept',
+      resolvedAt: now,
+      resolvedBy: { kind: actor.kind, id: actor.id },
+      reasonCode: decision.reasonCode,
+      evidenceChain: decision.evidenceChain,
+    };
+    if (action === 'defer') {
+      next.priority = { ...(next.priority ?? {}), class: 'deferred', by: actor.id, reason: 'high-review veto: defer', at: now };
+    }
+    if (action === 'withdraw') {
+      next.status = 'cancelled';
+      next.cancelledAt = now;
+      next.cancelledBy = { kind: actor.kind, id: actor.id };
+      next.cancelReason = 'high-review veto: withdraw';
+    }
+    if (action === 'keep') next.ratifiedBy = chief.chiefId;
+    const commit = await kernel.executor.commit(projectId, {
+      actor,
+      mutations: [{ op: 'node.put', node: next, eventType: 'node/high_review_resolved', eventData: { decision: action, reasonCode: decision.reasonCode } }],
+      causeId: `high-review:${nodeId}:${action}`,
+    });
+    if (commit.ok !== true) return rejection(commit.code ?? 'internal_error', commit.message ?? 'high review commit failed');
+    return { ok: true, projectId, nodeId, decision: action, node: store.getNode(projectId, nodeId), event: commit.events?.[0] ?? null };
+  }
+
+  /** B14: timeout keeps the optimistic node but records it as unreviewed. */
+  async function sweepHighReviews(projectId, now = Date.now()) {
+    const project = requireProject(projectId);
+    const due = store.listNodes(projectId).filter((node) => node.pendingHighReview && Number(node.pendingHighReview.deadlineAt) > 0 && Number(node.pendingHighReview.deadlineAt) <= now);
+    const resolved = [];
+    for (const node of due) {
+      const next = structuredClone(node);
+      next.pendingHighReview = null;
+      next.highReview = {
+        ...(node.highReview ?? {}),
+        status: 'unreviewed',
+        resolvedAt: now,
+        resolvedBy: null,
+        reasonCode: 'window_timeout',
+      };
+      const commit = await kernel.executor.commit(projectId, {
+        actor: { kind: 'system', id: 'high-review-sweeper' },
+        mutations: [{ op: 'node.put', node: next, eventType: 'node/high_review_unreviewed', eventData: { deadlineAt: node.pendingHighReview.deadlineAt } }],
+        causeId: `high-review:${node.id}:timeout`,
+      });
+      if (commit.ok === true) resolved.push(node.id);
+    }
+    return { ok: true, projectId, resolved };
+  }
+
   async function setNodePriority(projectId, nodeId, input, actor = null) {
     const project = requireProject(projectId);
     const node = requireNode(projectId, nodeId);
@@ -5376,10 +5622,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'ledger_read') return ledgerRead(input?.projectId, input?.limits);
     if (action === 'ledger_update') return ledgerUpdate(input?.projectId, input, exec);
     if (action === 'set_priority') return setNodePriority(input?.projectId, input?.nodeId, input, actor);
+    if (action === 'resolve_high_review') return resolveHighReview(input?.projectId, input?.nodeId, { ...input, action: input?.decision }, exec);
     if (action === 'intent_submit') return submitIntent(input?.projectId, input, exec);
     if (action === 'intent_list') return listIntents(input?.projectId, { limit: input?.limit, kind: input?.kind ?? null });
-    if (action === 'expert_list') return listExperts(input?.projectId);
-    if (action === 'expert_recall') return recallExpertFor(input?.projectId, input?.task ?? input?.text ?? '', { limit: input?.limit });
+    if (action === 'expert_list') return listExperts(input?.projectId, { actor: exec ? actorFromToolExecution(exec) : null });
+    if (action === 'expert_recall') return recallExpertFor(input?.projectId, input?.task ?? input?.text ?? '', { limit: input?.limit, actor: exec ? actorFromToolExecution(exec) : null });
     if (action === 'expert_hire') return hireExpert(input?.projectId, input, exec);
     if (action === 'expert_invite') return inviteExpert(input?.projectId, input, exec);
     if (action === 'expert_drain') return drainExpert(input?.projectId, input, exec);
@@ -5453,6 +5700,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     observe,
     arbitrate,
     updateProject,
+    migrationStatus,
+    advanceMigration,
+    openResidentSession,
+    callResidentTool,
+    closeResidentSession,
     updateNode,
     startNode,
     retryNode,
@@ -5516,6 +5768,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     ledgerRead,
     ledgerUpdate,
     setNodePriority,
+    resolveHighReview,
+    sweepHighReviews,
     metricsCollector,
     toActionable,
   };

@@ -81,6 +81,7 @@ export const ACTION_CATALOG = Object.freeze({
   curator_nominate: 'write',
   curator_outcome: 'control',
   set_priority: 'write',
+  resolve_high_review: 'write',
   claim_review: 'write',
   release_review: 'write',
   // control (runtime / driver)
@@ -178,7 +179,7 @@ export const PRESET_POLICIES = Object.freeze({
   }),
   'lab-chief': Object.freeze({
     kind: 'expert',
-    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update', 'approve_node', 'reject_node']),
+    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update', 'approve_node', 'reject_node', 'resolve_high_review']),
     note: 'the chief arbitrates proposals; it cannot start or cancel runs',
   }),
   // Stage 5.3.14: an arbiter can observe and resolve one dispute. It has no
