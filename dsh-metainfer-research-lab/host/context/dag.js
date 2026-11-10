@@ -367,7 +367,10 @@ export function walkDag({ nodes, from, direction = 'down', depth = 3, limit = MA
     kept = kept.slice(0, -1);
     result = build(kept);
   }
-  if (result.truncated) result.truncated.bytes = { max: maxBytes, used: Buffer.byteLength(JSON.stringify(result)) };
+  if (result.truncated) {
+    result.truncated.bytes = { max: maxBytes, used: 0 };
+    result.truncated.bytes.used = Buffer.byteLength(JSON.stringify(result));
+  }
   return result;
 }
 

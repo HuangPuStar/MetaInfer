@@ -90,7 +90,7 @@
 
 | 缺陷 | 修复 | 回归测试 |
 |---|---|---|
-| 4 个测试假绿 | trace 改真实 planned cancel；tool-surface 断言 `unknown_action`；i18n 解析未加引号键；priority 断言真实actor | 先红后绿，`f67348f` 提交信息记录 RED 输出 |
+| 4 个测试假绿 | trace 改真实 planned cancel；tool-surface 断言 `unknown_action`；i18n 解析未加引号键；priority 断言真实 actor | 先红后绿，`f67348f` 提交信息记录 RED 输出 |
 | B15 dag 契约 | `dag_map` 6 KB（原 372,846 B）、`dag_walk` 24 KB/200 行、全部带 `revision`、`sinceRevision` 真生效 | `tool-surface-selftest.mjs` |
 | O8 原因链洞 | planned cancel + merge prep + GC + reconcile 等非激活事件都有 cause | `trace-selftest.mjs`、store fallback |
 | S11 无界出口 | `/state` 1,000 节点/页（客户端自动翻页）、transcript/replay limit、MCP list_nodes 分页 | `surface-bounds-selftest.mjs` |
