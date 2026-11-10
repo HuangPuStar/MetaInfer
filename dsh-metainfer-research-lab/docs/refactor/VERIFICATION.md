@@ -17,7 +17,7 @@
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
 **一句话**：第四轮修复（`137b293`…`39748a6`）关闭了 G1 删除守卫、locale 方向、B17/B20/B21、
-4.4/4.5 与人类 p0；`npm test` 27 文件 / 428 checks 全绿。仍不能上生产的是冷段归档、dashboard
+4.4/4.5 与人类 p0；`npm test` 27 文件 / 435 checks 全绿。仍不能上生产的是冷段归档、dashboard
 过期、7 谓词 claim 门控和浏览器绘制/FPS（见 §18）。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
@@ -824,8 +824,10 @@ FAIL client zh dictionary matches locale/zh.json
   被 claim 的 d1 不进入提名。10 分钟免疫用真实 `clock` 边界验证：11 分钟旧对入选，
   9 分钟节点被排除。
 - **B20**：`node.create` reducer 在同一次 commit 内把针对 parent 的 pending curate nomination
-  置 `withdrawn` 并写 `intent/withdrawn`；测试用真实 executor 建 `child-of-d1` 后检查。
-- **B21**：intent 带 `status:'pending'` 与 30 分钟 `expiresAt`；`intent_withdraw` 可撤回；
+  置 `withdrawn` 并写 `nomination/withdrawn{reason:child_created}`；curator 反向免疫有幼子的 parent；
+  测试用真实 executor 建 `child-of-d1` 后检查事件与状态。
+- **B21**：intent 带 `status:'pending'` 与 30 分钟 `expiresAt`；下一次 `intent.put` 自动把过期项
+  置 `expired` 并写 `intent/expired`；`intent_withdraw` 可撤回；
   同目标已有更高 basis 时新提交返回 `stale_basis` + `conflictingIntentId`；`curator_reset`
   是可调用的生产 action，重置熔断。
 
@@ -840,7 +842,7 @@ FAIL client zh dictionary matches locale/zh.json
 
 ### 18.6 测试与剩余
 
-`npm test`：**27 个文件、428 checks，exit 0**（`/tmp/npmtest-r4b.log`）。新增/扩展：
+`npm test`：**27 个文件、435 checks，exit 0**（`/tmp/npmtest-r4b.log`）。新增/扩展：
 `strict-writes`、`experts`（谓词/免疫/claims/生命周期）、`priority`（人类 p0）、
 `dispatch`（p0→claim）、`surface-bounds`（`/experts`）、`ui`（专家库）、`locale`（漂移）。
 

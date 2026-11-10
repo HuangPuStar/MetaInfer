@@ -64,7 +64,7 @@
 | 分页工具 `nodes_page` / `events_page` | 完成 | `lab-service.nodesPageAction/eventsPageAction`（cursor/after + `hasMore`） | `tool-surface-selftest.mjs`（第二页 cursor） |
 | claim 工具 `claim_review`/`release_review`/`review_claims` | 完成 | `lab-service` 调用 `orchestrator.reviewClaims`（服务端 actor 作 expertId） | `tool-surface-selftest.mjs` |
 | Q6 探索预算 4 查询 / 20k token / 240 s | 完成 | `host/context/limits.js` 默认值；`lab-service` 每会话预算 | `context-selftest.mjs` |
-| B21 意图日志（TTL/basis/幂等合并） | 完成 | `kernel/intent.js`（`status:pending`、30 min `expiresAt`）；`kernel/mutations.js` `intent.withdraw`；`lab-service.submitIntent`（同目标旧 basis → `stale_basis`）、`withdrawIntent`、`listIntents`（过期标记）；dispatch/priority/proposal 同提交写 intent | `intent-selftest.mjs`；`experts-selftest.mjs`（TTL、withdraw、stale conflict） |
+| B21 意图日志（TTL/basis/幂等合并） | 完成 | `kernel/intent.js`（`status:pending`、30 min `expiresAt`）；`kernel/mutations.js` `intent.put` 自动 `intent/expired`、`intent.withdraw`；`lab-service.submitIntent`（同目标旧 basis → `stale_basis`）、`withdrawIntent`、`listIntents`（过期标记）；dispatch/priority/proposal 同提交写 intent | `intent-selftest.mjs`；`experts-selftest.mjs`（TTL、withdraw、stale conflict） |
 | B24 evidence 指针强制 | 完成 | 意图 `claim.action` 必填；curator evidence 带 `nodeId`/`ref`；描述符 `mayExecute: []` | `intent-selftest.mjs`、`experts-selftest.mjs` |
 | 覆盖哨兵 `coverage` | 未完成 | — | 同上 |
 
@@ -149,8 +149,8 @@
 | B17/B18 专家描述符 + 标签 | 完成 | `host/experts/registry.js` 八个字段（persona/model/tools/triggers/mayPropose/mayExecute/budget/schema）+ `computeExpertMetrics`；`expert_list`/`expert_recall` 真实工具入口 | `experts-selftest.mjs`（字段契约、metrics、确定性召回、生产 action） |
 | B17 相似度谓词（promptHash 前缀 / 同父+criteria / metrics） | 完成 | `host/experts/similarity.js` `similarityEvidence`：promptHash 前缀、同 parentId + criteria Jaccard ≥0.5、metric targets 相等，外加 title/tags；节点写入 `promptHash` | `experts-selftest.mjs`（三种谓词各自命中、确定性、merge 排除） |
 | 相似度召回（Jaccard/top-K） | 完成 | `host/experts/similarity.js` 纯函数穷举候选对；merge 多父节点排除；`recallExperts` 用于任务→专家 | `experts-selftest.mjs`（同输入同输出、已知重复对、merge 排除） |
-| B19 curator 只提名 + 误杀熔断 | 完成 | `host/experts/curator.js` 单轮 ≤5、10 分钟免疫、pending claim/review 排除、`curator_cannot_execute`、`falseCloseRate > 20%` 断路；服务把真实 dispatch/review claim 传入，`curator_nominate` 写 `curate` intent；`curator_reset` 有生产 action | `experts-selftest.mjs`（免疫边界、claim 排除、提名/执行拒绝/熔断/reset） |
-| B20 建子节点自动撤回 defer 提名 | 完成 | `kernel/mutations.js` `node.create`：同提交把针对 parent 的 pending curate nomination 置 `withdrawn` 并发 `intent/withdrawn` | `experts-selftest.mjs`（真实 executor 建 child 后 parent nomination withdrawn） |
+| B19 curator 只提名 + 误杀熔断 | 完成 | `host/experts/curator.js` 单轮 ≤5、10 分钟免疫（自身年龄 + 有幼子的 parent）、pending claim/review 排除、`curator_cannot_execute`、`falseCloseRate > 20%` 断路；服务把真实 dispatch/review claim 传入，`curator_nominate` 写 `curate` intent；`curator_reset` 有生产 action | `experts-selftest.mjs`（免疫边界、claim 排除、提名/执行拒绝/熔断/reset） |
+| B20 建子节点自动撤回 defer 提名 | 完成 | `kernel/mutations.js` `node.create`：同提交把针对 parent 的 pending curate nomination 置 `withdrawn` 并发 `nomination/withdrawn{reason:child_created}`；curator 反向免疫有幼子的 parent | `experts-selftest.mjs`（真实 executor 建 child 后 parent nomination withdrawn） |
 | B24 evidence 指针与权限分级 | 完成 | 意图 claim 必带 action；描述符 `mayExecute: []`；curator 不能执行 | `intent-selftest.mjs`、`experts-selftest.mjs` |
 | B27 7 谓词 claim 校验 + `citationErrorRate` 门控 | 未完成 | — | 原因：需要人工标注集定义 7 谓词，本轮未伪造精度/召回 |
 | `experts_list` / `expert_upsert` / `curator_scan` 旧名 | 完成（移除） | 旧名保持从 `ACTION_ENUM`/`ACTION_CATALOG` 删除；`expert_list`/`expert_recall`/`intent_*`/`curator_nominate`/`curator_outcome`/`curator_reset` 是三表一致的实现 | `policy-selftest.mjs`、`tool-surface-selftest.mjs`（三表一致，不残留旧名） |
@@ -163,7 +163,7 @@
 - 完成：**81**；未完成：**8**；拆分条目（完成 X / 未完成 Y）：**4**
 - 未完成原因集中在：冷段归档、dashboard 子系统、7 谓词 claim 校验/citationErrorRate、
   无浏览器导致的 UI 绘制测量，以及部分 Stage 5 组织化能力。
-- `npm test` 覆盖 **27** 个文件（428 checks）：`strict-writes`（executor 覆盖 + 默认 throw + 删除守卫）、
+- `npm test` 覆盖 **27** 个文件（435 checks）：`strict-writes`（executor 覆盖 + 默认 throw + 删除守卫）、
   `replay-client`（真实 HTTP 分页跟随）、`intent`（claim/basis/explain）、`experts`（描述符/
   三谓词召回/curator/生命周期）、`locale`（JSON 源 + 结构 parity），无重复执行。
 
