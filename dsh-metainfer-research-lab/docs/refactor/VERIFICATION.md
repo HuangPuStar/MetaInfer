@@ -30,11 +30,11 @@ B27 撤销**，不再作为 B27 的排除项。
 arbiter matrix）独立通过，**B22 仍是 FAIL**：8 类 authority 元数据正确，但
 `resolveDispute` 不执行 authority 检查，专家可对全部 8 类 `apply_change`；
 5.3.13 的 long-poll/mid-sleep 通过，但只有 30s、只识别 stalled，缺
-starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准；第二十一轮以 §46.7 的 **121 / 43 / 10** 为准；第二十二轮以 §48 的 **143 / 21 / 10** 为准；第二十三轮以 §50 的 **150 / 14 / 10** 为准。
+starving/pauseReason。§38 当时的历史计数为 **114 PASS / 50 FAIL / 10 未测量**；第十七轮为 §40 的 **116 / 48 / 10**，第十八轮为 §41.7 的 119/45/10；第十九轮以 §43 的 **120 / 44 / 10** 为准；第二十轮以 §45 的 **120 / 44 / 10** 为准；第二十一轮以 §46.7 的 **121 / 43 / 10** 为准；第二十二轮以 §48 的 **143 / 21 / 10** 为准；第二十三轮以 §50 的 **150 / 14 / 10** 为准；第二十四轮以 §51 的 **151 / 13 / 10** 为准。
 
 > 作者第十四轮报告见 **§35**，第二十轮报告见 **§46**，不替代独立复核。
-> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；第二十一轮见 §46.7；第二十二轮见 §48；第二十三轮见 §50；当前独立总判定以 §50 为准：150 PASS / 14 FAIL / 10 未测量。**
-> **B27 restart continuity 仍 PASS；U2 PASS；B22 在 round 21 独立重放通过（48 个 method+path 全部有 policy；14 个 token 路由 absent/forged 拒绝；递归剥离 body actor；/commands 破坏性操作仍走 human gate；authorizeIrreversibleTool(null) 不再铸造 human）。完整发布仍 NO-SHIP：round 23 §50 仍有 1 个必须行（O3）和 3 个应该行（C1/B13/5.3.9）未关闭。**
+> **第十七轮独立复核见 §40；第十八轮见 §41.7；第十九轮见 §43；第二十轮见 §45；第二十一轮见 §46.7；第二十二轮见 §48；第二十三轮见 §50；第二十四轮见 §51；当前独立总判定以 §51 为准：151 PASS / 13 FAIL / 10 未测量。**
+> **B27 restart continuity 仍 PASS；U2 PASS；B22 在 round 21 独立重放通过（48 个 method+path 全部有 policy；14 个 token 路由 absent/forged 拒绝；递归剥离 body actor；/commands 破坏性操作仍走 human gate；authorizeIrreversibleTool(null) 不再铸造 human）。完整发布仍 NO-SHIP：round 24 §51 已关闭 C1，但仍有 1 个必须行（O3）和 2 个应该行（B13/5.3.9）未关闭。**
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
@@ -6603,43 +6603,203 @@ B22 是否从 FAIL 变为 PASS。
 
 **窄发布**也不成立，除非明确排除 `/metrics` queue-wait、archive 热索引、escalation reasonCode 和 5.3.9 队列超载；这四项正好是本轮未关闭的部分。
 
-## §51 作者修复 §50 的四个反证（HEAD `252c902`，待独立重放）
+## §51 round 24 独立复核（HEAD `252c902`，2026-11-11T00:03:43+08:00 `Asia/Shanghai`）
 
-> 本节是**作者探针**，不是独立复核。§50 的 `150 / 14 / 10` 仍是最后一个独立 verdict；本节只说明四个 FAIL 的语义修复和反证。作者账面为 `154 / 10 / 10`，独立验证者仍须重放。
+> 本节替代原 §51 的“作者探针、待独立重放”。在 clean worktree `252c902` 上重放 O3/C1/B13/5.3.9，
+> 并检查别名、反证和回归。**这不是第一次独立的 154/10/10**；当前独立账面为
+> **151 PASS / 13 FAIL / 10 N/A**，residual **1 必须 / 2 应该 / 10 明确不做 = 13**。
 
-### 51.1 四个语义修复
+### 51.1 结论：C1 关闭；O3/B13/5.3.9 仍有反证
 
-| 行 | 修复 | 真实探针 |
+| 行 | 结论 | 最短理由 |
 |---|---|---|
-| O3 | `kernel/runnable.js` 增加 `runnableSince(node)`：取 `timestamps.plannedAt`、`deferUntil`、`dispatchHold.untilMs` 的最大值；`node.create`/`node.transition` 写 `plannedAt`；`dispatchOnceAction` 从该时刻算到 started，不再用 `createdAt` | `observability-selftest` 的 1h-old、hold 在 1ms 前解除的节点现在得到 `<5s` 的 `queueWait.p50` 和 `decisions[].waitMs`；断言已从 `>=3,500,000` 改为 `<5,000` |
-| C1 | Projection `indexNode` 遇到 `archivedAt` 不写入 `byId`；archive 的 `node.merge` 经 `putNode` 先 unindex 再跳过 | `priority-selftest` 断言 `projection.getNode('deferred-old') === undefined`、`checkConsistency('p') === []`，同时 `store.listNodes`/`getState`/metrics 不含 archived |
-| B13 | `INTENT_KINDS`/`INTENT_ACTIONS` 增加 `escalate`，`semanticFallback('escalate')` 路由 human dispute；`createIntent` 与 `submitIntent` 都要求 `claim.reasonCode` 属于六码，缺失/非法分别拒收 | `claims-selftest` 覆盖 kernel 写边界（missing/invalid 抛 TypeError）；`stage5-selftest` 覆盖服务写边界（`escalation_reason_required`/`escalation_reason_invalid`，且只有合法 intent 落盘） |
-| 5.3.9 | `experts/triggers.js` 导出唯一 `queueOverloadState(nodes, freeSlots)`（`planned > 2×freeSlots`）；observer 与 `evaluateThresholdTriggers` 共用 | 3 planned（2 runnable + 1 deferred）、`freeSlots=1`：t0 无 `queue_overload`，+5min 有，detail `planned=3, queue=2` |
+| O3 | **FAIL（必须）** | 指定 fixture（created 1h ago，hold 1ms 前释放）已从 `runnableSince` 得到 **15 ms**；但节点从 `priority.class='deferred'` 提升为 `p2` 后，`setNodePriority` 不更新 `plannedAt`/runnable 起点，真 dispatch 仍报 **3,600,016 ms**。 |
+| C1 | **PASS** | `archiveDeferred` 后 `store.listNodes`/`projection.listNodes`/`getState`/metrics 均无 archived；`projection.getNode` 返回 `undefined`，`checkConsistency=[]`。 |
+| B13 | **FAIL（应该）** | kernel `createIntent` 与服务/工具执行层都拒绝缺失/非法 reasonCode，且拒绝不落行；但 **agent tool 的 `kind` enum 仍只有 6 个旧值，没有 `escalate`**，`claim` 描述也没有 `reasonCode`。模型可见的工具面无法发出该意图。 |
+| 5.3.9 | **FAIL（应该）** | `queueOverloadState` 已被 observer/evaluator 共用，3 planned（含 1 deferred）/freeSlots=1 时 t0 不报、+5min 报；但 helper 的 `freeSlots > 0` 守卫使 **freeSlots=0、planned=3** 时 `3 > 0` 仍判 false，生产 observer 永不发 `queue_overload`。 |
 
-### 51.2 别名清理
+### 51.2 O3：指定 fixture 通过，但 runnable 入口不完整
 
-`computeProjectMetrics` 现在先构造 `cycle`、`byRole`、`advisorInput` 各一次，再返回 `cycles: cycle`、`roles: byRole`、`advisor: advisorInput`；三个兼容名是同一对象引用，不再独立重算。`advisorInput` 保留旧字段（`lastBytes`/`p50Bytes`/`tokenGuard` 等），`utilization` 在无 live snapshot 时回退到 `p50Utilization`，不再为 `null`。`observability-selftest` 断言：
+**已修复的部分**（真实探针）：
 
-- `metrics.cycle === metrics.cycles`
-- `metrics.byRole === metrics.roles`
-- `metrics.advisor === metrics.advisorInput`
-- `metrics.advisorInput.utilization === metrics.advisor.inputBytes.p50Utilization`
+- `node.create` 写 `plannedAt`；`node.transition` 到 `planned` 写 `plannedAt=now`。
+- `runnableSince` 对 `deferUntil=3000`、`dispatchHold.untilMs=4000` 的节点返回 **4000**；对 1h-old、hold 在 1ms 前释放的节点返回 holdUntil。
+- 真 `dispatchOnce` 启动该节点：`queueWait.p50=15`、`decisions[0].waitMs=15`，不再是 `createdAt` 的 3.5M。
 
-### 51.3 反证（re-plant）
+**仍 FAIL 的部分**（同一 row 的另一个 runnable gate）：
+
+```
+createdAt = now - 3,600,000
+priority.class = 'deferred'      // 不是 runnable
+setNodePriority('p2')            // 此刻才进入 runnable
+dispatchOnce -> started
+metrics.dispatch.queueWait.p50 = 3,600,016
+```
+
+`node.setPriority` 只改 `priority` 和 `updatedAt`，不写 `plannedAt`；`runnableSince` 于是继续取旧 `plannedAt`。这不是“hold 时间”问题，而是 **deferred class 提升为可调度 class 时没有记录新的 runnable 起点**。`setNodePriority` 是真实生产入口，所以 O3 仍不满足 runnable→claimed 的通用定义。
+
+### 51.3 C1：归档节点已离开 hot index
+
+真实 `archiveDeferred`（20 天前 deferred，TTL 7 天）后：
+
+```json
+{
+  "archived": ["old-d"],
+  "store.listNodes": [],
+  "projection.listNodes": [],
+  "projection.getNode": null,
+  "projection.checkConsistency": [],
+  "state.nodes": [],
+  "state.archivedCount": 1,
+  "metrics.counts": {"archived":1,"deferred":0},
+  "metrics.queue": {"deferred":0}
+}
+```
+
+`indexNode` 跳过 `archivedAt`，`putNode`/`syncNode` 先 unindex 旧版本再跳过；`checkConsistency` 也不再报 `extra old-d`。**C1 关闭。**
+
+### 51.4 B13：写边界通过，工具描述面仍缺 escalate
+
+| 边界 | 结果 |
+|---|---|
+| kernel `createIntent` 缺 reasonCode | `TypeError: escalation_reason_required` |
+| kernel `createIntent` 非法 reasonCode | `TypeError: escalation_reason_invalid` |
+| tool 执行 `kind:'escalate'` + 合法 reasonCode | `ok:true`，落 1 行 |
+| tool 执行缺失/非法 reasonCode | `escalation_reason_required` / `escalation_reason_invalid`，行数仍 1 |
+| 工具 schema `kind.enum` | `['dispatch','priority','proposal','review','curate','note']`，**无 `escalate`** |
+| 工具 schema `claim` 描述 | `{action, strategy?, reason?, evidence?}`，**无 `reasonCode`** |
+
+直接调用 `execute()` 可以绕过 JSON Schema 并成功，但这不是“模型可见的 tool path”：受 schema 约束的调用方不能生成 `kind:'escalate'`，也不会知道要带 `reasonCode`。**B13 仍 FAIL，建议把 `kind.enum` 扩到 `INTENT_KINDS`，并在 `claim` 描述中显式列出六个 reasonCode。**
+
+### 51.5 5.3.9：共享定义正确，零可用槽位仍漏报
+
+**已修复的部分**：
+
+- `queueOverloadState(nodes, freeSlots)` 是 observer 与 `evaluateThresholdTriggers` 的唯一入口；
+- `planned` 计入 1 个 deferred class 节点；
+- freeSlots=1、planned=3 时，t0 无 `queue_overload`，t0+5min 有，detail `{planned:3, queue:2, freeSlots:1, overMs:300001}`。
+
+**仍 FAIL 的部分**：
+
+```js
+queueOverloadState(3 planned, 0 freeSlots)
+// -> {overloaded:false, planned:3, freeSlots:0}
+evaluateThresholdTriggers(..., freeSlots:0, queueOverloadSince:t0)
+// -> []  (3 > 2*0 is true)
+observerSnapshot 第二次（t0+5min）-> 无 queue_overload
+```
+
+helper 写的是 `freeSlots > 0 && planned > 2 * freeSlots`，而清单公式是 `planned > 2×freeSlots`；`freeSlots=0` 时 `3 > 0` 应触发。**去掉 `freeSlots > 0` 守卫即可；这是当前 5.3.9 的唯一残余。**
+
+### 51.6 别名清理：引用同一对象，utilization 已回退
+
+真实 `computeProjectMetrics`：
+
+- `cycle === cycles`：true；
+- `byRole === roles`：true；
+- `advisor === advisorInput`：true；
+- 只有 percentile、没有 live snapshot 时：`advisorInput.utilization=0.163`，
+  `advisor.inputBytes.p50Utilization=0.163`，`p50Bytes=2000`、`budgetBytes=12288`。
+
+四个兼容名现在指向同一对象，不再是独立构造的“双真相”；`utilization` 不再为 `null`。**别名项通过。**
+
+### 51.7 反证（re-plant）
 
 | 破坏 | 期望 | 实测 |
 |---|---|---|
-| `dispatchOnceAction` 改回 `createdAt` 起算 | O3 红 | `observability-selftest` EXIT 1；O3 失败 |
-| Projection `indexNode` 恢复 archived 入 `byId` | C1 红 | `priority-selftest` EXIT 1；C1 报 `projectedGet` 有 archived、`consistency=["extra deferred-old"]` |
-| 去掉 `INTENT_KINDS` 的 `escalate` | B13 红 | `claims-selftest` EXIT 1；`createIntent` 在 escalate 用例抛 TypeError |
-| observer 改回 `queue.length` | 5.3.9 红 | `experts-selftest` EXIT 1；生产 observer 两帧均无 `queue_overload` |
-| 旧 `cycles`/`roles` 独立构造 | 别名红 | 新身份断言直接失败 |
+| `dispatchOnceAction` 改回 `createdAt` 起算 | O3 红 | `observability-selftest` EXIT 1；O3 fail，9/10 |
+| Projection 恢复 archived 入 `byId` | C1 红 | `priority-selftest` EXIT 1；`projection.getNode` 有 archived，`consistency=["extra deferred-old"]` |
+| `INTENT_KINDS` 去掉 `escalate` | B13 红 | `claims-selftest` EXIT 1；valid escalate 直接 TypeError；`stage5-selftest` EXIT 1，四条 B13 全红 |
+| observer 改回 `queue.length` | 5.3.9 红 | `experts-selftest` EXIT 1；production observer 两帧均无 `queue_overload` |
 
-### 51.4 回归
+**未覆盖的红**：B13 的工具 schema 缺口和 5.3.9 的 `freeSlots=0` 缺口没有现成断言；两者都是本节用真实探针发现的，不能由 941 个绿测试替代。
+
+### 51.8 回归（HEAD `252c902`）
 
 | 检查 | 结果 |
 |---|---|
 | `npm test` | EXIT 0；**941 ok / 0 FAIL**（44 个 selftest） |
+| `bench:scale` | **11/11** |
+| `strict-writes` | **17 ok / 0 unexpected bypass** |
+| `client-smoke` | **45/45** |
+| `operator-ui` | **10/10** |
+| `operator-route` | **48 route pairs** |
+| `plugin-smoke` | **5/5** |
+| `b27-restart` | **11/11** |
+| U14 | `consecutiveFailures>=3`、`degraded`、`staleReason='refresh_partial'` |
+| S12/eventlog | **7/7** |
+| `git diff --check` | 0 |
+
+### 51.9 账本与发布判断
+
+作者 §51 取 **154 / 10 / 10**；本轮把 C1 改回 PASS，O3/B13/5.3.9 仍 FAIL：
+
+- **151 = 154 - 3**；
+- **13 = 10 + 3**；
+- **174 = 151 + 13 + 10**；
+- residual = **1 必须（O3）+ 2 应该（B13/5.3.9）+ 10 明确不做 = 13**。
+
+**所以这不是第一次独立的 154/10/10。** 10 个明确不做仍是
+`B11`、`B12`、`B14`、`B16`、`Q8`、`5.4`、`C2`、`C8`、`C14`、`5.3.10`。
+
+**完整发布 NO-SHIP。** 仍剩 **1 个必须 O3**（deferred class 提升后的 queue-wait）和
+**2 个应该 B13/5.3.9**（工具面 escalate enum、零 freeSlots 漏报）。
+
+### 51.10 边界与排除
+
+- 本轮只重放 O3/C1/B13/5.3.9 四个行、别名和回归；其余 150 个旧 PASS 未逐行重放。
+- **浏览器**：本环境无 Playwright/浏览器，未测量绘制、交互和真实页面行为。
+- **真实 provider**：未调用外部模型，专家路径只测了 fixture 和 deterministic fallback。
+- **session-id rehydration**：未重启 Host 重放 session 身份；b27-restart 只覆盖现有 restart 断言。
+
+## §52 作者修复 §51 的三个反证（HEAD `63632fa`，待独立重放）
+
+> 本节是**作者探针**，不是独立复核。§51 的 `151 / 13 / 10` 仍是最后一个独立 verdict；§52 只说明 O3/B13/5.3.9 的语义修复与反证。作者账面回到 `154 / 10 / 10`，独立验证者仍须重放。
+
+### 52.1 O3：deferred→可调度 class 是新的 runnable 入口
+
+`node.setPriority` 现在比较提升前后的 class：只有 `planned` 节点从 `deferred` 变为可调度 class 时，才写 `timestamps.plannedAt = timestamps.runnableAt = ctx.now`，并把 `timestamps` 放进事件的 `node.merge` effect，保证 projection/redo 与 store 同源。`runnableSince` 取 create/transition/`plannedAt`/`runnableAt`/defer/hold 的最新值。
+
+`observability-selftest` 的 O3 探针现在包含两条真实路径：
+
+1. `held`：created 2h ago，`dispatchHold.untilMs = now - 1`；wait 从 hold 释放起算。
+2. `promoted`：created 1h ago，`priority.class='deferred'`；经 `service.setNodePriority(...,{class:'p2'})` 后真 dispatch；wait 从 promotion 起算。
+
+断言 `queueWait.count=2`，promoted 的 `decisions[].waitMs` 与 p50 都 `<5s`。反证：把 promotion 的 `plannedAt`/`runnableAt` 写回关掉，`observability-selftest` EXIT 1，O3 以约 `3,600,016 ms` 失败。
+
+### 52.2 B13：工具 schema 真正允许 escalate
+
+`host/agent-tool.js` 现在导出 `AGENT_TOOL_PARAMETERS`，`registerAgentTool` 的 `parameters` 直接引用它：
+
+- `kind.enum` 增加 `escalate`（不再是六个值）；
+- `claim` 增加 `reasonCode` 属性，枚举复用 `ESCALATION_REASON_CODES` 六码，并在描述中写明 `action=escalate` 时必填。
+
+`claims-selftest` 用 JSON-schema-shaped validator 对完整 model-shaped call 做实际校验：
+
+```json
+{"action":"intent_submit","projectId":"schema-p","kind":"escalate",
+ "claim":{"action":"escalate","reasonCode":"conflict"},
+ "basis":{"projectRevision":0,"snapshotAgeMs":0,"nodesSeen":0}}
+```
+
+该调用通过 schema；把 `reasonCode` 改成 `stalled_node` 会得到 `$.claim.reasonCode` 的 enum 错误。反证：从 `kind.enum` 去掉 `escalate`，`claims-selftest` EXIT 1，报 `$.kind=escalate is not in enum`。kernel/service 的缺失/非法 reasonCode 拒收测试保持不变。
+
+### 52.3 5.3.9：overload 公式没有 freeSlots 守卫
+
+`queueOverloadState` 的唯一条件是 `planned > 2 × freeSlots`，已删除 `freeSlots > 0 &&`。`freeSlots=0, planned=3` 时 `3 > 0` 成立；`ratio` 在零槽位时返回 `null`，避免 `Infinity`。
+
+两个探针：
+
+- 纯阈值：`evaluateThresholdTriggers({freeSlots:0, queueOverloadSince: now-5min-1})` 发 `queue_overload`，detail `planned=3, freeSlots=0`。
+- 生产 observer：fixture 改为无 resource pool、`maxRunningNodes=1` 且有 1 个 running，使 `freeSlots=0`；t0 不报，+5min 报 `queue_overload`，detail `planned=3, queue=2, freeSlots=0`，其余五个阈值仍同帧发出。
+
+反证：恢复 `freeSlots > 0 &&`，`experts-selftest` EXIT 1；零槽位纯探针报 `[]`，生产 observer 也不再发 `queue_overload`。
+
+### 52.4 回归与账本
+
+| 检查 | 结果 |
+|---|---|
+| `npm test` | EXIT 0；**944 ok / 0 FAIL** |
 | `bench:scale` | **11/11** |
 | `client-smoke` | **45/45** |
 | `operator-ui-selftest` | 全通过（10/10） |
@@ -6650,6 +6810,4 @@ B22 是否从 FAIL 变为 PASS。
 | `strict-writes-selftest` | **17 ok / 0 unexpected bypass** |
 | `git diff --check` | 0 |
 
-### 51.5 账本
-
-作者账面为 **154 PASS / 10 FAIL / 10 N/A**，10 FAIL 全部为明确不做；算术 `154 + 10 + 10 = 174`。最后一个独立账面仍是 §50 的 **150 / 14 / 10**；本节的 154 尚待独立重放，不能写成独立结论。
+作者账面为 **154 PASS / 10 FAIL / 10 N/A**，10 FAIL 全部为明确不做；算术 `154 + 10 + 10 = 174`。最后一个独立账面仍是 §51 的 **151 / 13 / 10**；§52 尚待独立重放，不能写成独立结论。

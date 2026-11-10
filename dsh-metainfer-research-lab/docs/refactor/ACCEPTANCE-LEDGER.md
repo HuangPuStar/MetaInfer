@@ -1,6 +1,6 @@
-# 174 行验收账本（round 24 修复后，待独立重放）
+# 174 行验收账本（round 25 修复后，待独立重放）
 
-> 本文件是**账本**，不是独立的关闭记录。最后一个独立依据是 `VERIFICATION.md` §50（HEAD `06964cc`，150/14/10）；§51 是作者对 §50 四个反证的修复，作者账面为 154/10/10，尚待独立重放。这里确保每个 ID 恰好一个状态，且 residual 可加总。
+> 本文件是**账本**，不是独立的关闭记录。最后一个独立依据是 `VERIFICATION.md` §51（HEAD `252c902`，151/13/10）；§52 是作者对 §51 三个反证的修复，作者账面为 154/10/10，尚待独立重放。这里确保每个 ID 恰好一个状态，且 residual 可加总。
 
 ## 汇总
 
@@ -11,7 +11,7 @@
 | N/A（未测量/不适用） | **10** |
 | 合计 | **174** |
 
-推导：round 21 独立重放为 `121 / 43 / 10`；round 22 抽样把 11 行改判 FAIL，得到 `143 / 21 / 10`。§49 修复 11 行后作者账面为 `154 / 10 / 10`；§50 独立重放发现 **O3/C1/B13/5.3.9 四行仍 FAIL**，独立账面为 `150 / 14 / 10`。§51 按 §50 的语义重新修复这四行（runnable→claimed 起点、Projection byId、escalate reasonCode、共享 queue-overload 定义），作者账面回到 `154 / 10 / 10`；N/A 仍 10。
+推导：round 21 独立重放为 `121 / 43 / 10`；round 22 抽样把 11 行改判 FAIL，得到 `143 / 21 / 10`。§50 独立重放为 `150 / 14 / 10`；§51 独立重放后 C1 关闭，O3/B13/5.3.9 仍 FAIL，为 `151 / 13 / 10`。§52 修掉 promotion 的 runnable 起点、tool schema 的 escalate/reasonCode、以及 freeSlots=0 的 overload 守卫后，作者账面为 `154 / 10 / 10`；N/A 仍 10。
 
 ## residual 范围
 
@@ -22,7 +22,7 @@
 | 明确不做 | **10** |
 | 合计 | **10** |
 
-10 = **0 必须 + 0 应该 + 10 明确不做**。10 个明确不做：`B11`、`B12`、`B14`、`B16`、`Q8`、`5.4`、`C2`、`C8`、`C14`、`5.3.10`。B22/U2 已独立 PASS，不计入。`A11`、`S5`、`5.3.7`、`5.4.2`、`5.4.6` 保持 PASS（见 §48.1）；§49 的 O1/O2/O4/O5/A21/Q4/5.3.12 已由 §50 关闭；§50 的 O3/C1/B13/5.3.9 由 §51 关闭，待独立重放。
+10 = **0 必须 + 0 应该 + 10 明确不做**。10 个明确不做：`B11`、`B12`、`B14`、`B16`、`Q8`、`5.4`、`C2`、`C8`、`C14`、`5.3.10`。B22/U2 已独立 PASS，不计入。`A11`、`S5`、`5.3.7`、`5.4.2`、`5.4.6` 保持 PASS（见 §48.1）；§50 的 O1/O2/O4/O5/A21/Q4/5.3.12 保持 PASS；§51 关闭 C1；§52 关闭 O3/B13/5.3.9，待独立重放。
 
 ## 逐行账本
 
@@ -40,7 +40,7 @@
 | B10 | PASS | — | §1 baseline PASS |
 | B11 | FAIL | 明确不做 | D7 已选作用域分区，不建 branch/lead/chief 三级。 |
 | B12 | FAIL | 明确不做 | D7 无固定层级，不设单点 chief。 |
-| B13 | PASS | 应该 | §51：`INTENT_KINDS`/`INTENT_ACTIONS` 加入 `escalate`，`semanticFallback` 路由到 human dispute；`createIntent` 与 `submitIntent` 都要求 `claim.reasonCode` ∈ 六码，缺失/非法分别返回 `escalation_reason_required`/`escalation_reason_invalid`，测试覆盖 kernel 与服务两个写边界。 |
+| B13 | PASS | 应该 | §52：agent tool 的 `AGENT_TOOL_PARAMETERS.kind.enum` 加入 `escalate`，`claim` 增加 `reasonCode` 属性/描述并复用六码枚举；`claims-selftest` 用 JSON-schema-shaped validator 验证 model-shaped escalate call 通过、非法 reasonCode 被拒。kernel/service 的写边界校验保持。 |
 | B14 | FAIL | 明确不做 | chief 审批闸门不成立；dispute/arbiter 取代否决窗口。 |
 | B15 | PASS | — | §17 |
 | B16 | FAIL | 明确不做 | D6 明确不做驻留会话与 submit 工具。 |
@@ -90,7 +90,7 @@
 | 5.2 | PASS | — | §40 ledger correction：独立 verdict，不再并入 B22/B23 |
 | 5.3 | PASS | — | §40 ledger correction：独立 verdict，不再并入 B22/B23 |
 | 5.4 | FAIL | 明确不做 | D7 已取消分层评审，明确不做。 |
-| C1 | PASS | 应该 | §51：Projection 的 `indexNode` 遇到 `archivedAt` 直接不写入 `byId`，archive 的 `node.merge` 经 `putNode` 先 unindex 再跳过；`projection.getNode` 返回 `undefined`，`checkConsistency` 为空，`store.listNodes`/`getState`/metrics 同步消失。 |
+| C1 | PASS | 应该 | §51：`archiveDeferred` 后 `store.listNodes`/`projection.listNodes`/`getState`/metrics 均无 archived；`projection.getNode` 返回 `undefined`，`checkConsistency=[]`，`state.archivedCount=1`、metrics `archived=1/deferred=0`。Projection hot index 已移除。 |
 | C2 | FAIL | 明确不做 | 以单一 chief 为前提，v2 不设 chief。 |
 | C3 | N/A | — | 真实浏览器绘制/时区 N/A；未测量。 |
 | C4 | N/A | — | 真实 provider/LLM 端到端 N/A。 |
@@ -123,7 +123,7 @@
 | 5.3.6 | PASS | — | §24/§25 |
 | 5.3.7 | PASS | 应该 | §47：父节点全完成自动创建 merge（去重、限一批）；`stage5-selftest` 通过。 |
 | 5.3.8 | PASS | 应该 | §47：默认 advisor 预算 240s（高于实测 180s p90），范围 30..1800；`stage5-selftest` 通过。 |
-| 5.3.9 | PASS | 应该 | §51：`queueOverloadState` 是唯一 overload 定义（`planned > 2×freeSlots`），`observerSnapshot` 与 `evaluateThresholdTriggers` 共用；3 planned（含 1 deferred）、freeSlots=1 时 t0 不报、+5min 报 `queue_overload`，detail 为 `planned=3,queue=2`。 |
+| 5.3.9 | PASS | 应该 | §52：`queueOverloadState` 去掉 `freeSlots > 0` 守卫，严格用 `planned > 2×freeSlots`；freeSlots=0、planned=3 的纯阈值探针与生产 observer fixture 都在 +5min 发 `queue_overload`，detail `planned=3,queue=2,freeSlots=0`。observer/evaluator 仍共用同一 helper。 |
 | 5.3.10 | FAIL | 明确不做 | 与 D7 三级评审冲突，明确不做。 |
 | 5.3.11 | PASS | 应该 | §47：curator intent TTL 与 `intent/expired`；`experts-selftest` 通过。 |
 | 5.3.12 | PASS | 应该 | §50：真 `rotateDueExperts` 把 root+child 的 `createdBy` 从 `lab-advisor` 移到 `lab-chief`，写两个 `node/expert_assigned` 事件，`assignedNodeIds` 两个节点；重建 assignment 后 `due=[]`。 |
@@ -157,7 +157,7 @@
 | U14 | PASS | — | §24/§25 |
 | O1 | PASS | 必须 | §50：真实 HTTP `/metrics` 顶层有 `cycle`/`byRole`；`cycle.p50/p90=20000`，`byRole.advisor.failRate=0.25`。 |
 | O2 | PASS | 必须 | §50：真实 HTTP `/metrics.advisor.inputBytes.p50=3000`、`p90=5000`；`advisor.tokens.p50=1100`、`p90=1300`。 |
-| O3 | PASS | 必须 | §51：`runnableSince(node)` 取 `plannedAt`、`deferUntil`、`dispatchHold.untilMs` 的最大值，生产 dispatch 从该时刻算到 started；同一 1h-old/1ms-release fixture 的 `waitMs` 小于 5s，不再把 hold 时间算作 queue wait。 |
+| O3 | PASS | 必须 | §52：`node.setPriority` 在 deferred→可调度 class 提升时写 `plannedAt`/`runnableAt=ctx.now`，效果也带 `timestamps`；O3 探针增加 `setNodePriority('p2')` 后真 dispatch 的 promoted 节点，`queueWait.count=2`，两次 wait 都 `<5s`。`runnableSince` 同时覆盖 create/transition/hold/defer/promotion。 |
 | O4 | PASS | 必须 | §50：真实 `queue.remainingMs=60000`、`queue.runnable=1`、`queue.deferred=2`、`counts.archived=1`；archived deferred 不再进 queue/counts.deferred。 |
 | O5 | PASS | 必须 | §50：同一 fixture：`counts.planned=1`、`counts.runnable=1`、`queue.runnable=1`、`queue.deferred=2`；`deferUntil` 不再同时算 planned/runnable，archived 只进 `archived`。 |
 | O6 | PASS | 应该 | §47：`autoState` 持久化 idle/error streak、lastPause、pauseCounts；`auto-wip-selftest` 8/8。 |
@@ -209,4 +209,4 @@
 - PASS 154 + FAIL 10 + N/A 10 = 174。
 - FAIL 10 = **0 必须 + 0 应该 + 10 明确不做**。
 - `B22` 已在 round 21 独立 PASS（§46.7；48 对、token 矩阵、body actor、破坏性 gate）；`U2` 已独立 PASS；`5.2`、`5.3`、`5.3.3`、`Q3` 是独立 PASS，不是“由 B22/B23 覆盖”。
-- 最后一个独立重放（§50）为 150/14/10；§51 的 154/10/10 是作者修复后的账面，尚待独立重放，不能声称已是独立结论。
+- 最后一个独立重放（§51）为 151/13/10；§52 的 154/10/10 是作者修复后的账面，尚待独立重放，不能声称已是独立结论。
