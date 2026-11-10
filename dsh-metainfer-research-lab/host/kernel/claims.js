@@ -268,8 +268,18 @@ export function gateClaimAction(action, stats = {}, context = {}) {
   if (requirement.chief && context.chiefConfirmed !== true) {
     return { ...base, code: 'chief_confirmation_required' };
   }
+  // L0/L1 are planning and nomination: they are deliberately outside C7. A new
+  // expert with no citation history must still be able to propose (B27 L0) and
+  // defer one atom (L1); the 20-atom statistical floor begins at the first
+  // irreversible action (L2).
+  if (requirement.level < 2) {
+    return { ...base, ok: true, lowerBound: null, requiredEvidence: requirement.evidence ?? 0 };
+  }
   if (requirement.appeal) {
     const now = Number.isFinite(context.now) ? context.now : Date.now();
+    // A live, registered appeal blocks the action even when the numeric window
+    // is still open. `appealUntil` alone is a timestamp, not a mechanism.
+    if (context.appealPending === true) return { ...base, code: 'appeal_pending' };
     const appealUntil = Number.isFinite(context.appealUntil) ? context.appealUntil : 0;
     if (appealUntil <= now) return { ...base, code: 'appeal_window_required' };
   }

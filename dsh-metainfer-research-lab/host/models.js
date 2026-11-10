@@ -62,6 +62,14 @@ export function findModelOption(project, ref) {
   return null;
 }
 
+function modelProfileError(project, profileId) {
+  const available = (project?.config?.modelOptions ?? [])
+    .map((option) => option?.id)
+    .filter((id) => typeof id === 'string' && id.length > 0);
+  const suffix = available.length > 0 ? `; available profiles: ${available.join(', ')}` : '; no model profiles are registered on this project';
+  return new LabError('model_profile_unknown', `unknown model profile: ${profileId}${suffix}`, 400);
+}
+
 function optionAsRef(option) {
   return {
     profileId: option.id,
@@ -82,7 +90,7 @@ function expandRef(project, ref) {
   if (ref.profileId) {
     const option = findModelOption(project, ref);
     if (!option) {
-      throw new LabError('model_profile_unknown', `unknown model profile: ${ref.profileId}`, 400);
+      throw modelProfileError(project, ref.profileId);
     }
     merged = { ...optionAsRef(option), ...ref, profileId: option.id };
   }
@@ -201,7 +209,7 @@ export async function validateModelSelection(ctx, project, selection) {
   if (selection?.profileId && (!selection.provider || !selection.model)) {
     const option = findModelOption(project, selection);
     if (!option) {
-      throw new LabError('model_profile_unknown', `unknown model profile: ${selection.profileId}`, 400);
+      throw modelProfileError(project, selection.profileId);
     }
     effective = { ...optionAsRef(option), ...selection, profileId: option.id };
   }

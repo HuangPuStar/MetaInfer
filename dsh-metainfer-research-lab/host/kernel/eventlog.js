@@ -150,6 +150,15 @@ export function createEventArchive({ root, hotEvents = 50_000, segmentSize = 10_
       if (existing !== digest) throw archiveError('archive_conflict', `checksum sidecar for ${path.basename(file)} differs`);
     });
     await fs.rename(temp, file);
+    // A tiny uncompressed head lets a restarted Host answer the first page
+    // without decompressing the whole segment. It is a cache, never the source
+    // of truth: a missing/corrupt head falls back to readSegmentSync.
+    try {
+      const head = ordered.slice(0, 1_000).map((event) => JSON.stringify(event)).join('\n') + '\n';
+      await fs.writeFile(`${file}.head.json`, head);
+    } catch {
+      // The segment itself is already durable; losing the head only costs latency.
+    }
     return { file, from, to, count: ordered.length, checksum: digest };
   }
 
@@ -214,6 +223,28 @@ export function createEventArchive({ root, hotEvents = 50_000, segmentSize = 10_
     return events;
   }
 
+  /** First 1,000 events from the sidecar, or null when it is absent/corrupt. */
+  function readHeadSync(descriptor) {
+    let text;
+    try {
+      text = fsSync.readFileSync(`${descriptor.file}.head.json`, 'utf8');
+    } catch {
+      return null;
+    }
+    const events = [];
+    try {
+      for (const line of text.split('\n')) {
+        if (!line) continue;
+        const event = JSON.parse(line);
+        if (!Number.isInteger(event?.seq) || event.seq < descriptor.from || event.seq > descriptor.to) return null;
+        events.push(event);
+      }
+    } catch {
+      return null;
+    }
+    return events.length > 0 ? events : null;
+  }
+
   function readArchivedSync(projectId, after = 0) {
     const out = [];
     for (const descriptor of listSegmentsSync(projectId)) {
@@ -234,6 +265,7 @@ export function createEventArchive({ root, hotEvents = 50_000, segmentSize = 10_
     readArchived,
     listSegmentsSync,
     readSegmentSync,
+    readHeadSync,
     readArchivedSync,
     writeSegment,
     removeProject,

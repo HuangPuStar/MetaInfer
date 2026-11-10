@@ -24,7 +24,7 @@ import { queryDag, dagGet, mapDag, walkDag, createDiffCache } from './context/da
 import { createExplorationBudget } from './context/limits.js';
 import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
-import { rejection, toActionable } from './kernel/errors.js';
+import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
 import { actorFromToolExecution } from './kernel/policy.js';
 import { INTENT_KINDS, basisFor, createIntent, intentBasis, intentId, intentMutation } from './kernel/intent.js';
 import { ACTION_VERIFICATION, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
@@ -859,7 +859,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const now = Date.now();
     const staleAfterMs = Math.max(60_000, dash.spec.intervalMinutes * 2 * 60_000);
     const lastRun = dash.lastRun && typeof dash.lastRun === 'object' ? dash.lastRun : null;
-    const failed = lastRun?.status === 'error';
+    // A partial refresh is a failure for freshness purposes: at least one
+    // widget did not update, so the top-level commentary must not claim fresh.
+    const failed = lastRun?.status === 'error' || lastRun?.status === 'partial';
     const consecutiveFailures = Number.isInteger(lastRun?.consecutiveFailures) ? lastRun.consecutiveFailures : 0;
     const lastSuccessAt = Number.isFinite(lastRun?.lastSuccessAt)
       ? lastRun.lastSuccessAt
@@ -894,7 +896,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     // the old commentary must stay visibly stale.
     const stale = failed || commentaryAt === null || ageMs > staleAfterMs || revisionChanged;
     const staleReason = failed
-      ? 'refresh_failed'
+      ? (lastRun?.status === 'partial' ? 'refresh_partial' : 'refresh_failed')
       : commentaryAt === null
         ? 'never_generated'
         : revisionChanged
@@ -1119,7 +1121,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           updated += 1;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          errors.push({ widgetId: widget.id, title: widget.title, error: message });
+          errors.push({
+            widgetId: widget.id,
+            title: widget.title,
+            error: message,
+            code: typeof error?.code === 'string' ? error.code : 'error',
+          });
           widgets.push({
             ...widget,
             lastRefresh: { status: 'error', at: Date.now(), agentSessionId: null, error: message },
@@ -1128,7 +1135,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       }
       const now = Date.now();
       const status = errors.length === 0 ? 'ok' : updated > 0 ? 'partial' : 'error';
-      const failed = status === 'error';
+      const failed = status !== 'ok';
       await store.withProjectLock(projectId, async () => {
         const locked = requireProject(projectId);
         const previous = locked.dashboard?.lastRun && typeof locked.dashboard.lastRun === 'object'
@@ -1141,7 +1148,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         const lastSuccessAt = failed
           ? (Number.isFinite(previous.lastSuccessAt)
             ? previous.lastSuccessAt
-            : (previous.status !== 'error' && Number.isFinite(previous.endedAt) ? previous.endedAt : null))
+            : (!['error', 'partial'].includes(previous.status) && Number.isFinite(previous.endedAt) ? previous.endedAt : null))
           : now;
         const intervalMs = Math.max(60_000, current.spec.intervalMinutes * 60_000);
         // Exponential backoff after total failures, capped at 30 minutes. This
@@ -1170,12 +1177,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
             updated,
             errors,
             error: errors.length > 0 ? `${errors.length} widget(s) failed` : null,
+            errorCode: errors[0]?.code ?? null,
+            errorHint: errors[0]?.code ? (NEXT_STEPS[errors[0].code] ?? NEXT_STEPS.error) : null,
           },
           updatedAt: now,
           nextRunAt: current.spec.enabled ? now + backoffMs : null,
         };
         await commitProjectFields(projectId, { dashboard: locked.dashboard }, {
-          eventType: status === 'ok' ? 'dashboard/updated' : failed ? 'dashboard/failed' : 'dashboard/partial',
+          eventType: status === 'ok' ? 'dashboard/updated' : status === 'partial' ? 'dashboard/partial' : 'dashboard/failed',
           eventData: { updated, errors: errors.length, durationMs: now - startedAt, consecutiveFailures },
         });
       });
@@ -3354,16 +3363,25 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   async function submitIntent(projectId, input, exec = null) {
     const project = requireProject(projectId);
     if (!kernel?.executor) return rejection('internal_error', 'kernel executor is not wired');
-    const kind = typeof input?.kind === 'string' ? input.kind : 'note';
+    let kind = typeof input?.kind === 'string' ? input.kind : 'note';
     if (!INTENT_KINDS.includes(kind)) return rejection('bad_request', `intent.kind must be one of ${INTENT_KINDS.join(', ')}`);
     const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
     const target = input?.target && typeof input.target === 'object'
-      ? { nodeId: input.target.nodeId ?? input?.nodeId ?? null, parentId: input.target.parentId ?? input?.parentId ?? null }
-      : (input?.nodeId || input?.parentId ? { nodeId: input.nodeId ?? null, parentId: input.parentId ?? null } : null);
+      ? {
+          nodeId: input.target.nodeId ?? input?.nodeId ?? null,
+          parentId: input.target.parentId ?? input?.parentId ?? null,
+          intentId: input.target.intentId ?? input?.intentId ?? null,
+        }
+      : (input?.nodeId || input?.parentId || input?.intentId
+        ? { nodeId: input.nodeId ?? null, parentId: input.parentId ?? null, intentId: input.intentId ?? null }
+        : null);
     if (target?.nodeId && !store.getNode(projectId, target.nodeId)) {
       return rejection('node_not_found', `unknown node: ${target.nodeId}`);
     }
     let claim = input?.claim;
+    // An appeal is a first-class judgement, not a note with a flag. Forcing the
+    // kind here means every transport gets the same registerable record.
+    if (claim?.action === 'appeal') kind = 'appeal';
     let verifiedStats = null;
     let verification = null;
     if (claim && claim.evidence !== undefined) {
@@ -3399,6 +3417,18 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         });
       }
     }
+    const openAppeal = (Array.isArray(project.intents) ? project.intents : []).find((candidate) => {
+      if (candidate?.kind !== 'appeal' || candidate.status !== 'pending') return false;
+      if (Number.isFinite(candidate.expiresAt) && candidate.expiresAt <= Date.now()) return false;
+      const appealTarget = candidate.target ?? {};
+      // An unscoped appeal is a stop-the-line notice: it blocks irreversible
+      // actions until it expires or is withdrawn.
+      if (!appealTarget.nodeId && !appealTarget.intentId && !appealTarget.parentId) return true;
+      if (target?.nodeId && appealTarget.nodeId === target.nodeId) return true;
+      if (target?.intentId && appealTarget.intentId === target.intentId) return true;
+      if (target?.parentId && appealTarget.parentId === target.parentId) return true;
+      return false;
+    });
     if (claim && ACTION_VERIFICATION[claim.action]) {
       const stats = verifiedStats ?? claimStats(project, actor.id);
       // Chief confirmation is an authority, not a model-authored boolean. A
@@ -3415,6 +3445,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         chiefConfirmed,
         humanConfirmed,
         appealUntil,
+        appealPending: Boolean(openAppeal),
         now: Date.now(),
         actor,
       });
@@ -3447,6 +3478,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           chiefConfirmed,
           humanConfirmed,
           appealUntil,
+          appealPending: Boolean(openAppeal),
           lowerBound: gate.lowerBound,
         },
       };
@@ -3531,6 +3563,35 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     };
   }
 
+  /**
+   * Resolve an appeal. This is deliberately distinct from a generic withdraw:
+   * the record names the resolver and the reason, and the status becomes
+   * `resolved`, so an audit can tell an appeal that was heard from one that
+   * simply expired. Only a human or the chief can resolve an appeal.
+   */
+  async function resolveAppeal(projectId, intentId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    if (!kernel?.executor) return rejection('internal_error', 'kernel executor is not wired');
+    const intent = (Array.isArray(project.intents) ? project.intents : []).find((candidate) => candidate.id === intentId);
+    if (!intent) return rejection('intent_not_found', `unknown intent: ${intentId}`);
+    if (intent.kind !== 'appeal') return rejection('not_an_appeal', `intent ${intentId} is not an appeal`);
+    const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    if (actor.kind !== 'human' && actor.kind !== 'system' && actor.preset !== 'lab-chief') {
+      return rejection('forbidden_action', 'only a human or the chief may resolve an appeal');
+    }
+    const commit = await commitMutations(projectId, [{
+      op: 'intent.withdraw',
+      intentId,
+      resolve: true,
+      actor,
+      resolution: typeof input?.resolution === 'string' ? input.resolution : 'upheld',
+      reason: typeof input?.reason === 'string' ? input.reason : 'appeal resolved by operator',
+    }], { actor, causeId: `appeal-resolve:${intentId}` });
+    if (commit.ok !== true) return rejection(commit.code ?? 'internal_error', commit.message ?? 'appeal resolution failed');
+    const fresh = store.getProject(projectId)?.intents?.find((candidate) => candidate.id === intentId) ?? null;
+    return { ok: true, projectId, intent: fresh };
+  }
+
   /** Withdraw a pending judgement (curator nomination or stale proposal). */
   async function withdrawIntent(projectId, intentId, input = {}, exec = null) {
     const project = requireProject(projectId);
@@ -3539,12 +3600,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (!intent) return rejection('intent_not_found', `unknown intent: ${intentId}`);
     if (intent.status === 'withdrawn') return { ok: true, projectId, intent, alreadyWithdrawn: true };
     const actor = actorFromToolExecution(exec) ?? { kind: 'human', id: 'operator' };
+    const appeal = intent.kind === 'appeal';
     const commit = await commitMutations(projectId, [{
       op: 'intent.withdraw',
       intentId,
+      ...(appeal ? { resolve: true, resolution: 'withdrawn' } : {}),
       actor,
       reason: typeof input?.reason === 'string' ? input.reason : 'withdrawn by operator',
-    }], { actor, causeId: `intent-withdraw:${intentId}` });
+    }], { actor, causeId: `${appeal ? 'appeal-resolve' : 'intent-withdraw'}:${intentId}` });
     if (commit.ok !== true) return rejection(commit.code ?? 'internal_error', commit.message ?? 'intent withdraw failed');
     const fresh = store.getProject(projectId)?.intents?.find((candidate) => candidate.id === intentId) ?? null;
     return { ok: true, projectId, intent: fresh };
@@ -3800,6 +3863,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     submitIntent,
     listIntents,
     withdrawIntent,
+    resolveAppeal,
     resetCurator,
     listExperts,
     recallExpertFor,

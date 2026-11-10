@@ -144,9 +144,48 @@ for (const name of names) {
   host.remove();
 }
 
+// A20: a partial refresh must show the same dismissible alert as a total
+// failure. The verifier found the banner only reacted to status==='error'.
+if (typeof components.DashboardPanel === 'function') {
+  const host = window.document.createElement('div');
+  window.document.body.appendChild(host);
+  const root = createRoot(host);
+  const savedFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/dashboard')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          projectId: 'p1', widgets: [], events: [], chat: [],
+          stale: true, staleReason: 'refresh_partial', failureCount: 1, degraded: false,
+          lastRun: { status: 'partial', error: '1 widget(s) failed', errorHint: 'fix it', failedAt: Date.now(), consecutiveFailures: 1 },
+        }),
+        text: async () => '{}',
+      };
+    }
+    return savedFetch(url);
+  };
+  try {
+    await React.act(async () => {
+      root.render(React.createElement(Boundary, null, React.createElement(components.DashboardPanel, base)));
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+    const alert = host.querySelector('.rl-dash-alert');
+    if (alert === null) failures.push('Dashboard: partial refresh did not render an alert');
+    else if (!(host.textContent ?? '').includes('dashboard.partialAlert')) failures.push('Dashboard: partial alert used the wrong message');
+    else process.stdout.write('ok   Dashboard renders a partial-refresh alert\n');
+  } catch (error) {
+    failures.push(`Dashboard partial alert: threw ${error.message}`);
+  }
+  try { await React.act(async () => root.unmount()); } catch {}
+  globalThis.fetch = savedFetch;
+  host.remove();
+}
+const totalChecks = names.length + (typeof components.DashboardPanel === 'function' ? 1 : 0);
 if (failures.length > 0) {
   for (const failure of failures) process.stdout.write(`FAIL ${failure}\n`);
-  process.stdout.write(`${names.length - failures.length}/${names.length} panel smoke checks passed\n`);
+  process.stdout.write(`${totalChecks - failures.length}/${totalChecks} panel smoke checks passed\n`);
   process.exit(1);
 }
-process.stdout.write(`${names.length}/${names.length} panel smoke checks passed\n`);
+process.stdout.write(`${totalChecks}/${totalChecks} panel smoke checks passed\n`);

@@ -1379,6 +1379,8 @@
     "dashboard.failedDegraded": "刷新已连续失败 {count} 次，自动重试正在退避。",
     "dashboard.dismissAlert": "关闭提醒",
     "dashboard.staleFailed": "刷新失败",
-    "dashboard.degradedWidget": "连续刷新失败，已隐藏数字。上次成功：{age}。"
+    "dashboard.degradedWidget": "连续刷新失败，已隐藏数字。上次成功：{age}。",
+    "dashboard.partialAlert": "仪表盘部分刷新失败：{error}。顶部缓存仍是 {age} 的旧数据，失败 widget 未更新。",
+    "dashboard.stalePartial": "部分刷新失败"
   }
 }

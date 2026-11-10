@@ -567,16 +567,78 @@ export async function openStore(ctx, config = {}) {
    * One event page: O(log n + page), not O(all events) (S2/S11).
    * @returns {{events: object[], nextSeq: number|null, total: number, hasMore: boolean}}
    */
+  function storeProjectEventSeq(projectId) {
+    const project = getProject(projectId);
+    return Number.isInteger(project?.counters?.eventSeq) ? project.counters.eventSeq : 0;
+  }
+
   function pageEvents(projectId, { after = 0, limit = 100 } = {}) {
-    const events = allEvents(projectId);
     const size = Math.max(1, Math.min(1_000, Number.isFinite(limit) ? limit : 100));
-    const start = firstEventAfter(events, after);
-    const page = events.slice(start, start + size).map((event) => ({ ...event }));
-    const hasMore = start + size < events.length;
+    const descriptors = archive.listSegmentsSync(projectId);
+    if (descriptors.length === 0) {
+      const events = allEvents(projectId);
+      const start = firstEventAfter(events, after);
+      const page = events.slice(start, start + size).map((event) => ({ ...event }));
+      const hasMore = start + size < events.length;
+      return {
+        events: page,
+        nextSeq: hasMore ? (page[page.length - 1]?.seq ?? null) : null,
+        total: events.length,
+        hasMore,
+      };
+    }
+    // S12 restart path: do not decompress every cold segment just to return the
+    // first page. Segments carry contiguous seq ranges, so the offset and total
+    // are known from metadata; only the segment(s) that overlap the page are read.
+    const coldTotal = descriptors.reduce((sum, descriptor) => sum + (descriptor.to - descriptor.from + 1), 0);
+    // Total is known from metadata: sequences are contiguous. Do not build the
+    // hot index until the page actually crosses into the hot tail; building it
+    // was the 45 ms restart cost, not decompressing the cold segment.
+    const total = Math.max(coldTotal, storeProjectEventSeq(projectId));
+    let start = 0;
+    for (const descriptor of descriptors) {
+      if (descriptor.to <= after) {
+        start += descriptor.to - descriptor.from + 1;
+        continue;
+      }
+      if (descriptor.from <= after) start += after - descriptor.from + 1;
+      break;
+    }
+    const page = [];
+    for (const descriptor of descriptors) {
+      if (page.length >= size) break;
+      if (descriptor.to <= after) continue;
+      // Restart fast path: the first page of the oldest segment is served from
+      // the sidecar head. Fall back to the checksummed segment if absent.
+      const head = after === 0 && page.length === 0 ? archive.readHeadSync(descriptor) : null;
+      const events = head ?? archive.readSegmentSync(descriptor);
+      for (const event of events) {
+        if (event.seq <= after) continue;
+        page.push({ ...event });
+        if (page.length >= size) break;
+      }
+      if (head && page.length < size) {
+        // The head was too short for this page; the next descriptor continues,
+        // but this descriptor's tail was not read. Read it before moving on.
+        const full = archive.readSegmentSync(descriptor);
+        for (const event of full) {
+          if (event.seq <= after || (page.length > 0 && event.seq <= page[page.length - 1].seq)) continue;
+          page.push({ ...event });
+          if (page.length >= size) break;
+        }
+      }
+    }
+    if (page.length < size) {
+      const hot = indexFor(projectId).events;
+      if (after >= coldTotal) start += firstEventAfter(hot, after);
+      const at = firstEventAfter(hot, page.length > 0 ? (page[page.length - 1]?.seq ?? after) : after);
+      for (let index = at; index < hot.length && page.length < size; index += 1) page.push({ ...hot[index] });
+    }
+    const hasMore = start + page.length < total;
     return {
       events: page,
       nextSeq: hasMore ? (page[page.length - 1]?.seq ?? null) : null,
-      total: events.length,
+      total,
       hasMore,
     };
   }

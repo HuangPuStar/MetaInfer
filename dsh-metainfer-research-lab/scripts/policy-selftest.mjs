@@ -78,6 +78,29 @@ for (const [preset, actions] of Object.entries(probes)) {
   }
 }
 
+// 4b. The 5 x 6 matrix (B9): five role rows, six actions, every cell has a
+// positive or negative decision. The matrix is deliberately independent of the
+// allowlist implementation: it encodes the design's "only code may execute"
+// rule rather than reusing allowedActions() to derive the expectation.
+const matrix = [
+  ['lab-worker', [false, false, false, false, false, false]],
+  ['lab-advisor', [true, false, true, false, false, false]],
+  ['lab-curator', [true, true, true, false, false, false]],
+  ['lab-scheduler', [false, false, false, false, false, false]],
+  [null, [true, true, true, true, true, true]],
+];
+const matrixActions = ['intent_submit', 'curator_nominate', 'claim_review', 'set_priority', 'dispatch_once', 'delete_project'];
+for (const [preset, expected] of matrix) {
+  const actor = preset === null
+    ? { kind: 'human', id: 'operator' }
+    : actorForSession({ agentPreset: preset, sessionId: `s-${preset}` });
+  expected.forEach((allowed, index) => {
+    const action = matrixActions[index];
+    const decision = authorizeAction(actor, action);
+    check(`${preset ?? 'human'} ${allowed ? 'may' : 'cannot'} ${action}`, decision.ok === allowed, JSON.stringify(decision));
+  });
+}
+
 // 5. Default-deny: an unlisted preset never falls back to the global list.
 const rogue = actorForSession({ agentPreset: 'lab-rogue', sessionId: 's-rogue' });
 check('unknown preset gets the smallest safe set', JSON.stringify(allowedActions(rogue)) === JSON.stringify([...DEFAULT_PRESET_ACTIONS].sort()));

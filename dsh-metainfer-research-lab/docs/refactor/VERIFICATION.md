@@ -1,31 +1,33 @@
 # 独立验收报告 — `refactor/v2`
 
 > 验收人：独立验证者（未参与实现）。对象：`docs/refactor/DESIGN-CHECKLIST.md` §1–§9、
-> `docs/refactor/IMPLEMENTATION.md`、`refactor/v2` 代码；初始基线 `6beba88`，本轮 §21 为
-> HEAD `ad396b7`。日期：2026-11-10。
+> `docs/refactor/IMPLEMENTATION.md`、`refactor/v2` 代码；初始基线 `6beba88`，本轮 §23 为
+> HEAD `53ff695`。日期：2026-11-10。
 
 ## 0. 结论摘要
 
 | 判定 | 数量 |
 |---|---|
-| PASS | **82** |
-| FAIL | **82** |
+| PASS | **84** |
+| FAIL | **80** |
 | 未测量 | **10**（其中浏览器 2 行 = 不适用） |
 | 合计 | **174** |
 
 **行数更正**：任务说明里写“128 行”，但清单实际是 **174 行**：§1 27、§2 14、§3 21、§4 14、
 §5 37、§6 14、§7 12、§8 21、§9 14。本报告逐行覆盖全部 174 行，没有抽样。
 
-**一句话**：第六轮独立复核确认 B21、冷段归档功能、U13 与 4.5 已关闭；但 B27 的 5 级
-验证强度、S12 的 100k 冷读预算、U14 的失败刷新/过期货真值仍有硬缺口，因此不能按 §20
-的“全部关闭”计。`npm test` 31 文件 / 495 checks 全绿只证明既有断言不回归；浏览器绘制
-因本机无 Chromium/Playwright 且 GUI 401 记为不适用。
+**一句话**：第七轮独立复核确认 C7 的 Wilson 算术与 `5.3.1` 的 WIP cap 已关闭；但
+B27 的 5 级强度仍有“只有未来时间戳、没有申诉动作”和 L0/L1 被 C7 过头门控的缺口，
+U14 对 partial 失败仍显示 fresh，S12 在 Host 重启后的首读 85.7 ms 超预算，A20 的
+partial 告警缺位。`npm test` 34 脚本 / 539 checks 全绿只证明既有断言不回归；浏览器
+绘制因本机无 Chromium/Playwright 且 GUI 401 记为不适用。
 
 > 本文件 §1–§13 保留**第一轮**（`6beba88`）的 174 行原判（50 PASS / 114 FAIL / 10 未测量）；
 > **第二轮**（`750fc31`）见 **§14**；第三轮（`d0364c4`）见 **§15**；作者第三轮修复表见 **§16**；
 > **第四轮**（`7d97432`）的独立复核见 **§17**；第四轮修复后的复核见 **§18**；**第五轮**
-> （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**。
-> 总判定以 §21 为准；§20 是作者报告，不能代替独立复核。第七轮修复复核见 **§22**（关闭 B27/C7/U14/S12/A20，87 PASS / 77 FAIL）。
+> （`5ee1376`）见 **§19**；第五轮修复复核见 **§20**；**第六轮**（`ad396b7`）见 **§21**；
+> 第七轮修复复核（`53ff695`）见 **§23**。总判定以 §23 为准；§20/§22 是作者报告，
+> 不能代替独立复核。第七轮修复复核见 **§22**（关闭 B27/C7/U14/S12/A20，87 PASS / 77 FAIL）。
 
 ### 0.1 判定口径
 
@@ -1450,3 +1452,208 @@ provider、真实 DSH Host 与浏览器帧。
 **三个阻断项已关闭，S12 预算达标，A20 随之可见。** 但 174 行仍有 76 FAIL：
 20 行需要把文档/验收口径落实，56 行是 Stage 3–5 组织、争议、预算、观测与 UI 能力。
 本轮没有开始 Stage 5，也没有用文档改写替代代码证据。
+
+---
+
+## 23. 第七轮独立复核（HEAD `53ff695`，Round 7）
+
+> 复核对象：`ad396b7..53ff695` 的代码与文档提交；其中包括 `678981a`（B27/C7）、
+> `5ce5279`（U14/A20）、`6584441`（成功刷新 revision）、`7c7d48c`（5.3.1）和
+> `e533164`（client-smoke）。只读验证，未改生产代码；所有探针在 `/tmp/r7-*`。
+> §22 是作者报告，本节按独立证据重放，不采信其中的 PASS 数字。
+
+### 23.1 最新总数与 delta
+
+| 判定 | §21（`ad396b7`） | §23（`53ff695`） | 变化 |
+|---|---|---|---|
+| PASS | 82 | **84** | +2 |
+| FAIL | 82 | **80** | −2 |
+| 未测量 | 10（含 2 N/A） | **10** | 0 |
+| 合计 | 174 | **174** | — |
+
+**FAIL → PASS（2 行）**：`C7`、`5.3.1`。
+**§22 声称关闭但独立复核仍 FAIL 的 4 行**：`B27`、`U14`、`S12`、`A20`。
+其中 `B27` 和 `U14` 是阻断上线项；`S12` 是 100k 冷读预算；`A20` 是 partial
+失败的告警路径。`5.3.1` 的 WIP cap 确实关闭；`C7` 的 Wilson 算术确实关闭，但
+它对 L0/L1 的过头门控仍由 B27 承担。
+
+### 23.2 B27：五级表存在，但“申诉”不是活机制 — FAIL
+
+**已通过的窄项**（`/tmp/r7-b27-exact.mjs`，真实 service，预先建立 20 条干净历史）：
+
+- 一条证据：`cancel_running` / `prune_branch` 都返回 `claim_evidence_required`；
+  `delete_project` 返回 `human_confirmation_required`，不是 full。
+- 必需集合：`cancel_running` 2 条 + chief、`prune_branch` 3 条 + chief + 未来
+  `appealUntil`、`delete_project` 人工 + `humanConfirmed` + 未来 `appealUntil` 均通过。
+- 普通专家 `lab-advisor` 写 `chiefConfirmed:true` 被 `chief_confirmation_required`
+  拒绝；`lab-chief`（kind=expert）可以确认自己的 claim。若“expert actor 不能
+  self-confirm”按字面包含 lab-chief，这仍是缺口；按“chief 是唯一例外”的口径则通过。
+- `claims-selftest` 的 44 checks 全过，但它没有测试“真有 appeal 进入窗口”。
+
+**仍 FAIL 的硬缺口：申诉窗口只有时间戳，没有申诉动作。** 全仓 `grep appeal` 只找到
+`appealUntil` 的数值检查；没有 `appeal` intent kind、没有 dispute/appeal 表、没有
+取消/挂起 pending intent 的路径。探针先提交 `{action:'appeal',reason:'I object'}`，
+它只被当成一条普通 note intent；随后同一 prune 仍然 `ok:true`。因此
+“appeal during the window blocks the action”不成立：`appealUntil` 只是要求未来时间，
+并不等待或监听申诉。
+
+**另一个 B27 缺口：C7 门控越界到 L0/L1。** `gateClaimAction` 对
+`create_planned`（0 证据）和 `defer_planned`（1 证据）也执行 `total >= 20` 的 C7
+floor；探针直接返回 `citation_evidence_floor`。这使新专家无法完成 B27 的 L0/L1，
+与“planned=0、defer=1”表格冲突。作者测试只覆盖取消/剪枝/删除，未覆盖这两级。
+
+结论：B27 **FAIL**，不是“三个阻断项已清零”。
+
+### 23.3 C7：Wilson 算术与同门控 — PASS（但请注意上节越界）
+
+独立结果（同一 `gateClaimAction`，没有单独入口）：
+
+- `total=20, failed=0`（20 clean）→ `ok`，Wilson lower bound `0.83887`。
+- `total=19` → `citation_evidence_floor`（即使提交 2 条证据）。
+- `total=20, failed=4` → `citation_confidence_too_low`（lower bound `0.58398`）。
+- 20 clean 的真实 `submitIntent` 必需集合通过；19/4 在同一个 gate 拒绝。
+- 代码里 C7 就在 `gateClaimAction` 的 B27 检查之后，没有第二条可绕过路径；故
+  C7 行判 **PASS**。但“C7 floor 对所有 action 都执行”是 B27 L0/L1 的问题，
+  不能把两行一起判 PASS。
+
+### 23.4 U14：总失败已修，partial 失败仍 fresh — FAIL
+
+**通过的子项**（`/tmp/r7-u14-probe.mjs`）：
+
+- 成功刷新：`lastRun.revision=8` 是读取 revision，`committedRevision=10` 等于
+  `projectRevision=10`，`stale:false`，`staleReason:null`。
+- 全部 widget 失败：每次 `status:'error'`、`stale:true`、
+  `staleReason:'refresh_failed'`；第 3 次失败 `degraded:true`，`nextRunAt`
+  从约 2 分钟退到 4 分钟，符合指数退避；成功后再刷新恢复 `degraded:false`。
+- 不可关闭/重开的 DOM 逻辑存在：`failureAt` 使用 `failedAt/endedAt`，
+  `dismissedFailureAt` 改变后重新显示；这是针对 `status:'error'` 的。
+
+**仍 FAIL 的硬缺口：partial 不是 failed。** 构造一个 script widget 成功、另一个
+失败，真实刷新返回 `lastRun.status:'partial'`，但：
+
+```
+stale: false, staleReason: null, failureCount: 0, degraded: false
+widget w2: stale: true, age: 1800015ms
+```
+
+`dashboardView` 用 `const failed = lastRun?.status === 'error'`，partial 被当成
+非失败；`lastSuccessAt` 被写成本次成功 widget 的时间，因此顶栏“fresh”，而
+其中一个 widget 仍是旧数据。连续 partial 也不会累计 `consecutiveFailures`，
+不会触发降级/退避。A20 的顶部告警同样只在 `status==='error'` 显示，partial
+没有任何告警。用户要求的“failed refresh is ALWAYS stale even when revisions
+align”在 partial 语义下不成立。**U14 FAIL；A20 FAIL。**
+
+### 23.5 S12：进程内首读快，Host 重启后仍超 50 ms — FAIL（按生产重启口径）
+
+`/tmp/r7-s12-probe.mjs` 造 100,000 事件，hot 50,000、5 个 10k 冷段：
+
+- 同一 store（`timelineCache` 已在归档边界预热）首读 100 条：**0.4 ms**。
+- 重新 `openStore` 模拟 Host 重启，`timelineCache` 为空，第一次
+  `pageEvents({after:0,limit:100})`：**85.7 ms**，超过 50 ms；随后 list 8.7 ms。
+- cold/hot 顺序、总数 100000、末 seq 100000 均正确；问题只是首读仍解压/合并全部
+  cold 段，缓存仅存在于进程内。
+
+作者 `scale-selftest` 测的是同一 store 的归档边界预热，未覆盖重启；清单的
+“100k 首读 ≤50 ms”若按生产 Host 重启后的第一次读取验收，**S12 仍 FAIL**。
+若产品口径明确只测进程内热缓存首读，则可通过；本轮按独立生产口径判 FAIL，并在
+报告里保留两种数字，避免把测试口径当成运行时保证。
+
+### 23.6 5.3.1：WIP cap — PASS
+
+`/tmp/r7-wip-probe.mjs`：5 个 runnable、容量 2（默认 cap 4），`dispatchOnce`
+先执行并返回 `started:2`，advisor `step` 调用 **0** 次，`status.lastPlanSkip`
+为 `maxPlannedInFlight`。这说明“跳过 advisor 但仍确定性 dispatch，且 status
+暴露原因”不是测试桩：顺序在 `tickOne` 里 dispatch 在 `shouldPlan` 之前。
+`auto-wip-selftest` 4/4 通过。
+
+### 23.7 client-smoke：15/15；重植原缺陷会变红 — PASS
+
+`node scripts/client-smoke.mjs`：**15/15 panel smoke checks passed**，组件包括
+Landing、Workspace、Projects、Dashboard、Runs、Explain、Proposal、GC、Settings、
+FinishMerge、Push、DeleteProject、Confirm、Attempts、Trajectory。
+
+重植证据：在 `/tmp/r7-replant` 的 client 副本把 `RunsPanel` 的
+`cycles: asArray(source.cycles)` 改回 `cycles: source.cycles`，同一 smoke 输出
+`FAIL RunsPanel: rendered the crash boundary`，**14/15**，其余 14 个仍挂载。
+这证明该 smoke 能抓住原 `runsState.cycles` 缺失缺陷，不是只挂空壳。
+仍有限：它是 jsdom 降级 payload smoke，不是进程级 activate → 完整节点 smoke；
+作者 §22.8 也承认这一点。
+
+### 23.8 回归
+
+- `npm test`：**EXIT=0**，34 个脚本，**539 个 `ok`**（`/tmp/r7-npmtest.log`）。
+- `npm run bench:scale`：**EXIT=0**，**11/11**，100k 首读断言通过（进程内口径）。
+- `strict-writes-selftest`：静态生产旁路 **0**；只有测试自己的 3 个故意
+  unpermitted 写（saveProject/deleteProject/deleteEventRecord）被拒，随后 executor
+  路径成功；不是生产绕过。
+- `policy-selftest`：所有 preset 显式策略/危险动作拒绝/枚举-目录-处理器一致通过；
+  `replay-client-selftest`：多页节点/事件无重复、全时间线、多请求通过。
+- 无测试回归。新增行为缺口是 U14 partial 与 S12 重启首读；B27 的 appeal/L0-L1
+  是未实现而不是测试回归。
+
+> **取证边界**：上述数字全部来自开始取证时的干净工作树，对应提交 HEAD `53ff695`。
+> 取证过程中工作树又出现了不属于本报告范围的未提交改动（例如 `host/kernel/claims.js`
+> 的 appeal/L0-L1 修改、`client.js` 的错误提示、额外 selftest）；它们不是本报告所审
+> 的 HEAD，也未纳入 84/80 判定。若这些改动随后提交，应作为下一轮重新验收。
+
+### 23.9 80 个剩余 FAIL 的三分解
+
+| 分桶 | 行数 |
+|---|---|
+| 阻断上线 | **2** |
+| 能力未建 | **58** |
+| 只差文档/口径 | **20** |
+| **合计** | **80** |
+
+#### 阻断上线（2 行）
+
+| 行 | 原因 | 证据 |
+|---|---|---|
+| **B27** | 申诉没有可执行的登记/阻断路径，`appealUntil` 只是未来时间；且 C7 floor 把 L0/L1 也拦住 | `submitIntent` 的 `appeal` 只是普通 note；随后 prune 仍 `ok:true`；`create_planned`/`defer_planned` 返回 `citation_evidence_floor` |
+| **U14** | partial 刷新（有 widget 失败、有 widget 成功）顶栏 `stale:false`、`failureCount:0`，旧 widget 仍显示，且不累计降级/退避 | `/tmp/r7-u14-probe.mjs`：`status:'partial', stale:false, reason:null, failureCount:0`，同时 w2 `stale:true` |
+
+#### 能力未建（58 行）
+
+组织/评审：`B11`、`B12`、`B13`、`B14`、`B16`、`B18`、`B22`、`B23`。
+调度/专家/评审/记忆：`Q3`、`Q4`、`Q5`、`Q8`、`Q9`、`Q10`、`Q11`、`Q12`、`Q13`、`Q14`。
+进度：`1.3`。
+计划缺口：`5.2`、`5.3`、`5.3.2`、`5.3.3`、`5.3.4`、`5.3.5`、`5.3.7`、
+`5.3.8`、`5.3.9`、`5.3.10`、`5.3.11`、`5.3.12`、`5.3.13`、`5.3.14`、`5.4`、
+`5.4.2`、`5.4.6`。
+可观测性：`A11`、`A20`、`A21`。
+开放问题：`C1`、`C2`、`C5`、`C6`、`C8`、`C14`。
+指标：`O1`、`O2`、`O3`、`O4`、`O5`、`O6`、`O12`。
+规模：`S5`、`S12`。
+UI：`U1`、`U2`、`U3`、`U12`。
+
+> 这 58 行不是“文档没写”：它们是 Stage 3–5 的组织/争议/预算/观测/UI 能力没有
+> 运行路径。5.3.1 已从本桶移除；C7 已 PASS，B27/U14 在阻断桶。A20 仍在本桶是
+> 因为 partial 路径没有顶部告警；它的 stale 真值问题归 U14。
+
+#### 只差文档/口径（20 行）
+
+`B9`、`B24`、`Q1`、`Q2`、`5.1`、`5.1.2`、`5.2.2`、`5.2.3`、`5.2.4`、`5.2.5`、
+`5.3.6`、`5.3.16`、`5.4.3`、`5.4.4`、`5.4.7`、`C12`、`C13`、`O9`、`S13`、`U10`。
+
+> 这 20 行与 §21 相同：实现/旧证据存在，但清单口径、WP 映射、基线或验收文本
+> 尚未重新闭环。它们不包含 B27/U14/S12/A20。
+
+> 三桶合计 2 + 58 + 20 = **80**，与 §23.1 的 FAIL 数一致；每个 FAIL 行恰好一桶。
+> `S8`/`S9` 仍是 N/A，不在三桶内。
+
+### 23.10 结论与上线裁决
+
+**NO-SHIP。**
+
+- **B27** 仍是阻断项：申诉只是未来时间戳，没有可登记的 appeal 来阻断动作；L0/L1
+  又被 C7 的 20 条 floor 过头拦住。
+- **U14** 仍是阻断项：partial 失败顶栏 fresh、failureCount 0，旧数据不降级；A20
+  的 partial 告警也随之缺失。
+- **S12** 在 Host 重启后的首读 85.7 ms >50 ms；进程内热缓存 0.4 ms 不能替代重启
+  口径。
+- **C7** 的 20/19/4 算术和同门控通过；**5.3.1** 的 WIP cap 通过；client-smoke
+  15/15 且重植原缺陷可红；回归全绿（539 checks、11/11 bench、静态写旁路 0）。
+- 剩余 80 FAIL 中 58 是能力未建、20 是文档/口径。即使把 58 行都解释成“能力未建”，
+  对 174 行完整验收仍**不是可上线**：这些是必需能力，不是可忽略的备注；只有在
+  明确缩小发布范围、并先关闭 B27/U14（以及 S12 的重启预算）后，才存在“窄版可发布”
+  的讨论空间。当前分支不能按完整产品发布。

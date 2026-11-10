@@ -392,17 +392,27 @@ const reducers = {
     if (index < 0) throw new MutationError('intent_not_found', `unknown intent ${intentId}`);
     if (current[index].status === 'expired') throw new MutationError('intent_expired', `intent ${intentId} has expired`);
     if (current[index].status === 'withdrawn') return [];
+    const resolving = m.resolve === true;
     current[index] = {
       ...current[index],
-      status: 'withdrawn',
-      withdrawnAt: ctx.now,
-      withdrawnBy: m.actor ?? null,
-      withdrawReason: typeof m.reason === 'string' ? m.reason.slice(0, 500) : 'withdrawn',
+      status: resolving ? 'resolved' : 'withdrawn',
+      ...(resolving
+        ? {
+            resolvedAt: ctx.now,
+            resolvedBy: m.actor ?? null,
+            resolution: typeof m.resolution === 'string' ? m.resolution.slice(0, 80) : 'resolved',
+            resolutionReason: typeof m.reason === 'string' ? m.reason.slice(0, 500) : 'resolved',
+          }
+        : {
+            withdrawnAt: ctx.now,
+            withdrawnBy: m.actor ?? null,
+            withdrawReason: typeof m.reason === 'string' ? m.reason.slice(0, 500) : 'withdrawn',
+          }),
     };
     ws.projectTouched = true;
     const nomination = current[index].kind === 'curate';
     return [{
-      type: nomination ? 'nomination/withdrawn' : 'intent/withdrawn',
+      type: resolving ? 'appeal/resolved' : nomination ? 'nomination/withdrawn' : 'intent/withdrawn',
       ...(current[index].target?.nodeId ? { nodeId: current[index].target.nodeId } : {}),
       data: { intentId, ...(nomination ? { nominationId: intentId } : {}), reason: current[index].withdrawReason },
       effects: [{ op: 'project.merge', set: { intents: structuredClone(ws.project.intents) } }],

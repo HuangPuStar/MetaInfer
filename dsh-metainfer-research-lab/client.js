@@ -217,6 +217,7 @@ window.__ModuleLoader__.load({
       "dashboard.mechText": "展示 data.body（或 detail）中的文本。",
       "dashboard.mechanism": "运作机理",
       "dashboard.mechanismHint": "这个 widget 的数据由 Dashboard agent 或确定性脚本生成；下面说明它如何得到并展示当前结果。",
+      "dashboard.partialAlert": "仪表盘部分刷新失败：{error}。顶部缓存仍是 {age} 的旧数据，失败 widget 未更新。",
       "dashboard.query": "数据获取指令",
       "dashboard.queryMissing": "未配置独立采集 prompt（旧 widget）；请在 Dashboard Chat 中要求补全。",
       "dashboard.rawConfig": "原始配置",
@@ -231,6 +232,7 @@ window.__ModuleLoader__.load({
       "dashboard.sourceHost": "Host",
       "dashboard.stale": "已过期 · {age}",
       "dashboard.staleFailed": "刷新失败",
+      "dashboard.stalePartial": "部分刷新失败",
       "dashboard.staleRevision": "上次刷新后项目已变化",
       "dashboard.title": "仪表盘",
       "dashboard.toggle": "打开或关闭 Dashboard",
@@ -1596,6 +1598,7 @@ window.__ModuleLoader__.load({
       "dashboard.mechText": "Renders text from data.body (or detail).",
       "dashboard.mechanism": "How this widget works",
       "dashboard.mechanismHint": "This widget is produced by the dashboard agent or a deterministic script; the details below explain how the current result is obtained and rendered.",
+      "dashboard.partialAlert": "Dashboard partially refreshed: {error}. The cached top-level view is {age} old and the failed widgets were not updated.",
       "dashboard.query": "Data-acquisition instruction",
       "dashboard.queryMissing": "No independent collector prompt (legacy widget). Ask Dashboard Chat to add one.",
       "dashboard.rawConfig": "Raw config",
@@ -1610,6 +1613,7 @@ window.__ModuleLoader__.load({
       "dashboard.sourceHost": "Host",
       "dashboard.stale": "Stale · {age}",
       "dashboard.staleFailed": "Refresh failed",
+      "dashboard.stalePartial": "Partial refresh failed",
       "dashboard.staleRevision": "Project changed since the last refresh",
       "dashboard.title": "Dashboard",
       "dashboard.toggle": "Open or close the dashboard",
@@ -8616,7 +8620,7 @@ window.__ModuleLoader__.load({
       const failureAt = Number(lastRun?.failedAt ?? lastRun?.endedAt ?? 0);
       const failureCount = Number(lastRun?.consecutiveFailures ?? dashboard?.failureCount ?? 0);
       const degraded = dashboard?.degraded === true || failureCount >= 3;
-      const showFailureAlert = lastRun?.status === 'error' && failureAt !== dismissedFailureAt;
+      const showFailureAlert = (lastRun?.status === 'error' || lastRun?.status === 'partial') && failureAt !== dismissedFailureAt;
       return h(
         'div',
         { className: 'rl-dash-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('dashboard.title') },
@@ -8631,7 +8635,7 @@ window.__ModuleLoader__.load({
               className: 'rl-dash-badge ' + (dashboard?.stale ? 'rl-dash-badge-stale' : 'rl-dash-badge-fresh'),
               title: dashboard?.staleReason === 'revision_changed'
                 ? t('dashboard.staleRevision')
-                : dashboard?.staleReason === 'refresh_failed' ? t('dashboard.staleFailed') : '',
+                : dashboard?.staleReason === 'refresh_failed' ? t('dashboard.staleFailed') : dashboard?.staleReason === 'refresh_partial' ? t('dashboard.stalePartial') : '',
             }, dashboard?.stale ? t('dashboard.stale', { age: dashboardAge(dashboard?.ageMs, t) }) : t('dashboard.fresh')),
             h('span', { className: 'rl-dash-head-hint' }, t('dashboard.hint')),
             h('div', { className: 'rl-dash-head-actions' },
@@ -8647,7 +8651,7 @@ window.__ModuleLoader__.load({
           showFailureAlert
             ? h('div', { className: 'rl-dash-alert', role: 'alert' },
                 h('span', { className: 'rl-dash-alert-text' },
-                  t('dashboard.failedAlert', {
+                  t(lastRun?.status === 'partial' ? 'dashboard.partialAlert' : 'dashboard.failedAlert', {
                     error: firstString(lastRun?.error) || t('dashboard.error'),
                     age: dashboardAge(dashboard?.ageMs, t),
                   }),
@@ -8729,8 +8733,8 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
-          error !== '' || lastRun?.status === 'error'
-            ? h('p', { className: 'rl-dash-error', role: 'alert' }, t('dashboard.error') + ': ' + (error || firstString(lastRun?.error)))
+          error !== '' || lastRun?.status === 'error' || lastRun?.status === 'partial'
+            ? h('p', { className: 'rl-dash-error', role: 'alert' }, t('dashboard.error') + ': ' + (error || firstString(lastRun?.error)) + (firstString(lastRun?.errorHint) ? ' — ' + firstString(lastRun.errorHint) : ''))
             : null,
           h(ActivityLog, { events: Array.isArray(events) ? events : [], onSelectNode, onOpenRun, t }),
           configWidget ? h(WidgetMechanismDialog, { widget: configWidget, spec, t, onClose: () => setConfigWidget(null) }) : null,

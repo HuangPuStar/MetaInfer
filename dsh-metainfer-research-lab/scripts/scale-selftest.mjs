@@ -108,7 +108,8 @@ await test('event pages stay under 50 ms with 20k events', async () => {
 
 await test('100k-event first page after cold archiving stays under 50 ms', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mir-s12-'));
-  const coldStore = await openStore(storeContext(memoryDomain(), {
+  const domain = memoryDomain();
+  const coldStore = await openStore(storeContext(domain, {
     kernel: { eventArchiveRoot: root, hotEvents: 50_000, eventArchiveSegment: 10_000 },
   }));
   try {
@@ -126,6 +127,25 @@ await test('100k-event first page after cold archiving stays under 50 ms', async
     assert.equal(page.events[0].seq, 99_001);
     assert.ok(elapsed < 50, `first page ${elapsed.toFixed(1)} ms < 50 ms`);
     console.log(`     100k-event first page in ${elapsed.toFixed(2)} ms`);
+    // Production restart: a new store process starts with an empty timeline
+    // cache. The first page must still meet the same budget, not just the warm
+    // in-process path above.
+    await coldStore.close();
+    const restarted = await openStore(storeContext(domain, {
+      kernel: { eventArchiveRoot: root, hotEvents: 50_000, eventArchiveSegment: 10_000 },
+    }));
+    try {
+      const restartedStart = nowMs();
+      const first = restarted.pageEvents('prj-100k', { after: 0, limit: 100 });
+      const restartedMs = nowMs() - restartedStart;
+      assert.equal(first.total, 100_000);
+      assert.equal(first.events.length, 100);
+      assert.equal(first.events[0].seq, 1);
+      assert.ok(restartedMs < 50, `restart first page ${restartedMs.toFixed(1)} ms < 50 ms`);
+      console.log(`     restart first page in ${restartedMs.toFixed(2)} ms`);
+    } finally {
+      await restarted.close();
+    }
   } finally {
     await coldStore.close();
     fs.rmSync(root, { recursive: true, force: true });

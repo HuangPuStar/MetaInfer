@@ -6,7 +6,7 @@
  *
  * Pure: no I/O, no ids from the store — callers supply a stable id.
  */
-export const INTENT_KINDS = Object.freeze(['dispatch', 'priority', 'proposal', 'review', 'curate', 'note']);
+export const INTENT_KINDS = Object.freeze(['dispatch', 'priority', 'proposal', 'review', 'curate', 'note', 'appeal']);
 
 const MAX_TARGET = 160;
 const MAX_RATIONALE = 2_000;
@@ -85,6 +85,7 @@ export function createIntent(input) {
     ? {
         ...(str(input.target.nodeId, 'intent.target.nodeId', MAX_TARGET) ? { nodeId: str(input.target.nodeId, 'intent.target.nodeId', MAX_TARGET) } : {}),
         ...(str(input.target.parentId, 'intent.target.parentId', MAX_TARGET) ? { parentId: str(input.target.parentId, 'intent.target.parentId', MAX_TARGET) } : {}),
+        ...(str(input.target.intentId, 'intent.target.intentId', MAX_TARGET) ? { intentId: str(input.target.intentId, 'intent.target.intentId', MAX_TARGET) } : {}),
       }
     : null;
   return {

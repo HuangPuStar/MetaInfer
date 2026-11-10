@@ -142,6 +142,7 @@ await checkAsync('a failed refresh with aligned revisions stays stale', async ()
   assert.equal(view.stale, true);
   assert.equal(view.staleReason, 'refresh_failed');
   assert.equal(view.commentary?.staleReason, 'refresh_failed');
+  assert.ok(view.lastRun?.errorHint, 'failed refresh must carry an executable hint');
 });
 await checkAsync('consecutive failures degrade and back off', async () => {
   let view = await service.refreshDashboard(refreshId, { force: true });
@@ -152,6 +153,50 @@ await checkAsync('consecutive failures degrade and back off', async () => {
   assert.equal(view.widgets[0]?.degraded, true);
   assert.ok(view.nextRunAt > Date.now() + 60_000, 'failure backoff must exceed the normal interval');
 });
+// Partial refresh: one widget succeeds, one fails. The top view must not claim
+// fresh, and repeated partial attempts must degrade/back off like failures.
+const partialId = 'dash-partial';
+const partialRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mir-dash-partial-'));
+await store.saveProject({
+  id: partialId,
+  revision: 1,
+  counters: { eventSeq: 0 },
+  config: { resourcePools: { gpu: 1 } },
+  repo: { path: partialRoot },
+  dashboard: {
+    spec: { title: 'P', prompt: '', intervalMinutes: 1, enabled: true },
+    widgets: [
+      { id: 'good', title: 'Good', type: 'text', config: { collector: 'script', script: 'echo \'{"data":{"body":"ok"}}\'' }, data: { body: 'old' }, updatedAt: old },
+      { id: 'bad', title: 'Bad', type: 'text', config: { collector: 'script', script: 'exit 7' }, data: { body: 'old' }, updatedAt: old },
+    ],
+    lastRun: { status: 'ok', startedAt: old, endedAt: old, revision: 0, lastSuccessAt: old },
+  },
+  createdAt: old,
+  updatedAt: old,
+});
+kernel.load(partialId);
+await checkAsync('a partial refresh is stale and keeps the last good success', async () => {
+  const view = await service.refreshDashboard(partialId, { force: true });
+  assert.equal(view.lastRun?.status, 'partial');
+  assert.equal(view.stale, true);
+  assert.equal(view.staleReason, 'refresh_partial');
+  assert.equal(view.commentary?.staleReason, 'refresh_partial');
+  assert.equal(view.failureCount, view.lastRun?.consecutiveFailures);
+  assert.ok(view.failureCount >= 1);
+  assert.ok(view.commentary?.lastSuccessAt <= old + 1, 'partial refresh must not advance lastSuccessAt');
+  assert.ok(view.lastRun?.errorHint, 'partial refresh must carry an executable hint');
+  assert.equal(view.widgets.find((widget) => widget.id === 'bad')?.lastRefresh?.status, 'error');
+  assert.equal(view.widgets.find((widget) => widget.id === 'good')?.lastRefresh?.status, 'ok');
+});
+await checkAsync('repeated partial refreshes degrade and back off', async () => {
+  await service.refreshDashboard(partialId, { force: true });
+  const view = await service.refreshDashboard(partialId, { force: true });
+  assert.ok(view.lastRun?.consecutiveFailures >= 3, JSON.stringify(view.lastRun));
+  assert.equal(view.degraded, true);
+  assert.ok(view.nextRunAt > Date.now() + 60_000);
+});
+fs.rmSync(partialRoot, { recursive: true, force: true });
+
 fs.rmSync(refreshRoot, { recursive: true, force: true });
 
 console.log(failed === 0 ? '\ndashboard-selftest: all checks passed' : `\ndashboard-selftest: ${failed} failed`);

@@ -1379,6 +1379,8 @@
     "dashboard.failedDegraded": "Refresh has failed {count} times; automatic retries are backing off.",
     "dashboard.dismissAlert": "Dismiss alert",
     "dashboard.staleFailed": "Refresh failed",
-    "dashboard.degradedWidget": "Data hidden after repeated refresh failures. Last success: {age}."
+    "dashboard.degradedWidget": "Data hidden after repeated refresh failures. Last success: {age}.",
+    "dashboard.partialAlert": "Dashboard partially refreshed: {error}. The cached top-level view is {age} old and the failed widgets were not updated.",
+    "dashboard.stalePartial": "Partial refresh failed"
   }
 }
