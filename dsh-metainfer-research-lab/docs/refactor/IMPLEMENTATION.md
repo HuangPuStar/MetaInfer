@@ -5,7 +5,7 @@
 > 每条要么给出**文件 · 函数 · 测试**，要么写 `未完成` + 原因。状态只有「完成 / 未完成」，
 > 没有「部分完成」——部分完成的条目拆成两条。
 >
-> 分支：`refactor/v2`。测试入口：`npm test`（17 个自测文件，见文末）。
+> 分支：`refactor/v2`。测试入口：`npm test`（23 个自测文件，见文末）。
 
 ## 1. 内核与写路径（B3/B5/B21/G1/G2，P1）
 
@@ -32,7 +32,8 @@
 | 提交点后启动、lease 采用、清理陈旧 claim | 完成 | `host/runtime.js` `start`（删除 `node.claim`、采用 `options.lease`）；`brokers.js` `releaseOrphans` | `dispatch-once-selftest.mjs` |
 | Q7 低水位触发（5 min / 60 s debounce / 30 s minGap） | 完成 | `host/dispatch/low-water.js` `DEFAULTS`；`auto.js` 触发 | `low-water-selftest.mjs` 8/8 |
 | Q9 review claim（同父提案互斥） | 完成 | `host/orchestrator.js` `claimReview`/`releaseReview`/`reviewClaims` | `review-claims-selftest.mjs` 9/9 |
-| 人类 p0 快路（改优先级立即重排） | 完成 | `lab-service.setNodePriority`；HTTP `node.priority`；UI `↑/↓` 按钮 | `wiring-selftest.mjs`（HTTP 路径未单测，见 OPEN-QUESTIONS） |
+| 人类 p0 快路（改优先级立即重排） | 完成 | `lab-service.setNodePriority` 走 `kernel.executor.commit`（`node.setPriority`）；HTTP `node.priority`；UI `↑/↓` 按钮 | `priority-selftest.mjs`（planned 接受；running/completed 返回 `priority_frozen` 且节点不变） |
+| 优先级只允许运行前修改（B7） | 完成 | `lab-service.setNodePriority` + `mutations.js node.setPriority` 双重状态校验；`updateNode` 复用同一提交 | `priority-selftest.mjs`（service、kernel、updateNode 三条路径） |
 | `maxPlannedInFlight` / 预留槽 / 抢占 | 未完成 | — | 原因：会影响线上 254 节点项目的吞吐，需先有观测基线；已进 PROGRESS 未完成项 |
 
 ## 3. 能力表与权限（B1/Q1，issue 0001）
@@ -40,7 +41,9 @@
 | 条目 | 状态 | 位置 | 测试 |
 |---|---|---|---|
 | ~70 action 分类（read/write/control/danger） | 完成 | `host/kernel/policy.js` `ACTION_CATALOG` | `wiring-selftest.mjs` |
-| 每 preset 白名单（lab-worker/advisor/...） | 完成 | `policy.js` `PRESET_POLICIES` | 同上 |
+| 每 preset 白名单（lab-worker/advisor/chat/merge/dashboard/...） | 完成 | `policy.js` `PRESET_POLICIES`（含 `lab-chat`/`lab-merge`/`lab-dashboard`） | `policy-selftest.mjs`（逐 preset 断言危险 action 被拒） |
+| 未列出的 preset 默认拒绝（B1） | 完成 | `policy.js` `DEFAULT_PRESET_ACTIONS` + `allowedActions`（无 preset 的 operator 才保留全量） | `policy-selftest.mjs`（`lab-rogue` 只读；`lab-chat` 不能 `delete_project`） |
+| 枚举 ⊆ 策略 ⊆ 处理器（B15/S11） | 完成 | `agent-tool.js` `ACTION_ENUM`、`policy.js` `ACTION_CATALOG`、`lab-service.agentTool` 三表一致；`get_node`/`dashboard_get` 入目录 | `policy-selftest.mjs`（三表相等 + 每个 action 有 handler）、`tool-surface-selftest.mjs` |
 | 从 DSH 会话取 actor（不信 args） | 完成 | `policy.js` `actorFromToolExecution`；`host/agent-tool.js` `execute(args, exec)` | 同上（`forbidden_action` 可达） |
 | handler 层拒绝 + 可操作错误 | 完成 | `agent-tool.js` + `host/kernel/errors.js` `toActionable` | 同上 |
 | dispatch 侧策略 | 完成 | `policy.js` `authorizeDispatch` / `DISPATCH_POLICY` | `dispatch-selftest.mjs` |
@@ -54,9 +57,12 @@
 | 有界字段（brief 1500 / goal 600 / focus 8 / failures 5…） | 完成 | `payload.js` `DEFAULT_CONTEXT_LIMITS` | 同上 |
 | B25 截断显式 `_truncated {shown,total}` | 完成 | `payload.js`、`status.js`、`orchestrator.listRuns` | 同上 |
 | B26 存储报告永不截断；`headline ≤ 300` 只做索引 | 完成 | `lab-service.getState`（`slimStateNode`）、`getNode` 全量 | `scale-selftest.mjs` |
+| 报告源头上限（schema + prompt + Host 派生 headline） | 完成 | `runtime.js` `NODE_REPORT_SCHEMA.summary.maxLength=500`、`normalizeNodeReport`（`REPORT_LIMITS`）、`prompts.js` `WORKER_RULES` 规则 | `trace-selftest.mjs`（500/300 边界、空 summary → null、prompt 规则存在） |
 | Q9 `dag_query`（过滤/select/分页/行级截断） | 完成 | `host/context/dag.js` `queryDag`；`lab-service.dagQuery`；policy/工具已注册 | `wiring-selftest.mjs`（真实工具调用返回行） |
 | Q9 `dag_get` | 完成 | `dag.js` `dagGet`；`lab-service.dagGetAction` | 同上 |
-| Q9 `dag_map` / `dag_walk` / `dag_diff` | 未完成（函数已写，**未接** `agentTool`） | `dag.js` `mapDag`/`walkDag`/`diffSnapshots`/`createDiffCache` | 原因：审计规则「无调用方不落地」；接线与冲突矩阵测试一起提交 |
+| Q9 `dag_map` / `dag_walk` / `dag_diff` | 完成 | `dag.js` 纯函数；`lab-service.dagMapAction/dagWalkAction/dagDiffAction` + `agentTool` 分支 | `tool-surface-selftest.mjs`（三种查询均返回真实结果） |
+| 分页工具 `nodes_page` / `events_page` | 完成 | `lab-service.nodesPageAction/eventsPageAction`（cursor/after + `hasMore`） | `tool-surface-selftest.mjs`（第二页 cursor） |
+| claim 工具 `claim_review`/`release_review`/`review_claims` | 完成 | `lab-service` 调用 `orchestrator.reviewClaims`（服务端 actor 作 expertId） | `tool-surface-selftest.mjs` |
 | Q6 探索预算 4 查询 / 20k token / 240 s | 完成 | `host/context/limits.js` 默认值；`lab-service` 每会话预算 | `context-selftest.mjs` |
 | B21 意图日志（TTL/basis/幂等合并） | 未完成 | 草稿验证后删除（无调用方） | 原因：必须先有 `node.create` 的意图入口与冲突矩阵测试 |
 | B24 evidence 指针强制 | 未完成 | — | 原因：依赖意图/curator 落地；schema 校验点未定 |
@@ -122,14 +128,15 @@
 | U1 现在在跑什么（含 elapsed） | 完成 | `status.js` `runningFacts`（elapsed）、`client.js` 节点卡倒计时/expert chip | `observability-selftest.mjs` |
 | U2 下一个启动 + 为什么 | 完成 | `status.js` `whyNotStarting`（`dispatch_hold/deferred/max_running/pool_*/deferred_class/ready`）+ Host facts 卡片 | 同上 |
 | U3 刚刚失败什么、为什么（code/stage/下一步） | 完成 | `status.js` `recentFailures`（`causeId`）；`errors.js` `toActionable` | 同上 |
-| U4 原因链一键追到激活 | 完成 | `explain.js` `explainNode`/`traceExplain`；工具注册 | 同上 |
+| U4 原因链一键追到激活 | 完成 | `explain.js` `explainNode`/`traceExplain`；`runtime.persistNode` 给每条事件写 `causeId`；`node.causeId`/`lastCauseId` | `trace-selftest.mjs`（事件全带 causeId、链可解析） |
 | U5 暂停 / 恢复驱动 | 完成 | 既有 `auto/*` + UI；Host facts 区分来源 | `dispatch-selftest.mjs` |
 | U6 取消节点 | 完成 | 既有 `cancelNode`；取消后释放租约 | `dispatch-selftest.mjs` |
 | U7 提高 / 降低优先级 | 完成 | `lab-service.setNodePriority` + `node/priority_changed` + UI `↑/↓`（p0..p3/deferred） | `wiring-selftest.mjs`（service 路径）；UI 点击未自动化 |
 | U8 批准 / 拒绝提案 | 完成（批准/拒绝入口在 UI）/ 未完成（拒绝理由进入下轮上下文） | `orchestrator.rejectProposal` 仍不收理由 | 原因：需要改 advisor 快照 schema，单独提交 |
-| U9 解释一个节点 | 完成 | 同 U4 | `observability-selftest.mjs` |
+| U9 解释一个节点 | 完成 | 同 U4；UI `ExplainPanel`（HTTP `/explain`）| `trace-selftest.mjs`（HTTP、fetchExplain、面板三态静态+功能） |
 | U10 错误可执行（code + nextStep） | 完成 | `errors.js` `NEXT_STEPS`/`toActionable`；`agent-tool` 统一转换；`client.js` 渲染 message | `wiring-selftest.mjs`（`forbidden_action` 含 nextStep） |
-| U11 i18n 完整（两表键相等） | 未完成 | 新面板的 zh/en 键已同时加（priority/facts/rail/canvas），但全量 1299 键迁移与 `locale/*.json` 未做，且无 parity 脚本 | 原因：工作量在文案迁移，不影响功能；已列下一轮 |
+| U11 i18n 键平滑（两表键相等、占位符一致） | 完成 | `client.js` 内联 zh/en 字典键集相等、无重复；`locale/en.json`/`zh.json` 嵌套键相等 | `i18n-parity.mjs`（键、重复、占位符、locale 结构） |
+| U11b 全量文案迁移到 `locale/*.json` | 未完成 | 文案仍在 `client.js` 内联字典 | 原因：迁移是纯文案搬运，不影响行为；parity 脚本已防止单边键 |
 | U12 空/加载/错误三态 | 完成（Host facts/rail/canvas/inspector）/ 未完成（队列、专家库面板尚不存在） | `client.js` `HostFactsCard`（loading/empty/error/retry） | 手工 + `ui-selftest.mjs` |
 | U13 agent 数据 vs Host 数据可区分 | 完成（Host facts 卡 `HOST` 徽标、monospace）；未完成（dashboard widget 仍无来源徽标） | `client.js` `.rl-host-facts` | 手工 |
 | U14 仪表盘静默过期 | 未完成 | — | 原因：属 dashboard 子系统，不在本轮热路径 |
@@ -143,17 +150,31 @@
 | 相似度召回（Jaccard/top-K） | 未完成 | 同上；§DESIGN §Q10 的纯函数设计已验证过，未接线 |
 | B19 curator 只提名 + 误杀熔断 | 未完成 | 依赖意图日志与相似度召回 |
 | B24/B27 evidence 指针与权限分级 | 未完成 | 依赖 claim 原子化 |
-| `experts_list` / `expert_upsert` / `curator_*` 工具 | 未完成 | 枚举里有名字但 service 无实现——下一轮要么实现要么移除（OPEN-QUESTIONS 已记） |
+| `experts_list` / `expert_upsert` / `curator_*` 工具 | 完成（移除） | 未实现前不向模型广告：已从 `ACTION_ENUM` 与 `ACTION_CATALOG` 删除；`intent_*` 同理 | `policy-selftest.mjs`、`tool-surface-selftest.mjs`（三表一致，不残留名字） |
 | G3 只存 id/摘要 | 完成 | `lab-service` state 瘦身、`reportText` 删除、`_truncated` |
 | G4 专家只能提议 | 完成 | 能力表 `lab-worker`/`lab-advisor` 无写权限 action |
 
 ## 9. 覆盖统计
 
-- 完成条目：**66**
-- 未完成条目：**17**（合计 83 条；其中 6 条在状态列里标注了「完成 X / 未完成 Y」的拆分）
+- 条目总数：**90**
+- 完成：**69**；未完成：**15**；拆分条目（完成 X / 未完成 Y）：**6**
 - 未完成原因集中在：legacy 写点迁移（64 处）、冷段归档、意图日志/专家/curator（Stage 3–5）、
-  i18n 全量迁移、dashboard 子系统、无浏览器导致的 UI 绘制测量。
-- `npm test` 覆盖：`runnable 11`、`advisor-merge 7`、`kernel 15`、`strict-writes 6`、
+  `locale/*.json` 全量迁移、dashboard 子系统、无浏览器导致的 UI 绘制测量。
+- `npm test` 覆盖 23 个文件：`runnable 11`、`advisor-merge 7`、`kernel 15`、`strict-writes 6`、
   `gang-planner 14`、`dispatch 7`、`dispatch-once 6`、`low-water 8`、`review-claims 9`、
-  `context 11`、`observability 6`、`wiring 7`、`scale 10`、`ui 7`、`migrate-domain 11`、
-  `cluster-fleet`、`placement`。
+  `context 11`、`observability 6`、`wiring 7`、`policy`（逐 preset 矩阵）、`tool-surface`（11 个
+  曾 `unknown_command` 的 action）、`priority`（`priority_frozen` 三路径）、`trace`（causeId +
+  explain 三态）、`snapshot-size`（2,000 节点 <12 KB）、`i18n-parity`、`scale 10`、`ui 7`、
+  `migrate-domain 11`、`cluster-fleet`、`placement`。
+
+## 10. 验收脚本（2026-11-10 复核后新增）
+
+| 需求 | 脚本 | `npm test` |
+|---|---|---|
+| preset 默认拒绝逐 preset 矩阵 | `scripts/policy-selftest.mjs` | 是 |
+| 工具面三表一致 + 曾缺失的 action 可调用 | `scripts/tool-surface-selftest.mjs` | 是 |
+| 优先级只走 executor、终态拒绝 | `scripts/priority-selftest.mjs` | 是 |
+| causeId 端到端 + UI explain | `scripts/trace-selftest.mjs` | 是 |
+| advisor 快照 12 KB 回归 | `scripts/snapshot-size-selftest.mjs` | 是 |
+| zh/en 与 locale 结构 parity | `scripts/i18n-parity.mjs` | 是 |
+| 5,000 节点预算基准 | `npm run bench:scale`（同 `scale-selftest.mjs`） | 是（同文件） |

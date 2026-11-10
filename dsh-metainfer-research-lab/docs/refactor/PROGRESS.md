@@ -26,6 +26,9 @@
 | `f7036d4` | P6.1(A3,A5,S1–S10) 5k 读预算、`state` 瘦身 + 单节点全量、`changes_since`、优先级干预 UI、Host facts 卡片 |
 | `cd18309` | P6.2(S8,S9) 视口窗口化 DAG、分页 rail、增量 `changes_since` 合并、UI 预算测试 |
 | `68ddffc` | P5.2(G1) `kernel.strictWrites` 守卫（ALS 写许可）、health 暴露计数、throw 模式测试 |
+| `218fe32` | P8.1(B1,B7,B15/S11) preset 默认拒绝 + `lab-chat`/`lab-merge`/`lab-dashboard` 策略；枚举/策略/处理器三表一致；优先级只走 executor，运行后拒绝 |
+| `5f2ec13` | P8.2(B26,U4/U9/O8) 报告 summary 源头上限 500 + Host 派生 headline；`persistNode` 每条事件带 `causeId`；UI 原因链面板 |
+| `317543c` | P9.1(S6,U11) 新增 `policy`/`tool-surface`/`priority`/`trace`/`snapshot-size`/`i18n-parity` 验收脚本；`bench:scale`；全部接入 `npm test` |
 
 ## 状态
 
@@ -42,10 +45,13 @@
 | P1.9 增量 getState | done | `cc792d9` | `changes_since` 服务端 journal + 客户端增量合并（`cd18309`） |
 | P1.10 Domain v2 | done | 见文末 | 离线迁移工具 `scripts/migrate-domain.mjs`（plan/run/verify/enrich）+ 11 条自测；插件只认 v2 |
 | P2.1 Command 模型 | done | `8be444c` | `dispatchOnce` 只用 `node.claim` 作为提交点，无 `starting` 状态 |
-| P2.2 Policy 能力表 | done | `cc792d9` | handler 层 `forbidden_action`；schema enum 仍全局（见 OPEN-QUESTIONS.md） |
+| P2.2 Policy 能力表 | done | `cc792d9` `218fe32` | handler 层 `forbidden_action`；未列出的 preset 默认只读（`DEFAULT_PRESET_ACTIONS`），不再回落到全量；schema enum 仍全局（见 OPEN-QUESTIONS.md） |
+| P8.1 preset 默认拒绝 | done | `218fe32` | `lab-chat`/`lab-merge`/`lab-dashboard` 显式策略；`lab-rogue` 仅 15 个只读 action；逐 preset 测试 |
+| P8.2 优先级单写者 | done | `218fe32` | `setNodePriority`/`updateNode` 走 `kernel.executor.commit`；planned/proposed 之外返回 `priority_frozen`；kernel mutation 二次校验 |
+| P8.3 工具面一致 | done | `218fe32` | `dag_map/walk/diff`、`nodes_page/events_page`、`claim_review/release_review/review_claims`、`health` 可调用；`get_node`/`dashboard_get` 入目录；未实现的 `intent_*`/`experts_*`/`curator_*` 从枚举移除 |
 | P2.3 低水位 | done | `0170092` | 5 min 剩余 / 60 s debounce / 30 s minGap |
 | P3.6 接入 Dispatcher | done | `cc792d9` | `index.js` 构造 kernel/broker 映射；auto tick 与 `onTerminated` 都调 |
-| P3 dag_map/walk/diff | todo | — | 模块与导出已存在（`dag.js`），`agentTool` 分支未接；下一提交优先 |
+| P3 dag_map/walk/diff | done | `218fe32` | 已接 `agentTool`；`tool-surface-selftest.mjs` 驱动真实调用 |
 | P3 意图日志 | todo | — | 设计见 DESIGN-CHECKLIST B21；模块草稿已删除，未提交（无调用方） |
 | P4.x 专家运行时 | todo | — | descriptors/similarity 草稿已删除，未提交（无调用方） |
 | P5–P7 curator / 争议 / 竞争 | todo | — | 建议在 P3 指标可见后再做 |
@@ -57,15 +63,24 @@
 
 ## 未完成项（进入下一轮）
 
-1. **P3 dag_map/dag_walk/dag_diff 接线**：三个函数已在 `host/context/dag.js` 并有单测，但
-   `service.agentTool` 没有对应分支，模型调用会得到 `unknown_command`。这是审计点名的
-   "模块落地但无调用方"，必须与测试一起提交。
-2. **P3 意图日志**：草稿（TTL、basis 过期、幂等合并、父节点 sealed 拒绝）已在工作区验证过，
+1. **P3 意图日志**：草稿（TTL、basis 过期、幂等合并、父节点 sealed 拒绝）已在工作区验证过，
    但因没有生产调用方被删除；重做时按 `OPEN-QUESTIONS.md` 的裁决接进 `node.create`。
-3. **P4 专家注册表 / 相似度 / curator**：同上，草稿已删除；`experts_list`/`curator_*` 仍在工具
-   枚举里但 service 不实现，应隐藏或补齐。
-4. **P1.2 冷段归档**：事件永不删除的目标已达成，"归档到只读段 + checksum"未做。
-5. **P1.7 legacy 写点迁移**：64 处，`strictWrites=warn` 下可见；逐个迁到 executor 是下一阶段。
+2. **P4 专家注册表 / 相似度 / curator**：草稿已删除；`experts_*`/`curator_*`/`intent_*` 已从工具
+   枚举移除，不再向模型广告未实现能力（`policy-selftest.mjs` 防回归）；实现后再加回。
+3. **P1.2 冷段归档**：事件永不删除的目标已达成，"归档到只读段 + checksum"未做。
+4. **P1.7 legacy 写点迁移**：64 处，`strictWrites=warn` 下可见；逐个迁到 executor 是下一阶段。
+5. **浏览器绘制/FPS**：无浏览器环境，UI 只测 view-model（`ui-selftest.mjs`）。
+
+## 2026-11-10 独立复核修复（回应 VERIFICATION.md）
+
+| 缺陷 | 修复 | 回归测试 |
+|---|---|---|
+| B1 `lab-chat` 可 `delete_project` | `PRESET_POLICIES` 增补 chat/merge/dashboard；未列出 preset 走 `DEFAULT_PRESET_ACTIONS`，actor kind 为 LEGACY（连 dispatch 也拒绝） | `policy-selftest.mjs` 逐 preset 矩阵 |
+| B15/S11 15 个 action `unknown_command` | 11 个接线实现（dag/page/claim/health），4 个未实现名字连同 `intent_*` 从枚举/目录移除；`get_node`/`dashboard_get` 入目录 | `tool-surface-selftest.mjs`、`policy-selftest.mjs` 三表一致 |
+| B7 优先级绕过 executor | `setNodePriority`/`updateNode` 走 `executor.commit`，kernel mutation 二次校验，终态/运行中返回 `priority_frozen` | `priority-selftest.mjs`（service/kernel/updateNode） |
+| B26 报告无源头上限 | schema `summary.maxLength=500`、prompt 规则、`normalizeNodeReport`（Host 派生 300 字符 headline，列表/指标有界） | `trace-selftest.mjs` |
+| U4/U9/O8 原因链不在主路径 | `runtime.persistNode` 每条事件写 `causeId`；HTTP `/explain` + UI `ExplainPanel`（loading/empty/error） | `trace-selftest.mjs`、`observability-selftest.mjs` |
+| 验收脚本缺失 | 新增 `policy`/`tool-surface`/`priority`/`trace`/`snapshot-size`/`i18n-parity`；`bench:scale` 别名；全部进 `npm test` | `npm test`（23 文件） |
 
 ## 历史（地基分支 `refactor/async-foundation`）
 
