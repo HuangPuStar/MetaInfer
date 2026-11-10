@@ -14,12 +14,22 @@
  *   /^[a-zA-Z0-9_-]+$/, so "/" is not allowed)
  */
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 
-export const DOMAIN_NAME = 'metainfer_research_lab';
-export const DOMAIN_VERSION = 1;
+/**
+ * v2 is a clean break, not an upgrade: the plugin never reads a v1 record and
+ * carries no compatibility branch for one. Migrating is a separate offline
+ * tool (`scripts/migrate-domain.mjs`), run once, which also normalises legacy
+ * events (actor/commit/revision) so the runtime has a single shape to reason
+ * about. Rollback is the v1 directory, which the tool never touches.
+ */
+export const DOMAIN_NAME = 'metainfer_research_lab_v2';
+/** The pre-refactor domain: read only by `scripts/migrate-domain.mjs`, never by this module. */
+export const LEGACY_DOMAIN_NAME = 'metainfer_research_lab';
+export const DOMAIN_VERSION = 2;
 /**
  * Events are never deleted: the event log is the system's audit trail and the
  * source for replaying any revision (see docs/07-async-refactor-plan.md, G2).
@@ -42,10 +52,14 @@ const DOMAIN_SPEC = {
   },
 };
 
+/** The DSH home directory (`$DSH_HOME`, else `~/.dsh`). */
+export function dshHome() {
+  return process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+}
+
 /** Absolute worktree root for one project (M2 creates the actual worktrees). */
 export function worktreeRootFor(projectId) {
-  const home = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
-  return path.join(home, 'metainfer-research-lab', 'worktrees', projectId);
+  return path.join(dshHome(), 'metainfer-research-lab', 'worktrees', projectId);
 }
 
 export function nodeStorageKey(projectId, nodeId) {
@@ -64,6 +78,19 @@ export function newProjectId() {
 /** @returns {string} a fresh session id (controller/anchor sessions in later phases). */
 export function newSessionId() {
   return `session-${randomUUID()}`;
+}
+
+/**
+ * Refuse to boot on an empty v2 domain while an unmigrated v1 domain sits next
+ * to it. Without this the first start after the rename silently shows an empty
+ * lab, which the operator reads as "my project vanished". Call this from the
+ * plugin activation path, never from `openStore` itself: test doubles open
+ * in-memory domains and have no v1 to migrate.
+ * @returns {string|null} the legacy directory that needs migrating, if any
+ */
+export function unmigratedLegacyDomain() {
+  const legacy = path.join(dshHome(), 'storages', LEGACY_DOMAIN_NAME);
+  return fs.existsSync(legacy) ? legacy : null;
 }
 
 /**

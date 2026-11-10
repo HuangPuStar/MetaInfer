@@ -32,7 +32,7 @@
 | P1.7 迁移写者 | todo | — | P1 的主要工作量，未开始 |
 | P1.8 读路径走 Projection | todo | — | — |
 | P1.9 增量 getState | todo | — | — |
-| P1.10 Domain v2 | todo | — | **降级**：`compatibleVersions` 支持原地升级，见 `spikes.md` S4；工作量从"整段迁移"降为"版本号 + 启动验证 + 一次目录备份" |
+| P1.10 Domain v2 | done | 见下 | **改为离线迁移工具**：`scripts/migrate-domain.mjs`（plan/run/verify/enrich）+ 11 条自测；插件只认 v2，零兼容代码 |
 | P2.1 Command 模型 | todo | — | — |
 | P2.2 Policy 能力表 | todo | — | issue 0001（全局工具注册）在这里一次性解决 |
 | P3.6 接入 Dispatcher | todo | — | 最高价值：把"启动"从 LLM cycle 里拆出来 |
@@ -45,9 +45,11 @@
 
 ## 与计划的偏差（累计）
 
-1. **P1.10 降级**（S4）：不再需要新 namespace + 导出导入 + 只读期。`DomainSpec.compatibleVersions`
-   允许 v1→v2 原地升级；我们所有表都是 `z.any()`，旧记录必然通过新 schema。风险只剩"升级不可逆"
-   ——用一次 `cp -a` 备份覆盖，不设计迁移路径。
+1. **P1.10 改为离线工具，插件零兼容**（S4，项目决定）：这次是重构，不为无感升级保留兼容层。
+   `compatibleVersions` 虽然在技术可用，但它要求每个读者永久容忍两种形状，而且 per-record
+   解析对未列版本的记录**静默丢弃**。改为：新建 `metainfer_research_lab_v2`，一次性离线转换
+   （`scripts/migrate-domain.mjs`），顺便把旧事件规范化成 v2 形状，回滚就是那块从未被写过的
+   v1 目录。`store.js` 在 v2 为空、v1 存在时直接抛错，避免"项目凭空消失"。
 2. **新增 P0.9**（S3）：D6 每次激活一个会话，而 DSH 没有会话文件 GC，5,000 节点规模下是磁盘泄漏。
    需要按天/字节双阈值归档，删前登记事件。
 3. **K7 提前**（计划排在 P0.5 之后的 P1 阶段内）：不先解决它，P3.6 接进去也只是让一个每轮只产出

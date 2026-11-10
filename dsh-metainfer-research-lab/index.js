@@ -9,7 +9,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { openStore } from './host/store.js';
+import { openStore, unmigratedLegacyDomain } from './host/store.js';
 import { createGitEngine } from './host/git-engine.js';
 import { createLabService } from './host/lab-service.js';
 import { createRuntime } from './host/runtime.js';
@@ -57,6 +57,15 @@ async function writeActivationMarker(version) {
 
 export async function apply(ctx) {
   const store = await openStore(ctx);
+  // Fail loud when the v2 domain has never been migrated and a v1 domain with
+  // data is still on disk: a silently empty lab looks like data loss.
+  const legacy = unmigratedLegacyDomain();
+  if (legacy && store.listProjects().length === 0) {
+    throw new Error(
+      `the v2 domain is empty but the pre-refactor domain still exists at ${legacy}. `
+      + 'Run `node scripts/migrate-domain.mjs run` once, then reload the plugin.',
+    );
+  }
   const git = createGitEngine(ctx);
 
   // Lightweight cluster coordinator (optional, enabled by
