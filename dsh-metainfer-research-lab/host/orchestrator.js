@@ -11,10 +11,11 @@ import { LabError } from './git-engine.js';
 import { cleanModelRef, validateModelSelection } from './models.js';
 import { resolveExecutionProfile } from './execution.js';
 import { newSessionId } from './store.js';
-import { advisorCandidates, buildAdvisorSnapshot, buildSchedulerSnapshot, promptHash } from './snapshot.js';
+import { buildAdvisorSnapshot, buildSchedulerSnapshot, promptHash } from './snapshot.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
 import { clampNodeTitle, isBlank } from './titles.js';
 import { createReviewClaimBoard } from './dispatch/review-claims.js';
+import { createLedgerReader } from './context/ledger.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 
@@ -142,23 +143,27 @@ function advisorPrompt(project, snapshot, lens) {
     activeSkillSection(['advisor', 'reviewer'], project.id),
     '',
     '# Rules',
-    '1. Only propose successors whose parentId is in candidateParents. A parent must be completed.',
-    '2. Size the proposal count to idle capacity, not to caution: resources.free / resources.maxRunningNodes',
-    '   say how many slots are idle. When free slots exceed the runnable nodes, propose 2-4 INDEPENDENT',
-    '   successors (different parent, or the same parent with genuinely different hypotheses) so the queue',
-    '   does not drain; when capacity is tight (free < 2) propose only the single best next step.',
+    '1. The payload is intentionally incomplete. `focus` holds up to 8 active leaves; navigate with',
+    '   dag_query (filter by status / subtreeOf / depth / since / text) and dag_get(nodeIds). A parent must be',
+    '   a completed leaf with a commit; a completed node that already has a child cannot be extended.',
+    '2. Size the proposal count to idle capacity: resources.free / resources.maxRunningNodes say how many',
+    '   slots are idle. When free slots exceed the runnable nodes, propose 2-4 INDEPENDENT successors so the',
+    '   queue does not drain; when capacity is tight (free < 2) propose only the best next step.',
     '   Never exceed policy.maxProposalsPerReviewer in one answer: the Host rejects the extras.',
     '3. Each proposal prompt must be self-contained: a fresh agent with only the project brief, the',
     '   parent worktree and ancestor summaries must be able to execute it.',
     '4. needs is an array of {key, amount}; keys must be in resources.pools and within the pool size.',
-    '5. Do not duplicate an existing node or a recent proposal (recentProposals).',
-    '6. A failed node with errorStage=timeout was killed deterministically: you may split the task,',
+    '5. Never re-propose a hypothesis in ledger.ruledOut, and build on ledger.confirmed. If the ledger is',
+    '   empty, that is a signal to explore, not a licence to repeat the obvious. Record new hypotheses with',
+    '   the ledger_update tool so later passes do not relitigate them.',
+    '6. Do not duplicate an existing node or a recent proposal (recentProposals).',
+    '7. A failed node with errorStage=timeout was killed deterministically: you may split the task,',
     '   extend its timebox with a concrete reason, try another approach, or abandon the branch.',
-    '7. Return proposals: [] when nothing is worth doing.',
-    '8. Submit your entire answer through structured_output.',
-    '9. Optional: recommend a model for a proposal via recommendedModel {profileId or provider/model/reasoningEffort, rationale}.',
+    '8. Return proposals: [] when nothing is worth doing.',
+    '9. Submit your entire answer through structured_output.',
+    '10. Optional: recommend a model for a proposal via recommendedModel {profileId or provider/model/reasoningEffort, rationale}.',
     '   It is only honored when the project enables advisor model selection and the Host allowlist accepts it.',
-    '10. Optional: set executionProfile (or taskType mapped by config.execution.taskTypes) to select a',
+    '11. Optional: set executionProfile (or taskType mapped by config.execution.taskTypes) to select a',
     '    local execution runtime such as a Codex profile. The Host rejects unknown profiles.',
     '',
     '# Snapshot',
@@ -297,6 +302,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
    * the intent log once the expert runtime lands.
    */
   const reviewClaims = createReviewClaimBoard();
+  const ledgerReader = createLedgerReader({ store });
   const controllerHandles = new Map();
   const controllerLocks = new Map();
   const roleActivations = new Map(); // sessionId -> { activation, projectId, record }
@@ -503,13 +509,16 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     return { needs, error: null };
   }
 
-  function checkProposal(project, proposal, nodes, candidateIds) {
+  function checkProposal(project, proposal, nodes) {
     const parentId = typeof proposal?.parentId === 'string' ? proposal.parentId : '';
     if (!parentId) return { ok: false, reason: 'parentId is required' };
-    if (!candidateIds.has(parentId)) return { ok: false, reason: `parentId ${parentId} is not a candidate parent` };
     const parent = nodes.find((node) => node.id === parentId);
     if (!parent || parent.status !== 'completed') return { ok: false, reason: `parent ${parentId} is not completed` };
     if (!parent.git?.headCommit) return { ok: false, reason: `parent ${parentId} has no commit` };
+    const parentsOf = (node) => (Array.isArray(node.parentIds) && node.parentIds.length > 0 ? node.parentIds : (node.parentId ? [node.parentId] : []));
+    if (nodes.some((node) => node.status !== 'proposed' && node.id !== parentId && parentsOf(node).includes(parentId))) {
+      return { ok: false, reason: `parent ${parentId} already has a successor; propose from a leaf` };
+    }
     // A title is a label, not an instruction: clamp it instead of rejecting the
     // whole proposal (rejections here used to starve the auto driver silently).
     const title = clampNodeTitle(proposal?.title);
@@ -742,7 +751,6 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       // the parent, but later proposals from the same advisor answer may still
       // branch from that same (now frozen) parent commit.
       let project = requireProject(projectId);
-      const candidateIds = new Set(advisorCandidates(store, project).keys());
       const max = project.config.advisor?.maxProposalsPerPass ?? 3;
       const extra = proposals.slice(max);
       for (const proposal of extra) {
@@ -751,7 +759,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       for (const [proposalIndex, proposal] of proposals.slice(0, max).entries()) {
         project = requireProject(projectId);
         const nodes = store.listNodes(projectId);
-        const check = checkProposal(project, proposal, nodes, candidateIds);
+        const check = checkProposal(project, proposal, nodes);
         const advisorModel = advisorModels.get(proposalIndex);
         if (advisorModel?.error) {
           applied.rejected.push({
@@ -826,15 +834,24 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
           });
         }
       }
-      // Mark remaining candidate leaves as reviewed without new nodes.
+      // Mark remaining completed leaves as reviewed without new nodes, so a
+      // later pass does not relitigate a leaf that this pass saw and skipped.
       const reviewedParents = new Set(proposals.map((proposal) => proposal?.parentId));
       project = requireProject(projectId);
       const nodes = store.listNodes(projectId);
-      const candidates = advisorCandidates(store, project);
-      for (const candidate of candidates.values()) {
-        if (candidate.kind !== 'leaf' || reviewedParents.has(candidate.id)) continue;
-        const node = store.getNode(projectId, candidate.id);
-        if (!node) continue;
+      const parentIds = (node) => (Array.isArray(node.parentIds) && node.parentIds.length > 0 ? node.parentIds : (node.parentId ? [node.parentId] : []));
+      const withChildren = new Set();
+      const pendingParents = new Set();
+      for (const node of nodes) {
+        if (node.status === 'proposed') {
+          for (const id of parentIds(node)) pendingParents.add(id);
+          continue;
+        }
+        for (const id of parentIds(node)) withChildren.add(id);
+      }
+      for (const node of nodes) {
+        if (node.status !== 'completed' || withChildren.has(node.id) || pendingParents.has(node.id)) continue;
+        if (reviewedParents.has(node.id)) continue;
         node.review = {
           reviewedAt: Date.now(),
           reviewedHeadCommit: node.git?.headCommit ?? null,
@@ -892,15 +909,24 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
 
     // --- advisor pass -------------------------------------------------------
     project = requireProject(projectId);
-    const completed = store.listNodes(projectId).filter((node) => node.status === 'completed');
-    const candidateCount = advisorCandidates(store, project).size;
+    const allNodes = store.listNodes(projectId);
+    const completed = allNodes.filter((node) => node.status === 'completed');
+    const parentIdsOf = (node) => (Array.isArray(node.parentIds) && node.parentIds.length > 0 ? node.parentIds : (node.parentId ? [node.parentId] : []));
+    const withChildren = new Set();
+    const pendingParents = new Set();
+    for (const node of allNodes) {
+      for (const id of parentIdsOf(node)) (node.status === 'proposed' ? pendingParents : withChildren).add(id);
+    }
+    const candidateCount = allNodes.filter((node) => node.status === 'completed'
+      && !withChildren.has(node.id) && !pendingParents.has(node.id)
+      && (node.review?.reviewedHeadCommit ?? null) !== (node.git?.headCommit ?? null)).length;
     if (completed.length === 0 || candidateCount === 0) {
       cycle.skipped.push({
         stage: 'advisor',
         reason: completed.length === 0 ? 'no completed nodes to review' : 'no actionable candidate parents',
       });
     } else {
-      const snapshot = buildAdvisorSnapshot(store, project);
+      const snapshot = buildAdvisorSnapshot(store, project, cluster, { ledgerReader });
       const reviewers = Array.isArray(project.config.advisor?.reviewers) ? project.config.advisor.reviewers : [];
       try {
         const runs = reviewers.length > 0
