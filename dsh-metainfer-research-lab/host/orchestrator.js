@@ -20,7 +20,7 @@ import { createLedgerReader } from './context/ledger.js';
 import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
 import { baselineFor, normalizeExpected } from './kernel/prediction.js';
 import { BRANCH_REPORT_SCHEMA, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
-import { MAX_CONSUMPTIONS, buildBranchCandidateQueue, candidateSkipReason, candidateStats } from './experts/candidates.js';
+import { MAX_CONSUMPTIONS, buildBranchCandidateQueue, candidateSkipReason, candidateStats, candidateStructureKey, replacementChainForNode } from './experts/candidates.js';
 import { assertModelSchema } from './schema-check.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
@@ -501,9 +501,12 @@ function leadDecisionMap(output, pendingCandidates) {
   return map;
 }
 
+const STRUCTURAL_REJECTION_CODES = new Set(['parent_already_has_successor', 'replacement_chain_exhausted']);
+
 function rejectionReasonCode(result, candidate) {
   if (result?.code === 'candidate_not_pending') return 'duplicate_of_consumed';
   if (result?.code === 'max_proposals') return 'deferred_by_pass_limit';
+  if (result?.code === 'replacement_chain_exhausted') return 'replacement_chain_exhausted';
   if (result?.code === 'parent_already_has_successor') {
     return candidate?.sourceStatus === 'failed' || candidate?.sourceStatus === 'cancelled'
       ? 'blocked_by_failed_source'
@@ -1136,18 +1139,42 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     const replacingFailedSource = Boolean(sourceFailed && parentsOf(source).includes(parentId));
     const children = nodes.filter((node) => node.id !== parentId && parentsOf(node).includes(parentId));
     const blockingChildren = children.filter((node) => node.status !== 'proposed');
+    let replacementTarget = null;
     if (replacingFailedSource) {
-      const duplicateReplacement = children.find((node) => node.id !== source.id
-        && (node.replacesNodeId === source.id || (candidate?.candidateId && node.candidateId === candidate.candidateId)));
-      if (duplicateReplacement) {
-        return { ok: false, reason: `replacement for ${source.id} already exists as ${duplicateReplacement.id}` };
+      // Round 36: a failed replacement is not a live successor. Walk the
+      // replacesNodeId chain so A(failed) -> B(failed) can produce C, and C's
+      // replacesNodeId points at B. Cap the chain at three attempts so a scope
+      // cannot be retried forever; a fourth proposal gets a named rejection.
+      const chain = replacementChainForNode(nodes, source.id);
+      const chainIds = new Set(chain.map((node) => node.id));
+      const chainLabel = chain.map((node) => node.id).join(' -> ');
+      const liveReplacement = chain.find((node) => node.id !== source.id && node.status !== 'failed' && node.status !== 'cancelled');
+      if (liveReplacement) {
+        return {
+          ok: false,
+          code: 'replacement_chain_exhausted',
+          reason: `replacement chain for ${chain[0]?.id ?? source.id} already reached live node ${liveReplacement.id} (${chainLabel}); no further attempt`,
+        };
       }
-      const liveChild = blockingChildren.find((node) => node.id !== source.id && node.status !== 'failed' && node.status !== 'cancelled');
+      if (chain.length >= 3) {
+        return {
+          ok: false,
+          code: 'replacement_chain_exhausted',
+          reason: `replacement chain for ${chain[0]?.id ?? source.id} exhausted after 3 attempts (${chainLabel}); no further attempt`,
+        };
+      }
+      const liveChild = blockingChildren.find((node) => node.id !== source.id && !chainIds.has(node.id) && node.status !== 'failed' && node.status !== 'cancelled');
       if (liveChild) {
-        return { ok: false, reason: `parent ${parentId} already has a live successor ${liveChild.id}; only the failed child ${source.id} is retryable` };
+        return {
+          ok: false,
+          code: 'parent_already_has_successor',
+          reason: `parent ${parentId} already has a live successor ${liveChild.id}; only the failed child ${source.id} is retryable`,
+        };
       }
+      const terminal = chain.at(-1) ?? source;
+      replacementTarget = terminal.id;
     } else if (blockingChildren.length > 0) {
-      return { ok: false, reason: `parent ${parentId} already has a successor; propose from a leaf` };
+      return { ok: false, code: 'parent_already_has_successor', reason: `parent ${parentId} already has a successor; propose from a leaf` };
     }
     // A title is a label, not an instruction: clamp it instead of rejecting the
     // whole proposal (rejections here used to starve the auto driver silently).
@@ -1189,7 +1216,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     return {
       ok: true,
       parent,
-      replacesNodeId: replacingFailedSource ? source.id : null,
+      replacesNodeId: replacingFailedSource ? replacementTarget : null,
       executionNote: execution.profileFallback
         ? { requestedProfile: execution.requestedProfile, usedProfile: execution.profile }
         : null,
@@ -1201,7 +1228,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         timeboxMinutes,
         model: null,
         execution,
-        ...(replacingFailedSource ? { replacesNodeId: source.id } : {}),
+        ...(replacingFailedSource ? { replacesNodeId: replacementTarget } : {}),
       },
     };
   }
@@ -1487,6 +1514,40 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     return { candidate: branchMatch ?? null, explicit: false };
   }
 
+  /**
+   * Round 36: remember a candidate the DAG structurally rejects. The block carries
+   * a fingerprint of the relevant parent/source/replacement chain; it expires by
+   * itself when that structure changes (for example when a live replacement
+   * fails), so a changed scope can be proposed again.
+   */
+  async function persistCandidateBlock(projectId, candidate, code, reason, cycleId) {
+    if (!candidate?.candidateId || !STRUCTURAL_REJECTION_CODES.has(code)) return;
+    const project = requireProject(projectId);
+    const nodes = store.listNodes(projectId);
+    const structureKey = candidateStructureKey(candidate, nodes);
+    const now = Date.now();
+    const blocks = project.candidateBlocks && typeof project.candidateBlocks === 'object' ? { ...project.candidateBlocks } : {};
+    blocks[candidate.candidateId] = {
+      code,
+      reason: boundedText(reason, 1000),
+      structureKey,
+      at: now,
+      cycleId,
+      branchId: candidate.branchId ?? null,
+      sourceNodeId: candidate.sourceNodeId ?? null,
+      kind: candidate.kind ?? null,
+    };
+    const trimmed = Object.fromEntries(Object.entries(blocks)
+      .sort(([, a], [, b]) => Number(b?.at ?? 0) - Number(a?.at ?? 0))
+      .slice(0, 1000));
+    await commitMutations(projectId, [{
+      op: 'project.update',
+      set: { candidateBlocks: trimmed },
+      eventType: 'review/candidate_blocked',
+      eventData: { candidateId: candidate.candidateId, code, reason: blocks[candidate.candidateId].reason, structureKey },
+    }], { causeId: `candidate-block:${candidate.candidateId}` });
+  }
+
   async function applyAdvisorOutput(projectId, cycle, output, pendingCandidates = []) {
     const applied = { createdNodeIds: [], rejected: [], consumedCandidateIds: [], createdCandidates: [], proposalResults: [] };
     if (!output || typeof output !== 'object') {
@@ -1576,10 +1637,17 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         const selectedCandidate = candidateSelection.candidate;
         const check = checkProposal(project, proposal, nodes, selectedCandidate);
         if (!check.ok) {
-          const code = /already has a successor|already has a live successor|replacement for .* already exists/.test(check.reason)
+          const code = check.code ?? (/already has a successor|already has a live successor|replacement for .* already exists/.test(check.reason)
             ? 'parent_already_has_successor'
-            : null;
+            : null);
           rejectResult(check.reason, code);
+          if (selectedCandidate && code && STRUCTURAL_REJECTION_CODES.has(code)) {
+            try {
+              await persistCandidateBlock(projectId, selectedCandidate, code, check.reason, cycle.id);
+            } catch (blockError) {
+              applied.rejected.push({ candidateId: selectedCandidate.candidateId, reason: `candidate block not persisted: ${blockError instanceof Error ? blockError.message : String(blockError)}`, code: 'block_persist_failed' });
+            }
+          }
           continue;
         }
         let expected = null;
@@ -1864,7 +1932,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     // otherwise a project whose branches all completed can optimize exactly
     // once and then park forever.
     let queue = buildBranchCandidateQueue({ project, nodes, runs: store.listRuns(projectId, 500) });
-    cycle.hierarchy.planTrigger = events.length > 0 ? 'branch_event' : queue.pendingCount > 0 ? 'candidate_queue' : 'noop';
+    cycle.hierarchy.planTrigger = events.length > 0 ? 'branch_event' : queue.pendingCount > 0 ? 'candidate_queue' : queue.blockedCount > 0 ? 'candidate_blocked' : 'noop';
     const initialSkip = events.length === 0 && queue.pendingCount === 0
       ? candidateSkipReason(queue, { events, reports: queue.reports.length })
       : null;
@@ -1943,6 +2011,12 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     project = requireProject(projectId);
     queue = buildBranchCandidateQueue({ project, nodes: store.listNodes(projectId), runs: store.listRuns(projectId, 500) });
     recordCandidates(queue);
+    if (queue.pendingCount === 0 && queue.blockedCount > 0) {
+      const reason = candidateSkipReason(queue, { events, reports: queue.reports.length });
+      recordCandidates(queue, { skipReason: reason });
+      cycle.skipped.push({ stage: 'lead', reason });
+      return;
+    }
     if (branchRuns.length === 0) {
       if (queue.pendingCount > 0 && queue.reports.length > 0) {
         branchRuns = queue.reports;
@@ -2504,6 +2578,18 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     return queue.pendingCount;
   }
 
+  /** Round 36: a fully blocked queue still needs one cycle to explain why. */
+  function blockedCandidateCount(projectId) {
+    const project = requireProject(projectId);
+    if (!hierarchyMode(project)) return 0;
+    const queue = buildBranchCandidateQueue({
+      project,
+      nodes: store.listNodes(projectId),
+      runs: store.listRuns(projectId, 500),
+    });
+    return queue.blockedCount;
+  }
+
   function listRuns(projectId, limit = 50) {
     requireProject(projectId);
     const size = Math.max(1, Math.min(500, Number.isFinite(limit) ? limit : 50));
@@ -2582,6 +2668,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     rejectProposal,
     listRuns,
     pendingCandidateCount,
+    blockedCandidateCount,
     getRun,
     ensureController,
     cancelProjectRuns,

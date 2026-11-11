@@ -377,12 +377,15 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     // branch event has been consumed. That is a planning signal even while
     // other nodes run, so it must be checked before deciding not to plan.
     let pendingCandidates = 0;
+    let blockedCandidates = 0;
     try {
       pendingCandidates = Number(orchestrator.pendingCandidateCount?.(project.id) ?? 0);
+      blockedCandidates = Number(orchestrator.blockedCandidateCount?.(project.id) ?? 0);
     } catch {
       pendingCandidates = 0;
+      blockedCandidates = 0;
     }
-    const shouldPlan = !wipFull && (actionables.length > 0 || trigger.trigger || empty || pendingCandidates > 0);
+    const shouldPlan = !wipFull && (actionables.length > 0 || trigger.trigger || empty || pendingCandidates > 0 || blockedCandidates > 0);
 
     if (!shouldPlan) {
       if (proposed.length > 0) return waiting(projectId, 'awaitingConfirmation');

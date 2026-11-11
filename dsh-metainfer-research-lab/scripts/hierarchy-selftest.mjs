@@ -623,6 +623,72 @@ check('Round 34: the lead output and one named decision per candidate are persis
 check('Round 35: the lead receives a bounded input and the cycle records its actual byte size', round34Cycle?.lead?.inputBytes > 0 && round34Cycle?.lead?.inputBytes <= round34Cycle?.lead?.inputBytesBefore && round34Cycle?.lead?.candidateCount === 10 && round34Cycle?.lead?.candidateShown === 10 && round34Cycle?.leadInputBytes === round34Cycle?.lead?.inputBytes, JSON.stringify({ inputBytes: round34Cycle?.lead?.inputBytes, before: round34Cycle?.lead?.inputBytesBefore, shown: round34Cycle?.lead?.candidateShown, count: round34Cycle?.lead?.candidateCount }));
 check('Round 34: a no-create cycle cannot end with the generic lead-produced-no-proposal reason', !(round34Cycle?.skipped ?? []).some((row) => /lead produced no proposal/i.test(row.reason ?? '')), JSON.stringify(round34Cycle?.skipped));
 
+// Round 36: a failed replacement is retryable. A(failed) -> B(failed) must
+// produce C replacing B; the next proposal for the same scope must be rejected
+// with a named chain reason and the candidate must not consume another lead slot.
+const round36Id = 'round36-chain-p';
+const round36Node = (id, status, parentId, replacesNodeId = null) => ({
+  ...round34Node(id, status, parentId),
+  ...(replacesNodeId ? { replacesNodeId } : {}),
+});
+await store.saveProject({
+  id: round36Id, name: 'round36-chain', brief: 'retry a failed replacement', revision: 0,
+  counters: { eventSeq: 0, nextNodeSeq: 4, nodes: 3 },
+  config: {
+    maxRunningNodes: 4, resourcePools: { gpu: 1 }, maxNodes: 40, expertsMode: 'hierarchy', migration: { phase: 2 },
+    advisor: { maxProposalsPerPass: 3, maxProposalsPerReviewer: 3, ancestorDepth: 1, acceptMode: 'auto', maxPendingProposals: 20, maxLeadCandidates: 8, timeoutSeconds: 300, reviewers: [] },
+    auto: { maxCycles: 1 },
+  },
+  branchReviews: [
+    { eventKey: 'n-0001:completed:2' },
+    { eventKey: 'n-0002:failed:2' },
+    { eventKey: 'n-0003:failed:2' },
+  ],
+  repo: { path: process.cwd(), worktreeRoot: '/tmp/hierarchy-round36-wt', baseBranch: 'main', baseCommit: 'base' },
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(round36Id);
+await kernel.executor.commit(round36Id, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [
+    { op: 'node.create', node: round36Node('n-0001', 'completed', null) },
+    { op: 'node.create', node: round36Node('n-0002', 'failed', 'n-0001') },
+    { op: 'node.create', node: round36Node('n-0003', 'failed', 'n-0001', 'n-0002') },
+  ],
+});
+await store.saveRun(round36Id, {
+  id: 'run-round36-branch-1', projectId: round36Id, role: 'branch', lens: 'n-0001', status: 'completed',
+  startedAt: 100, endedAt: 101, output: {
+    branchId: 'n-0001', health: 'watch', verified: [], ruledOut: [],
+    candidates: [{ nodeId: 'n-0002', kind: 'retry', title: 'retry the failed replacement scope', note: 'same scope' }],
+    escalate: false, reasonCodes: [], evidence: [{ nodeId: 'n-0001', field: 'report.summary', quote: 'n-0001 completed' }],
+  },
+});
+const round36Step1 = await prodOrch.step(round36Id, 'round36-chain-probe-1');
+const round36Cycle1 = store.listCycles(round36Id, 1)[0];
+const round36Created = store.listNodes(round36Id).filter((node) => round36Step1.created.includes(node.id));
+const round36C = round36Created[0] ?? null;
+check('Round 36: A -> B(failed) -> C is creatable from the failed chain', round36Created.length === 1 && round36C?.replacesNodeId === 'n-0003' && round36C?.parentId === 'n-0001' && round36C?.status === 'planned', JSON.stringify({ created: round36Step1.created, node: round36C, cycle: round36Cycle1?.lead, skipped: round36Cycle1?.skipped, errors: round36Cycle1?.errors }));
+await store.saveRun(round36Id, {
+  id: 'run-round36-branch-2', projectId: round36Id, role: 'branch', lens: 'n-0001', status: 'completed',
+  startedAt: 200, endedAt: 201, output: {
+    branchId: 'n-0001', health: 'watch', verified: [], ruledOut: [],
+    candidates: [{ nodeId: 'n-0002', kind: 'decouple', title: 'a fourth attempt for the same scope', note: 'same scope, different kind keeps a fresh candidate id' }],
+    escalate: false, reasonCodes: [], evidence: [{ nodeId: 'n-0001', field: 'report.summary', quote: 'n-0001 completed' }],
+  },
+});
+const round36Step2 = await prodOrch.step(round36Id, 'round36-chain-probe-2');
+const round36Cycle2 = store.listCycles(round36Id, 1)[0];
+const round36FourthDecision = round36Cycle2?.lead?.decisions?.find((row) => row.reasonCode === 'replacement_chain_exhausted');
+check('Round 36: a fourth attempt for the same scope is rejected with a named chain reason', round36Step2.created.length === 0 && round36FourthDecision?.code === 'replacement_chain_exhausted' && /n-0002 -> n-0003 -> n-0004/.test(round36FourthDecision?.reason ?? '') && /no further attempt/.test(round36FourthDecision?.reason ?? ''), JSON.stringify({ created: round36Step2.created, decisions: round36Cycle2?.lead?.decisions, lead: round36Cycle2?.lead, skipped: round36Cycle2?.skipped, errors: round36Cycle2?.errors }));
+const round36Blocked = store.getProject(round36Id)?.candidateBlocks ?? {};
+const round36BlockedCandidate = round36Cycle2?.lead?.decisions?.find((row) => row.reasonCode === 'replacement_chain_exhausted')?.candidateId;
+check('Round 36: a structural rejection is persisted so the candidate leaves the queue', Boolean(round36BlockedCandidate && round36Blocked[round36BlockedCandidate]?.code === 'replacement_chain_exhausted'), JSON.stringify(round36Blocked));
+const round36PresetsBefore = productionPresets.length;
+const round36Step3 = await prodOrch.step(round36Id, 'round36-chain-probe-3');
+const round36Cycle3 = store.listCycles(round36Id, 1)[0];
+check('Round 36: a fully blocked queue runs no lead and names the blocked chain', round36Step3.created.length === 0 && round36Cycle3?.leadRunId == null && productionPresets.slice(round36PresetsBefore).includes('lab-lead') === false && round36Cycle3?.candidates?.blocked === 1 && /all branch-report candidates structurally blocked/.test(round36Cycle3?.candidates?.skipReason ?? '') && /n-0002 -> n-0003 -> n-0004/.test(round36Cycle3?.candidates?.skipReason ?? ''), JSON.stringify({ presets: productionPresets.slice(round36PresetsBefore), created: round36Step3.created, candidates: round36Cycle3?.candidates, skipped: round36Cycle3?.skipped, errors: round36Cycle3?.errors }));
+
 // Round 34b: the lead intentionally returns zero proposals for ten pending
 // candidates. The cycle must keep the lead's answer and a named per-candidate
 // skip reason instead of the old generic "lead produced no proposal".

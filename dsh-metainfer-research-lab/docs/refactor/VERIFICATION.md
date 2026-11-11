@@ -7981,3 +7981,89 @@ returned by `auto_status`.
 | forced timeout probe | 30,028 ms, accurate role/value/source error |
 
 Live 3080 was not restarted or mutated.
+
+## 62. Round 36 — failed replacement chains and structural candidate blocks
+
+### 62.1 Chain rule
+
+`host/experts/candidates.js` exports `replacementChainForNode(nodes, sourceId)`.
+It follows `replacesNodeId` upward to the original failed node, then forward
+through every replacement, so querying either `A` or `B` from
+`A(failed) -> B(failed) -> C` returns the same ordered chain.
+
+`checkProposal` uses the chain terminal:
+
+| existing terminal | result |
+|---|---|
+| failed / cancelled | allow one replacement; `replacesNodeId` = terminal id |
+| proposed / planned / running / completed | reject `replacement_chain_exhausted` naming the chain |
+| chain length >= 3 | reject `replacement_chain_exhausted` naming the chain |
+
+The cap is three nodes total (original + two replacements). This is the
+regression boundary: `A -> B(failed) -> C` is creatable; a fourth attempt for
+the same scope is rejected with a nameable reason even if C later fails.
+
+### 62.2 Candidate blocks
+
+When `checkProposal` rejects a selected candidate with
+`parent_already_has_successor` or `replacement_chain_exhausted`,
+`applyAdvisorOutput` persists:
+
+```json
+{
+  "candidateId": "cand:...",
+  "code": "replacement_chain_exhausted",
+  "reason": "replacement chain for n-0002 ... (n-0002 -> n-0003 -> n-0004); no further attempt",
+  "structureKey": "{\"sourceNodeId\":\"n-0002\",\"chain\":[...],\"siblings\":[...]}",
+  "at": 1794424131958,
+  "cycleId": "cyc-..."
+}
+```
+
+`buildBranchCandidateQueue` computes the same `candidateStructureKey`; the
+candidate is assigned to `queue.blocked` and removed from `queue.pending` while
+the key matches. The key includes the source status, parent status, replacement
+chain and sibling statuses, so it expires when the relevant DAG changes.
+
+`cycle.candidates` now exposes `blocked` and `blockedReason`.
+`candidateSkipReason` returns:
+
+```text
+all branch-report candidates structurally blocked: <code>; <reason with chain>
+```
+
+Auto reads `orchestrator.blockedCandidateCount()` in addition to
+`pendingCandidateCount()`, so a fully blocked queue still gets one explanatory
+cycle and reaches `noProgress` with that reason in `lastPlanSkip`; the lead does
+not run for it.
+
+### 62.3 Chain probe output
+
+A production-orchestrator probe with a synthetic `A=n-0002`, `B=n-0003`
+(`replacesNodeId=A`), `C=n-0004` shape printed:
+
+```text
+step1.created=["n-0004"]
+step1.c={id:"n-0004", parentId:"n-0001", replacesNodeId:"n-0003", status:"planned"}
+step2.created=[]
+step2.leadDecisions[0].code="replacement_chain_exhausted"
+step2.leadDecisions[0].reason="replacement chain for n-0002 already reached live node n-0004 (n-0002 -> n-0003 -> n-0004); no further attempt"
+step3.leadRunId=null
+step3.candidates.blocked=1
+step3.candidates.skipReason="all branch-report candidates structurally blocked: replacement_chain_exhausted; ..."
+auto.status="paused"
+auto.pauseReason="noProgress"
+auto.idleStreak=1
+auto.lastPlanSkip="all branch-report candidates structurally blocked: ... n-0002 -> n-0003 -> n-0004; no further attempt"
+```
+
+### 62.4 Gates
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1058 `ok`, 0 FAIL |
+| `hierarchy-selftest` | all checks passed, including Round 36 chain/fourth/blocked queue |
+| `auto-wip-selftest` | 15/15, including fully blocked queue `noProgress` |
+| `stage5-selftest` | all checks passed (unchanged Round 35 gates) |
+
+Live `prj-421b80bf` was read, not mutated; Host 3080 was not restarted.

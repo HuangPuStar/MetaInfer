@@ -71,6 +71,64 @@ function actionOf(candidate) {
   return fieldString(candidate?.action).slice(0, 48) || null;
 }
 
+function nodeParentId(node) {
+  if (!node) return null;
+  return fieldString(node.parentId)
+    || fieldString(Array.isArray(node.parentIds) ? node.parentIds[0] : '')
+    || null;
+}
+
+/**
+ * Follow `replacesNodeId` from the original failed node through its failed
+ * replacements. A chain is a scope's retry history, not a set of siblings.
+ */
+export function replacementChainForNode(nodes, sourceNodeId) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  const byId = new Map(list.filter((node) => node?.id).map((node) => [node.id, node]));
+  let source = byId.get(sourceNodeId) ?? null;
+  if (!source) return [];
+  const upwardSeen = new Set();
+  while (source?.replacesNodeId && byId.has(source.replacesNodeId) && !upwardSeen.has(source.id)) {
+    upwardSeen.add(source.id);
+    source = byId.get(source.replacesNodeId);
+  }
+  const chain = [];
+  const forwardSeen = new Set();
+  let current = source;
+  while (current && !forwardSeen.has(current.id)) {
+    forwardSeen.add(current.id);
+    chain.push(current);
+    const next = list
+      .filter((node) => node?.replacesNodeId === current.id && node.id !== current.id)
+      .sort((a, b) => Number(a.timestamps?.createdAt ?? 0) - Number(b.timestamps?.createdAt ?? 0) || String(a.id).localeCompare(String(b.id)))
+      .at(-1);
+    current = next ?? null;
+  }
+  return chain;
+}
+
+/** Stable structural fingerprint used to expire a candidate block when the DAG changes. */
+export function candidateStructureKey(candidate, nodes) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  const source = list.find((node) => node.id === candidate?.sourceNodeId) ?? null;
+  const parentId = nodeParentId(source);
+  const parent = list.find((node) => node.id === parentId) ?? null;
+  const chain = source ? replacementChainForNode(list, source.id) : [];
+  const siblings = parentId
+    ? list.filter((node) => nodeParentId(node) === parentId).map((node) => `${node.id}:${node.status}:${node.replacesNodeId ?? ''}`).sort()
+    : [];
+  return JSON.stringify({
+    candidateId: candidate?.candidateId ?? null,
+    branchId: candidate?.branchId ?? null,
+    sourceNodeId: candidate?.sourceNodeId ?? null,
+    sourceStatus: source?.status ?? null,
+    parentId,
+    parentStatus: parent?.status ?? null,
+    chain: chain.map((node) => `${node.id}:${node.status}:${node.replacesNodeId ?? ''}`),
+    siblings,
+  });
+}
+
 function normalizeCandidate(candidate, { branchId, run, nodeById = null }) {
   if (candidate == null) return null;
   const object = typeof candidate === 'object' && !Array.isArray(candidate) ? candidate : null;
@@ -188,6 +246,11 @@ export function buildBranchCandidateQueue({ project = {}, runs = [], nodes = [],
       const candidateId = `cand:${branchId}:${normalized.sourceNodeId ?? 'branch'}:${normalized.kind}:${hash(normalized.signature)}:${ordinal}`;
       if (candidatesById.has(candidateId)) continue;
       const consumedRow = consumedById.get(candidateId) ?? null;
+      const block = project?.candidateBlocks && typeof project.candidateBlocks === 'object'
+        ? project.candidateBlocks[candidateId] ?? null
+        : null;
+      const structureKey = block ? candidateStructureKey({ candidateId, ...normalized }, nodes) : null;
+      const blocked = Boolean(!consumedRow && block && (!block.structureKey || block.structureKey === structureKey));
       candidatesById.set(candidateId, {
         candidateId,
         ...normalized,
@@ -195,6 +258,11 @@ export function buildBranchCandidateQueue({ project = {}, runs = [], nodes = [],
         consumed: Boolean(consumedRow),
         consumedByNodeId: consumedRow?.nodeId ?? null,
         consumedAt: consumedRow?.consumedAt ?? null,
+        blocked,
+        blockedAt: blocked ? block.at ?? null : null,
+        blockedCode: blocked ? block.code ?? null : null,
+        blockedReason: blocked ? block.reason ?? null : null,
+        blockedStructureKey: blocked ? block.structureKey ?? structureKey : null,
       });
     }
   }
@@ -205,20 +273,23 @@ export function buildBranchCandidateQueue({ project = {}, runs = [], nodes = [],
     if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
     return a.ordinal - b.ordinal;
   });
-  const pending = candidates.filter((candidate) => !candidate.consumed);
+  const pending = candidates.filter((candidate) => !candidate.consumed && !candidate.blocked);
   const consumed = candidates.filter((candidate) => candidate.consumed);
+  const blocked = candidates.filter((candidate) => candidate.blocked);
   const reports = [...latestReports.values()].sort((a, b) => a.branchId.localeCompare(b.branchId));
   return {
     generatedAt: now,
     candidates,
     pending,
     consumed,
+    blocked,
     skipped,
     reports,
     failedReports: [...failedReports.values()].sort((a, b) => a.branchId.localeCompare(b.branchId)),
     considered: candidates.length,
     pendingCount: pending.length,
     consumedCount: consumed.length,
+    blockedCount: blocked.length,
     skippedCount: skipped.length,
     lowConfidenceCount: candidates.filter((candidate) => candidate.lowConfidence).length,
     nodeIds: Array.isArray(nodes) ? nodes.map((node) => node.id).filter(Boolean) : [],
@@ -230,6 +301,10 @@ export function candidateSkipReason(queue, { events = 0, reports = null } = {}) 
   if (!queue) return 'no branch-report candidate queue';
   if (queue.pendingCount > 0) return null;
   const reportCount = Number.isFinite(reports) ? reports : queue.reports.length;
+  if (queue.blockedCount > 0 && queue.pendingCount === 0) {
+    const sample = queue.blocked[0];
+    return `all branch-report candidates structurally blocked: ${sample.blockedCode ?? 'structural_block'}; ${sample.blockedReason ?? 'no reason recorded'}`;
+  }
   if (queue.considered === 0) {
     if (reportCount === 0) {
       if (queue.failedReports.length > 0) return 'blocked by failed branch report';
@@ -264,6 +339,8 @@ export function candidateStats(queue, { consumedThisCycle = 0, events = 0, skipR
     lowConfidence: queue?.lowConfidenceCount ?? 0,
     reports: queue?.reports.length ?? 0,
     failedReports: queue?.failedReports.length ?? 0,
+    blocked: queue?.blockedCount ?? 0,
+    blockedReason: queue?.blocked?.[0]?.blockedReason ?? null,
     events: Array.isArray(events) ? events.length : Number(events) || 0,
     eventCount: Array.isArray(events) ? events.length : Number(events) || 0,
     skipReason: skipReason ?? candidateSkipReason(queue, { events }),

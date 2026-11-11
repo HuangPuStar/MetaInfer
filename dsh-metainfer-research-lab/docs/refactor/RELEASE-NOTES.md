@@ -1,5 +1,56 @@
 # v2 发布说明（草稿）
 
+## Round 36 — a failed replacement is retryable, with a capped chain and structural blocks
+
+- **Live blocker:** cycle `cyc-fdd1bcaa` returned two proposals and both were
+  rejected as `replacement for n-0006 already exists as n-0010` and
+  `replacement for n-0008 already exists as n-0011`. Both `n-0010` and `n-0011`
+  are themselves **failed** replacements, so the guard was treating a dead
+  retry as a live successor. The same candidate stayed pending, consumed a lead
+  slot every cycle, and exhausted the idle budget on a duplicate that could
+  never succeed.
+- **Chain-aware replacement:** the guard now walks `replacesNodeId` from the
+  failed source through its replacement history. A failed/cancelled terminal
+  replacement permits one more replacement; the new node's `replacesNodeId`
+  points at that terminal (for example `A(failed) -> B(failed) -> C`, C points
+  at B). A live/successful replacement still blocks. The chain is capped at
+  three attempts; a fourth gets the named reason
+  `replacement_chain_exhausted` and names the whole chain.
+- **No self-poisoning:** a structural rejection
+  (`parent_already_has_successor` / `replacement_chain_exhausted`) now persists
+  `project.candidateBlocks[candidateId] = {code, reason, structureKey, at,
+  cycleId}`. The queue leaves that candidate out of `pending` while the
+  parent/source/replacement fingerprint is unchanged. The fingerprint includes
+  the chain and sibling statuses, so a real DAG change (for example a live
+  replacement failing) lets the scope be reconsidered instead of being blocked
+  forever.
+- **Named no-progress:** `cycle.candidates.blocked` / `blockedReason` are
+  recorded, `candidateSkipReason` returns
+  `all branch-report candidates structurally blocked: <code>; <chain reason>`,
+  and auto's `blockedCandidateCount` still gives a fully blocked queue one
+  explanatory cycle. `lastPlanSkip` and the eventual `noProgress` pause carry
+  the chain rather than repeating `already exists`.
+- **Probe:** a production-shaped chain probe produced:
+
+  ```text
+  step1 created: n-0004 (parent=n-0001, replacesNodeId=n-0003, planned)
+  step2 rejected: replacement_chain_exhausted
+                   replacement chain for n-0002 already reached live node
+                   n-0004 (n-0002 -> n-0003 -> n-0004); no further attempt
+  step3: leadRunId=null, blocked=1,
+         skipReason="all branch-report candidates structurally blocked: ..."
+  auto: pauseReason=noProgress, idleStreak=1,
+        lastPlanSkip="... n-0002 -> n-0003 -> n-0004; no further attempt"
+  ```
+
+- **Tests:** `npm test` EXIT 0, 1058 `ok`, 0 FAIL; `hierarchy-selftest`
+  includes the A -> B(failed) -> C / fourth-attempt / fully-blocked queue
+  regression; `auto-wip-selftest` is 15/15 with a blocked-queue `noProgress`
+  probe.
+- **Boundary:** live project `prj-421b80bf` was read only. No live Host
+  restart or project mutation was performed; the live auto remains paused and
+  the next cycle on a reloaded Host will use this code.
+
 ## Round 35 — configured role timeouts, a bounded lead input, and lead-retry backoff
 
 - **Timeout root cause:** hierarchy L0/L1/L2 passed fixed `ROLE_BUDGETS`

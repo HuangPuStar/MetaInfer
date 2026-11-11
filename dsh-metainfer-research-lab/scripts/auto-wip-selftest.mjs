@@ -274,5 +274,44 @@ await test('an explicit project cap overrides the derived default', async () => 
   assert.equal(status.lastPlanSkip, 'maxPlannedInFlight');
 });
 
+await test('Round 36: a fully blocked candidate queue is planned once and pauses with its chain reason', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const projectId = 'p-blocked-queue';
+  await store.saveProject({
+    id: projectId, name: projectId, mode: 'auto', repo: {}, revision: 0, counters: { eventSeq: 0 },
+    config: {
+      maxRunningNodes: 2, maxNodes: 100, resourcePools: {}, expertsMode: 'hierarchy',
+      auto: { maxCycles: 10, idleCycleLimit: 1 },
+      planning: { minRemainingMs: 3_600_000, planLatencyMs: 1_000, safetyFactor: 0.1, debounceMs: 0, minGapMs: 0 },
+    },
+  });
+  await store.saveNode(projectId, { ...node('b0'), status: 'running' });
+  const kernel = createKernel({ store });
+  let steps = 0;
+  const auto = createAutoController({
+    store, kernel, cluster: null,
+    dispatchOnce: async () => ({ started: 0, skipped: [] }),
+    orchestrator: {
+      pendingCandidateCount: () => 0,
+      blockedCandidateCount: () => 1,
+      step: async () => {
+        steps += 1;
+        const skipReason = 'all branch-report candidates structurally blocked: replacement_chain_exhausted; replacement chain for n-0006 exhausted after 3 attempts (n-0006 -> n-0010 -> n-0013); no further attempt';
+        return { created: [], started: [], errors: [], skipped: [{ stage: 'lead', reason: skipReason }], cycle: { candidates: { blocked: 1, skipReason } } };
+      },
+    },
+    intervalMs: 60_000,
+  });
+  auto.start(projectId);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const status = auto.statusOf(projectId);
+  auto.dispose();
+  kernel.dispose();
+  assert.equal(steps, 1, 'a blocked queue must still get one explanatory cycle');
+  assert.equal(status.pauseReason, 'noProgress');
+  assert.match(status.lastPlanSkip, /all branch-report candidates structurally blocked/);
+  assert.match(status.lastPlanSkip, /n-0006 -> n-0010 -> n-0013/);
+});
+
 process.stdout.write(`${checks - failed}/${checks} auto WIP checks passed\n`);
 process.exit(failed === 0 ? 0 : 1);
