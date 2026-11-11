@@ -714,6 +714,24 @@ Host `0.8.7-v3`，package `0.9.0`，client 11,603 行；locale 914/914。
 - 原生 composer 直接写 Copilot session，绕过 Host chat 校验；Copilot 的只读保障依赖 preset/工具边界和 prompt，
   仍需实机确认没有 mutation 工具暴露。
 - 持久 Copilot session 的上下文会增长；需要依赖 compaction/预算策略。
+  （**compaction 部分已补**：见下节「V12 补丁：Copilot 会话缺少压缩能力」。）
+
+### V12 补丁：Copilot 会话缺少压缩能力
+
+**症状**：Copilot 会话没有任何压缩行为——`compaction/*` 事件数为 0，历史只增不减，最终在 provider 侧
+撞上下文上限。
+
+**根因**：`dsh-web-app/cordis.patch.yml` 把 host 平面的 `compaction-basic`、`command-compact`、
+`tool-result-pruner` 三行都设为 `disabled: true`，把 compaction 的所有权下放到 agent preset 平面；
+而 `lab-chat` 的 `plugins` 里没有任何 compaction 组，因此该会话既无 `agent/pre-step` 压力压缩，
+也无 `CONTEXT_WINDOW_EXCEEDED` 溢出恢复。
+
+**修复**：给 `lab-chat` 补上与官方 `dsh-web-app/presets/standard.patch.yml` 同构的 compaction 组
+（`compaction-basic` + `command-compact` + `tool-result-pruner`，`isolate: { compaction: true,
+toolResultPruner: true }`）。`isolate` 不可省——preset registry 的 `leakedServices` 审计会拒绝把
+服务注册进 root realm 的行。
+
+**生效方式**：preset 在 DSH 启动时 mount，改完 `presets.patch.yml` 需重启 `dsh web`。
 
 ### V12 修复：Copilot resume 缺少 provider/model
 
