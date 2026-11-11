@@ -16,13 +16,13 @@
 | **scheduler** | `lab-scheduler` | 每个 cycle 的 scheduler pass | 一次性 spawn，读完结果即 dispose | 无工具，只有 `structured_output` | `SchedulerOutput` |
 | **controller** | `lab-controller` | 项目创建时创建 root 会话，按需 resume | 项目生命周期 | 无 | 不产生任务输出；项目级 parent（advisor/scheduler 的 parent，冷恢复 sender） |
 | **GC 善后** | `lab-gc` | 节点被确定性终止后（timeout/cancel/异常清理） | 一次性 spawn，异步、不阻塞资源释放 | 只读 fs + `lab_cleanup`（Host 确定性清理工具，仅 GC 可见） | `GCOutput`（postmortem） |
-| **Copilot** | `lab-chat` | 用户打开项目对话抽屉（`project.copilot`） | 每项目一个可 resume 的长期会话（`project.copilotSessionId`），跨轮持久 | 只读 fs/fs-search + `lab_project_context`；**compaction 组 + `/compact` 命令** | 纯文本（讨论/分析，不产生结构化任务输出） |
+| **Copilot** | `lab-chat` | 用户打开项目对话抽屉（`project.copilot`） | 每项目一个可 resume 的长期会话（`project.copilotSessionId`），跨轮持久 | 只读 fs/fs-search + `lab_project_context`；**compaction 组（自动压缩 + 溢出恢复）** | 纯文本（讨论/分析，不产生结构化任务输出） |
 | **node anchor**（非 LLM 角色） | `lab-controller` | 节点启动时创建 root 会话，按需 resume | 节点生命周期（封存/dispose） | 无 | 不调用 LLM；作为 worker 的 parent 与继续对话 sender；提供 `header.cwd=worktree` 的 sandbox 边界 |
 
 > **compaction 的所有权在 preset 平面**：`dsh-web-app` 把 host 平面的 `compaction-basic`、
 > `command-compact`、`tool-result-pruner` 全部 `disabled: true`，交还给各 preset 自己挂载。
-> 因此 preset 若漏挂 compaction 组，该会话**既无自动压缩、也无 `/compact`**——历史只增不减，
-> 最终在 provider 侧撞上下文上限。
+> 因此 preset 若漏挂 compaction 组，该会话**完全没有压缩能力**：既无 `agent/pre-step` 压力压缩，
+> 也无 `CONTEXT_WINDOW_EXCEEDED` 溢出恢复——历史只增不减，最终在 provider 侧撞上下文上限。
 >
 > **挂载形状**（与官方 `dsh-web-app/presets/standard.patch.yml` 一致）：
 >
@@ -32,8 +32,8 @@
 >   group: true
 >   isolate: { compaction: true, toolResultPruner: true }
 >   config:
->     - id: compaction-basic          # 自动压缩 + 溢出恢复
->     - id: command-compact           # 人工 /compact（交互式会话才需要）
+>     - id: compaction-basic          # 自动压缩 + 溢出恢复（必需）
+>     - id: command-compact           # 人工 /compact（仅人可驱动的会话可达）
 >     - id: tool-result-pruner
 > ```
 >
@@ -41,10 +41,21 @@
 > 的行（"Preset services require isolate realms"）。既然 compaction 必须隔离，`command-compact`
 > 就必须挂在**同一个隔离组内部**才能解析到该服务。
 >
-> **谁需要 `/compact`**：`lab-chat` 是唯一由人工键入斜杠命令的 preset，故必须带 `command-compact`。
-> `lab-worker` / `lab-merge` / `lab-dashboard` 由 Host 启动、无人输入，只需自动压缩。
-> 单轮 `structured_output` preset（advisor/scheduler/controller/gc/intake）刻意不挂，避免多余摘要请求。
-> `tests/copilot-compaction.test.mjs` 锁定上述分工。
+> **关于手动 `/compact` 的可达性**：DSH 对 **subagent 会话**不提供斜杠命令——原生 composer 的
+> 命令目录对 subagent 直接返回空（`dsh-client-ui-commands`: `if (sessions.subagentAddress(sessionId)
+> !== void 0) return []`），后端 `commands/execute` 也会以 `session/agent-busy` 拒绝。因此：
+>
+> | 会话形态 | 自动压缩 | 手动 `/compact` |
+> |---|---|---|
+> | 人可驱动的 root 会话 | ✅ | ✅ |
+> | subagent 子会话 | ✅ | ❌（DSH 设计如此，与本插件无关） |
+>
+> 本插件在 `lab-chat` 组里保留 `command-compact`，是为了让**人可驱动的会话**（含历史遗留的
+> root Copilot）获得 `/compact`，并保持与官方 preset 同构；它并不解除 subagent 会话的上述限制。
+>
+> **谁挂、谁不挂**：`lab-chat` / `lab-worker` / `lab-merge` / `lab-dashboard` 都挂 compaction 组
+> （都需要自动压缩）。单轮 `structured_output` preset（advisor/scheduler/controller/gc/intake）
+> 刻意不挂，避免多余摘要请求。`tests/copilot-compaction.test.mjs` 锁定上述分工。
 
 设计要点：
 

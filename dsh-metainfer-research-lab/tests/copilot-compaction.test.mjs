@@ -106,30 +106,34 @@ test('every long-lived preset mounts the compaction group', () => {
   }
 });
 
-test('the interactive Copilot also mounts the /compact command', () => {
-  // Automatic compaction alone is not enough for the Copilot: it is the one
-  // preset a human drives with slash commands, so `/compact` has to exist too.
-  // `dsh-web-app` disables the host-plane `command-compact` row and hands
-  // compaction ownership to the preset plane, while the preset registry rejects
-  // services leaked into the root realm ("Preset services require isolate
-  // realms"). The command therefore belongs inside the isolated group. Omitting
-  // it leaves the agent with automatic compaction but no `/compact`, and the
-  // typed text reaches the model as an ordinary user message.
+test('the Copilot compaction group keeps the /compact row inside the isolate realm', () => {
+  // Scope note: this asserts *preset shape*, not UI reachability. DSH never
+  // offers slash commands to subagent sessions (`dsh-client-ui-commands`:
+  // `if (sessions.subagentAddress(sessionId) !== void 0) return []`), so whether
+  // `/compact` appears in the composer is a framework property, not something
+  // this preset can change. The row is still kept because human-driven sessions
+  // (including legacy root Copilot sessions) do reach it, and because the group
+  // then matches the shipped DSH presets.
+  //
+  // What this test does guarantee: if the row is present it must be a CHILD of
+  // the isolated group. `dsh-web-app` disables the host-plane `command-compact`
+  // row and hands compaction ownership to the preset plane, while the preset
+  // registry rejects services leaked into the root realm ("Preset services
+  // require isolate realms"). A sibling row would resolve `compaction` outside
+  // the isolate realm and could not find that service.
   const body = presets.get('lab-chat');
   assert.ok(body, 'preset "lab-chat" should be declared in presets.patch.yml');
-  assert.match(
-    body,
-    /'@deepseek-ai\/dsh-command-compact'/,
-    'lab-chat must mount dsh-command-compact or /compact never registers',
-  );
-  // It has to be a child of the isolated group, not a sibling row: a sibling
-  // would resolve `compaction` outside the isolate realm.
   const group = /- id: compaction\n[\s\S]*?(?=\n {10}- id: (?!compaction)[\w-]+|\n {2}- id: preset-|$)/.exec(body);
   assert.ok(group, 'expected an indented compaction group body');
   assert.match(
     group[0],
     /'@deepseek-ai\/dsh-command-compact'/,
-    'dsh-command-compact must be a child of the isolated compaction group',
+    'dsh-command-compact must live inside the isolated compaction group when present',
+  );
+  assert.doesNotMatch(
+    body,
+    /\n {10}- id: command-compact/,
+    'dsh-command-compact must not be mounted as a sibling row of the compaction group',
   );
 });
 
