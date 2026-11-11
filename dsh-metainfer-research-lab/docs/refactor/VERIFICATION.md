@@ -7486,3 +7486,107 @@ restarted.
 Boundary: no external model call was made; the cycle is a production
 orchestrator test double that enforces the provider schema guard. No claim is
 made about independent ledger movement.
+
+
+### 58. Round 32 — role presets are real, and boot-resolved
+
+#### 58.1 Exact blocker
+
+After phase 2 activated, a real cycle failed before each L0 model call:
+
+```text
+branch[n-0001]: Unknown agent preset: lab-branch
+branch[n-0002]: Unknown agent preset: lab-branch
+branch[n-0003]: Unknown agent preset: lab-branch
+```
+
+`ROLE_PRESETS` named `lab-branch`/`lab-lead`/`lab-chief`, and
+`host/experts/registry.js` described those experts, but the bundle registered
+only `lab-worker`/`lab-advisor`/`lab-scheduler`/`lab-controller`/`lab-gc`/
+`lab-intake`/`lab-chat`/`lab-merge`/`lab-dashboard`. A descriptor is not a DSH
+agent preset; the three role ids were unreachable.
+
+#### 58.2 Fix
+
+`presets.patch.yml` now declares real preset rows:
+
+| Row | Preset id | Composition |
+|---|---|---|
+| `preset-lab-branch` | `lab-branch` | persona only; BranchReport via `structured_output` |
+| `preset-lab-lead` | `lab-lead` | persona only; lead proposals via `structured_output` |
+| `preset-lab-chief` | `lab-chief` | persona only; chief decisions via `structured_output` |
+
+`host/role-presets.js` is the single source for `ROLE_PRESETS` (the five
+`runRole` ids) and `REQUIRED_PRESETS` (all twelve activation/mount ids).
+`host/orchestrator.js` imports and re-exports `ROLE_PRESETS`; its mapping is no
+longer a private literal.
+
+`index.js:apply()` now runs:
+
+```js
+assertModelSchemas();
+await assertRolePresets(ctx.agentPresets);
+```
+
+`assertRolePresets` calls `agentPresets.resolve(id)` for every role preset and
+throws a named `RolePresetError` (`code: 'ROLE_PRESET_NOT_FOUND'`) listing each
+`role=preset (Unknown agent preset: ...)` and the available ids. A missing,
+broken, or unregistered role preset refuses plugin boot instead of becoming a
+first-cycle error.
+
+#### 58.3 Full preset-id audit
+
+A spare Host (3081, real `DSH_HOME`/profile) booted with this commit and
+resolved every id the plugin passes to `runRole`, `startActivation`, or
+`agentPresets.mount`:
+
+```text
+advisor=lab-advisor        resolvable
+scheduler=lab-scheduler    resolvable
+branch=lab-branch          resolvable
+lead=lab-lead              resolvable
+chief=lab-chief            resolvable
+worker=lab-worker          resolvable
+merge=lab-merge            resolvable
+gc=lab-gc                  resolvable
+chat=lab-chat              resolvable
+intake=lab-intake          resolvable
+controller=lab-controller  resolvable
+dashboard=lab-dashboard    resolvable
+```
+
+The spare was stopped after the probe; live 3080 was not restarted.
+
+#### 58.4 Regression
+
+`hierarchy-selftest.mjs` parses `presets.patch.yml` and makes both its fake
+`agentPresets.resolve/mount` and `startActivation` reject any undeclared id, so
+the test cannot pass against descriptors alone. It also asserts the boot helper
+throws `RolePresetError` for a missing preset. A phase-2 cycle over three
+completed branches now produces:
+
+```text
+evidence three-branch cycle: {
+  "branchReports":["branch-1","branch-2","branch-3"],
+  "leadRunId":"run-c98efe9b",
+  "created":["n-0004"],
+  "skipped":[]
+}
+```
+
+Checks require three non-empty BranchReports, no `lead` skip, no
+`Unknown agent preset`, and a lead-created proposal.
+
+#### 58.5 Gates
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1032 `ok`, 0 FAIL |
+| `plugin-smoke` | 6/6; real `apply()` passes the boot preset assertion |
+| `hierarchy-selftest` | all checks passed; preset gate + three-branch cycle |
+| spare 3081 boot | health 200; all 12 preset ids resolvable |
+
+Boundary: no external model call; the three-branch cycle uses the production
+orchestrator with a schema/preset-enforcing test double. A Host restart is
+required to load the new `presets.patch.yml` rows; this session did not restart
+the live 3080 Host.

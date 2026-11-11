@@ -12,6 +12,7 @@ import path from 'node:path';
 import { apply, name, inject } from '../index.js';
 
 const repoPath = process.env.MIRL_SMOKE_REPO;
+const declaredPresets = new Set([...(await readFile(new URL('../presets.patch.yml', import.meta.url), 'utf8')).matchAll(/^ {8}id: (lab-[a-z-]+)$/gm)].map((match) => match[1]));
 assert.ok(repoPath, 'MIRL_SMOKE_REPO is required');
 const startupRoot = process.env.MIRL_STARTUP_ROOT;
 const home = startupRoot ?? await mkdtemp(path.join(os.tmpdir(), 'mirl-smoke-home-'));
@@ -170,7 +171,16 @@ const ctx = {
     },
     get: (sessionId) => agents.get(sessionId) ?? null,
   },
-  agentPresets: { mount: async () => {} },
+  agentPresets: {
+    resolve: async (id) => {
+      if (!declaredPresets.has(id)) throw new Error(`Unknown agent preset: ${id}`);
+      return { id };
+    },
+    list: async () => [...declaredPresets].map((id) => ({ id })),
+    mount: async (_ctx, id) => {
+      if (!declaredPresets.has(id)) throw new Error(`Unknown agent preset: ${id}`);
+    },
+  },
   subagents,
   agentDefaultModel: { currentSelection: () => ({ provider: 'stub-provider', model: 'stub-model' }) },
   llm: {},

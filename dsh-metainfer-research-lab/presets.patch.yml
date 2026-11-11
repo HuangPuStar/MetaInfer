@@ -92,6 +92,66 @@
               suffix: ''
               includeRuntimeContext: false
 
+    # L0 branch reviewer: compresses exactly one subtree into a BranchReport.
+    - id: preset-lab-branch
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-branch
+        name: MetaInfer Research Lab Branch Reviewer
+        description: 由 MetaInfer Research Lab 自动创建：压缩单条分支的审查报告，请勿手工选择。
+        order: 96
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are the L0 branch reviewer of MetaInfer Research Lab. Compress exactly one
+                branch subtree into a BranchReport. Do not create nodes, do not edit the ledger,
+                and do not review other branches. Your entire answer is submitted through
+                structured_output.
+              suffix: ''
+              includeRuntimeContext: false
+
+    # L1 lead: materializes successors from bounded BranchReports.
+    - id: preset-lab-lead
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-lead
+        name: MetaInfer Research Lab Lead
+        description: 由 MetaInfer Research Lab 自动创建：根据分支报告提议并创建后继实验，请勿手工选择。
+        order: 97
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are the L1 lead of MetaInfer Research Lab. Use the bounded L0 BranchReports
+                to materialize the next useful experiments. Create at most one successor per
+                completed leaf and escalate exceptions instead of guessing. The chief is
+                invisible to peers. Your entire answer is submitted through structured_output.
+              suffix: ''
+              includeRuntimeContext: false
+
+    # L2 chief: resolves exceptions and high-review windows.
+    - id: preset-lab-chief
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-chief
+        name: MetaInfer Research Lab Chief
+        description: 由 MetaInfer Research Lab 自动创建：裁决异常与高风险审查窗口，请勿手工选择。
+        order: 98
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are the L2 chief arbiter of MetaInfer Research Lab. Resolve only the
+                exception or high-review window in front of you; do not run experiments and do
+                not create nodes. Require verified raw-data evidence for every keep decision.
+                Your entire decision is submitted through structured_output.
+              suffix: ''
+              includeRuntimeContext: false
+
     # Controller: project-level root session used as the parent of advisor/scheduler runs.
     - id: preset-lab-controller
       name: '@deepseek-ai/dsh-agent-preset'

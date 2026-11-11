@@ -1,5 +1,30 @@
 # v2 发布说明（草稿）
 
+## Round 32 hotfix — role presets are real and boot-resolved
+
+- **Blocker:** phase 2 cycles died with
+  `branch[n-0001]: Unknown agent preset: lab-branch`. `ROLE_PRESETS` named
+  `lab-branch`/`lab-lead`/`lab-chief`, and `host/experts/registry.js` described
+  the experts, but no DSH preset rows existed for those three ids. Only the
+  descriptor was present.
+- **Fix:** `presets.patch.yml` now registers `preset-lab-branch`,
+  `preset-lab-lead`, and `preset-lab-chief` (persona + structured output).
+  `host/role-presets.js` centralizes `ROLE_PRESETS` and `REQUIRED_PRESETS`;
+  `index.js:apply()` calls `assertRolePresets(ctx.agentPresets)` after the
+  schema gate. A missing/broken preset throws `RolePresetError` with
+  `ROLE_PRESET_NOT_FOUND` and the available ids at boot.
+- **Audit:** all twelve ids passed a real spare-Host resolution: advisor,
+  scheduler, branch, lead, chief, worker, merge, gc, chat, intake, controller,
+  dashboard.
+- **Regression:** `hierarchy-selftest` rejects undeclared preset ids in
+  `resolve`, `mount`, and `startActivation`; a phase-2 three-branch cycle records
+  `branchReports:["branch-1","branch-2","branch-3"]`, a lead run, and a created
+  proposal, with no `Unknown agent preset`.
+- **Gates:** `npm test` EXIT 0 (1032 ok / 0 FAIL); plugin smoke 6/6; spare Host
+  3081 health 200. Live 3080 was not restarted.
+- **Boundary:** no external model call; Host restart required to load the new
+  preset rows.
+
 ## Round 31 hotfix — hierarchy schema + failed-node reason
 
 - **Blocker:** `BranchReport` failed before every L0 model call with

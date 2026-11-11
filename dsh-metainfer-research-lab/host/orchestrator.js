@@ -4,6 +4,7 @@
  * creation happen inside them.
  */
 import { createHash, randomUUID } from 'node:crypto';
+import { ROLE_PRESETS } from './role-presets.js';
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -166,7 +167,7 @@ const CHIEF_SCHEMA = {
   additionalProperties: false,
 };
 
-const ROLE_PRESETS = Object.freeze({ advisor: 'lab-advisor', scheduler: 'lab-scheduler', branch: 'lab-branch', lead: 'lab-lead', chief: 'lab-chief' });
+export { ROLE_PRESETS };
 const ROLE_BUDGETS = Object.freeze({
   branch: { maxQueries: 2, timeoutMs: 60_000 },
   lead: { maxQueries: 4, timeoutMs: 90_000 },

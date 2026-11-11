@@ -4,6 +4,7 @@
  * migration switches. Every production assertion drives Host code, not a test
  * double standing in for it.
  */
+import { readFileSync } from 'node:fs';
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService, slimStateNode } from '../host/lab-service.js';
@@ -21,6 +22,7 @@ import { RESIDENT_TOOL_SURFACE, createResidentSession, runResidentLoop } from '.
 import { assertModelSchema, ModelSchemaError } from '../host/schema-check.js';
 import { MODEL_SCHEMAS, assertModelSchemas } from '../host/model-schemas.js';
 import { failureDiagnostic, nodeFailureReason } from '../host/failure.js';
+import { RolePresetError, ROLE_PRESETS, assertRolePresets } from '../host/role-presets.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -53,6 +55,26 @@ try {
 }
 check('schema gate: the old union-typed _truncated schema fails at boot with a role-named error', schemaGateError instanceof ModelSchemaError && schemaGateError.role === 'branch' && /type arrays are not supported/.test(schemaGateError.message), schemaGateError && schemaGateError.message);
 check('schema gate: the branch schema itself is accepted', (() => { try { assertModelSchema(BRANCH_REPORT_SCHEMA, 'branch'); return true; } catch { return false; } })());
+
+// Preset ids are executable references. Parse the bundle's own preset rows so
+// this test cannot silently accept a role preset that was never registered.
+const declaredPresets = new Set([...readFileSync(new URL('../presets.patch.yml', import.meta.url), 'utf8').matchAll(/^ {8}id: (lab-[a-z-]+)$/gm)].map((match) => match[1]));
+const presetRegistry = {
+  resolve: async (id) => {
+    if (!declaredPresets.has(id)) throw new Error(`Unknown agent preset: ${id}`);
+    return { id };
+  },
+  list: async () => [...declaredPresets].map((id) => ({ id })),
+};
+const resolvedRolePresets = await assertRolePresets(presetRegistry);
+check('preset gate: every ROLE_PRESETS value resolves to a registered preset', Object.values(ROLE_PRESETS).every((id) => resolvedRolePresets.includes(id)), JSON.stringify({ resolvedRolePresets, declared: [...declaredPresets].sort() }));
+let missingPresetError = null;
+try {
+  await assertRolePresets({ resolve: async (id) => { throw new Error(`Unknown agent preset: ${id}`); } });
+} catch (error) {
+  missingPresetError = error;
+}
+check('preset gate: a missing role preset fails boot with a named error', missingPresetError instanceof RolePresetError && missingPresetError.code === 'ROLE_PRESET_NOT_FOUND' && /lab-branch/.test(missingPresetError.message), missingPresetError && missingPresetError.message);
 
 // Failure attribution: the live n-0005/n-0006 shape has an error object, while
 // older records may only have an execution/attempt error. Neither may produce
@@ -279,12 +301,19 @@ const productionPresets = [];
 const prodCtx = {
   effect: () => {}, get: () => null, logger: { info() {}, warn() {} },
   agents: { get: () => null, resume: async () => { throw new Error('none'); }, create: async () => ({ agent: {} }) },
-  agentPresets: { mount: async () => {} },
+  agentPresets: {
+    resolve: presetRegistry.resolve,
+    list: presetRegistry.list,
+    mount: async (_ctx, id) => {
+      if (!declaredPresets.has(id)) throw new Error(`Unknown agent preset: ${id}`);
+    },
+  },
   agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-chat' }) },
   subagents: {
     async startActivation(spec) {
       const preset = spec.request.agentPreset;
       productionPresets.push(preset);
+      if (!declaredPresets.has(preset)) throw new Error(`Unknown agent preset: ${preset}`);
       assertModelSchema(spec.request.outputSchema, preset.replace('lab-', ''));
       const promptText = spec.request.prompt?.[0]?.text ?? '';
       const branchId = /^mirl-branch-(.+?)\//.exec(spec.request.label ?? '')?.[1] ?? 'parent';
@@ -394,6 +423,7 @@ const threeLeadSkips = (threeCycle?.skipped ?? []).filter((entry) => entry.stage
 check('hierarchy cycle: three completed branches produce three BranchReports', threeReports.length === 3 && threeReports.every((entry) => entry.output && entry.output.branchId), JSON.stringify({ reports: threeReports.map((entry) => ({ branchId: entry.branchId, hasOutput: Boolean(entry.output), health: entry.output?.health })), errors: threeCycle?.errors, skipped: threeCycle?.skipped }));
 check('hierarchy cycle: the lead stage is not skipped after branch reports succeed', threeLeadSkips.length === 0 && threeCycle?.leadRunId, JSON.stringify({ leadRunId: threeCycle?.leadRunId, skipped: threeCycle?.skipped, errors: threeCycle?.errors }));
 check('hierarchy cycle: no branch or lead run failed with an unsupported schema', !(threeCycle?.errors ?? []).some((entry) => entry.startsWith('branch[') || entry.startsWith('lead:')), JSON.stringify(threeCycle?.errors));
+check('hierarchy cycle: no activation failed with Unknown agent preset', !(threeCycle?.errors ?? []).some((entry) => /Unknown agent preset/.test(entry)), JSON.stringify(threeCycle?.errors));
 check('hierarchy cycle: the lead produces a proposal or an explicit skip reason', (Array.isArray(threeStep.created) && threeStep.created.length > 0) || Boolean(threeCycle?.skipped?.some((entry) => entry.stage === 'lead')), JSON.stringify({ created: threeStep.created, skipped: threeCycle?.skipped, errors: threeCycle?.errors }));
 if (process.env.MIRL_EVIDENCE === '1') {
   console.log(`evidence three-branch cycle: ${JSON.stringify({ branchReports: threeReports.map((entry) => entry.branchId), leadRunId: threeCycle?.leadRunId, created: threeStep.created, skipped: threeCycle?.skipped })}`);
