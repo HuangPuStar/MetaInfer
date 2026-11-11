@@ -7199,3 +7199,150 @@ current Host without a restart.
 - `smallBranch:true` is an explicit, documented small-input exception, not a silent skip:
   large branches below 3x still fail; a branch whose output exceeds 20 KB fails.
 - Ledger: **166 PASS / 0 FAIL / 8 N/A = 174**.
+
+### 56. Round 29/30 hotfix — storage restart, migration surface, empty-queue auto
+
+> This is author evidence, not a new independent verdict. It records the restart
+> failure that made every plugin route 404 and the two unreachable surfaces called
+> out in round 30. The ledger remains the one in §55/§54.6; no independent replay
+> is claimed here.
+
+#### 56.1 Exact restart failure and forward migration
+
+The Host restart failed while opening the existing unit:
+
+```text
+StorageError: invalid table name 'actorKeys' in unit 'metainfer_research_lab_v2'
+  at validateDescriptor (.../dsh-storage-json/lib/index.js:664)
+  at DomainFacility.open
+  at openStore (host/store.js:158)
+  at index.js:73
+```
+
+`actorKeys` violates the storage backend's table-name rule
+`/^[a-z][a-z0-9_]*$/`. The table was declared and addressed with an uppercase
+`K`, so the plugin never opened the unit; the Host stayed up but every plugin
+route was absent (404). The smoke test used a memory domain, which does not
+validate descriptor names, so it never caught this.
+
+Fix (`host/store.js`):
+
+- `DOMAIN_TABLE_NAMES` is now the single source for the declaration and the
+  runtime handles; both `DOMAIN_SPEC.tables` and `openStore`'s table map are
+  derived from it.
+- `STORAGE_NAME_RE` is checked for every declared name at module load, so a
+  future invalid name fails before activation rather than only on a real unit.
+- The table is `actor_keys` everywhere (`openStore` registry adapter and
+  `listActorKeys`).
+- This is a forward addition, not a data rewrite: a v2 unit created before the
+  table existed has no `actor_keys/` directory. The per-record backend loads a
+  declared-but-missing table as empty, and the first actor-key `put` creates the
+  directory/record. Opening an existing unit therefore does not require a
+  freshly created unit.
+
+A separate one-off probe used the real `@deepseek-ai/dsh-storage-json`
+`JsonStorageBackend`: it created a v2 unit whose old descriptor declared only
+`projects`, wrote one project, closed it, then opened the plugin's current
+descriptor (including `actor_keys`) through the backend facade. The first open
+returned `{"projects":["prj-old-v2"],"keys":0}`; the actor-key put created
+`actor_keys/ak_host_*.json`; a second backend open returned the project and
+`keys:1` with session `real-json-probe`. This confirms the missing-table path
+against the actual per-record backend, not only the test harness.
+
+Regression: `scripts/plugin-smoke-child.mjs` has an existing-unit startup mode.
+`scripts/plugin-smoke.mjs` creates a v2 unit with only `projects/prj-old-v2.json`
+and **no `actor_keys/`**, then boots the real `index.js` twice via a strict
+JSON-like domain that rejects invalid table names and treats a missing declared
+table as empty. The first process materializes `actor_keys/`; the second reads
+the same key back. The parent also asserts every `DOMAIN_TABLE_NAMES` entry
+matches `STORAGE_NAME_RE`.
+
+#### 56.2 Migration surface (C14)
+
+`advanceMigration` already enforced one-phase-at-a-time and `parity.ok===true`,
+but had no production surface. It now has three:
+
+| Surface | Location |
+|---|---|
+| HTTP operator route | `POST /api/metainfer-research-lab/migration/advance`; `ROUTE_POLICY` `operator-token`; handler passes the token actor as `advanceMigration(projectId, body, null, actor)` |
+| `/commands` | `type: 'migration.advance'` with the same result |
+| Agent tool | `ACTION_ENUM`/`AGENT_TOOL_PARAMETERS` action `advance_migration` (`phase`, `parity`, `expertsMode`, `contestMode`, `dispatchStrategy`); `ACTION_CATALOG.advance_migration='control'`; service dispatch uses the tool session actor |
+
+The operator route and agent tool return the same service shape
+(`{ok, projectId, phase, switches:{dispatch,experts,contest}}`). Expert presets
+are refused by both policy (not in any expert allow-list) and the service
+(`forbidden_expert_action`). Phase 2 defaults a `legacy-cycle` project to
+`hierarchy`; missing parity returns `parity_required`.
+
+`hierarchy-selftest.mjs` now drives a phase-1 project through the actual HTTP
+handler with a Host-issued token, asserts the returned shape, then runs the real
+`orchestrator.step` and observes `lab-branch`/`lab-lead` and
+`cycle.hierarchy.l0Trigger='branch_event'`. It also asserts phase 2 without
+parity is refused over HTTP, and that the agent-tool action returns the same
+shape while an expert preset is forbidden.
+
+#### 56.3 Empty-queue auto planning (round-30 blocker)
+
+The old branch paused `idle` before any cycle when there were no running,
+runnable or proposed nodes, so a legacy-cycle project with an empty/completed
+DAG stopped at `cycles:0` without consulting the advisor. `host/auto.js` now
+treats an empty queue as a planning event:
+
+```js
+const empty = running.length === 0 && runnable.length === 0 && proposed.length === 0;
+const shouldPlan = !wipFull && (actionables.length > 0 || trigger.trigger || empty);
+```
+
+The early `pause('idle')` was removed. A completed planning cycle increments
+`idleStreak`; the existing breaker then pauses at
+`auto.idleCycleLimit` with `noProgress`, not before the first cycle. When a
+cycle creates/starts nothing, `status.lastPlanSkip` records the advisor skip
+reason (or `noProposal`), so an empty queue is never silent.
+
+`scripts/auto-wip-selftest.mjs` now covers both an empty legacy queue and an
+all-completed, already-reviewed DAG: the advisor entry is called once, `cycles`
+is 1, `idleStreak` is 1, `pauseReason` is null, and `lastPlanSkip` is the
+explicit reason. The suite is 10/10.
+
+#### 56.4 Live Host probes
+
+A spare Host was started on port 3081 with the real `DSH_HOME=/root/.dsh` and
+`DSH_PROFILE=web` (the live Host on 3080 was not restarted):
+
+```text
+GET /api/metainfer-research-lab/health
+HTTP 200
+{"ok":true,"data":{"name":"metainfer-research-lab","version":"0.11.0",
+ "domain":"metainfer_research_lab_v2","storage":"ready","projects":3,
+ "writes":{"mode":"throw","unpermitted":0,"byOp":{}}}}
+
+POST /api/metainfer-research-lab/migration/advance   (no operator token)
+{"ok":false,"error":{"code":"actor_required", ...}}
+
+POST /api/metainfer-research-lab/migration/advance   (Host token)
+{"ok":false,"error":{"code":"project_not_found",
+ "message":"unknown project: prj-does-not-exist"}}
+```
+
+The 404 on the old 3080 process is the old process, not the new code: it was
+started before this route existed. The spare was stopped after the probes so
+two Hosts do not share the live profile storage. The 3080 health probe remained
+HTTP 200 and the live unit opened with `storage:"ready"`.
+
+#### 56.5 Gates
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1013 `ok`, 0 FAIL |
+| `hierarchy-selftest` | all checks passed (includes 5 new C14 surface checks) |
+| `auto-wip-selftest` | **10/10** |
+| `operator-route-selftest` | **49 route pairs** |
+| `plugin-smoke` | **6/6**, including existing-unit startup/restart |
+| `bench:scale` | **11/11** |
+| `client-smoke` | **45/45** |
+
+Boundary: no Host restart of the live process, no real provider call, and no
+claim that the independent ledger moved. The live project currently parked at
+`pauseReason:'idle'` by the old process needs an explicit `auto_start` after
+the new code is loaded; a Host restart deliberately does not silently resume
+work.

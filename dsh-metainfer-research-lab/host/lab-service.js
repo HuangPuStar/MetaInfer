@@ -1872,9 +1872,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   /** C14: move one phase at a time; phase > 1 requires a passing S14 parity run. */
-  async function advanceMigration(projectId, input = {}, exec = null) {
+  async function advanceMigration(projectId, input = {}, exec = null, actorOverride = null) {
     const project = requireProject(projectId);
-    const actor = exec ? actorFromToolExecution(exec) : { kind: 'human', id: 'operator' };
+    const actor = actorOverride ?? (exec ? actorFromToolExecution(exec) : { kind: 'human', id: 'operator' });
     if (actor.kind === 'expert') return rejection('forbidden_expert_action', 'experts may not advance the migration');
     const target = Number(input.phase);
     if (![1, 2, 3].includes(target)) return rejection('bad_request', 'phase must be 1, 2 or 3');
@@ -5613,6 +5613,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'auto_stop') return autoStop(input?.projectId);
     if (action === 'auto_resume') return autoResume(input?.projectId);
     if (action === 'auto_status') return autoStatus(input?.projectId);
+    if (action === 'advance_migration') return advanceMigration(input?.projectId, input ?? {}, exec);
     if (action === 'runs') return listRuns(input?.projectId, input?.limit);
     if (action === 'runs_page') { requireProject(input?.projectId); return store.pageRuns(input?.projectId, { limit: input?.limit, cursor: input?.cursor }); }
     if (action === 'run') return getRun(input?.projectId, input?.runId);

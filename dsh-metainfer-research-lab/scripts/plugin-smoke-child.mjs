@@ -5,7 +5,7 @@
  * that this process exited without an uncaught exception.
  */
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,7 +13,8 @@ import { apply, name, inject } from '../index.js';
 
 const repoPath = process.env.MIRL_SMOKE_REPO;
 assert.ok(repoPath, 'MIRL_SMOKE_REPO is required');
-const home = await mkdtemp(path.join(os.tmpdir(), 'mirl-smoke-home-'));
+const startupRoot = process.env.MIRL_STARTUP_ROOT;
+const home = startupRoot ?? await mkdtemp(path.join(os.tmpdir(), 'mirl-smoke-home-'));
 process.env.DSH_HOME = home;
 
 let uncaught = null;
@@ -36,6 +37,57 @@ function memoryDomain() {
       };
     },
     close: async () => {},
+  };
+}
+
+/**
+ * Reproduce the real JSON backend's open contract for a startup test: table
+ * names must match UNIT_NAME_RE, and a declared-but-missing table loads empty.
+ * `MIRL_STARTUP_ROOT` points at an existing unit created without actor_keys.
+ */
+function existingUnitDomain(root) {
+  const unitDir = path.join(root, 'storages', 'metainfer_research_lab_v2');
+  return {
+    async open(spec) {
+      if (!/^[a-z][a-z0-9_]*$/.test(spec.name)) throw new Error(`invalid unit name '${spec.name}'`);
+      const names = Object.keys(spec.tables);
+      for (const table of names) {
+        if (!/^[a-z][a-z0-9_]*$/.test(table)) throw new Error(`invalid table name '${table}' in unit '${spec.name}'`);
+      }
+      const tables = new Map();
+      for (const table of names) {
+        const records = new Map();
+        try {
+          for (const file of await readdir(path.join(unitDir, table))) {
+            if (!file.endsWith('.json')) continue;
+            const document = JSON.parse(await readFile(path.join(unitDir, table, file), 'utf8'));
+            if (document?.version === spec.version) records.set(file.slice(0, -5), document.record);
+          }
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+        }
+        tables.set(table, records);
+      }
+      return {
+        table(name) {
+          if (!names.includes(name)) throw new Error(`unit '${spec.name}' does not declare table '${name}'`);
+          const data = tables.get(name);
+          return {
+            get: (key) => data.get(key),
+            entries: () => data.entries(),
+            keys: () => data.keys(),
+            get size() { return data.size; },
+            put: async (key, value) => {
+              data.set(key, value);
+              await mkdir(path.join(unitDir, name), { recursive: true });
+              await writeFile(path.join(unitDir, name, `${key}.json`), JSON.stringify({ version: spec.version, record: value }, null, 2));
+            },
+            delete: async (key) => { data.delete(key); },
+          };
+        },
+        close: async () => {},
+      };
+    },
   };
 }
 
@@ -104,7 +156,7 @@ const ctx = {
   logger: { info() {}, warn() {}, error() {} },
   storageDomain: {
     get: () => undefined,
-    open: async () => memoryDomain(),
+    open: async (spec) => (startupRoot ? (await existingUnitDomain(startupRoot).open(spec)) : memoryDomain()),
   },
   subprocess: subprocessSeam(),
   agents: {
@@ -147,6 +199,17 @@ try {
   assert.equal(name, 'metainfer-research-lab');
   assert.ok(Array.isArray(inject) && inject.includes('storageDomain'));
   await apply(ctx, { kernel: { strictWrites: 'throw' } });
+
+  if (startupRoot) {
+    // The existing unit has no actor_keys directory. The first actor-key put
+    // must materialise the declared table; a second process must read it back.
+    const { issueActorKeyForRegistration, flushActorKeyStore, actorKeyRecords } = await import('../host/kernel/actors.js');
+    issueActorKeyForRegistration({ sessionId: 'startup-probe', projectId: 'prj-startup' });
+    await flushActorKeyStore();
+    const projects = await service.listProjects();
+    process.stdout.write(`${JSON.stringify({ status: 'startup-ok', projects: projects.length, projectIds: projects.map((row) => row.id), keys: actorKeyRecords().length })}\n`);
+    process.exit(0);
+  }
   assert.ok(service, 'apply did not provide metainferLab');
 
   const created = await service.createProject({
@@ -253,7 +316,7 @@ try {
   for (const dispose of disposers.reverse()) {
     try { await dispose(); } catch {}
   }
-  await rm(home, { recursive: true, force: true }).catch(() => {});
+  if (!startupRoot) await rm(home, { recursive: true, force: true }).catch(() => {});
 }
 if (uncaught) {
   process.stderr.write(`uncaught: ${uncaught?.stack ?? uncaught}\n`);

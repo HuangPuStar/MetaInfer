@@ -98,6 +98,7 @@ export const ACTION_CATALOG = Object.freeze({
   auto_start: 'control',
   auto_stop: 'control',
   auto_resume: 'control',
+  advance_migration: 'control',
   dashboard_update: 'control',
   dashboard_refresh: 'control',
   dashboard_chat: 'control',

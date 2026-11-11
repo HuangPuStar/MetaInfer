@@ -43,18 +43,40 @@ export const DOMAIN_VERSION = 2;
 /** Passthrough schema for M1: records are authored and checked by this plugin. */
 const PERMISSIVE = z.any();
 
+// One source of truth for the storage schema. DSH table names must match
+// /^[a-z][a-z0-9_]*$/; declaring `actorKeys` here made the plugin impossible to
+// open (the backend rejects the uppercase K before a single record is read).
+// Keep this list lower_snake_case and derive both the domain descriptor and the
+// runtime table handles from it. Tests assert every entry against this regex so
+// a future table cannot repeat the restart-only failure.
+export const DOMAIN_TABLE_NAMES = Object.freeze([
+  'projects',
+  'nodes',
+  'runs',
+  'cycles',
+  'events',
+  'actor_keys',
+]);
+export const STORAGE_NAME_RE = /^[a-z][a-z0-9_]*$/;
+
+function assertStorageTableNames() {
+  for (const table of DOMAIN_TABLE_NAMES) {
+    if (!STORAGE_NAME_RE.test(table)) {
+      throw new Error(`storage table '${table}' must match ${STORAGE_NAME_RE}`);
+    }
+  }
+}
+assertStorageTableNames();
+
 const DOMAIN_SPEC = {
   name: DOMAIN_NAME,
   version: DOMAIN_VERSION,
   layout: 'per-record',
-  tables: {
-    projects: { valueSchema: PERMISSIVE },
-    nodes: { valueSchema: PERMISSIVE },
-    runs: { valueSchema: PERMISSIVE },
-    cycles: { valueSchema: PERMISSIVE },
-    events: { valueSchema: PERMISSIVE },
-    actorKeys: { valueSchema: PERMISSIVE },
-  },
+  // Forward addition: an existing v2 unit created before a table was declared
+  // has no directory for it. The per-record backend loads a declared-but-missing
+  // table as an empty table, and the first put materialises it; the open path
+  // must therefore never require a freshly-created unit.
+  tables: Object.fromEntries(DOMAIN_TABLE_NAMES.map((table) => [table, { valueSchema: PERMISSIVE }])),
 };
 
 /** The DSH home directory (`$DSH_HOME`, else `~/.dsh`). */
@@ -156,22 +178,15 @@ export async function openStore(ctx, config = {}) {
     ? ctx.storageDomain.get(DOMAIN_NAME)
     : undefined;
   const domain = existing ?? await ctx.storageDomain.open(DOMAIN_SPEC);
-  const tables = {
-    projects: domain.table('projects'),
-    nodes: domain.table('nodes'),
-    runs: domain.table('runs'),
-    cycles: domain.table('cycles'),
-    events: domain.table('events'),
-    actorKeys: domain.table('actorKeys'),
-  };
+  const tables = Object.fromEntries(DOMAIN_TABLE_NAMES.map((table) => [table, domain.table(table)]));
   // B27 restart continuity: the Host actor-key registry lives in the v2 store,
   // not in a process-local Map. Records are key, session id, issuedAt and the
   // project the key was first issued for (null for operator-scoped sessions).
   const actorKeyWrites = new Set();
   configureActorKeyStore({
-    list: () => [...tables.actorKeys.entries()].map(([, value]) => value),
+    list: () => [...tables.actor_keys.entries()].map(([, value]) => value),
     save: (record) => {
-      const write = tables.actorKeys.put(record.key, record);
+      const write = tables.actor_keys.put(record.key, record);
       if (write && typeof write.then === 'function') {
         actorKeyWrites.add(write);
         write.catch(() => {}).finally(() => actorKeyWrites.delete(write));
@@ -800,7 +815,7 @@ export async function openStore(ctx, config = {}) {
       await flushActorKeyStore();
       if (actorKeyWrites.size > 0) await Promise.allSettled([...actorKeyWrites]);
     },
-    listActorKeys: () => [...tables.actorKeys.entries()].map(([, value]) => ({ ...value })),
+    listActorKeys: () => [...tables.actor_keys.entries()].map(([, value]) => ({ ...value })),
     close: async () => {
       await flushActorKeyStore();
       if (actorKeyWrites.size > 0) await Promise.allSettled([...actorKeyWrites]);

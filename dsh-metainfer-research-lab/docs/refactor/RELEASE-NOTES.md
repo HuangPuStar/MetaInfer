@@ -1,5 +1,38 @@
 # v2 发布说明（草稿）
 
+## Round 29/30 hotfix — storage restart + reachable migration/auto
+
+- **Storage restart fixed:** the plugin declared `actorKeys` (uppercase K), which
+  the DSH JSON storage backend rejects; opening the existing
+  `metainfer_research_lab_v2` unit failed with
+  `StorageError: invalid table name 'actorKeys'` and every plugin route was 404.
+  `host/store.js` now derives declaration and runtime handles from
+  `DOMAIN_TABLE_NAMES`, validates every name against `STORAGE_NAME_RE` at module
+  load, and uses `actor_keys`. Forward addition only: an old unit without
+  `actor_keys/` opens empty and the first actor-key put materializes it; no
+  record rewrite or fresh unit is required.
+- **Startup regression:** `plugin-smoke` now boots the real `index.js` twice on an
+  existing v2 fixture without `actor_keys/`, materializes the table, and reads
+  the key back after restart (6/6). The live spare Host on 3081 with the real
+  profile returned `storage:"ready"` and the plugin migration route; it was
+  stopped after probing and the live 3080 process was not restarted.
+- **Migration now reachable:** `POST /migration/advance` is an operator-token
+  route in `ROUTE_POLICY` (49 pairs), and `advance_migration` is an agent-tool
+  action with `phase`/`parity`/`expertsMode`/`contestMode`/`dispatchStrategy`.
+  Both call `advanceMigration` and return the same shape. Phase 2 without
+  `parity.ok===true` is refused; phase 2 from `legacy-cycle` selects `hierarchy`;
+  `hierarchy-selftest` runs the real orchestrator after the HTTP advance and
+  observes the L0/L1 pass. Expert presets are forbidden.
+- **Empty-queue auto fixed:** no more pre-cycle `pause('idle')`. An empty or
+  all-completed legacy DAG gets a planning cycle; `idleStreak` advances only
+  after that cycle, `lastPlanSkip` carries the advisor reason (or `noProposal`),
+  and the breaker pauses at `idleCycleLimit` with `noProgress`. Auto suite 10/10.
+- **Gates:** `npm test` EXIT 0 (1013 ok / 0 FAIL); route 49; plugin 6/6.
+- **Boundary:** no real provider call, no independent ledger movement, and no
+  claim that the old live process already serves the new route. A Host
+  restart/reload is required to load the code; persisted `pauseReason:'idle'`
+  needs one explicit `auto_start`.
+
 ## Round 28 — wiring and real-browser close
 
 - **发布：SHIP（带 Host 重启边界）。** §55：**166 PASS / 0 FAIL / 8 N/A**；8 个 owner-override 行

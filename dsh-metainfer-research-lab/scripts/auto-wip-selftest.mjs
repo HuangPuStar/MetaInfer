@@ -41,7 +41,7 @@ await test('default cap is max(2 * freeSlots, 4)', async () => {
   assert.equal(maxPlannedInFlightOf({ config: { maxRunningNodes: 4, maxPlannedInFlight: 3 } }, { runningCount: 0 }), 3);
 });
 
-async function drive(projectId, count, config = {}, dispatchResult = { started: 0, skipped: [] }, deferred = 0) {
+async function drive(projectId, count, config = {}, dispatchResult = { started: 0, skipped: [] }, deferred = 0, stepResult = null, completed = 0) {
   const store = await openStore(storeContext(memoryDomain()));
   await store.saveProject({
     id: projectId,
@@ -54,6 +54,15 @@ async function drive(projectId, count, config = {}, dispatchResult = { started: 
   });
   for (let index = 0; index < count; index += 1) await store.saveNode(projectId, node(`n${index}`));
   for (let index = 0; index < deferred; index += 1) await store.saveNode(projectId, node(`d${index}`, 'deferred'));
+  for (let index = 0; index < completed; index += 1) {
+    await store.saveNode(projectId, {
+      ...node(`c${index}`),
+      status: 'completed',
+      git: { headCommit: 'same' },
+      review: { reviewedHeadCommit: 'same' },
+      report: { summary: `completed ${index}` },
+    });
+  }
   let steps = 0;
   const kernel = createKernel({ store });
   const auto = createAutoController({
@@ -64,7 +73,7 @@ async function drive(projectId, count, config = {}, dispatchResult = { started: 
     orchestrator: {
       step: async () => {
         steps += 1;
-        return { created: [], started: [], errors: [] };
+        return stepResult ?? { created: [], started: [], errors: [] };
       },
     },
     intervalMs: 60_000,
@@ -86,7 +95,27 @@ await test('a queue over the cap skips the advisor pass', async () => {
 await test('a queue below the cap can plan', async () => {
   const { steps, status } = await drive('p-room', 2);
   assert.equal(steps, 1, 'advisor runs for a two-node queue');
-  assert.equal(status.lastPlanSkip, null);
+  assert.equal(status.lastPlanSkip, 'noProposal', 'a zero-proposal planning pass must say why');
+});
+
+await test('an empty legacy queue gets a planning cycle, not cycle-0 idle', async () => {
+  const skip = [{ stage: 'advisor', reason: 'no completed nodes to review' }];
+  const { steps, status } = await drive('p-empty', 0, { expertsMode: 'legacy-cycle' }, { started: 0, skipped: [] }, 0, { created: [], started: [], errors: [], skipped: skip });
+  assert.equal(steps, 1, 'the planner must be invoked once for an empty queue');
+  assert.equal(status.cycles, 1, 'the cycle counter must show the planner ran');
+  assert.equal(status.idleStreak, 1, 'an empty planning pass is one idle cycle, not a pre-cycle pause');
+  assert.equal(status.pauseReason, null, 'an empty queue must not pause before the idle limit');
+  assert.equal(status.lastPlanSkip, 'no completed nodes to review', 'the planner skip reason must be explicit');
+});
+
+await test('all-completed legacy DAG records an advisor skip instead of idle at cycle 0', async () => {
+  const skip = [{ stage: 'advisor', reason: 'no actionable candidate parents' }];
+  const { steps, status } = await drive('p-complete', 0, { expertsMode: 'legacy-cycle' }, { started: 0, skipped: [] }, 0, { created: [], started: [], errors: [], skipped: skip }, 2);
+  assert.equal(steps, 1, 'the advisor pass must run once');
+  assert.equal(status.cycles, 1, 'cycle 0 must not be skipped');
+  assert.equal(status.idleStreak, 1);
+  assert.equal(status.pauseReason, null, 'idle must not pause before idleCycleLimit');
+  assert.equal(status.lastPlanSkip, 'no actionable candidate parents');
 });
 
 await test('a deterministic dispatch start skips the planner entirely', async () => {

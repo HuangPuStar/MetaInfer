@@ -9,6 +9,8 @@ import { createKernel } from '../host/kernel/instance.js';
 import { createLabService } from '../host/lab-service.js';
 import { createOrchestrator } from '../host/orchestrator.js';
 import { registerAgentTool } from '../host/agent-tool.js';
+import { registerHttpRoutes } from '../host/http.js';
+import { createOperatorAuthority } from '../host/operator-token.js';
 import { listExpertDescriptors, getExpertDescriptor } from '../host/experts/registry.js';
 import {
   HIERARCHY_DESCRIPTORS, HIGH_REVIEW_WINDOW_MS, buildBranchReport, buildHierarchyReview,
@@ -87,9 +89,11 @@ await store.saveProject({
   repo: { path: process.cwd() }, createdAt: 0, updatedAt: 0,
 });
 kernel.load(projectId);
+const operatorAuthority = createOperatorAuthority();
 const service = createLabService({
   ctx: { effect: () => {}, get: () => null, logger: { info() {}, warn() {} } },
   store, kernel, git: null, runtime: null, transcript: null, orchestrator: null, auto: null, cluster: null, clusterAdmin: null,
+  operatorAuthority,
 });
 const visibleToExpert = service.listExperts(projectId, { actor: { kind: 'expert', id: 'lab-advisor' } });
 const visibleToOperator = service.listExperts(projectId, { actor: { kind: 'human', id: 'operator' } });
@@ -99,6 +103,24 @@ const toolCtx = { tools: { register(definition) { toolCtx.tool = definition; ret
 registerAgentTool(toolCtx, service);
 const callTool = async (args, exec) => JSON.parse((await toolCtx.tool.execute(args, exec)).result);
 const humanExec = { agent: { session: { id: 's-human', header: {} } } };
+
+// C14 production surfaces: the same advanceMigration result through the
+// operator-token HTTP route and the agent-tool action.
+const httpHandlers = new Map();
+const disposeHttp = registerHttpRoutes({
+  effect: () => {},
+  connection: { fetch: { register({ path, methods, fetch }) { for (const method of methods) httpHandlers.set(`${method} ${path}`, fetch); return () => {}; } } },
+}, service);
+const callHttp = async (method, routePath, body, token = operatorAuthority.token) => {
+  const handler = httpHandlers.get(`${method} ${routePath}`);
+  if (!handler) throw new Error(`missing handler ${method} ${routePath}`);
+  const response = await handler(new Request(`http://local${routePath}`, {
+    method,
+    headers: { 'content-type': 'application/json', ...(token ? { 'x-metainfer-operator': token } : {}) },
+    body: JSON.stringify(body),
+  }));
+  return response.json();
+};
 
 async function savePending(id, nowAt, extra = {}) {
   await store.saveNode(projectId, {
@@ -228,6 +250,43 @@ const prodCtx = {
   },
 };
 const prodOrch = createOrchestrator({ ctx: prodCtx, store, git: { async commitWorktree() { return { head: 'abc123' }; }, async tagCommit() {} }, runtime: { start: async () => {} }, cluster: null, kernel });
+
+// C14 surface: create a phase-1 project and advance it through the actual
+// operator HTTP route, then run the real orchestrator on the resulting mode.
+const surfaceId = 'migration-surface-p';
+await store.saveProject({
+  id: surfaceId, revision: 0, counters: { eventSeq: 0, nextNodeSeq: 1, nodes: 1 },
+  config: { maxRunningNodes: 2, resourcePools: {}, maxNodes: 100, expertsMode: 'legacy-cycle', migration: { phase: 1 } },
+  repo: { path: process.cwd() }, createdAt: 0, updatedAt: 0,
+});
+kernel.load(surfaceId);
+await kernel.executor.commit(surfaceId, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{ op: 'node.create', node: { id: 'parent', title: 'parent', prompt: 'do parent work', status: 'completed', confidence: 0.4, git: { headCommit: 'abc' }, report: { summary: 'parent done', confidence: 0.4 }, createdBy: 'seed', timestamps: { createdAt: 1, completedAt: 2 } } }],
+});
+const routeAdvance = await callHttp('POST', '/api/metainfer-research-lab/migration/advance', { projectId: surfaceId, phase: 2, parity: { ok: true, fixture: 's14-live' } });
+const routeAdvanceData = routeAdvance.data;
+check('C14 surface: operator HTTP route advances phase 1 -> 2 and returns the service shape', routeAdvanceData?.ok === true && routeAdvanceData.phase === 2 && routeAdvanceData.switches?.experts === 'hierarchy' && service.migrationStatus(surfaceId).switches.experts === 'hierarchy', JSON.stringify(routeAdvance));
+const presetsBeforeSurface = productionPresets.length;
+await prodOrch.step(surfaceId, 'migration-surface-probe');
+const surfacePresets = productionPresets.slice(presetsBeforeSurface);
+const surfaceCycle = store.listCycles(surfaceId, 1)[0];
+check('C14 surface: after advancing, the production orchestrator runs the hierarchy pass', surfacePresets.includes('lab-branch') && surfacePresets.includes('lab-lead') && surfaceCycle?.hierarchy?.l0Trigger === 'branch_event', JSON.stringify({ surfacePresets, hierarchy: surfaceCycle?.hierarchy }));
+
+const noParityId = 'migration-no-parity-p';
+await store.saveProject({ id: noParityId, revision: 0, counters: { eventSeq: 0 }, config: { migration: { phase: 1 } }, repo: { path: process.cwd() }, createdAt: 0, updatedAt: 0 });
+kernel.load(noParityId);
+const noParityHttp = await callHttp('POST', '/api/metainfer-research-lab/migration/advance', { projectId: noParityId, phase: 2, parity: { ok: false } });
+check('C14 surface: phase 2 without parity is refused through HTTP', noParityHttp.data?.ok === false && noParityHttp.data?.error?.code === 'parity_required' && service.migrationStatus(noParityId).phase === 1, JSON.stringify(noParityHttp));
+
+const toolAdvanceId = 'migration-tool-p';
+await store.saveProject({ id: toolAdvanceId, revision: 0, counters: { eventSeq: 0 }, config: { migration: { phase: 1 } }, repo: { path: process.cwd() }, createdAt: 0, updatedAt: 0 });
+kernel.load(toolAdvanceId);
+const toolAdvance = await callTool({ action: 'advance_migration', projectId: toolAdvanceId, phase: 2, parity: { ok: true, fixture: 's14-tool' } }, humanExec);
+const expertAdvance = await callTool({ action: 'advance_migration', projectId: toolAdvanceId, phase: 3, parity: { ok: true } }, chiefExec);
+check('C14 surface: agent tool advances phase 1 -> 2 with the same result shape', toolAdvance.ok === true && toolAdvance.phase === 2 && toolAdvance.switches?.experts === 'hierarchy' && service.migrationStatus(toolAdvanceId).phase === 2, JSON.stringify(toolAdvance));
+check('C14 surface: an expert preset cannot call the migration control action', expertAdvance.ok === false && expertAdvance.error?.code === 'forbidden_action', JSON.stringify(expertAdvance));
+
 const stepped = await prodOrch.step(prodId, 'hierarchy-probe');
 const produced = store.listNodes(prodId).find((node) => node.createdBy === 'lab-lead');
 const prodProject = store.getProject(prodId);

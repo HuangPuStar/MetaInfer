@@ -335,13 +335,16 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     }
     // Unreviewed completed leaves are always worth planning for; queue depth is
     // paced by the low-water trigger so a long-running batch is not replanned
-    // every tick.
-    const shouldPlan = !wipFull && (actionables.length > 0 || trigger.trigger);
+    // every tick. An empty queue is also a planning event, not an immediate
+    // `idle` pause: the advisor/hierarchy pass must get a cycle to decide
+    // whether it has a proposal. Only a completed planning cycle increments
+    // idleStreak, so idleCycleLimit counts real no-proposal passes.
+    const empty = running.length === 0 && runnable.length === 0 && proposed.length === 0;
+    const shouldPlan = !wipFull && (actionables.length > 0 || trigger.trigger || empty);
 
     if (!shouldPlan) {
       if (proposed.length > 0) return waiting(projectId, 'awaitingConfirmation');
       if (runnable.length > 0 && !anyFits(runnable, capacity)) return waiting(projectId, 'capacityFull');
-      if (running.length === 0 && runnable.length === 0) return pause(projectId, 'idle');
       return undefined; // queue is healthy: let dispatchOnce keep the slots full
     }
 
@@ -354,6 +357,14 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       planner.endPlanning({ created: result.created.length, started: result.started.length });
       const progress = result.created.length + result.started.length;
       state.idleStreak = progress === 0 ? state.idleStreak + 1 : 0;
+      if (progress === 0) {
+        const skipped = Array.isArray(result.skipped) ? result.skipped : [];
+        state.lastPlanSkip = skipped.find((row) => row?.stage === 'advisor')?.reason
+          ?? skipped.find((row) => typeof row?.reason === 'string')?.reason
+          ?? 'noProposal';
+      } else {
+        state.lastPlanSkip = null;
+      }
       state.errorStreak = result.errors.length > 0 ? state.errorStreak + 1 : 0;
       const fresh = store.getProject(projectId);
       if (!fresh) return undefined;

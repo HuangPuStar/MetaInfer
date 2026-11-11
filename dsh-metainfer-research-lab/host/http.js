@@ -75,12 +75,13 @@ export const ROUTE_POLICY = Object.freeze([
   Object.freeze({ method: 'POST', path: `${PREFIX}/dashboard/layout`, policy: 'operator-token' }),
   Object.freeze({ method: 'GET', path: `${PREFIX}/execution`, policy: 'read-only' }),
   Object.freeze({ method: 'POST', path: `${PREFIX}/preemption/appeal`, policy: 'operator-token' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/migration/advance`, policy: 'operator-token' }),
   Object.freeze({ method: 'POST', path: `${PREFIX}/commands`, policy: 'operator-token' }),
 ]);
 
 const ROUTE_POLICY_BY_KEY = new Map(ROUTE_POLICY.map((row) => [`${row.method} ${row.path}`, row]));
-if (ROUTE_POLICY.length !== 48 || ROUTE_POLICY_BY_KEY.size !== ROUTE_POLICY.length) {
-  throw new Error('HTTP route policy must contain exactly 48 unique method+path pairs');
+if (ROUTE_POLICY.length !== 49 || ROUTE_POLICY_BY_KEY.size !== ROUTE_POLICY.length) {
+  throw new Error(`HTTP route policy must contain exactly ${ROUTE_POLICY.length} unique method+path pairs`);
 }
 
 /** Backwards-compatible dispute subset, still expressed relative to PREFIX. */
@@ -558,6 +559,13 @@ export function registerHttpRoutes(ctx, service) {
     return ok(await service.appealPreemption(body.projectId, body.nodeId, body, actor));
   });
 
+  route(`${PREFIX}/migration/advance`, ['POST'], async (request, actor) => {
+    const body = await readJsonBody(request);
+    // Same service result shape as the agent-tool action. The route is
+    // operator-token policy: phase 2/3 may not be switched by a model session.
+    return ok(await service.advanceMigration(body.projectId, body, null, actor));
+  });
+
   route(`${PREFIX}/commands`, ['POST'], async (request, actor) => {
     const body = await readJsonBody(request);
     const type = body.type;
@@ -638,6 +646,9 @@ export function registerHttpRoutes(ctx, service) {
     }
     if (type === 'project.step') {
       return ok(await service.step(body.projectId, body.trigger ?? 'manual'));
+    }
+    if (type === 'migration.advance') {
+      return ok(await service.advanceMigration(body.projectId, body, null, actor));
     }
     if (type === 'node.merge') {
       return ok(await service.createMergeNode(body.projectId, body));

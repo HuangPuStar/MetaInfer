@@ -13,6 +13,7 @@
 |---|---|---|---|
 | B4 优先级四元组 + 字典序 | 完成 | `host/kernel/priority.js` `normalizePriority` / `comparePriority` | `kernel-selftest.mjs` |
 | CFS 公平排序、5k 节点只取前 K | 完成 | `priority.js` `fairOrder`（O(n×limit)，一次归一化，无 splice） | `dispatch-selftest.mjs`、`scale-selftest.mjs` |
+| 存储表名 single source + 前向加表 | 完成 | `host/store.js` `DOMAIN_TABLE_NAMES`/`STORAGE_NAME_RE`；`DOMAIN_SPEC.tables` 与 `openStore` 句柄同源；`actor_keys` 为 lower_snake_case；缺失表按空表打开、首次 put materialize | `plugin-smoke.mjs`（旧 v2 unit 无 `actor_keys/` 连续启动两次）、`operator-route-selftest.mjs`、`strict-writes-selftest.mjs` |
 | P1.3 单一提交点 `node.claim`（无 `starting`） | 完成 | `host/kernel/mutations.js` `node.claim`、`host/dispatch/dispatch-once.js` | `dispatch-once-selftest.mjs`、`wiring-selftest.mjs` |
 | 幂等 `idempotencyKey` 重放 | 完成 | `host/kernel/executor.js` `commitLocked` | `kernel-selftest.mjs` |
 | B21 cause 指针随 mutation 传播 | 完成 | `executor.js`（ctx.causeId）、`mutations.js`（`node.causeId`/`lastCauseId`） | `observability-selftest.mjs` |
@@ -34,7 +35,7 @@
 | Q9 review claim（同父提案互斥） | 完成 | `host/orchestrator.js` `claimReview`/`releaseReview`/`reviewClaims` | `review-claims-selftest.mjs` 9/9 |
 | 人类 p0 快路（改优先级立即重排） | 完成 | `lab-service.setNodePriority` 走 `kernel.executor.commit`（`node.setPriority`）；`orchestrator.createChild` 的 `createdBy=user` 默认 `p0/by=human`；HTTP `node.priority`；UI `↑/↓` | `priority-selftest.mjs`（planned 接受；running/completed 返回 `priority_frozen`；人类后继 p0 且 <1 s）；`dispatch-selftest.mjs`（p0→claim 21 ms） |
 | 优先级只允许运行前修改（B7） | 完成 | `lab-service.setNodePriority` + `mutations.js node.setPriority` 双重状态校验；`updateNode` 复用同一提交 | `priority-selftest.mjs`（service、kernel、updateNode 三条路径） |
-| `maxPlannedInFlight` WIP 上限（Q3 机制 B） | 完成 | `host/auto.js` `maxPlannedInFlightOf` 默认 `max(2 × freeSlots, 4)`，项目可显式覆盖；`tickOne` 在队列（runnable + claimed + held）达到上限时跳过 advisor pass，`status.lastPlanSkip='maxPlannedInFlight'`；仍先走确定性 dispatch | `auto-wip-selftest.mjs` 4/4（公式、超限跳过、未超限规划、显式覆盖） |
+| `maxPlannedInFlight` WIP 上限（Q3 机制 B） | 完成 | `host/auto.js` `maxPlannedInFlightOf` 默认 `max(2 × freeSlots, 4)`，项目可显式覆盖；`tickOne` 在队列（runnable + claimed + held）达到上限时跳过 advisor pass，`status.lastPlanSkip='maxPlannedInFlight'`；仍先走确定性 dispatch | `auto-wip-selftest.mjs` 10/10（公式、超限跳过、未超限规划、显式覆盖、空队列/全完成 DAG 规划与 `lastPlanSkip`） |
 | `reservedSlots.p0` | 完成 | `host/dispatch/reservation.js`：默认 0；p0 等待时只允许 `free - reserved` 个非 p0 进入本轮候选，无 p0 时不改变行为；`dispatchOnce` 在 `fairOrder` 之前过滤，仍是投影视图而非第二队列 | `reserved-slots-selftest` 6/6（默认 0、两种配置形状、p0 保留、无 p0 全放行、真实 dispatch 集成） |
 | 项目内 p0 抢占 | 未完成 | 需要 runtime 的 preempt 入口、10 min 受害者选择与 `dispatch/preempt` 策略；当前只有集群级抢占 P3.5.9，默认关闭 | 未接线；不把 `reservedSlots.p0` 当成抢占 |
 
