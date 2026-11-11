@@ -714,81 +714,37 @@ Host `0.8.7-v3`，package `0.9.0`，client 11,603 行；locale 914/914。
 - 原生 composer 直接写 Copilot session，绕过 Host chat 校验；Copilot 的只读保障依赖 preset/工具边界和 prompt，
   仍需实机确认没有 mutation 工具暴露。
 - 持久 Copilot session 的上下文会增长；需要依赖 compaction/预算策略。
-  （**已还债**：见下节「V12 修复：Copilot 会话缺少压缩能力」。）
+  （**已还债**：见下节「V12 补丁：Copilot 会话缺少压缩能力」。）
 
 ### V12 补丁：Copilot 会话缺少压缩能力
 
-**症状**：Copilot 抽屉里的对话从不压缩——长对话不自动压缩，历史一路增长直到 provider 以上下文
-超限拒绝请求。`compaction/*` 事件数为 0。
+**症状**：Copilot 抽屉里的对话从不压缩，历史一路增长直到 provider 报上下文超限。会话日志中
+`compaction/*` 事件数为 0。
 
-> 附注：在本插件当时的架构下 Copilot 是人可驱动的 root 会话，输入 `/compact` 也会被当作普通消息
-> 发给模型；但在 master 的新架构下 Copilot 是 subagent 子会话，DSH **本来就不给 subagent 提供
-> 斜杠命令**，因此 `/compact` 不可达属于框架设计，不是本 PR 的修复目标（见下方「可达性」）。
+**根因**：`dsh-web-app/cordis.patch.yml` 把 host 平面的 `compaction-basic`、`command-compact`、
+`tool-result-pruner` 三行都设为 `disabled: true`，把 compaction 的所有权下放到 agent preset 平面；
+而 `lab-chat` 的 `plugins` 里没有任何 compaction 组。因此该会话既无 `agent/pre-step` 压力压缩，
+也无 `CONTEXT_WINDOW_EXCEEDED` 溢出恢复。
 
-**根因（两层）**
+**修复**：给 `lab-chat` 补上与官方 `dsh-web-app/presets/standard.patch.yml` 同构的 compaction 组
+（`compaction-basic` + `command-compact` + `tool-result-pruner`，`isolate: { compaction: true,
+toolResultPruner: true }`）。`isolate` 不可省——preset registry 的 `leakedServices` 审计会拒绝把
+服务注册进 root realm 的行。
 
-1. **所有权层**：`dsh-web-app/cordis.patch.yml` 把 host 平面的 `compaction-basic`、
-   `command-compact`、`tool-result-pruner` 三行全部 `disabled: true`，将 compaction 的所有权下放
-   到 agent preset 平面。
-2. **漏挂层**：`lab-chat`（项目 Copilot）的 `plugins` 里**没有任何 compaction 组**，于是该会话
-   完全没有压缩能力：没有 `agent/pre-step` 压力压缩，也没有 `CONTEXT_WINDOW_EXCEEDED` 溢出恢复。
+**生效方式**：preset 在 DSH 启动时 eager mount，`mount(ctx, id)` 只做 retain + bind、不重读磁盘，
+所以改完 `presets.patch.yml` **必须重启 `dsh web`**。重启后已有旧会话也会获得新组装（resume 走
+`mount()`，而 `agent-preset/locked` 只在 `select()` 抛出）。
 
-**修复**：给 `lab-chat` 补上与官方 preset 同构的 compaction 组：
+**已知边界**
 
-```yaml
-- id: compaction
-  name: cordis:group
-  group: true
-  isolate: { compaction: true, toolResultPruner: true }
-  config:
-    - id: compaction-basic
-      name: '@deepseek-ai/dsh-compaction-basic'
-    - id: command-compact                 # 仅人可驱动的会话可达
-      name: '@deepseek-ai/dsh-command-compact'
-    - id: tool-result-pruner
-      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
-```
-
-两个硬性理由决定了这个形状：
-
-- `isolate` 不可省：preset registry 的 `leakedServices` 审计拒绝把服务注册进 root realm 的行
-  （`Preset services require isolate realms`，`dsh-agent-preset-registry`）。
-- `command-compact` 必须挂在**组内**（而非同 preset 的兄弟行）：compaction 被隔离后只有同一 realm
-  内才能解析到该服务。DSH 官方的 `standard` / `ptc` / `cordis` / `minimal` 四个 preset 都是这个写法。
-
-**手动 `/compact` 的可达性（不在本修复范围）**
-
-| 会话形态 | 自动压缩 | 手动 `/compact` |
-|---|---|---|
-| 人可驱动的 root 会话 | ✅ | ✅ |
-| subagent 子会话 | ✅ | ❌ DSH 设计如此 |
-
-DSH 对 subagent 会话不提供斜杠命令：原生 composer 的命令目录对它直接返回空
-（`dsh-client-ui-commands`: `if (sessions.subagentAddress(sessionId) !== void 0) return []`），
-后端 `commands/execute` 也以 `session/agent-busy` 拒绝。本插件保留 `command-compact` 只是为了让
-人可驱动的会话（含历史遗留 root Copilot）可用，并保持与官方 preset 同构。
-
-**谁挂、谁不挂**：`lab-chat` / `lab-worker` / `lab-merge` / `lab-dashboard` 都挂 compaction 组
-（都需要自动压缩）。`advisor` / `scheduler` / `gc` 是单轮 `structured_output`，`controller` /
-anchor 从不运行 turn，`lab-intake` 每轮一次性且草稿在 Host——这几类刻意不挂，避免多余摘要请求。
-
-**生效方式：必须重启 `dsh web`**
-
-preset 在 **DSH 启动时** eager mount（`agent-preset-registry` 的 `register()` → `mountPreset()`），
-`mount(ctx, id)` 只做 retain + bind，**不重读磁盘**。所以改完 `presets.patch.yml` 必须重启。
-
-好消息是重启后**已有旧会话也能获得新组装**：resume 走 `mount()`（无 `lastTurn` 限制），而
-`agent-preset/locked` 只在 `select()` 抛出，resume 不经过 `select()`。
-
-**触发阈值与成本（已知边界）**
-
-- 默认 `thresholdRatio = 0.8`。本机模型 `contextWindow = 1,000,000`，故压力阈值约 **800k token**、
-  逐字保留预算约 150k。也就是说一个 600k 量级的长会话**不会**因本修复立刻被压缩——本修复防的是
-  继续增长后撞上限，不是"立即压一次"。
-- 触发时压缩会发起额外摘要请求（`compactionRetries` 默认 1，即最多 2 次），输入约等于被压缩区间、
-  输出上限为 `maxTokens`（默认 65536）。这些 token **不计入项目的 token/cost 预算统计**
-  （`host/auto.js` 只累加 nodes + runs 的 usage），属静默成本。
-- 压缩成功后旧历史被 surface 投影替换，UI 上会折叠较早的消息。
+- **不恢复手动 `/compact`**：master 上 Copilot 是 subagent 子会话，DSH 对 subagent 不提供斜杠命令
+  （`dsh-client-ui-commands`：`if (sessions.subagentAddress(sessionId) !== void 0) return []`；
+  后端 `commands/execute` 亦以 `session/agent-busy` 拒绝）。插件内恢复需 Host 临时 resume 子会话，
+  会与 Manager 的冷恢复争同一写句柄，不在本次范围。
+- **阈值**：默认 `thresholdRatio 0.8`，本机 `contextWindow 1,000,000` → 压力阈值约 800k token。
+  600k 量级的长会话不会立刻被压缩；本修复防的是继续增长后撞上限。
+- **成本**：触发时最多 2 次摘要请求，这些 token 不计入项目 token/cost 预算（`host/auto.js` 只累加
+  nodes + runs 的 usage）。
 
 ### V12 修复：Copilot resume 缺少 provider/model
 

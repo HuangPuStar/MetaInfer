@@ -16,64 +16,7 @@
 | **scheduler** | `lab-scheduler` | 每个 cycle 的 scheduler pass | 一次性 spawn，读完结果即 dispose | 无工具，只有 `structured_output` | `SchedulerOutput` |
 | **controller** | `lab-controller` | 项目创建时创建 root 会话，按需 resume | 项目生命周期 | 无 | 不产生任务输出；项目级 parent（advisor/scheduler 的 parent，冷恢复 sender） |
 | **GC 善后** | `lab-gc` | 节点被确定性终止后（timeout/cancel/异常清理） | 一次性 spawn，异步、不阻塞资源释放 | 只读 fs + `lab_cleanup`（Host 确定性清理工具，仅 GC 可见） | `GCOutput`（postmortem） |
-| **Copilot** | `lab-chat` | 用户打开项目对话抽屉（`project.copilot`） | 每项目多个可 resume 的长期**子会话**（`copilotSessions[]` + `activeCopilotSessionId`），`origin:'subagent'`、由父 controller 驱动 | 只读 fs/fs-search + `lab_project_context`；**compaction 组（自动压缩 + 溢出恢复）** | 纯文本（讨论/分析，不产生结构化任务输出） |
 | **node anchor**（非 LLM 角色） | `lab-controller` | 节点启动时创建 root 会话，按需 resume | 节点生命周期（封存/dispose） | 无 | 不调用 LLM；作为 worker 的 parent 与继续对话 sender；提供 `header.cwd=worktree` 的 sandbox 边界 |
-
-> **compaction 的所有权在 preset 平面**：`dsh-web-app` 把 host 平面的 `compaction-basic`、
-> `command-compact`、`tool-result-pruner` 全部 `disabled: true`，交还给各 preset 自己挂载。
-> 因此 preset 若漏挂 compaction 组，该会话**完全没有压缩能力**：既无 `agent/pre-step` 压力压缩，
-> 也无 `CONTEXT_WINDOW_EXCEEDED` 溢出恢复——历史只增不减，最终在 provider 侧撞上下文上限。
->
-> **挂载形状**（与官方 `dsh-web-app/presets/standard.patch.yml` 一致）：
->
-> ```yaml
-> - id: compaction
->   name: cordis:group
->   group: true
->   isolate: { compaction: true, toolResultPruner: true }
->   config:
->     - id: compaction-basic          # 自动压缩 + 溢出恢复（必需）
->     - id: command-compact           # 人工 /compact（仅人可驱动的会话可达）
->     - id: tool-result-pruner
-> ```
->
-> `isolate` 是硬性要求：preset registry 的 `leakedServices` 审计会拒绝把服务注册进 root realm
-> 的行（"Preset services require isolate realms"）。既然 compaction 必须隔离，`command-compact`
-> 就必须挂在**同一个隔离组内部**才能解析到该服务。
->
-> **关于手动 `/compact` 的可达性**：DSH 对 **subagent 会话**不提供斜杠命令——原生 composer 的
-> 命令目录对 subagent 直接返回空（`dsh-client-ui-commands`: `if (sessions.subagentAddress(sessionId)
-> !== void 0) return []`），后端 `commands/execute` 也会以 `session/agent-busy` 拒绝。因此：
->
-> | 会话形态 | 自动压缩 | 手动 `/compact` |
-> |---|---|---|
-> | 人可驱动的 root 会话 | ✅ | ✅ |
-> | subagent 子会话 | ✅ | ❌（DSH 设计如此；插件内恢复需 Host 临时 resume，见下） |
->
-> 本插件在 `lab-chat` 组里保留 `command-compact`，是为了让**人可驱动的会话**（含历史遗留的
-> root Copilot）获得 `/compact`，并保持与官方 preset 同构；它并不解除 subagent 会话的上述限制。
->
-> 若确实要在 subagent Copilot 上恢复手动 `/compact`，插件内并非无解——客户端 contribution 通道
-> 对 subagent 是开放的（`commandUi` 的 `candidates()` 会无条件合并 contribution，`matchEnter()`
-> 优先匹配 contribution）。但执行端必须由 Host 自己把子会话 `resume` 成 agent（`commands/execute`
-> 的 Remote 路径对 subagent 一律 `session/agent-busy`），这会与 DSH Manager 的冷恢复竞争同一个
-> 会话写句柄。该改动**不在本次修复范围内**，需要单独评估与跟踪。
->
-> **谁挂、谁不挂**：`lab-chat` / `lab-worker` / `lab-merge` / `lab-dashboard` 都挂 compaction 组
-> （都需要自动压缩）。以下 preset 刻意不挂：
->
-> - **单轮 `structured_output`**：advisor / scheduler / gc —— 一次 spawn 输出一个结构化结果即结束，
->   挂压缩只会多一次摘要请求。
-> - **从不运行 turn 的会话**：`controller`（项目级 parent / 冷恢复 sender）与 anchor —— 它们不
->   执行任务、不产生会被压缩的历史。
-> - **`lab-intake`**：每个用户轮次一个一次性子会话，草稿保存在 Host，历史不在会话内累积。
->
-> `tests/copilot-compaction.test.mjs` 锁定上述分工。
->
-> **一个容易误读的点**：`isolate` 只管**服务可见性**（`compaction` / `toolResultPruner`），
-> 不会隔离事件监听器。`compaction-basic` 的 4 个 `ctx.on`（`agent/pre-step`、`agent/status`、
-> `session/event`、`agent/request-error`）之所以只对本 preset 的 agent 生效，是因为它们注册在
-> 该 agent 的 ctx 上（cordis scope carrier），而不是因为 `isolate`。
 
 设计要点：
 
