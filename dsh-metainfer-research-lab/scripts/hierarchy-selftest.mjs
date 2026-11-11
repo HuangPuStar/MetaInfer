@@ -15,6 +15,7 @@ import { createOperatorAuthority } from '../host/operator-token.js';
 import { listExpertDescriptors, getExpertDescriptor } from '../host/experts/registry.js';
 import {
   HIERARCHY_DESCRIPTORS, HIGH_REVIEW_WINDOW_MS, BRANCH_REPORT_SCHEMA, buildBranchReport, buildHierarchyReview,
+  buildBranchCandidateQueue, candidateNoProposalReason, candidateSkipReason,
   chiefActivationMetrics, chiefPolicy, childVoteWeight, escalationQuota, escalationRate, filterVisibleExperts, groupCount,
   validateChiefDecision, validateEvidencePointers, validateHierarchyReview,
 } from '../host/experts/hierarchy.js';
@@ -147,6 +148,37 @@ badBranch.compression.perLayer[0].ratio = 1;
 check('Q8: a branch layer below 3x is rejected instead of skipped', validateHierarchyReview(badBranch, nodes).some((error) => error.includes('branch compression')), JSON.stringify(validateHierarchyReview(badBranch, nodes)));
 check('Q8: a chief layer below 3x is rejected', validateHierarchyReview(broken, nodes).some((error) => error.includes('chief compression')), JSON.stringify(validateHierarchyReview(broken, nodes)));
 check('Q8: a chief decision needs verified raw evidence', validateChiefDecision({ action: 'keep', verifiedEvidence: [], evidenceChain: [{ nodeId: 'b4', field: 'report.summary', quote: 'evidence' }] }, nodes).some((error) => error.includes('verifiedEvidence')) && validateChiefDecision({ action: 'keep', verifiedEvidence: [{ nodeId: 'b4', field: 'report.summary', quote: 'verified summary' }], evidenceChain: [{ nodeId: 'b4', field: 'report.summary', quote: 'verified summary' }] }, nodes).length === 0, JSON.stringify(validateChiefDecision({ action: 'keep', verifiedEvidence: [], evidenceChain: [] }, nodes)));
+
+// Round 33 candidate identity is structural: editing prose must not make the
+// same candidate look new, and exhaustion must have a named reason.
+const candidateShapeRun = (id, titleA, titleB) => ({
+  id, role: 'branch', status: 'completed', lens: 'n-0003', startedAt: Number(id.slice(1)) || 1,
+  endedAt: 2,
+  output: {
+    branchId: 'n-0003', health: 'watch', candidates: [
+      { nodeId: 'n-0001', kind: 'optimization', priority: 'p1', title: titleA },
+      { nodeId: 'n-0002', kind: 'optimization', priority: 'p1', title: titleB },
+    ],
+  },
+});
+const candidateQueueA = buildBranchCandidateQueue({ project: {}, runs: [candidateShapeRun('r1', 'prefetch A', 'bandwidth A')] });
+const candidateQueueB = buildBranchCandidateQueue({ project: {}, runs: [candidateShapeRun('r1', 'prefetch wording changed', 'bandwidth wording changed')] });
+check('Round 33: candidate identity ignores prose edits', candidateQueueA.candidates.map((row) => row.candidateId).join(',') === candidateQueueB.candidates.map((row) => row.candidateId).join(','), JSON.stringify({ a: candidateQueueA.candidates.map((row) => row.candidateId), b: candidateQueueB.candidates.map((row) => row.candidateId) }));
+const candidateConsumedQueue = buildBranchCandidateQueue({
+  project: { candidateConsumptions: candidateQueueA.candidates.map((row) => ({ candidateId: row.candidateId, nodeId: 'x' })) },
+  runs: [candidateShapeRun('r1', 'a', 'b')],
+});
+check('Round 33: every consumed candidate yields an explicit stop reason', candidateSkipReason(candidateConsumedQueue, { events: 0 }) === 'all branch-report candidates consumed', candidateSkipReason(candidateConsumedQueue, { events: 0 }));
+const lowConfidenceQueue = buildBranchCandidateQueue({
+  project: {},
+  runs: [{ id: 'r-low', role: 'branch', status: 'completed', lens: 'n-0003', startedAt: 1, output: { branchId: 'n-0003', reasonCodes: ['low_confidence'], candidates: [{ nodeId: 'n-0001', kind: 'retry', title: 'retry' }] } }],
+});
+check('Round 33: low-confidence-only queues name the reason', /low-confidence candidates only/.test(candidateNoProposalReason(lowConfidenceQueue) ?? ''), candidateNoProposalReason(lowConfidenceQueue));
+const failedReportQueue = buildBranchCandidateQueue({
+  project: {},
+  runs: [{ id: 'r-fail', role: 'branch', status: 'failed', lens: 'n-0003', startedAt: 1, error: 'stream timeout' }],
+});
+check('Round 33: a failed branch report names the failure instead of claiming no event', candidateSkipReason(failedReportQueue, { events: 1 }) === 'blocked by failed branch report', candidateSkipReason(failedReportQueue, { events: 1 }));
 
 // Production service fixture for high-review windows and migration switches.
 const store = await openStore(storeContext(memoryDomain()));
@@ -317,12 +349,35 @@ const prodCtx = {
       assertModelSchema(spec.request.outputSchema, preset.replace('lab-', ''));
       const promptText = spec.request.prompt?.[0]?.text ?? '';
       const branchId = /^mirl-branch-(.+?)\//.exec(spec.request.label ?? '')?.[1] ?? 'parent';
-      const leadMatch = /# Branch reports\n(\[.*?\])\n\n# Review tree/s.exec(promptText);
-      const leadParent = leadMatch ? JSON.parse(leadMatch[1])[0]?.branchId ?? 'parent' : 'parent';
+      const section = (title) => {
+        const marker = `# ${title}\n`;
+        const start = promptText.indexOf(marker);
+        if (start < 0) return null;
+        const rest = promptText.slice(start + marker.length);
+        const end = rest.search(/\n\n# /);
+        return (end < 0 ? rest : rest.slice(0, end)).trim();
+      };
+      const reports = JSON.parse(section('Branch reports') ?? '[]');
+      const candidateSection = JSON.parse(section('Pending branch-report candidates') ?? '[]');
+      const candidates = Array.isArray(candidateSection) ? candidateSection : (candidateSection.candidates ?? []);
+      const leadParent = reports[0]?.branchId ?? 'parent';
       const structured = preset === 'lab-branch'
         ? { branchId, health: 'watch', verified: [], ruledOut: [], candidates: [], escalate: true, reasonCodes: ['low_confidence'], evidence: [{ nodeId: branchId, field: 'report.summary', quote: 'done' }] }
         : preset === 'lab-lead'
-          ? { analysis: 'lead', needUserDecision: false, proposals: [{ parentId: leadParent, title: 'child', prompt: 'do child work', rationale: 'r', timeboxMinutes: 5 }] }
+          ? {
+              analysis: 'lead',
+              needUserDecision: false,
+              proposals: candidates.length > 0
+                ? candidates.slice(0, 4).map((candidate) => ({
+                    parentId: candidate.sourceNodeId ?? candidate.branchId,
+                    title: `child for ${candidate.kind} ${candidate.sourceNodeId ?? candidate.branchId}`,
+                    prompt: `do child work for ${candidate.sourceNodeId ?? candidate.branchId} ${candidate.kind} ${candidate.candidateId}`,
+                    rationale: 'r',
+                    timeboxMinutes: 5,
+                    candidateId: candidate.candidateId,
+                  }))
+                : [{ parentId: leadParent, title: 'child', prompt: 'do child work', rationale: 'r', timeboxMinutes: 5 }],
+            }
           : preset === 'lab-chief'
             ? { decision: 'keep', reasonCode: 'low_confidence', verifiedEvidence: [], evidenceChain: [] }
             : { analysis: 'x', proposals: [] };
@@ -429,6 +484,59 @@ if (process.env.MIRL_EVIDENCE === '1') {
   console.log(`evidence three-branch cycle: ${JSON.stringify({ branchReports: threeReports.map((entry) => entry.branchId), leadRunId: threeCycle?.leadRunId, created: threeStep.created, skipped: threeCycle?.skipped })}`);
 }
 
+// Round 33: an all-completed project with four unconsumed candidates in an
+// existing BranchReport must plan without a new branch event, record which
+// candidates the lead consumed, and then stop with a named reason instead of
+// re-proposing the same four forever.
+const candidateId = 'round33-p';
+await store.saveProject({
+  id: candidateId, name: 'round33-candidates', brief: 'candidate consumption loop', revision: 0,
+  counters: { eventSeq: 0, nextNodeSeq: 6, nodes: 5 },
+  config: {
+    maxRunningNodes: 2, resourcePools: {}, maxNodes: 20, expertsMode: 'hierarchy', migration: { phase: 2 },
+    advisor: { maxProposalsPerPass: 4, maxProposalsPerReviewer: 4, ancestorDepth: 1, acceptMode: 'confirm', maxPendingProposals: 8, timeoutSeconds: 60, reviewers: [] },
+    auto: { maxCycles: 2 },
+  },
+  branchReviews: ['n-0003:completed:5', 'n-0001:completed:1', 'n-0002:completed:2', 'n-0004:completed:4', 'n-0005:completed:6'].map((eventKey) => ({ eventKey })),
+  repo: { path: process.cwd(), worktreeRoot: '/tmp/hierarchy-round33-wt', baseBranch: 'main', baseCommit: 'base' },
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(candidateId);
+const round33Nodes = [
+  { id: 'n-0003', title: 'decode branch', prompt: 'decode work', status: 'completed', git: { headCommit: 'head-3' }, report: { summary: 'branch root done', confidence: 0.7 }, createdBy: 'seed', timestamps: { createdAt: 0, completedAt: 5 } },
+  { id: 'n-0001', title: 'prefetch', prompt: 'prefetch work', parentId: 'n-0003', status: 'completed', git: { headCommit: 'head-1' }, report: { summary: 'prefetch done', confidence: 0.7 }, createdBy: 'seed', timestamps: { createdAt: 1, completedAt: 1 } },
+  { id: 'n-0002', title: 'bandwidth', prompt: 'bandwidth work', parentId: 'n-0003', status: 'completed', git: { headCommit: 'head-2' }, report: { summary: 'bandwidth done', confidence: 0.7 }, createdBy: 'seed', timestamps: { createdAt: 2, completedAt: 2 } },
+  { id: 'n-0004', title: 'triton', prompt: 'triton work', parentId: 'n-0003', status: 'completed', git: { headCommit: 'head-4' }, report: { summary: 'triton done', confidence: 0.7 }, createdBy: 'seed', timestamps: { createdAt: 4, completedAt: 4 } },
+  { id: 'n-0005', title: 'tilelang', prompt: 'tilelang work', parentId: 'n-0003', status: 'completed', git: { headCommit: 'head-5' }, report: { summary: 'tilelang done', confidence: 0.7 }, createdBy: 'seed', timestamps: { createdAt: 6, completedAt: 6 } },
+];
+await kernel.executor.commit(candidateId, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: round33Nodes.map((node) => ({ op: 'node.create', node })),
+});
+const round33Candidates = [
+  { nodeId: 'n-0001', kind: 'optimization', title: 'KV cache double-buffered prefetch', priority: 'p1', rationale: 'hide copy latency' },
+  { nodeId: 'n-0002', kind: 'optimization', title: 'output write bandwidth', priority: 'p1', rationale: 'raise stores per cycle' },
+  { nodeId: 'n-0004', kind: 'optimization', title: 'per-CU residency and occupancy', priority: 'p2', rationale: 'BM=64 BN=64 threads=512' },
+  { nodeId: 'n-0005', kind: 'comparison', title: 'Triton versus TileLang comparison', priority: 'p2', rationale: 'missing comparison' },
+];
+await store.saveRun(candidateId, {
+  id: 'run-round33-branch', projectId: candidateId, role: 'branch', lens: 'n-0003', status: 'completed',
+  startedAt: 100, endedAt: 101, output: {
+    branchId: 'n-0003', health: 'watch', verified: [], ruledOut: [], candidates: round33Candidates,
+    escalate: false, reasonCodes: [], evidence: [{ nodeId: 'n-0003', field: 'report.summary', quote: 'branch root done' }],
+  },
+});
+const round33Step = await prodOrch.step(candidateId, 'round33-candidate-probe');
+const round33Cycle = store.listCycles(candidateId, 1)[0];
+const round33Project = store.getProject(candidateId);
+const round33New = store.listNodes(candidateId).filter((node) => node.createdBy === 'lab-lead');
+check('Round 33: all-completed project with four unconsumed candidates plans without a branch event', round33Step.created.length === 4 && round33Cycle?.candidates?.considered === 4 && round33Cycle?.candidates?.pending === 0 && round33Cycle?.candidates?.consumedThisCycle === 4, JSON.stringify({ created: round33Step.created, candidates: round33Cycle?.candidates, skipped: round33Cycle?.skipped, errors: round33Cycle?.errors }));
+check('Round 33: consumption is recorded by candidate id and node cause, not title text', round33Project?.candidateConsumptions?.length === 4 && round33New.every((node) => typeof node.candidateId === 'string' && node.candidateId.startsWith('cand:n-0003:')), JSON.stringify({ consumptions: round33Project?.candidateConsumptions, nodes: round33New.map((node) => [node.id, node.candidateId]) }));
+const round33BeforeSecond = productionPresets.length;
+const round33Second = await prodOrch.step(candidateId, 'round33-candidate-probe-2');
+const round33SecondCycle = store.listCycles(candidateId, 1)[0];
+const round33SecondPresets = productionPresets.slice(round33BeforeSecond);
+check('Round 33: a consumed queue stops with a named reason instead of re-running the lead', round33SecondPresets.includes('lab-lead') === false && round33Second.created.length === 0 && round33SecondCycle?.leadRunId == null && round33SecondCycle?.candidates?.skipReason === 'all branch-report candidates consumed' && round33SecondCycle?.candidates?.pending === 0 && round33SecondCycle?.skipped?.some((row) => row.stage === 'advisor' && row.reason === 'all branch-report candidates consumed'), JSON.stringify({ presets: round33SecondPresets, created: round33Second.created, cycle: round33SecondCycle?.candidates, skipped: round33SecondCycle?.skipped }));
 const budgetId = 'prod-budget';
 await store.saveProject({
   id: budgetId, name: 'budget', brief: 'budget probe', revision: 0,

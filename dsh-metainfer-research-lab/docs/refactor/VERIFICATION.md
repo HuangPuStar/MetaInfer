@@ -7590,3 +7590,140 @@ Boundary: no external model call; the three-branch cycle uses the production
 orchestrator with a schema/preset-enforcing test double. A Host restart is
 required to load the new `presets.patch.yml` rows; this session did not restart
 the live 3080 Host.
+
+### 59. Round 33 — planning continues while BranchReport candidates are unconsumed
+
+#### 59.1 Exact blocker
+
+The live phase-2 project `prj-421b80bf` had all branch events consumed and the
+auto driver reported:
+
+```text
+auto=paused cycles=3 idle=3 lastPlanSkip="no completed/failed branch event"
+```
+
+`runHierarchyPass` returned early whenever `review.branchEvents.length === 0`,
+so `auto` could do one hierarchy optimization and then park even though stored
+BranchReports still carried explicit candidates. This is the “no upper bound”
+optimization loop failing at its only planning trigger.
+
+#### 59.2 Trigger and queue
+
+`host/experts/candidates.js` builds a deterministic queue from every successful
+`role:'branch'` run:
+
+| Field | Source |
+|---|---|
+| `branchId` | `run.lens` (fallback `run.output.branchId`) |
+| `sourceNodeId` | candidate `nodeId` / `targetNodeId` / `sourceNodeId` / `parentId` |
+| `kind` | candidate `kind` / `action` / fallback |
+| `priority`, `action` | structural candidate fields |
+| `signature`, `candidateId` | branch + source + kind + priority + action + ordinal |
+| `reportRunId`, `lowConfidence` | branch run and its `reasonCodes` |
+
+Titles, rationales and other prose are carried for the lead prompt only. They
+are not part of identity, so a model rewording a candidate cannot resurrect it.
+A second report for the same branch is merged rather than replacing older
+candidates; identical structural shapes collapse to the same `candidateId`.
+
+`runHierarchyPass` now:
+
+1. builds the queue before deciding to skip;
+2. plans when `events.length > 0` **or** `queue.pendingCount > 0`;
+3. with no fresh event, reuses the stored successful reports for L1 instead of
+   returning early;
+4. records `cycle.hierarchy.planTrigger` = `branch_event` / `candidate_queue` /
+   `noop`;
+5. records `cycle.candidates = {considered, consumed, consumedThisCycle,
+   pending, skipped, lowConfidence, reports, failedReports, eventCount,
+   skipReason}` (also aliased as `cycle.candidateStats`).
+
+`auto` calls `orchestrator.pendingCandidateCount(projectId)` and adds
+`pendingCandidates > 0` to its `shouldPlan` decision, so a pending candidate
+plans even when a node is running and there is no actionable leaf. The WIP cap
+still wins when `maxPlannedInFlight` is reached.
+
+#### 59.3 Consumption by cause/lineage
+
+`ADVISOR_SCHEMA` accepts an optional `candidateId`. The lead prompt lists the
+pending candidates with their ids and asks the lead to echo the id it is
+materializing. `applyAdvisorOutput` validates the explicit id against the
+pending queue and rejects an unknown one with `candidate_not_pending`.
+
+If the lead omits the id, the Host binds by lineage: the candidate's
+`sourceNodeId` must be the parent or an ancestor (walking `parentId`/`parentIds`),
+else by the parent's branch root. No title or prompt text is compared.
+
+When the node is created, the same Host commit writes:
+
+```js
+project.candidateConsumptions.push({
+  candidateId, branchId, sourceNodeId, kind, nodeId, runId, consumedAt,
+});
+```
+
+and emits `review/candidate_consumed`; the node itself carries `candidateId`.
+The queue treats the candidate as consumed only if that durable record exists.
+The record cap is 5,000.
+
+#### 59.4 Named stop reasons
+
+`candidateSkipReason` and `candidateNoProposalReason` return explicit strings:
+
+```text
+all branch-report candidates consumed
+low-confidence candidates only (N); lead produced no proposal
+blocked by failed branch report
+blocked by failed lead run; N candidate(s) pending
+branch reports contain no candidates
+no completed/failed branch event and no branch report
+```
+
+`auto` reads `result.cycle.candidates.skipReason` first, then the legacy
+`skipped` rows, so `lastPlanSkip` can no longer say “no completed/failed branch
+event” while candidates are waiting.
+
+#### 59.5 Regression
+
+`hierarchy-selftest.mjs` seeds an all-completed n-0003 branch subtree with one
+stored BranchReport containing four candidates. It asserts:
+
+- first cycle: 4 lead children created, `considered:4`, `consumedThisCycle:4`,
+  `pending:0`, 4 `candidateConsumptions`, every node has the matching
+  `candidateId`;
+- second cycle: no `lab-lead` activation, `pending:0`, and the explicit
+  `all branch-report candidates consumed` reason;
+- prose edits do not change candidate ids;
+- low-confidence-only and failed-report queues name their specific reasons;
+- `auto-wip-selftest.mjs` plans from `pendingCandidateCount()` with no actionable
+  leaf and a non-empty/running queue, and uses the cycle candidate reason for
+  `lastPlanSkip`.
+
+#### 59.6 Live read-only audit
+
+Reading the persisted `prj-421b80bf` project/runs/nodes without restarting the
+Host produced:
+
+```text
+considered=11 pending=11 consumed=0 reports=3 failedReports=3
+pending branches: n-0001, n-0002, n-0003
+n-0003 candidates:
+  Q 复用 / KV 预取双缓冲 / 输出写带宽 / 提高每 CU 驻留块数 / Triton L2 相对性能对比
+```
+
+The owner-named n-0003 optimization directions are present (plus the Triton L2 comparison). This is
+a read-only audit of stored records; no model call, cycle, or Host restart was
+performed.
+
+#### 59.7 Gates
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1041 `ok`, 0 FAIL |
+| `hierarchy-selftest` | all checks passed (candidate identity, reasons, 4-candidate cycle) |
+| `auto-wip-selftest` | 12/12 |
+| `plugin-smoke` | 6/6 |
+
+Boundary: no external model call; live 3080 was not restarted. The new code
+requires a Host restart/reload before the paused live project can plan from its
+existing candidates.

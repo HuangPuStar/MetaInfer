@@ -20,6 +20,7 @@ import { createLedgerReader } from './context/ledger.js';
 import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
 import { baselineFor, normalizeExpected } from './kernel/prediction.js';
 import { BRANCH_REPORT_SCHEMA, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
+import { MAX_CONSUMPTIONS, buildBranchCandidateQueue, candidateNoProposalReason, candidateSkipReason, candidateStats } from './experts/candidates.js';
 import { assertModelSchema } from './schema-check.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
@@ -79,6 +80,10 @@ const ADVISOR_SCHEMA = {
         type: 'object',
         properties: {
           parentId: { type: 'string' },
+          // Round 33: the lead echoes the Host-derived id of a branch-report
+          // candidate it is materializing. Optional for ordinary advisor
+          // proposals; hierarchy candidates without it fall back to lineage.
+          candidateId: { type: 'string' },
           title: { type: 'string' },
           prompt: { type: 'string' },
           needs: {
@@ -192,15 +197,36 @@ function branchPrompt(project, event, report) {
   ].join('\n');
 }
 
-function leadPrompt(project, review, branchRuns) {
+function leadPrompt(project, review, branchRuns, pendingCandidates = []) {
+  // Keep the prompt bounded even when a long-running project has hundreds of
+  // historical candidates. The queue itself is not truncated; the lead handles
+  // the first deterministic slice and the next cycle sees the rest.
+  const visible = pendingCandidates.slice(0, 24);
+  const candidates = visible.map((candidate) => ({
+    candidateId: candidate.candidateId,
+    branchId: candidate.branchId,
+    sourceNodeId: candidate.sourceNodeId,
+    kind: candidate.kind,
+    priority: candidate.priority,
+    title: candidate.title,
+    detail: candidate.detail,
+    needs: candidate.needs,
+    expected: candidate.expected,
+    lowConfidence: candidate.lowConfidence,
+  }));
   return [
-    'You are the L1 lead. Use the bounded L0 BranchReports to materialize the next useful nodes.',
+    'You are the L1 lead. Use the bounded L0 BranchReports and the pending candidate queue to materialize the next useful nodes.',
     'Create at most one successor per completed leaf. Return proposals with parentId, title, prompt, rationale.',
+    'If a proposal implements one of the pending branch-report candidates, set candidateId to that exact id.',
+    'A candidate is consumed only when the Host creates its node; repeating the same candidate without creating a node is useless.',
     'Escalate an exception instead of silently guessing; the chief is invisible to peers.',
     `Budget: at most ${ROLE_BUDGETS.lead.maxQueries} read calls; finish within 90 seconds.`,
     '',
     '# Branch reports',
     JSON.stringify(branchRuns),
+    '',
+    '# Pending branch-report candidates',
+    JSON.stringify({ shown: candidates.length, omitted: Math.max(0, pendingCandidates.length - candidates.length), candidates }),
     '',
     '# Review tree',
     JSON.stringify({ branchCount: review.branchCount, activeBranchCount: review.activeBranchCount, groupedTeams: review.groupedTeams, escalations: review.escalations }),
@@ -715,6 +741,30 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     }], { causeId: `seal:${parent.id}` });
   }
 
+  /**
+   * Round 33: consume a branch-report candidate in the same Host commit that
+   * creates its node. Recording the nodeId is the cause/lineage link; no text
+   * comparison is involved.
+   */
+  function candidateConsumptionMutation(project, meta, nodeId) {
+    if (!meta?.candidateId) return null;
+    const record = {
+      candidateId: meta.candidateId,
+      branchId: meta.candidate?.branchId ?? null,
+      sourceNodeId: meta.candidate?.sourceNodeId ?? null,
+      kind: meta.candidate?.kind ?? null,
+      nodeId,
+      runId: meta.runId ?? null,
+      consumedAt: Date.now(),
+    };
+    return {
+      op: 'project.update',
+      set: { candidateConsumptions: [...(project.candidateConsumptions ?? []), record].slice(-MAX_CONSUMPTIONS) },
+      eventType: 'review/candidate_consumed',
+      eventData: record,
+    };
+  }
+
   /** Create a `proposed` node (confirm mode): no worktree, parent stays unfrozen. */
   async function createProposed(project, parent, spec, meta) {
     const pending = store.listNodes(project.id).filter((node) => node.status === 'proposed');
@@ -735,6 +785,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       parentId: parent.id,
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
+      ...(meta.candidateId ? { candidateId: meta.candidateId } : {}),
       ...(meta.reviewLevel ? { reviewLevel: meta.reviewLevel, ratifiedBy: null } : {}),
       ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
       ...(meta.expected ? { expected: meta.expected, expectedBaseline: meta.expectedBaseline ?? null } : {}),
@@ -789,13 +840,16 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       target: { nodeId, parentId: parent.id },
       rationale: meta.rationale ?? null,
     });
-    const result = await commitMutations(project.id, [{
+    const mutations = [{
       op: 'node.create',
       node,
       counters,
       eventType: 'node/proposed',
       eventData: { title: node.title, parentId: parent.id, createdBy: node.createdBy, timeboxMinutes: spec.timeboxMinutes },
-    }, intentMutation(proposalIntent)], { causeId: `intent:${proposalIntent.id}` });
+    }, intentMutation(proposalIntent)];
+    const consumption = candidateConsumptionMutation(project, meta, nodeId);
+    if (consumption) mutations.push(consumption);
+    const result = await commitMutations(project.id, mutations, { causeId: `intent:${proposalIntent.id}` });
     if (result.ok !== true) throw new LabError(result.code ?? 'commit_failed', result.message ?? 'proposal commit failed', 500);
     return store.getNode(project.id, nodeId);
   }
@@ -824,6 +878,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       parentId: parent.id,
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
+      ...(meta.candidateId ? { candidateId: meta.candidateId } : {}),
       ...(meta.reviewLevel ? { reviewLevel: meta.reviewLevel, ratifiedBy: null } : {}),
       ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
       ...(meta.expected ? { expected: meta.expected, expectedBaseline: meta.expectedBaseline ?? null } : {}),
@@ -893,14 +948,50 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         eventData: { leadId: meta.escalation.leadId, branchId: meta.escalation.branchId, codes: meta.escalation.codes, epoch: meta.escalation.epoch },
       });
     }
+    const consumption = candidateConsumptionMutation(project, meta, nodeId);
+    if (consumption) mutations.push(consumption);
     await commitMutations(project.id, mutations, { causeId: `create:${nodeId}` });
 
     await sealParent(project, parent, head);
     return store.getNode(project.id, nodeId);
   }
 
-  async function applyAdvisorOutput(projectId, cycle, output) {
-    const applied = { createdNodeIds: [], rejected: [] };
+  /**
+   * Round 33: bind a proposal to a pending branch-report candidate. The lead is
+   * asked to echo candidateId. If it omits it, use node lineage (a candidate
+   * whose source node is the parent or an ancestor), then the parent's branch.
+   * No title/prompt text comparison is used.
+   */
+  function candidateForProposal(proposal, parent, nodes, pendingCandidates) {
+    const explicit = typeof proposal?.candidateId === 'string' ? proposal.candidateId.trim() : '';
+    if (explicit) {
+      const candidate = pendingCandidates.find((row) => row.candidateId === explicit);
+      return candidate ? { candidate, explicit: true } : { candidate: null, explicit: true, unknown: explicit };
+    }
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const ancestry = new Set();
+    const stack = [parent];
+    while (stack.length > 0) {
+      const cursor = stack.pop();
+      if (!cursor?.id || ancestry.has(cursor.id)) continue;
+      ancestry.add(cursor.id);
+      const parentIds = Array.isArray(cursor.parentIds) && cursor.parentIds.length > 0
+        ? cursor.parentIds
+        : (cursor.parentId ? [cursor.parentId] : []);
+      for (const parentId of parentIds) {
+        const ancestor = byId.get(parentId);
+        if (ancestor) stack.push(ancestor);
+      }
+    }
+    const lineageMatch = pendingCandidates.find((row) => row.sourceNodeId && ancestry.has(row.sourceNodeId));
+    if (lineageMatch) return { candidate: lineageMatch, explicit: false };
+    const branchId = branchIdOf(parent.id, byId);
+    const branchMatch = pendingCandidates.find((row) => row.branchId === branchId);
+    return { candidate: branchMatch ?? null, explicit: false };
+  }
+
+  async function applyAdvisorOutput(projectId, cycle, output, pendingCandidates = []) {
+    const applied = { createdNodeIds: [], rejected: [], consumedCandidateIds: [] };
     if (!output || typeof output !== 'object') {
       applied.rejected.push({ reason: 'advisor run had no structured output' });
       return applied;
@@ -943,6 +1034,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       for (const proposal of extra) {
         applied.rejected.push({ parentId: proposal?.parentId ?? null, title: proposal?.title ?? null, reason: `maxProposalsPerPass=${max}` });
       }
+      let availableCandidates = [...pendingCandidates];
       for (const [proposalIndex, proposal] of proposals.slice(0, max).entries()) {
         project = requireProject(projectId);
         const nodes = store.listNodes(projectId);
@@ -964,6 +1056,17 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           });
           continue;
         }
+        const candidateSelection = candidateForProposal(proposal, check.parent, nodes, availableCandidates);
+        if (candidateSelection.unknown) {
+          applied.rejected.push({
+            parentId: proposal?.parentId ?? null,
+            title: proposal?.title ?? null,
+            reason: `candidateId ${candidateSelection.unknown} is not pending`,
+            code: 'candidate_not_pending',
+          });
+          continue;
+        }
+        const selectedCandidate = candidateSelection.candidate;
         let expected = null;
         try {
           expected = normalizeExpected(proposal?.expected);
@@ -1014,10 +1117,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
             : null;
           const reviewMeta = {
             createdBy: hierarchy ? 'lab-lead' : 'advisor',
-            runId: cycle.advisorRunId,
+            runId: cycle.leadRunId ?? cycle.advisorRunId,
             rationale: proposal.rationale,
             expected,
             expectedBaseline: baselineFor(check.parent, expected),
+            ...(selectedCandidate ? { candidateId: selectedCandidate.candidateId, candidate: selectedCandidate } : {}),
             ...(hierarchy ? { reviewLevel: 'lead', hierarchy: true } : {}),
             ...(pendingHighReview ? { pendingHighReview } : {}),
             ...(escalation ? { escalation } : {}),
@@ -1030,6 +1134,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
             ? await createProposed(project, check.parent, check.spec, { ...reviewMeta, expectedInfoGain: proposal.expectedInfoGain })
             : await createChild(project, check.parent, check.spec, reviewMeta);
           applied.createdNodeIds.push(node.id);
+          if (selectedCandidate) {
+            applied.consumedCandidateIds.push(selectedCandidate.candidateId);
+            availableCandidates = availableCandidates.filter((row) => row.candidateId !== selectedCandidate.candidateId);
+          }
           if (check.executionNote) {
             // Visible, non-fatal correction: the proposal asked for a profile this
             // project does not define, so the node runs on the default profile.
@@ -1233,47 +1341,82 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
    */
   async function runHierarchyPass(projectId, cycle) {
     let project = requireProject(projectId);
-    const review = buildHierarchyReview({ project, nodes: store.listNodes(projectId), now: Date.now() });
+    const nodes = store.listNodes(projectId);
+    const review = buildHierarchyReview({ project, nodes, now: Date.now() });
     cycle.hierarchy = hierarchySummary(review);
     const events = Array.isArray(review.branchEvents) ? review.branchEvents : [];
-    if (events.length === 0) {
-      cycle.skipped.push({ stage: 'branch', reason: 'no completed/failed branch event' });
+    const recordCandidates = (queue, options = {}) => {
+      const stats = candidateStats(queue, { events, ...options });
+      cycle.candidates = stats;
+      cycle.candidateStats = stats;
+      return stats;
+    };
+
+    // Round 33: a planning cycle is triggered by a fresh completed/failed
+    // branch event OR by a candidate in an existing BranchReport that has not
+    // yet been consumed. The latter must not wait for another branch event:
+    // otherwise a project whose branches all completed can optimize exactly
+    // once and then park forever.
+    let queue = buildBranchCandidateQueue({ project, nodes, runs: store.listRuns(projectId, 500) });
+    cycle.hierarchy.planTrigger = events.length > 0 ? 'branch_event' : queue.pendingCount > 0 ? 'candidate_queue' : 'noop';
+    const initialSkip = events.length === 0 && queue.pendingCount === 0
+      ? candidateSkipReason(queue, { events, reports: queue.reports.length })
+      : null;
+    if (initialSkip) {
+      recordCandidates(queue, { skipReason: initialSkip });
+      cycle.branchReports = [];
+      cycle.hierarchy.branchEventCount = 0;
+      cycle.hierarchy.branchRuns = [];
+      cycle.skipped.push({ stage: 'advisor', reason: initialSkip });
+      return;
     }
+
     const byBranch = new Map();
     for (const event of events) {
       const rows = byBranch.get(event.branchId) ?? [];
       rows.push(event);
       byBranch.set(event.branchId, rows);
     }
-    const branchRuns = [];
-    for (const [branchId, branchEvents] of byBranch) {
-      const report = review.reports.find((row) => row.branchId === branchId) ?? null;
-      const run = await runRole(
-        project,
-        'branch',
-        cycle,
-        branchPrompt(project, branchEvents, report),
-        BRANCH_REPORT_SCHEMA,
-        { branchId, events: branchEvents, report },
-        { lens: branchId, timeoutMs: ROLE_BUDGETS.branch.timeoutMs, maxQueries: ROLE_BUDGETS.branch.maxQueries },
-      );
-      cycle.branchRunIds = [...(cycle.branchRunIds ?? []), run.record.id];
-      if (run.failure) {
-        cycle.errors.push(`branch[${branchId}]: ${run.record.error}`);
-        continue;
+    let branchRuns = [];
+    if (events.length === 0) {
+      // Reuse the stored successful BranchReports. L0 is event-driven and has
+      // nothing new to compress, but L1 still has real work: the pending
+      // candidates in those reports.
+      branchRuns = queue.reports;
+      cycle.skipped.push({
+        stage: 'branch',
+        reason: `reused ${branchRuns.length} stored branch report(s); ${queue.pendingCount} unconsumed candidate(s)`,
+      });
+    } else {
+      for (const [branchId, branchEvents] of byBranch) {
+        const report = review.reports.find((row) => row.branchId === branchId) ?? null;
+        const run = await runRole(
+          project,
+          'branch',
+          cycle,
+          branchPrompt(project, branchEvents, report),
+          BRANCH_REPORT_SCHEMA,
+          { branchId, events: branchEvents, report },
+          { lens: branchId, timeoutMs: ROLE_BUDGETS.branch.timeoutMs, maxQueries: ROLE_BUDGETS.branch.maxQueries },
+        );
+        cycle.branchRunIds = [...(cycle.branchRunIds ?? []), run.record.id];
+        if (run.failure) {
+          cycle.errors.push(`branch[${branchId}]: ${run.record.error}`);
+          continue;
+        }
+        branchRuns.push({ branchId, events: branchEvents, output: run.record.output ?? null, report });
+        const fresh = requireProject(projectId);
+        const reviewed = [...(Array.isArray(fresh.branchReviews) ? fresh.branchReviews : [])];
+        for (const event of branchEvents) {
+          reviewed.push({ branchId, eventKey: event.eventKey, nodeId: event.nodeId, at: Date.now(), runId: run.record.id });
+        }
+        await commitMutations(projectId, [{
+          op: 'project.update',
+          set: { branchReviews: reviewed.slice(-200) },
+          eventType: 'review/branch_reviewed',
+          eventData: { branchId, events: branchEvents.map((event) => event.eventKey) },
+        }], { causeId: `branch-review:${branchId}:${run.record.id}` });
       }
-      branchRuns.push({ branchId, events: branchEvents, output: run.record.output ?? null, report });
-      const fresh = requireProject(projectId);
-      const reviewed = [...(Array.isArray(fresh.branchReviews) ? fresh.branchReviews : [])];
-      for (const event of branchEvents) {
-        reviewed.push({ branchId, eventKey: event.eventKey, nodeId: event.nodeId, at: Date.now(), runId: run.record.id });
-      }
-      await commitMutations(projectId, [{
-        op: 'project.update',
-        set: { branchReviews: reviewed.slice(-200) },
-        eventType: 'review/branch_reviewed',
-        eventData: { branchId, events: branchEvents.map((event) => event.eventKey) },
-      }], { causeId: `branch-review:${branchId}:${run.record.id}` });
     }
     cycle.branchReports = branchRuns;
     for (const run of branchRuns) {
@@ -1288,32 +1431,57 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     cycle.hierarchy.branchEventCount = events.length;
     cycle.hierarchy.branchRuns = cycle.branchRunIds ?? [];
 
+    // Recompute after fresh L0 writes: their outputs may add candidates this
+    // cycle, and an old report may still hold candidates that were never acted
+    // on. A failed L0 must not hide a usable stored report.
+    project = requireProject(projectId);
+    queue = buildBranchCandidateQueue({ project, nodes: store.listNodes(projectId), runs: store.listRuns(projectId, 500) });
+    recordCandidates(queue);
+    if (branchRuns.length === 0) {
+      if (queue.pendingCount > 0 && queue.reports.length > 0) {
+        branchRuns = queue.reports;
+        cycle.branchReports = branchRuns;
+        cycle.skipped.push({
+          stage: 'branch',
+          reason: `reused ${branchRuns.length} stored branch report(s); ${queue.pendingCount} unconsumed candidate(s)`,
+        });
+      } else {
+        const reason = candidateSkipReason(queue, { events, reports: queue.reports.length });
+        recordCandidates(queue, { skipReason: reason });
+        cycle.skipped.push({ stage: 'lead', reason });
+        return;
+      }
+    }
+
     // L1 only runs after at least one bounded branch report exists. It is the
     // only role allowed to create nodes; applyAdvisorOutput is the same Host
     // validator/materializer used by the old advisor path.
     project = requireProject(projectId);
-    if (branchRuns.length === 0) {
-      cycle.skipped.push({ stage: 'lead', reason: 'no successful branch report' });
-      return;
-    }
     const leadRun = await runRole(
       project,
       'lead',
       cycle,
-      leadPrompt(project, { ...review, escalations: cycle.hierarchy.escalations }, branchRuns),
+      leadPrompt(project, { ...review, escalations: cycle.hierarchy.escalations }, branchRuns, queue.pending),
       ADVISOR_SCHEMA,
-      { branchReports: branchRuns, review: { branchCount: review.branchCount, escalations: review.escalations } },
+      { branchReports: branchRuns, pendingCandidates: queue.pending, review: { branchCount: review.branchCount, escalations: review.escalations } },
       { timeoutMs: ROLE_BUDGETS.lead.timeoutMs, maxQueries: ROLE_BUDGETS.lead.maxQueries },
     );
     cycle.leadRunId = leadRun.record.id;
     if (leadRun.failure) {
       cycle.errors.push(`lead: ${leadRun.record.error}`);
+      const failedReason = queue.pendingCount > 0
+        ? `blocked by failed lead run; ${queue.pendingCount} candidate(s) pending`
+        : candidateSkipReason(queue, { events, reports: queue.reports.length });
+      if (failedReason) {
+        recordCandidates(queue, { skipReason: failedReason });
+        cycle.skipped.push({ stage: 'advisor', reason: failedReason });
+      }
       return;
     }
-    let applied = { createdNodeIds: [], rejected: [] };
+    let applied = { createdNodeIds: [], rejected: [], consumedCandidateIds: [] };
     if (leadRun.record.output && Array.isArray(leadRun.record.output.proposals)) {
       try {
-        applied = await applyAdvisorOutput(projectId, cycle, leadRun.record.output);
+        applied = await applyAdvisorOutput(projectId, cycle, leadRun.record.output, queue.pending);
         cycle.createdNodeIds.push(...applied.createdNodeIds);
       } catch (error) {
         cycle.errors.push(`lead apply: ${error instanceof Error ? error.message : String(error)}`);
@@ -1322,6 +1490,18 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     leadRun.record.createdNodeIds = applied.createdNodeIds;
     leadRun.record.rejected = applied.rejected;
     await saveRun(projectId, leadRun.record, 'run/updated', { created: applied.createdNodeIds.length });
+
+    // Candidate accounting is recomputed from the durable consumption records,
+    // not assumed from the lead's answer.
+    project = requireProject(projectId);
+    queue = buildBranchCandidateQueue({ project, nodes: store.listNodes(projectId), runs: store.listRuns(projectId, 500) });
+    recordCandidates(queue, { consumedThisCycle: applied.consumedCandidateIds?.length ?? 0 });
+    if (applied.createdNodeIds.length === 0) {
+      const reason = queue.pendingCount > 0
+        ? candidateNoProposalReason(queue)
+        : candidateSkipReason(queue, { events, reports: queue.reports.length });
+      if (reason) cycle.skipped.push({ stage: 'advisor', reason });
+    }
 
     // L2 is exception-only: it activates only for a node that got a pending
     // window in this cycle. No pending node means no chief run at all.
@@ -1751,6 +1931,22 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     });
   }
 
+  /**
+   * Round 33: auto mode needs to know that an existing BranchReport still has
+   * unconsumed candidates even when no branch event exists. This is a cheap
+   * deterministic read, never a model call.
+   */
+  function pendingCandidateCount(projectId) {
+    const project = requireProject(projectId);
+    if (!hierarchyMode(project)) return 0;
+    const queue = buildBranchCandidateQueue({
+      project,
+      nodes: store.listNodes(projectId),
+      runs: store.listRuns(projectId, 500),
+    });
+    return queue.pendingCount;
+  }
+
   function listRuns(projectId, limit = 50) {
     requireProject(projectId);
     const size = Math.max(1, Math.min(500, Number.isFinite(limit) ? limit : 50));
@@ -1828,6 +2024,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     approveProposal,
     rejectProposal,
     listRuns,
+    pendingCandidateCount,
     getRun,
     ensureController,
     cancelProjectRuns,

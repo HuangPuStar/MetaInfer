@@ -155,6 +155,74 @@ await test('O6: idle/error streaks and the last pause survive a restart read', a
   assert.equal(status.pauseCounts.noProgress, 2);
 });
 
+await test('Round 33: pending branch candidates plan even with no actionable leaf or empty queue', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  await store.saveProject({
+    id: 'p-candidates', name: 'p-candidates', mode: 'manual', repo: {}, revision: 0,
+    counters: { eventSeq: 0 },
+    config: {
+      maxRunningNodes: 2, maxNodes: 100, resourcePools: {}, expertsMode: 'hierarchy',
+      planning: { minRemainingMs: 3_600_000, planLatencyMs: 1_000, safetyFactor: 0.1, debounceMs: 0, minGapMs: 0 },
+    },
+  });
+  await store.saveNode('p-candidates', { ...node('r1'), status: 'running' });
+  let steps = 0;
+  const kernel = createKernel({ store });
+  const auto = createAutoController({
+    store,
+    kernel,
+    cluster: null,
+    dispatchOnce: async () => ({ started: 0, skipped: [] }),
+    orchestrator: {
+      pendingCandidateCount: () => 4,
+      step: async () => {
+        steps += 1;
+        return { created: [], started: [], errors: [], skipped: [] };
+      },
+    },
+    intervalMs: 60_000,
+  });
+  auto.start('p-candidates');
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const status = auto.statusOf('p-candidates');
+  auto.dispose();
+  kernel.dispose();
+  assert.equal(steps, 1, 'a pending candidate must trigger the planning cycle even while a node runs');
+  assert.equal(status.cycles, 1);
+  assert.equal(status.pauseReason, null);
+});
+
+await test('Round 33: the cycle candidate skip reason becomes lastPlanSkip', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  await store.saveProject({
+    id: 'p-candidate-skip', name: 'p-candidate-skip', mode: 'manual', repo: {}, revision: 0,
+    counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 2, maxNodes: 100, resourcePools: {} },
+  });
+  let steps = 0;
+  const kernel = createKernel({ store });
+  const auto = createAutoController({
+    store,
+    kernel,
+    cluster: null,
+    dispatchOnce: async () => ({ started: 0, skipped: [] }),
+    orchestrator: {
+      step: async () => {
+        steps += 1;
+        return { created: [], started: [], errors: [], skipped: [], cycle: { candidates: { skipReason: 'all branch-report candidates consumed' } } };
+      },
+    },
+    intervalMs: 60_000,
+  });
+  auto.start('p-candidate-skip');
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const status = auto.statusOf('p-candidate-skip');
+  auto.dispose();
+  kernel.dispose();
+  assert.equal(steps, 1);
+  assert.equal(status.lastPlanSkip, 'all branch-report candidates consumed');
+});
+
 await test('an explicit project cap overrides the derived default', async () => {
   const { steps, status } = await drive('p-pin', 2, { maxPlannedInFlight: 1 });
   assert.equal(steps, 0);

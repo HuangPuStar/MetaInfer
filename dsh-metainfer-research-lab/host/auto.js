@@ -340,7 +340,16 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     // whether it has a proposal. Only a completed planning cycle increments
     // idleStreak, so idleCycleLimit counts real no-proposal passes.
     const empty = running.length === 0 && runnable.length === 0 && proposed.length === 0;
-    const shouldPlan = !wipFull && (actionables.length > 0 || trigger.trigger || empty);
+    // Round 33: existing BranchReports can still hold candidates after every
+    // branch event has been consumed. That is a planning signal even while
+    // other nodes run, so it must be checked before deciding not to plan.
+    let pendingCandidates = 0;
+    try {
+      pendingCandidates = Number(orchestrator.pendingCandidateCount?.(project.id) ?? 0);
+    } catch {
+      pendingCandidates = 0;
+    }
+    const shouldPlan = !wipFull && (actionables.length > 0 || trigger.trigger || empty || pendingCandidates > 0);
 
     if (!shouldPlan) {
       if (proposed.length > 0) return waiting(projectId, 'awaitingConfirmation');
@@ -359,7 +368,9 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       state.idleStreak = progress === 0 ? state.idleStreak + 1 : 0;
       if (progress === 0) {
         const skipped = Array.isArray(result.skipped) ? result.skipped : [];
-        state.lastPlanSkip = skipped.find((row) => row?.stage === 'advisor')?.reason
+        state.lastPlanSkip = result.cycle?.candidates?.skipReason
+          ?? result.cycle?.candidateStats?.skipReason
+          ?? skipped.find((row) => row?.stage === 'advisor')?.reason
           ?? skipped.find((row) => typeof row?.reason === 'string')?.reason
           ?? 'noProposal';
       } else {

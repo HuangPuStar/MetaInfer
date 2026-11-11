@@ -1,5 +1,57 @@
 # v2 发布说明（草稿）
 
+## Round 33 — the optimization loop plans from unconsumed BranchReport candidates
+
+- **Blocker:** `lastPlanSkip="no completed/failed branch event"` paused
+  `prj-421b80bf` after three idle cycles even though its stored BranchReports
+  still contained explicit optimization candidates. A loop that only reacts to
+  a new completed/failed branch event can optimize exactly once and then parks;
+  this contradicts the owner requirement “不断提高，没有上限”.
+- **Trigger:** `runHierarchyPass` now plans when either a fresh branch event
+  exists **or** `buildBranchCandidateQueue` finds an unconsumed candidate in a
+  stored BranchReport. With no fresh event it reuses the stored reports for L1
+  instead of skipping L1. `cycle.hierarchy.planTrigger` records
+  `branch_event` / `candidate_queue` / `noop`.
+- **Identity, not text:** `host/experts/candidates.js` derives a deterministic
+  `candidateId` from branch id, source node id (`nodeId`/`targetNodeId`/
+  `sourceNodeId`/`parentId`), kind, priority, action and the candidate ordinal.
+  Titles/rationale are prompt data only; editing prose does not make a candidate
+  look new. All successful branch reports are merged, so an older report's
+  candidate is not lost when the same branch reports again.
+- **Consumption:** every created child/proposal carries `candidateId`; the same
+  Host commit appends `{candidateId, branchId, sourceNodeId, kind, nodeId,
+  runId, consumedAt}` to `project.candidateConsumptions` and emits
+  `review/candidate_consumed`. The lead is asked to echo the candidate id; if it
+  omits it, the Host binds by node lineage (source node is the parent/ancestor),
+  then by branch. The 5,000-record cap keeps this durable without text matching.
+- **Explicit reasons:** the queue reports considered/consumed/pending/skipped,
+  `lowConfidence`, report/failure counts and a named `skipReason`:
+  `all branch-report candidates consumed`,
+  `low-confidence candidates only (N); lead produced no proposal`,
+  `blocked by failed branch report`, `blocked by failed lead run; N pending`,
+  `branch reports contain no candidates`, or
+  `no completed/failed branch event and no branch report`. Auto uses that reason
+  for `lastPlanSkip` before falling back to its old skip rows.
+- **Auto trigger:** `orchestrator.pendingCandidateCount()` lets `auto` plan on a
+  pending candidate even when no actionable leaf, no low-water trigger and the
+  queue is not empty. It still respects `maxPlannedInFlight`.
+- **Regression:** an all-completed project with one stored BranchReport holding
+  four unconsumed candidates creates four lead children in one cycle and records
+  four `candidateConsumptions`; the next cycle runs no lead and records
+  `all branch-report candidates consumed`, with `pending:0`. Candidate identity
+  is stable across prose edits; low-confidence and failed-report reasons are
+  asserted separately.
+- **Live read-only evidence:** the stored `prj-421b80bf` data now yields 11
+  pending candidates (including the n-0003 items: Q reuse, KV double-buffered
+  prefetch, output write bandwidth, per-CU residency, and the Triton L2
+  relative-performance comparison), 3 successful reports and 3 failed branch
+  runs. No Host was restarted and no model call was made.
+- **Gates:** `npm test` EXIT 0 (1041 ok / 0 FAIL); hierarchy-selftest all checks
+  passed; auto-wip 12/12; plugin smoke 6/6.
+- **Boundary:** the live 3080 Host still runs the previous build. A restart (or
+  reload of the plugin bundle) is required before the live paused project can
+  use the candidate trigger.
+
 ## Round 32 hotfix — role presets are real and boot-resolved
 
 - **Blocker:** phase 2 cycles died with

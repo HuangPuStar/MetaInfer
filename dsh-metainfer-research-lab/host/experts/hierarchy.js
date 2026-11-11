@@ -474,3 +474,14 @@ export function descriptorForLevel(level) {
 export function levelOfExpert(expertId) {
   return LEVEL_BY_ID.get(expertId) ?? null;
 }
+
+// Round 33: candidate identity/consumption is part of the hierarchy review
+// surface so callers do not have to import an implementation module directly.
+export {
+  MAX_CANDIDATES,
+  MAX_CONSUMPTIONS,
+  buildBranchCandidateQueue,
+  candidateNoProposalReason,
+  candidateSkipReason,
+  candidateStats,
+} from './candidates.js';
