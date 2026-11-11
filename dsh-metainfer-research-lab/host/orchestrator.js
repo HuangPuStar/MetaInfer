@@ -19,6 +19,7 @@ import { createLedgerReader } from './context/ledger.js';
 import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
 import { baselineFor, normalizeExpected } from './kernel/prediction.js';
 import { BRANCH_REPORT_SCHEMA, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
+import { assertModelSchema } from './schema-check.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 // 5.3.8: O1 measured advisor p90 at the old 180 s ceiling; the default budget
@@ -490,6 +491,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
   /** Per-project advisor wall-clock budget (seconds -> ms), with the measured default. */
 
   async function runRole(project, role, cycle, promptText, schema, inputSnapshot, options = {}) {
+    // The Host provider validates this before an activation starts; failing
+    // here names the role and prevents a malformed schema from becoming a
+    // silent lead-stage skip after the branch reports have already failed.
+    assertModelSchema(schema, role);
     const controller = await ensureController(project);
     const id = runId();
     const sessionId = newSessionId();
@@ -1830,7 +1835,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
   };
 }
 
-export { ADVISOR_SCHEMA, SCHEDULER_SCHEMA, advisorPrompt, schedulerPrompt, mergeAdvisorOutputs };
+export { ADVISOR_SCHEMA, SCHEDULER_SCHEMA, CHIEF_SCHEMA, advisorPrompt, schedulerPrompt, mergeAdvisorOutputs };
 
 
 /** 5.3.8: bounded advisor wall-clock budget in ms; default is the measured 240 s. */

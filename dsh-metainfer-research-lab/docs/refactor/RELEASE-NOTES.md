@@ -1,5 +1,33 @@
 # v2 发布说明（草稿）
 
+## Round 31 hotfix — hierarchy schema + failed-node reason
+
+- **Blocker:** `BranchReport` failed before every L0 model call with
+  `unsupported JSON schema: schema.properties._truncated.type must be a single
+  type string (type arrays are not supported)`. `BRANCH_REPORT_SCHEMA` no longer
+  declares the host-only `_truncated` field; the deterministic branch report
+  still carries it in the prompt. All three L0 runs failed, `branchReports` was
+  empty, and L1 skipped with `no successful branch report`.
+- **Audit:** `host/schema-check.js` mirrors the DSH structured-output subset;
+  `host/model-schemas.js` registers advisor/scheduler/branch/lead/chief/worker/
+  merge/gc/dashboard schemas. `index.js:apply()` validates the whole registry at
+  boot, and the same guard runs immediately before each activation. Merge is
+  text-only (no `outputSchema`). A one-off audit against the actual Host
+  `assertObjectJsonSchema` returned provider-ok for all nine schemas.
+- **Regression:** `hierarchy-selftest` runs a real production cycle over three
+  completed branches and records
+  `branchReports:["branch-1","branch-2","branch-3"]`, `leadRunId`, and a created
+  lead child; no `lead` skip and no branch/lead schema error.
+- **Failed nodes:** `host/failure.js` records `{message, code?, stage, role}` and
+  `buildBranchReport` falls back through `error` object/string,
+  `executionRun.error`, attempt errors, and termination. Live `n-0005`/`n-0006`
+  now produce non-empty `ruledOut[].reason` instead of an empty string.
+- **Gates:** `npm test` EXIT 0 (1026 ok / 0 FAIL); hierarchy passes; spare Host
+  3081 with real profile storage booted and returned health 200 (stopped after
+  probe; live 3080 was not restarted).
+- **Boundary:** no real model call; production orchestrator test double enforces
+  the schema guard. No independent ledger movement claimed.
+
 ## Round 29/30 hotfix — storage restart + reachable migration/auto
 
 - **Storage restart fixed:** the plugin declared `actorKeys` (uppercase K), which

@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_GC_PROMPT } from './prompts.js';
+import { assertModelSchema } from './schema-check.js';
 
 /**
  * GC (after-care) runner: after a deterministic termination, spawn one cheap
  * lab-gc agent to explain what happened and flag leftovers. It never participates
  * in killing or resource release — those happen in runtime.terminate().
  */
-const GC_SCHEMA = {
+export const GC_SCHEMA = {
   type: 'object',
   properties: {
     cause: { type: 'string' },
@@ -107,6 +108,7 @@ export function createGcRunner({ ctx, store, orchestrator, kernel }) {
       let failure = null;
       let activation;
       try {
+        assertModelSchema(GC_SCHEMA, 'gc');
         activation = await ctx.subagents.startActivation({
           provider: 'spawn',
           label: `mirl-gc/${projectId}/${nodeId}`,

@@ -7346,3 +7346,143 @@ claim that the independent ledger moved. The live project currently parked at
 `pauseReason:'idle'` by the old process needs an explicit `auto_start` after
 the new code is loaded; a Host restart deliberately does not silently resume
 work.
+
+### 57. Round 31 — hierarchy schema gate and failed-node reason
+
+#### 57.1 Exact blocker
+
+With hierarchy actually running, every L0 branch activation failed before its
+model call:
+
+```text
+unsupported JSON schema: schema.properties._truncated.type must be a single
+type string (type arrays are not supported)
+```
+
+Event `prj-421b80bf#162` (`branch/finished`, run `run-f9f5c606`) records
+`errorCode: UNSUPPORTED_SCHEMA`; all three branch runs failed, so
+`cycle.branchReports=[]`, L1 was skipped with
+`{stage:'lead',reason:'no successful branch report'}`, and auto had no
+proposals.
+
+Cause: `BRANCH_REPORT_SCHEMA` declared the host-only deterministic field
+`_truncated` as `{ type: ['object','null'] }`. DSH's structured-output subset
+accepts one scalar type string only.
+
+Fix (`host/experts/hierarchy.js`):
+
+```diff
+     reasonCodes: { type: 'array' },
+     evidence: { type: 'array' },
+-    _truncated: { type: ['object', 'null'] },
+   },
+ });
+```
+
+`buildBranchReport` still sets `_truncated` on the deterministic report that is
+sent in the prompt; only the model-facing schema drops it. There is no nullable
+union and no host-side field is lost. `BRANCH_REPORT_SCHEMA` now passes the real
+provider validator.
+
+#### 57.2 Every model schema is audited
+
+`host/schema-check.js` mirrors the DSH `assertObjectJsonSchema` subset
+(`type` scalar, `oneOf`, `properties`/`required`/boolean
+`additionalProperties`, `items`, scalar `enum`/`const`, annotations, object
+root) with the same `type arrays are not supported` diagnostic. It does not
+import `@deepseek-ai/*`, preserving the linked-plugin contract.
+
+`host/model-schemas.js` is the single registry checked at
+`index.js:apply()` before storage is opened:
+
+| Role | Schema | Result |
+|---|---|---|
+| advisor | `ADVISOR_SCHEMA` | provider-ok |
+| scheduler | `SCHEDULER_SCHEMA` | provider-ok |
+| branch | `BRANCH_REPORT_SCHEMA` | provider-ok |
+| lead | `ADVISOR_SCHEMA` | provider-ok |
+| chief | `CHIEF_SCHEMA` | provider-ok |
+| worker | `NODE_REPORT_SCHEMA` | provider-ok |
+| merge | none | text-only activation; no `outputSchema` is sent |
+| gc | `GC_SCHEMA` | provider-ok |
+| dashboard | `WIDGET_DATA_RESULT_SCHEMA` | provider-ok |
+| dashboard_chat | `DASHBOARD_CHAT_SCHEMA` | provider-ok |
+
+The registry is validated at boot with `assertModelSchemas()`. The same guard
+also runs immediately before the corresponding activation in `runRole`,
+runtime worker start, GC and dashboard; an unknown output schema fails with
+`ModelSchemaError` naming the role instead of becoming a late lead-stage skip.
+
+A one-off audit using the actual Host validator (no model call) returned:
+
+```json
+[{"role":"advisor","schema":"provider-ok"},
+ {"role":"scheduler","schema":"provider-ok"},
+ {"role":"branch","schema":"provider-ok"},
+ {"role":"lead","schema":"provider-ok"},
+ {"role":"chief","schema":"provider-ok"},
+ {"role":"worker","schema":"provider-ok"},
+ {"role":"merge","schema":"none (text-only)"},
+ {"role":"gc","schema":"provider-ok"},
+ {"role":"dashboard","schema":"provider-ok"},
+ {"role":"dashboard_chat","schema":"provider-ok"}]
+```
+
+#### 57.3 Three-branch cycle regression
+
+`scripts/hierarchy-selftest.mjs` now creates a DAG with three completed roots
+(`branch-1`, `branch-2`, `branch-3`) and drives the real production
+orchestrator. The test double for `startActivation` first calls the same
+schema guard, so an unsupported schema would fail like the provider. Evidence:
+
+```text
+evidence three-branch cycle: {"branchReports":["branch-1","branch-2","branch-3"],
+ "leadRunId":"run-06da3a4b","created":["n-0004"],"skipped":[]}
+```
+
+Checks assert three BranchReports with outputs, no `lead` skip, no branch/lead
+schema errors, and a lead-created proposal.
+
+#### 57.4 Failed nodes carry a reason
+
+`host/failure.js` centralizes failure rendering. `failureDiagnostic` records
+`{message, at, stage, role, code?}`; `nodeFailureReason` falls back from
+`node.error` (object or string) to `executionRun.error`, attempt errors,
+`report.error`, and `termination.kind`. `buildBranchReport` now uses it for
+`ruledOut[].reason` instead of `text(node.error)`, which discarded object
+errors. The live `n-0005`/`n-0006` records now compress to:
+
+```json
+{"nodeId":"n-0005","reason":"Reconnecting... 2/5 (stream disconnected before completion: Operation timed out (os error 110))"}
+{"nodeId":"n-0006","reason":"Reconnecting... 2/5 (stream disconnected before completion: Operation timed out (os error 110))"}
+```
+
+A probe also covers an error-less legacy node with only
+`executionRun.error`, and a `null` failure that still produces a non-empty
+diagnostic. Runtime attempts record `errorCode` when the thrown value carries
+one.
+
+#### 57.5 Gates (round 31)
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1026 `ok`, 0 FAIL |
+| `hierarchy-selftest` | all checks passed; new schema gate, 3-branch cycle, failure probes |
+| actual provider validator audit | all 9 schemas provider-ok; merge text-only |
+| live 3081 startup | plugin booted against real profile storage; health 200 |
+
+Spare Host probe with real `DSH_HOME=/root/.dsh` and `DSH_PROFILE=web`:
+
+```text
+GET /api/metainfer-research-lab/health  HTTP 200
+{"ok":true,"data":{"name":"metainfer-research-lab","version":"0.11.0",
+ "domain":"metainfer_research_lab_v2","storage":"ready","projects":3,
+ "writes":{"mode":"throw","unpermitted":0,"byOp":{}}}}
+```
+
+It was stopped immediately after the probe; the live 3080 process was not
+restarted.
+
+Boundary: no external model call was made; the cycle is a production
+orchestrator test double that enforces the provider schema guard. No claim is
+made about independent ledger movement.

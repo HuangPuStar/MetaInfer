@@ -29,6 +29,7 @@ import { createDispatchOnce } from './host/dispatch/dispatch-once.js';
 import { usageBySourceOf } from './host/kernel/priority.js';
 import { createOperatorAuthority } from './host/operator-token.js';
 import { createLocalPoolBroker, createClusterBroker } from './host/dispatch/brokers.js';
+import { assertModelSchemas } from './host/model-schemas.js';
 
 export const name = 'metainfer-research-lab';
 export const inject = [
@@ -69,6 +70,9 @@ function readCtxConfig(ctx) {
 }
 
 export async function apply(ctx, config = {}) {
+  // Fail plugin boot, not the L1 lead stage, when a model-facing schema uses
+  // a keyword the provider's structured-output subset rejects.
+  assertModelSchemas();
   const cfg = config && Object.keys(config).length ? config : readCtxConfig(ctx);
   const store = await openStore(ctx, config);
   // Fail loud when the v2 domain has never been migrated and a v1 domain with

@@ -59,6 +59,8 @@
 | Q6 12 KB 上下文预算 | 完成 | `host/context/payload.js` `CONTEXT_BUDGET_BYTES` + `enforceByteBudget` | `context-selftest.mjs` 11/11 |
 | 有界字段（brief 1500 / goal 600 / focus 8 / failures 5…） | 完成 | `payload.js` `DEFAULT_CONTEXT_LIMITS` | 同上 |
 | B25 截断显式 `_truncated {shown,total}` | 完成 | `payload.js`、`status.js`、`orchestrator.listRuns` | 同上 |
+| 模型 structured-output schema 子集 gate | 完成 | `host/schema-check.js` 镜像 DSH `assertObjectJsonSchema`；`host/model-schemas.js` 注册 advisor/scheduler/branch/lead/chief/worker/merge/gc/dashboard；`index.js:apply()` 启动校验，`runRole`/runtime/GC/dashboard 调用前复核 | `hierarchy-selftest.mjs`（provider 子集、旧 `_truncated` union 拒绝、三支真实 cycle） |
+| 失败节点原因 | 完成 | `host/failure.js` `failureDiagnostic`/`nodeFailureReason`；runtime 记录 `message`/`code`，branch `ruledOut.reason` 回退 execution/attempt/termination | `hierarchy-selftest.mjs`（error 对象、仅 executionRun.error、null failure） |
 | B26 存储报告永不截断；`headline ≤ 300` 只做索引 | 完成 | `lab-service.getState`（`slimStateNode`）、`getNode` 全量 | `scale-selftest.mjs` |
 | 报告源头上限（schema + prompt + Host 派生 headline） | 完成 | `runtime.js` `NODE_REPORT_SCHEMA.summary.maxLength=500`、`normalizeNodeReport`（`REPORT_LIMITS`）、`prompts.js` `WORKER_RULES` 规则 | `trace-selftest.mjs`（500/300 边界、空 summary → null、prompt 规则存在） |
 | Q9 `dag_query`（过滤/select/分页/行级截断） | 完成 | `host/context/dag.js` `queryDag`；`lab-service.dagQuery`；policy/工具已注册 | `wiring-selftest.mjs`（真实工具调用返回行） |

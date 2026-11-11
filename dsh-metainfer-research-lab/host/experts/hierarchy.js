@@ -15,6 +15,7 @@
 
 import { evaluateEscalationTriggers } from './triggers.js';
 import { getExpertDescriptor } from './registry.js';
+import { nodeFailureReason } from '../failure.js';
 
 export const EXPERT_LEVELS = Object.freeze(['branch', 'lead', 'chief']);
 
@@ -69,7 +70,9 @@ export const BRANCH_REPORT_SCHEMA = Object.freeze({
     escalate: { type: 'boolean' },
     reasonCodes: { type: 'array' },
     evidence: { type: 'array' },
-    _truncated: { type: ['object', 'null'] },
+    // `_truncated` is host-only: the deterministic report carries it for the
+    // prompt, but the model-facing schema may not declare `type: ['object','null']`
+    // because DSH structured output rejects type arrays.
   },
 });
 
@@ -195,7 +198,7 @@ export function buildBranchReport({ branchId, nodes = [], inputNodes = null, now
   const verified = compact.filter((node) => node.status === 'completed')
     .map((node) => ({ nodeId: node.id, hypothesis: text(node.hypothesis ?? node.report?.hypothesis, 160), confidence: Number(node.report?.confidence ?? node.confidence ?? 0) }));
   const ruledOut = compact.filter((node) => node.status === 'failed' || node.status === 'cancelled')
-    .map((node) => ({ nodeId: node.id, hypothesis: text(node.hypothesis ?? node.report?.hypothesis, 160), reason: text(node.error ?? node.report?.error, 160) }));
+    .map((node) => ({ nodeId: node.id, hypothesis: text(node.hypothesis ?? node.report?.hypothesis, 160), reason: nodeFailureReason(node, 160) }));
   const candidates = compact.filter((node) => node.status === 'proposed' || node.status === 'planned')
     .map((node) => ({ nodeId: node.id, title: text(node.title, 120), textOnly: true }));
   const active = compact.some((node) => node.status === 'running' || node.status === 'planned' || node.status === 'proposed');

@@ -15,6 +15,8 @@ import { DEFAULT_ADVISOR_PROMPT, DEFAULT_GC_PROMPT, DEFAULT_MERGE_PROMPT, DEFAUL
 import { DEFAULT_EXECUTION_PROFILES, normalizeExecutionProfile, resolveExecutionProfile } from './execution.js';
 import { ExecutionLog } from './execution-log.js';
 import { DEFAULT_DASHBOARD_SPEC, DASHBOARD_CHAT_SCHEMA, WIDGET_DATA_RESULT_SCHEMA, sanitizeDashboardSpec, normalizeWidgets, normalizeWidgetData, applyWidgetLayouts, buildWidgetPrompt, buildDashboardChatPrompt } from './dashboard.js';
+import { assertModelSchema } from './schema-check.js';
+import { nodeFailureReason } from './failure.js';
 import { newProjectId, newSessionId } from './store.js';
 import { clampNodeTitle } from './titles.js';
 import { buildStatusFacts } from './observability/status.js';
@@ -1174,6 +1176,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   async function runDashboardAgent(project, prompt, outputSchema = WIDGET_DATA_RESULT_SCHEMA) {
     if (!ctx.subagents || !orchestrator) throw new LabError('unavailable', 'dashboard agent runtime is unavailable', 503);
+    assertModelSchema(outputSchema, 'dashboard');
     const controller = await orchestrator.ensureController(project);
     const model = resolveModelSelection(ctx, project, null, 'dashboard');
     const deadlineMs = 600_000;
@@ -5810,6 +5813,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 /** Exported for the scale test: the state-index projection of one node. */
 export function slimStateNode(node) {
   const out = { ...node };
+  // A terminal failure must have a readable reason on every projection. Old
+  // records may only carry executionRun/attempt errors, or `error: null`.
+  if (node.status === 'failed' && (!out.error || typeof out.error !== 'object' || typeof out.error.message !== 'string' || !out.error.message.trim())) {
+    out.error = {
+      ...(node.error && typeof node.error === 'object' ? node.error : {}),
+      message: nodeFailureReason(node, 500),
+      at: Number(node.error?.at) || Date.now(),
+      stage: typeof node.error?.stage === 'string' ? node.error.stage : 'run',
+      role: typeof node.error?.role === 'string' ? node.error.role : 'worker',
+    };
+  }
   const prompt = typeof node.prompt === 'string' ? node.prompt : null;
   if (prompt !== null) {
     out.prompt = prompt.slice(0, STATE_PROMPT_CHARS);

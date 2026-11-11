@@ -21,6 +21,8 @@ import { newSessionId } from './store.js';
 import { prepareRemoteRun } from './remote-run.js';
 import { DEFAULT_MERGE_PROMPT, DEFAULT_WORKER_PREFIX, WORKER_RULES } from './prompts.js';
 import { applyPredictionToNode } from './kernel/prediction.js';
+import { failureCode, failureDiagnostic, failureMessage } from './failure.js';
+import { assertModelSchema } from './schema-check.js';
 
 /** JSON schema accepted by DSH's structured-output tool (supported subset only). */
 export const NODE_REPORT_SCHEMA = {
@@ -1009,20 +1011,6 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     }
   }
 
-  /** Durable failure attribution read by the observation timeline (U3). */
-  function failureDiagnostic(node, stage, error) {
-    const timeoutMs = stage === 'timeout'
-      ? (Number(node?.timeboxMs) || (Number(node?.timeboxMinutes) * 60_000) || (Number(node?.deadlineAt) - Number(node?.timestamps?.startedAt)))
-      : null;
-    return {
-      message: error instanceof Error ? error.message : String(error),
-      at: Date.now(),
-      stage,
-      role: stage === 'start' ? 'dispatcher' : 'worker',
-      ...(Number.isFinite(timeoutMs) && timeoutMs > 0 ? { timeoutMs } : {}),
-    };
-  }
-
   async function failNode(project, node, error, stage) {
     if (!node.cleanup) {
       try {
@@ -1042,7 +1030,8 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     endAttempt(node, {
       stopReason: 'failed',
       status: 'failed',
-      error: error instanceof Error ? error.message : String(error),
+      error: failureMessage(error),
+      errorCode: failureCode(error),
     });
     node.status = 'failed';
     node.error = failureDiagnostic(node, stage, error);
@@ -1183,6 +1172,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       ? preNode.execution
       : { profile: 'dsh', driver: 'dsh' };
     const externalExecution = !isDshExecution(execution);
+    if (preNode.kind !== 'merge') assertModelSchema(NODE_REPORT_SCHEMA, 'worker');
     const selection = externalExecution
       ? {
           provider: `execution:${execution.profile}`,
@@ -1518,7 +1508,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
         ...(node.executionRun ?? {}),
         status: 'failed',
         endedAt: Date.now(),
-        error: error instanceof Error ? error.message : String(error),
+        error: failureMessage(error),
       };
     }
     if (project && node) await failNode(project, node, error, 'run');
@@ -1627,11 +1617,14 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       }
       const cancelled = kind === 'cancel' || kind === 'preempted';
       node.status = cancelled ? 'cancelled' : 'failed';
-      node.error = failureDiagnostic(node, kind === 'timeout' ? 'timeout' : 'run', payload.message || (kind === 'cancel'
+      const terminationMessage = payload.message || (kind === 'cancel'
         ? 'cancelled by user'
         : kind === 'preempted'
           ? `preempted for ${payload.forNodeId ?? 'higher-priority work'}`
-          : 'node timed out and was terminated'));
+          : 'node timed out and was terminated');
+      node.error = failureDiagnostic(node, kind === 'timeout' ? 'timeout' : 'run', payload.code
+        ? { code: payload.code, message: terminationMessage }
+        : terminationMessage);
       node.timestamps = { ...(node.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
       const terminalEvent = kind === 'cancel'
         ? 'node/cancelled'

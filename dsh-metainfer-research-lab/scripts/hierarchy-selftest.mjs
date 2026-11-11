@@ -6,18 +6,21 @@
  */
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
-import { createLabService } from '../host/lab-service.js';
+import { createLabService, slimStateNode } from '../host/lab-service.js';
 import { createOrchestrator } from '../host/orchestrator.js';
 import { registerAgentTool } from '../host/agent-tool.js';
 import { registerHttpRoutes } from '../host/http.js';
 import { createOperatorAuthority } from '../host/operator-token.js';
 import { listExpertDescriptors, getExpertDescriptor } from '../host/experts/registry.js';
 import {
-  HIERARCHY_DESCRIPTORS, HIGH_REVIEW_WINDOW_MS, buildBranchReport, buildHierarchyReview,
+  HIERARCHY_DESCRIPTORS, HIGH_REVIEW_WINDOW_MS, BRANCH_REPORT_SCHEMA, buildBranchReport, buildHierarchyReview,
   chiefActivationMetrics, chiefPolicy, childVoteWeight, escalationQuota, escalationRate, filterVisibleExperts, groupCount,
   validateChiefDecision, validateEvidencePointers, validateHierarchyReview,
 } from '../host/experts/hierarchy.js';
 import { RESIDENT_TOOL_SURFACE, createResidentSession, runResidentLoop } from '../host/experts/resident.js';
+import { assertModelSchema, ModelSchemaError } from '../host/schema-check.js';
+import { MODEL_SCHEMAS, assertModelSchemas } from '../host/model-schemas.js';
+import { failureDiagnostic, nodeFailureReason } from '../host/failure.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -34,6 +37,50 @@ check('B11: registry exposes branch/lead/chief levels', HIERARCHY_DESCRIPTORS.le
 check('B11: L0 branch descriptor may never create; only L1 lead may', branch?.mayCreate === false && lead?.mayCreate === true && chief.every((descriptor) => descriptor.mayCreate === false) && branch?.mayPropose.includes('branch_report') && !branch?.mayPropose.includes('create'), JSON.stringify({ branch, lead }));
 check('B12: exactly one chief and it is invisible to peers', chiefPolicy({}).count === 1 && filterVisibleExperts(descriptors, { kind: 'expert', id: 'lab-advisor' }).every((d) => d.level !== 'chief') && filterVisibleExperts(descriptors, { kind: 'human', id: 'operator' }).some((d) => d.level === 'chief'), JSON.stringify(filterVisibleExperts(descriptors, { kind: 'expert', id: 'lab-advisor' }).map((d) => d.id)));
 check('B12: chief activation ratio is an exception budget, not a review pass', chiefActivationMetrics({ activations: 2, completed: 100 }).exceptionArbiter === true && chiefActivationMetrics({ activations: 100, completed: 100 }).exceptionArbiter === false, JSON.stringify(chiefActivationMetrics({ activations: 2, completed: 100 })));
+// Structured-output schema gate: the provider rejects keywords outside its
+// subset before an activation starts. Boot must fail loudly, not skip L1.
+const checkedRoles = assertModelSchemas();
+check('schema gate: every model-facing role schema is provider-compatible at startup', checkedRoles.includes('branch') && checkedRoles.includes('lead') && checkedRoles.includes('worker') && checkedRoles.includes('gc') && checkedRoles.includes('chief') && checkedRoles.includes('advisor') && checkedRoles.includes('scheduler') && MODEL_SCHEMAS.some((entry) => entry.role === 'merge' && entry.schema === null), JSON.stringify({ checkedRoles, registry: MODEL_SCHEMAS.map((entry) => [entry.role, entry.schema === null]) }));
+const oldBranchSchema = {
+  ...BRANCH_REPORT_SCHEMA,
+  properties: { ...BRANCH_REPORT_SCHEMA.properties, _truncated: { type: ['object', 'null'] } },
+};
+let schemaGateError = null;
+try {
+  assertModelSchemas([{ role: 'branch', schema: oldBranchSchema }]);
+} catch (error) {
+  schemaGateError = error;
+}
+check('schema gate: the old union-typed _truncated schema fails at boot with a role-named error', schemaGateError instanceof ModelSchemaError && schemaGateError.role === 'branch' && /type arrays are not supported/.test(schemaGateError.message), schemaGateError && schemaGateError.message);
+check('schema gate: the branch schema itself is accepted', (() => { try { assertModelSchema(BRANCH_REPORT_SCHEMA, 'branch'); return true; } catch { return false; } })());
+
+// Failure attribution: the live n-0005/n-0006 shape has an error object, while
+// older records may only have an execution/attempt error. Neither may produce
+// an empty ruledOut.reason.
+const failedNodes = [
+  {
+    id: 'n-0005', parentId: null, title: 'decode', status: 'failed',
+    error: { code: 'ETIMEDOUT', message: 'stream disconnected before completion', stage: 'run' },
+    timestamps: { createdAt: Date.now() - 2 },
+  },
+  {
+    id: 'n-0006', parentId: 'n-0005', title: 'prefill', status: 'failed',
+    error: null, executionRun: { error: 'external driver exited with code 1' },
+    timestamps: { createdAt: Date.now() - 1 },
+  },
+];
+const failedReport = buildBranchReport({ branchId: 'n-0005', nodes: failedNodes, now: Date.now() });
+check('failure reason: a failed node with an error object keeps code + message', failedReport.ruledOut[0]?.reason?.includes('ETIMEDOUT') && failedReport.ruledOut[0]?.reason?.includes('stream disconnected'), JSON.stringify(failedReport.ruledOut));
+check('failure reason: an error-less failed node falls back to its execution error', failedReport.ruledOut[1]?.reason?.includes('external driver exited'), JSON.stringify(failedReport.ruledOut));
+const nullDiagnostic = failureDiagnostic({}, 'run', null);
+check('failure reason: a null failure still records a non-empty diagnostic', typeof nullDiagnostic.message === 'string' && nullDiagnostic.message.length > 0 && typeof nullDiagnostic.at === 'number', JSON.stringify(nullDiagnostic));
+const coded = Object.assign(new Error('stream failed'), { code: 'ETIMEDOUT' });
+const codedDiagnostic = failureDiagnostic({}, 'run', coded);
+check('failure reason: the durable diagnostic records the error code and message', codedDiagnostic.code === 'ETIMEDOUT' && codedDiagnostic.message === 'stream failed' && codedDiagnostic.stage === 'run', JSON.stringify(codedDiagnostic));
+check('failure reason: nodeFailureReason never returns an empty string', nodeFailureReason({ status: 'failed' }, 160).length > 0, JSON.stringify(nodeFailureReason({ status: 'failed' }, 160)));
+const projectedFailure = slimStateNode({ id: 'n-0005', status: 'failed', error: null, executionRun: { error: 'driver exited with code 1' } });
+check('failure reason: the state projection backfills error.message for a legacy failed node', projectedFailure.error?.message?.includes('driver exited') && projectedFailure.error?.stage, JSON.stringify(projectedFailure.error));
+
 check('C2: per-lead epoch quota and escalation-rate codes are explicit', escalationQuota({ project: { config: { maxEscalationsPerEpoch: 1 }, reviewEscalations: [] } }).allowed === true && escalationQuota({ project: { config: { maxEscalationsPerEpoch: 1 }, reviewEscalations: [{ leadId: 'lab-lead', epoch: '1' }] } }).allowed === false && escalationRate({ escalations: [1, 2], intents: [1, 2, 3, 4] }).status === 'tighten' && escalationRate({ escalations: [1], intents: [1, 2, 3, 4] }).code === 'escalation_rate_alert', JSON.stringify({ quota: escalationQuota({ project: { config: { maxEscalationsPerEpoch: 1 }, reviewEscalations: [{ leadId: 'lab-lead', epoch: '1' }] } }), rate: escalationRate({ escalations: [1, 2], intents: [1, 2, 3, 4] }) }));
 
 const now = Date.now();
@@ -238,10 +285,15 @@ const prodCtx = {
     async startActivation(spec) {
       const preset = spec.request.agentPreset;
       productionPresets.push(preset);
+      assertModelSchema(spec.request.outputSchema, preset.replace('lab-', ''));
+      const promptText = spec.request.prompt?.[0]?.text ?? '';
+      const branchId = /^mirl-branch-(.+?)\//.exec(spec.request.label ?? '')?.[1] ?? 'parent';
+      const leadMatch = /# Branch reports\n(\[.*?\])\n\n# Review tree/s.exec(promptText);
+      const leadParent = leadMatch ? JSON.parse(leadMatch[1])[0]?.branchId ?? 'parent' : 'parent';
       const structured = preset === 'lab-branch'
-        ? { branchId: 'parent', health: 'watch', verified: [], ruledOut: [], candidates: [], escalate: true, reasonCodes: ['low_confidence'], evidence: [{ nodeId: 'parent', field: 'report.summary', quote: 'parent done' }] }
+        ? { branchId, health: 'watch', verified: [], ruledOut: [], candidates: [], escalate: true, reasonCodes: ['low_confidence'], evidence: [{ nodeId: branchId, field: 'report.summary', quote: 'done' }] }
         : preset === 'lab-lead'
-          ? { analysis: 'lead', proposals: [{ parentId: 'parent', title: 'child', prompt: 'do child work', rationale: 'r', timeboxMinutes: 5 }] }
+          ? { analysis: 'lead', needUserDecision: false, proposals: [{ parentId: leadParent, title: 'child', prompt: 'do child work', rationale: 'r', timeboxMinutes: 5 }] }
           : preset === 'lab-chief'
             ? { decision: 'keep', reasonCode: 'low_confidence', verifiedEvidence: [], evidenceChain: [] }
             : { analysis: 'x', proposals: [] };
@@ -308,6 +360,44 @@ const presetsBeforeSecondStep = productionPresets.length;
 await prodOrch.step(prodId, 'hierarchy-probe-2');
 const secondStepPresets = productionPresets.slice(presetsBeforeSecondStep);
 check('B11: the second tick does not re-run L0 for an already-reviewed branch event', secondStepPresets.includes('lab-branch') === false, JSON.stringify(secondStepPresets));
+
+// Three completed branches must produce three bounded BranchReports, then run
+// L1 instead of skipping it with "no successful branch report".
+const threeId = 'hierarchy-three-branch-p';
+await store.saveProject({
+  id: threeId, name: 'three-branch', brief: 'three completed branches', revision: 0,
+  counters: { eventSeq: 0, nextNodeSeq: 4, nodes: 3 },
+  config: {
+    maxRunningNodes: 2, resourcePools: {}, maxNodes: 20, expertsMode: 'hierarchy', migration: { phase: 2 },
+    advisor: { maxProposalsPerPass: 2, maxProposalsPerReviewer: 2, ancestorDepth: 1, acceptMode: 'confirm', maxPendingProposals: 5, timeoutSeconds: 60, reviewers: [] },
+    auto: { maxCycles: 1 },
+  },
+  repo: { path: process.cwd(), worktreeRoot: '/tmp/hierarchy-three-wt', baseBranch: 'main', baseCommit: 'base' },
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(threeId);
+await kernel.executor.commit(threeId, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: ['branch-1', 'branch-2', 'branch-3'].map((id, index) => ({
+    op: 'node.create',
+    node: {
+      id, title: `${id} done`, prompt: `${id} work`, status: 'completed',
+      git: { headCommit: `head-${index}` }, report: { summary: `${id} done`, confidence: 0.8 },
+      createdBy: 'seed', timestamps: { createdAt: index + 1, completedAt: index + 10 },
+    },
+  })),
+});
+const threeStep = await prodOrch.step(threeId, 'three-branch-probe');
+const threeCycle = store.listCycles(threeId, 1)[0];
+const threeReports = Array.isArray(threeCycle?.branchReports) ? threeCycle.branchReports : [];
+const threeLeadSkips = (threeCycle?.skipped ?? []).filter((entry) => entry.stage === 'lead');
+check('hierarchy cycle: three completed branches produce three BranchReports', threeReports.length === 3 && threeReports.every((entry) => entry.output && entry.output.branchId), JSON.stringify({ reports: threeReports.map((entry) => ({ branchId: entry.branchId, hasOutput: Boolean(entry.output), health: entry.output?.health })), errors: threeCycle?.errors, skipped: threeCycle?.skipped }));
+check('hierarchy cycle: the lead stage is not skipped after branch reports succeed', threeLeadSkips.length === 0 && threeCycle?.leadRunId, JSON.stringify({ leadRunId: threeCycle?.leadRunId, skipped: threeCycle?.skipped, errors: threeCycle?.errors }));
+check('hierarchy cycle: no branch or lead run failed with an unsupported schema', !(threeCycle?.errors ?? []).some((entry) => entry.startsWith('branch[') || entry.startsWith('lead:')), JSON.stringify(threeCycle?.errors));
+check('hierarchy cycle: the lead produces a proposal or an explicit skip reason', (Array.isArray(threeStep.created) && threeStep.created.length > 0) || Boolean(threeCycle?.skipped?.some((entry) => entry.stage === 'lead')), JSON.stringify({ created: threeStep.created, skipped: threeCycle?.skipped, errors: threeCycle?.errors }));
+if (process.env.MIRL_EVIDENCE === '1') {
+  console.log(`evidence three-branch cycle: ${JSON.stringify({ branchReports: threeReports.map((entry) => entry.branchId), leadRunId: threeCycle?.leadRunId, created: threeStep.created, skipped: threeCycle?.skipped })}`);
+}
 
 const budgetId = 'prod-budget';
 await store.saveProject({
