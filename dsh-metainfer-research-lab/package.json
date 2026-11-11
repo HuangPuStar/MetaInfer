@@ -26,9 +26,6 @@
     "@openai/codex-sdk": "0.166.0",
     "zod": "^4.4.3"
   },
-  "scripts": {
-    "test": "node --test tests/"
-  },
   "dsh": {
     "bundle": {
       "patch": [
