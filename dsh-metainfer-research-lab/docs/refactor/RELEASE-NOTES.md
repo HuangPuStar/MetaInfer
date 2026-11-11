@@ -1,5 +1,53 @@
 # v2 发布说明（草稿）
 
+## Round 35 — configured role timeouts, a bounded lead input, and lead-retry backoff
+
+- **Timeout root cause:** hierarchy L0/L1/L2 passed fixed `ROLE_BUDGETS`
+  values into `runRole` (`branch=60s`, `lead=90s`, `chief=180s`). Only the old
+  legacy advisor path consulted `config.advisor.timeoutSeconds`, so the live
+  project's configured `300` never reached the lead. The stored failed run
+  `run-3e399be0` proves it: `timeoutMs=90000`, error
+  `lead run exceeded 90s`.
+- **Resolved budgets:** `roleTimeoutMs(project, role)` now reads
+  `config.advisor.timeoutSeconds` for **branch, lead and advisor**, bounded
+  30..1800 s, and falls back to documented role defaults when absent:
+  branch 60 s, lead 90 s, advisor 240 s. Chief stays at its separate 180 s
+  exception-window default. Prompts name the resolved seconds, run records
+  carry `timeoutMs` and `timeoutSource`, and timeout errors state both:
+  `lead run exceeded 300s (role=lead, timeoutMs=300000, source=config.advisor.timeoutSeconds)`.
+- **Lead input budget:** the lead prompt now shows at most 8 pending candidates
+  by default (project-tunable `advisor.maxLeadCandidates`, capped at 24), with
+  failed-source retries first, then priority, non-low-confidence, recency and
+  stable candidate id. Candidates whose branch/source/kind was already consumed
+  are omitted. Candidate detail is capped at 220 characters. Branch reports
+  keep at most 6 verified/ruled-out rows, 4 evidence pointers, and 240
+  characters per quote (the raw `output.candidates` array is omitted because
+  the queue is authoritative).
+- **Measured live payload:** the previous stored lead run `run-dee7558c`
+  received 20,582 bytes; the raw branch compression input measured 117,292 bytes
+  (the order of magnitude behind the ~107 KB report).
+  The same 18-pending live shape now builds a 11,032-byte lead prompt
+  (`inputBytesBefore=20,517`), with 8 shown / 10 omitted; candidate bytes fall
+  from 8,059 to 3,692 and branch-report bytes from 11,129 to 6,011. A live-copy
+  probe that included the new n-0014 branch event measured 11,379 bytes before
+  and 5,333 bytes after compaction.
+- **Per-cycle reporting:** `cycle.leadInputBytes`, `cycle.leadInputStats` and
+  `cycle.lead.inputBytes/inputBytesBefore/candidateShown/candidateOmitted/
+  dedupedConsumedKinds/branchReportBytes*` record what the model actually
+  received. `run.inputStats` carries the same figures.
+- **Backoff:** a failed lead sets `leadFailureStreak`, `leadBackoffUntil` and
+  `lastLeadError`. Retry delays are 60 s, 120 s, 240 s, capped at 300 s; ticks
+  inside the window do not start another lead or add an error. The counters
+  reset on a successful/non-lead cycle and on `auto_start`/`auto_resume`.
+  `auto_status` exposes all four fields.
+- **Tests:** configured 300 s is honoured by branch/lead/advisor and by a lead
+  run record; unconfigured projects still resolve 60/90/240/180; the prompt cap
+  and before/after byte accounting use a synthetic 24-candidate/50 KB-evidence
+  payload; a never-resolving lead probe produces the accurate role/value/source
+  error; auto backoff proves a second tick does not re-run the lead.
+- **Boundary:** live 3080 still runs the previous build. No restart or live
+  project mutation was performed during this round.
+
 ## Round 34 — failed-source retries are proposable and every pending candidate gets a named decision
 
 - **Blocker:** live cycle `cyc-e7938b31` reused three BranchReports, but its lead

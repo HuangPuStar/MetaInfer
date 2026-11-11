@@ -7857,3 +7857,127 @@ performed.
 
 Boundary: live 3080 still runs the previous build. A Host restart/reload is
 required before the live paused project can materialize the replacements.
+
+### 61. Round 35 — role timeouts, bounded lead input, lead-failure backoff
+
+#### 61.1 Why the configured 300 s was ignored
+
+Hierarchy calls passed fixed role budgets into `runRole`:
+
+```text
+branch: ROLE_BUDGETS.branch.timeoutMs = 60_000
+lead:   ROLE_BUDGETS.lead.timeoutMs   = 90_000
+chief:  ROLE_BUDGETS.chief.timeoutMs  = 180_000
+```
+
+The live project had `config.advisor.timeoutSeconds = 300`, but only the old
+legacy advisor path used `advisorTimeoutMs(project)`. The stored failed lead run
+`run-3e399be0` has `timeoutMs: 90000` and `error: "lead run exceeded 90s"`.
+
+#### 61.2 Resolution and error message
+
+`roleTimeoutMs(project, role)` resolves:
+
+| Role | Default if unconfigured | With `timeoutSeconds:300` |
+|---|---:|---:|
+| branch | 60,000 ms | 300,000 ms |
+| lead | 90,000 ms | 300,000 ms |
+| advisor (legacy) | 240,000 ms | 300,000 ms |
+| chief | 180,000 ms | 180,000 ms |
+
+The value is bounded 30..1800 s. `runRole` records `timeoutMs` and
+`timeoutSource` (`config.advisor.timeoutSeconds` or `role-default`), and the
+timeout error is:
+
+```text
+lead run exceeded 30s (role=lead, timeoutMs=30000, source=config.advisor.timeoutSeconds)
+```
+
+The non-timeout provider failure form is also explicit:
+`lead stopped: error (timeoutMs=300000, source=config.advisor.timeoutSeconds)`.
+Prompts say `finish within 300 seconds` for a configured 300.
+
+#### 61.3 Lead input cap
+
+Default `LEAD_MAX_CANDIDATES = 8`; project override
+`config.advisor.maxLeadCandidates` is bounded 1..24. Selection order is:
+
+1. failed/cancelled source retry/replacement;
+2. priority `p0..p3`;
+3. non-low-confidence before low-confidence;
+4. newer `reportAt`;
+5. stable `candidateId`.
+
+A candidate whose `branchId|sourceNodeId|kind` already appears in
+`project.candidateConsumptions` is omitted (deduped consumed kind). Candidate
+`detail` is capped at 220 characters. Branch report compaction keeps 6 rows each
+for `verified`/`ruledOut`, 4 evidence pointers and 240 characters per quote,
+and omits `output.candidates` because the queue is authoritative.
+
+Measurement for the live 18-pending shape (`prj-421b80bf`):
+
+```text
+old stored lead run inputBytes: 20,582
+raw branch compression input:       117,292
+new lead inputBytes:              11,032
+new inputBytesBefore:             20,517
+candidate bytes:                  8,059 -> 3,692
+branch report bytes:              11,129 -> 6,011
+candidateCount=18, shown=8, omitted=10, dedupedConsumedKinds=0
+```
+
+The live-copy probe including the new `n-0014` branch event measured
+`inputBytesBefore=11,379`, actual lead input `5,333`, and lead run
+`timeoutMs=300000`, `timeoutSource=config.advisor.timeoutSeconds`, completing in
+30 ms with no errors.
+
+#### 61.4 Forced timeout probe
+
+A live-copy project with the same nodes/reports and a lead activation that never
+resolves, configured to 30 s for the probe, produced:
+
+```text
+elapsedMs: 30028
+leadRun.status: failed
+leadRun.timeoutMs: 30000
+leadRun.timeoutSource: config.advisor.timeoutSeconds
+leadRun.error: lead run exceeded 30s (role=lead, timeoutMs=30000,
+               source=config.advisor.timeoutSeconds)
+cycle.errors: [same]
+cycle.lead.inputBytes: 11127
+cycle.lead.inputBytesBefore: 20612
+cycle.lead.candidateShown: 8
+```
+
+This is a genuine wall-clock timeout, not a synthetic string assertion.
+
+#### 61.5 Lead retry backoff
+
+`host/auto.js` now has `LEAD_RETRY_BACKOFF_BASE_MS = 60_000` and
+`LEAD_RETRY_BACKOFF_MAX_MS = 300_000`:
+
+| consecutive lead failures | delay |
+|---:|---:|
+| 1 | 60 s |
+| 2 | 120 s |
+| 3 | 240 s |
+| 4+ | 300 s |
+
+A cycle whose errors start with `lead` sets `leadFailureStreak`,
+`leadBackoffUntil` and `lastLeadError`; the next tick inside the window records
+`lead retry backoff; Ns remaining; last error: ...` and does not call the lead or
+increment the error streak. The fields reset on a non-lead/successful cycle and
+on `auto_start`/`auto_resume`, and are persisted in `project.autoState` and
+returned by `auto_status`.
+
+#### 61.6 Gates
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1053 `ok`, 0 FAIL |
+| `stage5-selftest` | all checks passed (default/300 s resolution, cap, bytes) |
+| `hierarchy-selftest` | all checks passed (300 s lead record, bounded input, Round 34) |
+| `auto-wip-selftest` | 14/14 (lead backoff skip) |
+| forced timeout probe | 30,028 ms, accurate role/value/source error |
+
+Live 3080 was not restarted or mutated.

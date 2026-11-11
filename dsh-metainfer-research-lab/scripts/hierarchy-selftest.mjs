@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService, slimStateNode } from '../host/lab-service.js';
-import { createOrchestrator } from '../host/orchestrator.js';
+import { createOrchestrator, roleTimeoutMs } from '../host/orchestrator.js';
 import { registerAgentTool } from '../host/agent-tool.js';
 import { registerHttpRoutes } from '../host/http.js';
 import { createOperatorAuthority } from '../host/operator-token.js';
@@ -450,7 +450,7 @@ const prodRuns = store.listRuns(prodId);
 const branchProductionRun = prodRuns.find((run) => run.role === 'branch');
 const leadProductionRun = prodRuns.find((run) => run.role === 'lead');
 const chiefProductionRun = prodRuns.find((run) => run.role === 'chief');
-check('B11: production L0/L1/L2 are real activations, not labels', productionPresets.includes('lab-branch') && productionPresets.includes('lab-lead') && productionPresets.includes('lab-chief') && branchProductionRun?.budget?.maxQueries === 2 && branchProductionRun?.timeoutMs === 60_000 && leadProductionRun?.budget?.maxQueries === 4 && leadProductionRun?.timeoutMs === 90_000 && chiefProductionRun?.budget?.maxQueries === 8 && chiefProductionRun?.timeoutMs === 180_000, JSON.stringify({ productionPresets, budgets: prodRuns.map((run) => ({ role: run.role, budget: run.budget, timeoutMs: run.timeoutMs })) }));
+check('B11: production L0/L1/L2 are real activations, not labels', productionPresets.includes('lab-branch') && productionPresets.includes('lab-lead') && productionPresets.includes('lab-chief') && branchProductionRun?.budget?.maxQueries === 2 && branchProductionRun?.timeoutMs === 60_000 && leadProductionRun?.budget?.maxQueries === 4 && leadProductionRun?.timeoutMs === 60_000 && chiefProductionRun?.budget?.maxQueries === 8 && chiefProductionRun?.timeoutMs === 180_000, JSON.stringify({ productionPresets, budgets: prodRuns.map((run) => ({ role: run.role, budget: run.budget, timeoutMs: run.timeoutMs })) }));
 check('B11/B14/C8: production cycle builds L0 reports and materializes one L1 p2 child', stepped.created.length === 1 && produced?.reviewLevel === 'lead' && produced?.priority?.class === 'p2' && prodCycle?.hierarchy?.l0Trigger === 'branch_event' && prodCycle?.hierarchy?.branchCount >= 1, JSON.stringify({ stepped, produced: produced && { id: produced.id, createdBy: produced.createdBy, reviewLevel: produced.reviewLevel, priority: produced.priority, pending: produced.pendingHighReview }, hierarchy: prodCycle?.hierarchy }));
 check('B14: the escalated L1 child gets a 10-minute window; an unescalated child would not', produced?.pendingHighReview?.deadlineAt - produced?.pendingHighReview?.openedAt === 10 * 60_000 && prodProject?.reviewEscalations?.length === 1, JSON.stringify({ pending: produced?.pendingHighReview, escalations: prodProject?.reviewEscalations }));
 check('C8: the same production child creation records exactly one weighted vote', prodProject?.childVotes?.length === 1 && prodProject.childVotes[0].weight === 1 && prodProject.childVotes[0].nodeId === produced?.id, JSON.stringify(prodProject?.childVotes));
@@ -581,7 +581,7 @@ await store.saveProject({
   counters: { eventSeq: 0, nextNodeSeq: 13, nodes: 12 },
   config: {
     maxRunningNodes: 4, resourcePools: { gpu: 8 }, maxNodes: 40, expertsMode: 'hierarchy', migration: { phase: 2 },
-    advisor: { maxProposalsPerPass: 10, maxProposalsPerReviewer: 10, ancestorDepth: 1, acceptMode: 'auto', maxPendingProposals: 20, timeoutSeconds: 60, reviewers: [] },
+    advisor: { maxProposalsPerPass: 10, maxProposalsPerReviewer: 10, ancestorDepth: 1, acceptMode: 'auto', maxPendingProposals: 20, maxLeadCandidates: 10, timeoutSeconds: 300, reviewers: [] },
     auto: { maxCycles: 1 },
   },
   branchReviews: [
@@ -620,6 +620,7 @@ const round34Retries = round34Created.filter((node) => node.replacesNodeId === '
 check('Round 34: ten pending candidates, including two transport-failed retries, are planned in one cycle', round34Cycle?.candidates?.considered === 10 && round34Cycle?.candidates?.pending === 0 && round34Cycle?.candidates?.consumedThisCycle >= 2 && round34Created.length === 10, JSON.stringify({ created: round34Step.created, candidates: round34Cycle?.candidates, skipped: round34Cycle?.skipped, errors: round34Cycle?.errors }));
 check('Round 34: a failed-source retry becomes a replacement under the completed parent with the source needs', round34Retries.length === 2 && round34Retries.every((node) => node.status === 'planned' && node.needs?.gpu === 1 && node.replacesNodeId), JSON.stringify(round34Retries.map((node) => ({ id: node.id, parentId: node.parentId, replacesNodeId: node.replacesNodeId, needs: node.needs, status: node.status }))));
 check('Round 34: the lead output and one named decision per candidate are persisted', round34Cycle?.lead?.proposalCount === 10 && round34Cycle?.lead?.decisions?.length === 10 && round34Cycle.lead.decisions.every((row) => typeof row.reasonCode === 'string' && row.reasonCode.length > 0) && round34Cycle.lead.decisionCounts?.created === 10 && typeof round34Cycle.lead.analysis === 'string' && round34Cycle.lead.analysis.length > 0, JSON.stringify({ lead: round34Cycle?.lead, skipped: round34Cycle?.skipped, errors: round34Cycle?.errors }));
+check('Round 35: the lead receives a bounded input and the cycle records its actual byte size', round34Cycle?.lead?.inputBytes > 0 && round34Cycle?.lead?.inputBytes <= round34Cycle?.lead?.inputBytesBefore && round34Cycle?.lead?.candidateCount === 10 && round34Cycle?.lead?.candidateShown === 10 && round34Cycle?.leadInputBytes === round34Cycle?.lead?.inputBytes, JSON.stringify({ inputBytes: round34Cycle?.lead?.inputBytes, before: round34Cycle?.lead?.inputBytesBefore, shown: round34Cycle?.lead?.candidateShown, count: round34Cycle?.lead?.candidateCount }));
 check('Round 34: a no-create cycle cannot end with the generic lead-produced-no-proposal reason', !(round34Cycle?.skipped ?? []).some((row) => /lead produced no proposal/i.test(row.reason ?? '')), JSON.stringify(round34Cycle?.skipped));
 
 // Round 34b: the lead intentionally returns zero proposals for ten pending
@@ -631,7 +632,7 @@ await store.saveProject({
   counters: { eventSeq: 0, nextNodeSeq: 13, nodes: 12 },
   config: {
     maxRunningNodes: 4, resourcePools: { gpu: 8 }, maxNodes: 40, expertsMode: 'hierarchy', migration: { phase: 2 },
-    advisor: { maxProposalsPerPass: 10, maxProposalsPerReviewer: 10, ancestorDepth: 1, acceptMode: 'auto', maxPendingProposals: 20, timeoutSeconds: 60, reviewers: [] },
+    advisor: { maxProposalsPerPass: 10, maxProposalsPerReviewer: 10, ancestorDepth: 1, acceptMode: 'auto', maxPendingProposals: 20, maxLeadCandidates: 10, timeoutSeconds: 300, reviewers: [] },
     auto: { maxCycles: 1 },
   },
   branchReviews: [
@@ -661,6 +662,8 @@ await store.saveRun(round35Id, {
 });
 const round35Step = await prodOrch.step(round35Id, 'round35-no-proposal-probe');
 const round35Cycle = store.listCycles(round35Id, 1)[0];
+const round35LeadRun = store.listRuns(round35Id).find((run) => run.role === 'lead');
+check('Round 35: a configured 300 s advisor budget reaches the lead run', round35LeadRun?.timeoutMs === 300_000 && round35LeadRun?.budget?.timeoutMs === 300_000 && round35LeadRun?.timeoutSource === 'config.advisor.timeoutSeconds' && roleTimeoutMs({}, 'lead') === 90_000 && roleTimeoutMs({ config: { advisor: { timeoutSeconds: 300 } } }, 'lead') === 300_000, JSON.stringify({ run: round35LeadRun && { timeoutMs: round35LeadRun.timeoutMs, budget: round35LeadRun.budget }, defaultLead: roleTimeoutMs({}, 'lead') }));
 check('Round 34: a lead that intentionally returns zero proposals still records its answer and names every pending candidate', round35Step.created.length === 0 && round35Cycle?.lead?.proposalCount === 0 && /intentionally made no proposal/.test(round35Cycle?.lead?.analysis ?? '') && round35Cycle?.lead?.decisions?.length === 10 && round35Cycle.lead.decisions.every((row) => typeof row.skipReason === 'string' && row.skipReason.length > 0), JSON.stringify({ created: round35Step.created, lead: round35Cycle?.lead, candidates: round35Cycle?.candidates, skipped: round35Cycle?.skipped }));
 check('Round 34: the no-proposal cycle names failed-source and low-confidence candidates, not a generic reason', round35Cycle?.lead?.decisionCounts?.blocked_by_failed_source === 2 && round35Cycle?.lead?.decisionCounts?.low_confidence_only === 1 && /^lead returned 0 proposals/.test(round35Cycle?.candidates?.skipReason ?? '') && !/lead produced no proposal/i.test(JSON.stringify(round35Cycle?.skipped ?? [])), JSON.stringify({ decisions: round35Cycle?.lead?.decisionCounts, skipReason: round35Cycle?.candidates?.skipReason, skipped: round35Cycle?.skipped }));
 

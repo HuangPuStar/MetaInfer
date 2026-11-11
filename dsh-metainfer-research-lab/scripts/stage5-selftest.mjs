@@ -12,7 +12,7 @@ import { createIntent } from '../host/kernel/intent.js';
 import { DISPUTE_CLASS_MAP, DISPUTE_TIMEOUT_MS } from '../host/kernel/disputes.js';
 import { applyPredictionToNode, evaluateExpected, normalizeExpected } from '../host/kernel/prediction.js';
 import { rotationPlan } from '../host/experts/rotation.js';
-import { advisorTimeoutMs, DEFAULT_ADVISOR_TIMEOUT_SECONDS } from '../host/orchestrator.js';
+import { advisorTimeoutMs, DEFAULT_ADVISOR_TIMEOUT_SECONDS, roleTimeoutMs, ROLE_TIMEOUT_DEFAULTS, leadPromptParts } from '../host/orchestrator.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -98,6 +98,49 @@ check('5.3.8: the advisor budget defaults above the measured 180 s p90 and stays
   && advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 5 } } }) === 30_000
   && advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 99_999 } } }) === 1_800_000,
   JSON.stringify({ default: advisorTimeoutMs({}), low: advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 5 } } }), high: advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 99_999 } } }) }));
+
+check('Round 35: branch/lead/advisor resolve a configured 300 s budget; an unconfigured project keeps role defaults',
+  ROLE_TIMEOUT_DEFAULTS.branch === 60_000
+  && ROLE_TIMEOUT_DEFAULTS.lead === 90_000
+  && ROLE_TIMEOUT_DEFAULTS.advisor === 240_000
+  && roleTimeoutMs({}, 'branch') === 60_000
+  && roleTimeoutMs({}, 'lead') === 90_000
+  && roleTimeoutMs({}, 'advisor') === 240_000
+  && roleTimeoutMs({ config: { advisor: { timeoutSeconds: 300 } } }, 'branch') === 300_000
+  && roleTimeoutMs({ config: { advisor: { timeoutSeconds: 300 } } }, 'lead') === 300_000
+  && roleTimeoutMs({ config: { advisor: { timeoutSeconds: 300 } } }, 'advisor') === 300_000
+  && roleTimeoutMs({ config: { advisor: { timeoutSeconds: 300 } } }, 'chief') === 180_000,
+  JSON.stringify({ defaults: ROLE_TIMEOUT_DEFAULTS, configured: { branch: roleTimeoutMs({ config: { advisor: { timeoutSeconds: 300 } } }, 'branch'), lead: roleTimeoutMs({ config: { advisor: { timeoutSeconds: 300 } } }, 'lead'), advisor: roleTimeoutMs({ config: { advisor: { timeoutSeconds: 300 } } }, 'advisor') } }));
+
+check('Round 35: the lead prompt is capped to 12 candidates, strips bulk evidence quotes, and reports before/after bytes',
+  (() => {
+    const reports = [{
+      branchId: 'b', status: 'completed',
+      output: {
+        branchId: 'b', health: 'watch', escalate: false, reasonCodes: [],
+        verified: Array.from({ length: 10 }, (_, i) => ({ nodeId: `n${i}`, kind: 'claim', confidence: 0.8, claim: `claim ${i}`, evidence: { nodeId: `n${i}`, field: 'report.summary', quote: 'q'.repeat(5000) } })),
+        ruledOut: [], evidence: [{ nodeId: 'b', field: 'report.summary', quote: 'e'.repeat(5000) }], candidates: [],
+      },
+    }];
+    const candidates = Array.from({ length: 24 }, (_, i) => ({
+      candidateId: `cand:b:s${i}:candidate:${i}:0`, branchId: 'b', sourceNodeId: `s${i}`, sourceParentId: 'b',
+      sourceStatus: i < 2 ? 'failed' : null, kind: 'candidate', priority: i % 2 ? 'p1' : 'p3', title: `candidate ${i}`,
+      detail: 'd'.repeat(1000), reportAt: i, lowConfidence: i >= 8, needs: { gpu: 1 },
+    }));
+    const parts = leadPromptParts({ id: 'cap-p', config: { advisor: { timeoutSeconds: 300, maxLeadCandidates: 12 } } }, { branchCount: 1, activeBranchCount: 1, groupedTeams: [], escalations: [] }, reports, candidates);
+    const consumed = leadPromptParts({ id: 'cap-p', config: { advisor: { maxLeadCandidates: 12 } }, candidateConsumptions: [{ branchId: 'b', sourceNodeId: 's0', kind: 'candidate' }] }, { branchCount: 1, activeBranchCount: 1, groupedTeams: [], escalations: [] }, reports, candidates);
+    return parts.stats.candidateShown === 12 && parts.stats.candidateOmitted === 12
+      && parts.stats.inputBytes < parts.stats.inputBytesBefore && parts.stats.inputBytes < 30_000
+      && /finish within 300 seconds/.test(parts.text)
+      && parts.stats.branchReportBytesAfter < parts.stats.branchReportBytesBefore
+      && parts.stats.candidateBytesAfter < parts.stats.candidateBytesBefore
+      && consumed.stats.dedupedConsumedKinds === 1 && consumed.stats.candidateShown === 12;
+  })(),
+  JSON.stringify((() => {
+    const reports = [{ branchId: 'b', status: 'completed', output: { branchId: 'b', health: 'watch', verified: [], ruledOut: [], evidence: [{ nodeId: 'b', field: 'summary', quote: 'z'.repeat(5000) }] } }];
+    const candidates = Array.from({ length: 24 }, (_, i) => ({ candidateId: `c${i}`, branchId: 'b', sourceNodeId: `s${i}`, kind: 'candidate', title: `c${i}`, detail: 'x'.repeat(1000), reportAt: i }));
+    return leadPromptParts({ id: 'cap-p' }, { branchCount: 1 }, reports, candidates).stats;
+  })()));
 
 check('the eight conflict classes map to an authority, and only two ask a model',
   Object.keys(DISPUTE_CLASS_MAP).length === 8

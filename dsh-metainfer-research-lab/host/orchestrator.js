@@ -195,13 +195,47 @@ const ROLE_BUDGETS = Object.freeze({
   chief: { maxQueries: 8, timeoutMs: 180_000 },
 });
 
+/**
+ * Round 35: lead/advisor/branch share `config.advisor.timeoutSeconds`; role
+ * defaults are documented and preserved when no value is configured. Chief is
+ * deliberately not configurable by the advisor budget (its 180 s exception
+ * window is a separate mechanism).
+ */
+export const ROLE_TIMEOUT_DEFAULTS = Object.freeze({
+  branch: 60_000,
+  lead: 90_000,
+  advisor: DEFAULT_ADVISOR_TIMEOUT_SECONDS * 1000,
+  chief: 180_000,
+});
+const CONFIGURABLE_ROLE_TIMEOUTS = new Set(['branch', 'lead', 'advisor']);
+
+function configuredAdvisorSeconds(project) {
+  const raw = project?.config?.advisor?.timeoutSeconds;
+  if (raw === undefined || raw === null || raw === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+export function roleTimeoutMs(project, role) {
+  const fallback = ROLE_TIMEOUT_DEFAULTS[role] ?? ROLE_RUN_TIMEOUT_MS;
+  if (!CONFIGURABLE_ROLE_TIMEOUTS.has(role)) return fallback;
+  const configured = configuredAdvisorSeconds(project);
+  if (configured === null) return fallback;
+  return Math.max(30_000, Math.min(1_800_000, Math.round(configured) * 1000));
+}
+
+function roleTimeoutSource(project, role) {
+  if (!CONFIGURABLE_ROLE_TIMEOUTS.has(role)) return 'role-default';
+  return configuredAdvisorSeconds(project) !== null ? 'config.advisor.timeoutSeconds' : 'role-default';
+}
+
 function branchPrompt(project, event, report) {
   return [
     'You are the L0 branch reviewer. Compress exactly one branch subtree into a BranchReport.',
     'Do not create nodes, do not edit the ledger, and do not review other branches.',
     'Return the BranchReport through structured_output: branchId, health, verified, ruledOut, candidates, escalate, evidence.',
     'Every evidence pointer must cite a real nodeId, a whitelisted field and a quote from that field.',
-    `Budget: at most ${ROLE_BUDGETS.branch.maxQueries} read calls; finish within 60 seconds.`,
+    `Budget: at most ${ROLE_BUDGETS.branch.maxQueries} read calls; finish within ${roleTimeoutMs(project, 'branch') / 1000} seconds.`,
     '',
     '# Branch event',
     JSON.stringify(event),
@@ -213,12 +247,142 @@ function branchPrompt(project, event, report) {
   ].join('\n');
 }
 
-function leadPrompt(project, review, branchRuns, pendingCandidates = []) {
-  // Keep the prompt bounded even when a long-running project has hundreds of
-  // historical candidates. The queue itself is not truncated; the lead handles
-  // the first deterministic slice and the next cycle sees the rest.
-  const visible = pendingCandidates.slice(0, 24);
-  const candidates = visible.map((candidate) => ({
+const LEAD_MAX_CANDIDATES = 8;
+const LEAD_QUOTE_CHARS = 240;
+const LEAD_TEXT_CHARS = 320;
+const LEAD_MAX_REPORT_ROWS = 6;
+const LEAD_MAX_EVIDENCE = 4;
+
+function priorityRank(priority) {
+  const raw = typeof priority === 'string' ? priority.toLowerCase() : '';
+  return ({ p0: 0, p1: 1, p2: 2, p3: 3 })[raw] ?? 4;
+}
+
+function candidateKindKey(row) {
+  return `${row?.branchId ?? 'branch'}|${row?.sourceNodeId ?? 'branch'}|${row?.kind ?? 'idea'}`;
+}
+
+function compactExpected(expected) {
+  if (!expected || typeof expected !== 'object') return null;
+  return {
+    metric: boundedText(expected.metric, 120),
+    direction: boundedText(expected.direction, 20),
+    magnitude: Number.isFinite(Number(expected.magnitude)) ? Number(expected.magnitude) : null,
+    unit: boundedText(expected.unit, 60),
+  };
+}
+
+function compactEvidencePointer(pointer) {
+  if (!pointer || typeof pointer !== 'object') return null;
+  return {
+    nodeId: typeof pointer.nodeId === 'string' ? pointer.nodeId : null,
+    field: boundedText(pointer.field, 80),
+    quote: boundedText(pointer.quote, LEAD_QUOTE_CHARS),
+  };
+}
+
+function leadCandidateRow(candidate) {
+  return {
+    candidateId: candidate.candidateId,
+    branchId: candidate.branchId,
+    sourceNodeId: candidate.sourceNodeId,
+    sourceParentId: candidate.sourceParentId,
+    sourceStatus: candidate.sourceStatus,
+    kind: candidate.kind,
+    priority: candidate.priority,
+    title: boundedText(candidate.title, 200),
+    detail: boundedText(candidate.detail, 220),
+    needs: candidate.needs && typeof candidate.needs === 'object' ? candidate.needs : null,
+    expected: compactExpected(candidate.expected),
+    lowConfidence: candidate.lowConfidence === true,
+  };
+}
+
+/**
+ * Round 35: cap the lead's queue. Failed-source retries come first, then
+ * priority, then non-low-confidence and recency. A candidate whose
+ * branch/source/kind was already consumed is not shown again.
+ */
+function leadCandidateLimit(project) {
+  const raw = project?.config?.advisor?.maxLeadCandidates;
+  if (raw === undefined || raw === null || raw === '') return LEAD_MAX_CANDIDATES;
+  const configured = Number(raw);
+  return Number.isFinite(configured) ? Math.max(1, Math.min(24, Math.round(configured))) : LEAD_MAX_CANDIDATES;
+}
+
+function selectLeadCandidates(project, pendingCandidates) {
+  const limit = leadCandidateLimit(project);
+  const consumedKinds = new Set((Array.isArray(project?.candidateConsumptions) ? project.candidateConsumptions : [])
+    .map((row) => candidateKindKey(row))
+    .filter(Boolean));
+  const dedupedConsumed = [];
+  const eligible = [];
+  for (const candidate of pendingCandidates) {
+    if (consumedKinds.has(candidateKindKey(candidate))) {
+      dedupedConsumed.push(candidate.candidateId);
+      continue;
+    }
+    eligible.push(candidate);
+  }
+  eligible.sort((left, right) => {
+    const leftRank = left.sourceStatus === 'failed' || left.sourceStatus === 'cancelled' ? 0 : 1;
+    const rightRank = right.sourceStatus === 'failed' || right.sourceStatus === 'cancelled' ? 0 : 1;
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    const priority = priorityRank(left.priority) - priorityRank(right.priority);
+    if (priority !== 0) return priority;
+    if (Boolean(left.lowConfidence) !== Boolean(right.lowConfidence)) return left.lowConfidence ? 1 : -1;
+    const recency = Number(right.reportAt ?? 0) - Number(left.reportAt ?? 0);
+    if (recency !== 0) return recency;
+    return String(left.candidateId).localeCompare(String(right.candidateId));
+  });
+  const selected = eligible.slice(0, limit);
+  return {
+    selected,
+    dedupedConsumed,
+    omitted: Math.max(0, pendingCandidates.length - selected.length - dedupedConsumed.length),
+  };
+}
+
+function compactBranchReport(run) {
+  const output = run?.output && typeof run.output === 'object' ? run.output : {};
+  const compactRows = (rows, mapper) => (Array.isArray(rows) ? rows.slice(0, LEAD_MAX_REPORT_ROWS).map(mapper) : []);
+  return {
+    branchId: run?.branchId ?? output.branchId ?? null,
+    status: run?.status ?? null,
+    candidateCount: Array.isArray(output.candidates) ? output.candidates.length : 0,
+    events: Array.isArray(run?.events)
+      ? run.events.slice(0, 3).map((event) => ({ eventKey: event?.eventKey ?? null, nodeId: event?.nodeId ?? null, status: event?.status ?? null }))
+      : [],
+    output: {
+      branchId: output.branchId ?? run?.branchId ?? null,
+      health: output.health ?? null,
+      escalate: output.escalate === true,
+      reasonCodes: Array.isArray(output.reasonCodes) ? output.reasonCodes.slice(0, 8) : [],
+      verified: compactRows(output.verified, (row) => ({
+        nodeId: row?.nodeId ?? null,
+        kind: row?.kind ?? null,
+        confidence: Number.isFinite(Number(row?.confidence)) ? Number(row.confidence) : null,
+        claim: boundedText(row?.claim ?? row?.hypothesis ?? row?.reason, LEAD_TEXT_CHARS),
+        evidence: compactEvidencePointer(row?.evidence),
+      })),
+      ruledOut: compactRows(output.ruledOut, (row) => ({
+        nodeId: row?.nodeId ?? null,
+        kind: row?.kind ?? null,
+        reason: boundedText(row?.reason, LEAD_TEXT_CHARS),
+        evidence: compactEvidencePointer(row?.evidence),
+      })),
+      evidence: Array.isArray(output.evidence)
+        ? output.evidence.slice(0, LEAD_MAX_EVIDENCE).map(compactEvidencePointer)
+        : [],
+    },
+  };
+}
+
+function leadPromptParts(project, review, branchRuns, pendingCandidates = []) {
+  const selection = selectLeadCandidates(project, pendingCandidates);
+  const candidates = selection.selected.map(leadCandidateRow);
+  const reports = (Array.isArray(branchRuns) ? branchRuns : []).map(compactBranchReport);
+  const rawCandidates = pendingCandidates.slice(0, 24).map((candidate) => ({
     candidateId: candidate.candidateId,
     branchId: candidate.branchId,
     sourceNodeId: candidate.sourceNodeId,
@@ -232,7 +396,11 @@ function leadPrompt(project, review, branchRuns, pendingCandidates = []) {
     expected: candidate.expected,
     lowConfidence: candidate.lowConfidence,
   }));
-  return [
+  const branchBytesBefore = Buffer.byteLength(JSON.stringify(branchRuns ?? []), 'utf8');
+  const candidateBytesBefore = Buffer.byteLength(JSON.stringify(rawCandidates), 'utf8');
+  const branchBytesAfter = Buffer.byteLength(JSON.stringify(reports), 'utf8');
+  const candidateBytesAfter = Buffer.byteLength(JSON.stringify(candidates), 'utf8');
+  const text = [
     'You are the L1 lead. Use the bounded L0 BranchReports and the pending candidate queue to materialize the next useful nodes.',
     'Create at most one successor per completed leaf. Return proposals with parentId, title, prompt, rationale.',
     'If a proposal implements one of the pending branch-report candidates, set candidateId to that exact id.',
@@ -240,20 +408,51 @@ function leadPrompt(project, review, branchRuns, pendingCandidates = []) {
     'For every pending candidate you do not implement, return a candidateDecisions entry: candidateId, decision (blocked_by_failed_source, needs_human_scope_decision, duplicate_of_consumed, low_confidence_only, deferred_by_pass_limit, not_selected_by_lead, implemented), and a one-line reason.',
     'A retry/replace/decouple candidate whose sourceStatus is failed may be proposed under sourceParentId with the same scope and needs; the Host allows that one replacement even though the failed child exists.',
     'Escalate an exception instead of silently guessing; the chief is invisible to peers.',
-    `Budget: at most ${ROLE_BUDGETS.lead.maxQueries} read calls; finish within 90 seconds.`,
+    `Budget: at most ${ROLE_BUDGETS.lead.maxQueries} read calls; finish within ${roleTimeoutMs(project, 'lead') / 1000} seconds.`,
     '',
     '# Branch reports',
-    JSON.stringify(branchRuns),
+    JSON.stringify(reports),
     '',
     '# Pending branch-report candidates',
-    JSON.stringify({ shown: candidates.length, omitted: Math.max(0, pendingCandidates.length - candidates.length), candidates }),
+    JSON.stringify({ shown: candidates.length, omitted: selection.omitted, dedupedConsumedKinds: selection.dedupedConsumed.length, candidates }),
     '',
     '# Review tree',
     JSON.stringify({ branchCount: review.branchCount, activeBranchCount: review.activeBranchCount, groupedTeams: review.groupedTeams, escalations: review.escalations }),
     '',
     `Project: ${project.id}`,
   ].join('\n');
+  const afterCandidateSection = JSON.stringify({ shown: candidates.length, omitted: selection.omitted, dedupedConsumedKinds: selection.dedupedConsumed.length, candidates });
+  const beforeCandidateSection = JSON.stringify({
+    shown: rawCandidates.length,
+    omitted: Math.max(0, pendingCandidates.length - rawCandidates.length),
+    dedupedConsumedKinds: 0,
+    candidates: rawCandidates,
+  });
+  const beforeText = text
+    .replace(JSON.stringify(reports), JSON.stringify(Array.isArray(branchRuns) ? branchRuns : []))
+    .replace(afterCandidateSection, beforeCandidateSection);
+  return {
+    text,
+    stats: {
+      inputBytes: Buffer.byteLength(text, 'utf8'),
+      inputBytesBefore: Buffer.byteLength(beforeText, 'utf8'),
+      branchReportBytesBefore: branchBytesBefore,
+      branchReportBytesAfter: branchBytesAfter,
+      candidateBytesBefore,
+      candidateBytesAfter,
+      candidateCount: pendingCandidates.length,
+      candidateShown: candidates.length,
+      candidateOmitted: selection.omitted,
+      dedupedConsumedKinds: selection.dedupedConsumed.length,
+      branchReportCount: reports.length,
+    },
+  };
 }
+
+function leadPrompt(project, review, branchRuns, pendingCandidates = []) {
+  return leadPromptParts(project, review, branchRuns, pendingCandidates).text;
+}
+
 
 // Round 34: these are the named reasons a pending candidate can carry when the
 // lead did not materialize it. They are stable machine-readable codes; `reason`
@@ -433,7 +632,7 @@ function leadStallReason({ proposalCount, applied, decisions, pendingCount }) {
 }
 
 /** Persist the lead's actual answer next to the Host's per-candidate decisions. */
-function buildLeadTrace({ leadRun, applied, decisions, skipReason }) {
+function buildLeadTrace({ leadRun, applied, decisions, skipReason, input = null }) {
   const output = leadRun?.record?.output ?? null;
   const proposals = Array.isArray(output?.proposals) ? output.proposals : [];
   const results = new Map((applied?.proposalResults ?? []).map((row) => [row.index, row]));
@@ -442,6 +641,8 @@ function buildLeadTrace({ leadRun, applied, decisions, skipReason }) {
     runId: leadRun?.record?.id ?? null,
     status: leadRun?.failure ? 'failed' : (output ? 'completed' : 'no_output'),
     error: leadRun?.record?.error ?? null,
+    timeoutMs: leadRun?.record?.timeoutMs ?? null,
+    timeoutSource: leadRun?.record?.timeoutSource ?? null,
     analysis: boundedText(output?.analysis, 6000),
     note: boundedText(output?.note, 3000),
     needUserDecision: output?.needUserDecision === true,
@@ -474,6 +675,16 @@ function buildLeadTrace({ leadRun, applied, decisions, skipReason }) {
       acc[row.reasonCode] = (acc[row.reasonCode] ?? 0) + 1;
       return acc;
     }, {}),
+    inputBytes: Number(leadRun?.record?.inputBytes) || Number(input?.inputBytes) || 0,
+    inputBytesBefore: Number.isFinite(Number(input?.inputBytesBefore)) ? Number(input.inputBytesBefore) : null,
+    branchReportBytesBefore: input?.branchReportBytesBefore ?? null,
+    branchReportBytesAfter: input?.branchReportBytesAfter ?? null,
+    candidateBytesBefore: input?.candidateBytesBefore ?? null,
+    candidateBytesAfter: input?.candidateBytesAfter ?? null,
+    candidateCount: input?.candidateCount ?? null,
+    candidateShown: input?.candidateShown ?? null,
+    candidateOmitted: input?.candidateOmitted ?? null,
+    dedupedConsumedKinds: input?.dedupedConsumedKinds ?? null,
     skipReason,
   };
 }
@@ -483,7 +694,7 @@ function chiefPrompt(project, node, review) {
     'You are the L2 chief. Decide one routed exception. You may keep, defer or withdraw the node.',
     'A keep requires at least one verified raw-data pointer and a non-empty evidence chain.',
     'Do not create nodes or run the experiment; the lead already materialized the optimistic p2 child.',
-    `Budget: at most ${ROLE_BUDGETS.chief.maxQueries} read calls; finish within 180 seconds.`,
+    `Budget: at most ${ROLE_BUDGETS.chief.maxQueries} read calls; finish within ${roleTimeoutMs(project, 'chief') / 1000} seconds.`,
     '',
     '# Pending node',
     JSON.stringify({ id: node.id, title: node.title, priority: node.priority, pendingHighReview: node.pendingHighReview }),
@@ -774,10 +985,14 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     const preset = ROLE_PRESETS[role] ?? 'lab-scheduler';
     const roleBudget = ROLE_BUDGETS[role] ?? null;
     const maxQueries = Number.isFinite(Number(options.maxQueries)) ? Number(options.maxQueries) : roleBudget?.maxQueries ?? null;
+    const resolvedTimeoutMs = Number(options.timeoutMs);
     const timeoutMs = Math.max(
       30_000,
-      Math.min(1_800_000, Number(options.timeoutMs) || ROLE_RUN_TIMEOUT_MS),
+      Math.min(1_800_000, Number.isFinite(resolvedTimeoutMs) && resolvedTimeoutMs > 0
+        ? resolvedTimeoutMs
+        : roleTimeoutMs(project, role)),
     );
+    const timeoutSource = roleTimeoutSource(project, role);
     const record = {
       id,
       projectId: project.id,
@@ -790,6 +1005,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       lens: options.lens ?? null,
       preset,
       timeoutMs,
+      timeoutSource,
       budget: maxQueries ? { maxQueries, timeoutMs } : { timeoutMs },
       startedAt: Date.now(),
       // Observability: the real prompt size in bytes, and the snapshot size as
@@ -823,14 +1039,14 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         activation.result,
         new Promise((_, reject) => {
           const timer = setTimeout(
-            () => reject(new LabError('run_timeout', `${role} run exceeded ${timeoutMs / 1000}s`, 504)),
+            () => reject(new LabError('run_timeout', `${role} run exceeded ${timeoutMs / 1000}s (role=${role}, timeoutMs=${timeoutMs}, source=${timeoutSource})`, 504)),
             timeoutMs,
           );
           timer.unref?.();
         }),
       ]);
       if (result?.stopReason !== 'completed') {
-        failure = new Error(`${role} stopped: ${result?.stopReason}`);
+        failure = new Error(`${role} stopped: ${result?.stopReason} (timeoutMs=${timeoutMs}, source=${timeoutSource})`);
       }
     } catch (error) {
       failure = error;
@@ -1687,7 +1903,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           branchPrompt(project, branchEvents, report),
           BRANCH_REPORT_SCHEMA,
           { branchId, events: branchEvents, report },
-          { lens: branchId, timeoutMs: ROLE_BUDGETS.branch.timeoutMs, maxQueries: ROLE_BUDGETS.branch.maxQueries },
+          { lens: branchId, timeoutMs: roleTimeoutMs(project, 'branch'), maxQueries: ROLE_BUDGETS.branch.maxQueries },
         );
         cycle.branchRunIds = [...(cycle.branchRunIds ?? []), run.record.id];
         if (run.failure) {
@@ -1747,15 +1963,19 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     // only role allowed to create nodes; applyAdvisorOutput is the same Host
     // validator/materializer used by the old advisor path.
     project = requireProject(projectId);
+    const leadParts = leadPromptParts(project, { ...review, escalations: cycle.hierarchy.escalations }, branchRuns, queue.pending);
+    cycle.leadInputBytes = leadParts.stats.inputBytes;
+    cycle.leadInputStats = leadParts.stats;
     const leadRun = await runRole(
       project,
       'lead',
       cycle,
-      leadPrompt(project, { ...review, escalations: cycle.hierarchy.escalations }, branchRuns, queue.pending),
+      leadParts.text,
       ADVISOR_SCHEMA,
       { branchReports: branchRuns, pendingCandidates: queue.pending, review: { branchCount: review.branchCount, escalations: review.escalations } },
-      { timeoutMs: ROLE_BUDGETS.lead.timeoutMs, maxQueries: ROLE_BUDGETS.lead.maxQueries },
+      { timeoutMs: roleTimeoutMs(project, 'lead'), maxQueries: ROLE_BUDGETS.lead.maxQueries },
     );
+    leadRun.record.inputStats = leadParts.stats;
     cycle.leadRunId = leadRun.record.id;
     const pendingBefore = [...queue.pending];
     if (leadRun.failure) {
@@ -1769,13 +1989,14 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         leadDecisions,
       });
       const failedReason = queue.pendingCount > 0
-        ? `blocked by failed lead run; ${queue.pendingCount} candidate(s) pending; ${decisionSummary(decisions)}`
+        ? `blocked by failed lead run: ${boundedText(leadRun.record.error ?? 'unknown error', 500)}; ${queue.pendingCount} candidate(s) pending; ${decisionSummary(decisions)}`
         : candidateSkipReason(queue, { events, reports: queue.reports.length });
       cycle.lead = buildLeadTrace({
         leadRun,
         applied: { createdNodeIds: [], createdCandidates: [], proposalResults: [], rejected: [] },
         decisions,
         skipReason: failedReason,
+        input: leadParts.stats,
       });
       leadRun.record.candidateDecisions = decisions;
       leadRun.record.outcome = {
@@ -1824,7 +2045,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           : candidateSkipReason(queue, { events, reports: queue.reports.length }))
       : null;
     recordCandidates(queue, { consumedThisCycle: applied.consumedCandidateIds?.length ?? 0, skipReason: stallReason });
-    cycle.lead = buildLeadTrace({ leadRun, applied, decisions, skipReason: stallReason });
+    cycle.lead = buildLeadTrace({ leadRun, applied, decisions, skipReason: stallReason, input: leadParts.stats });
     leadRun.record.createdNodeIds = applied.createdNodeIds;
     leadRun.record.rejected = applied.rejected;
     leadRun.record.candidateDecisions = decisions;
@@ -1851,7 +2072,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         chiefPrompt(project, node, review),
         CHIEF_SCHEMA,
         { nodeId: node.id, pendingHighReview: node.pendingHighReview },
-        { timeoutMs: ROLE_BUDGETS.chief.timeoutMs, maxQueries: ROLE_BUDGETS.chief.maxQueries },
+        { timeoutMs: roleTimeoutMs(project, 'chief'), maxQueries: ROLE_BUDGETS.chief.maxQueries },
       );
       cycle.chiefRunIds.push(chiefRun.record.id);
       if (chiefRun.failure) {
@@ -2369,12 +2590,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
   };
 }
 
-export { ADVISOR_SCHEMA, SCHEDULER_SCHEMA, CHIEF_SCHEMA, advisorPrompt, schedulerPrompt, mergeAdvisorOutputs };
+export { ADVISOR_SCHEMA, SCHEDULER_SCHEMA, CHIEF_SCHEMA, advisorPrompt, schedulerPrompt, mergeAdvisorOutputs, leadPromptParts };
 
 
 /** 5.3.8: bounded advisor wall-clock budget in ms; default is the measured 240 s. */
 export function advisorTimeoutMs(project) {
-  const seconds = Number(project?.config?.advisor?.timeoutSeconds ?? DEFAULT_ADVISOR_TIMEOUT_SECONDS);
-  const bounded = Number.isFinite(seconds) ? Math.max(30, Math.min(1800, Math.round(seconds))) : DEFAULT_ADVISOR_TIMEOUT_SECONDS;
-  return bounded * 1000;
+  return roleTimeoutMs(project, 'advisor');
 }

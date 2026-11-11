@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { openStore } from '../host/store.js';
-import { createAutoController, maxPlannedInFlightOf } from '../host/auto.js';
+import { createAutoController, leadRetryBackoffMs, maxPlannedInFlightOf } from '../host/auto.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
@@ -221,6 +221,51 @@ await test('Round 33: the cycle candidate skip reason becomes lastPlanSkip', asy
   kernel.dispose();
   assert.equal(steps, 1);
   assert.equal(status.lastPlanSkip, 'all branch-report candidates consumed');
+});
+
+await test('lead failures use a capped exponential retry backoff', async () => {
+  assert.equal(leadRetryBackoffMs(1), 60_000);
+  assert.equal(leadRetryBackoffMs(2), 120_000);
+  assert.equal(leadRetryBackoffMs(3), 240_000);
+  assert.equal(leadRetryBackoffMs(10), 300_000);
+});
+
+await test('a lead timeout is backed off instead of being retried on the next tick', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const projectId = 'p-lead-backoff';
+  await store.saveProject({
+    id: projectId, name: projectId, mode: 'auto', repo: {}, revision: 0, counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 2, maxNodes: 100, resourcePools: {}, expertsMode: 'hierarchy', planning: { minRemainingMs: 3_600_000, planLatencyMs: 1_000, safetyFactor: 0.1, debounceMs: 0, minGapMs: 0 } },
+  });
+  await store.saveNode(projectId, node('b0'));
+  await store.saveNode(projectId, node('b1'));
+  const kernel = createKernel({ store });
+  kernel.load(projectId);
+  let steps = 0;
+  const auto = createAutoController({
+    store, kernel, cluster: null,
+    dispatchOnce: async () => ({ started: 0, skipped: [] }),
+    orchestrator: {
+      step: async () => {
+        steps += 1;
+        return { created: [], started: [], errors: ['lead: lead run exceeded 300s (role=lead, timeoutMs=300000)'], cycle: { errors: ['lead: lead run exceeded 300s (role=lead, timeoutMs=300000)'] } };
+      },
+    },
+    intervalMs: 60_000,
+  });
+  auto.start(projectId);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const first = auto.statusOf(projectId);
+  await auto.tick();
+  const second = auto.statusOf(projectId);
+  assert.equal(steps, 1, 'the lead must not be retried during its backoff window');
+  assert.equal(first.leadFailureStreak, 1);
+  assert(first.leadBackoffUntil > Date.now());
+  assert.match(first.lastLeadError, /exceeded 300s.*role=lead/);
+  assert.match(second.lastPlanSkip, /lead retry backoff/);
+  assert.match(second.lastPlanSkip, /exceeded 300s/);
+  auto.dispose();
+  kernel.dispose();
 });
 
 await test('an explicit project cap overrides the derived default', async () => {

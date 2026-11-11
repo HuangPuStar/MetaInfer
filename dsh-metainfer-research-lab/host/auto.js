@@ -8,6 +8,19 @@ import { isDeferredNode, runnableQueue, runnableSummary } from './kernel/runnabl
 import { createLowWaterPlanner, planningConfigOf } from './dispatch/low-water.js';
 import { anyFits, capacityOf } from './kernel/capacity.js';
 
+export const LEAD_RETRY_BACKOFF_BASE_MS = 60_000;
+export const LEAD_RETRY_BACKOFF_MAX_MS = 300_000;
+
+/** Round 35: exponential lead-failure backoff, capped at five minutes. */
+export function leadRetryBackoffMs(streak) {
+  const count = Math.max(1, Math.min(10, Number(streak) || 1));
+  return Math.min(LEAD_RETRY_BACKOFF_MAX_MS, LEAD_RETRY_BACKOFF_BASE_MS * 2 ** (count - 1));
+}
+
+function leadFailureInCycle(cycle) {
+  return (Array.isArray(cycle?.errors) ? cycle.errors : []).some((error) => /^lead\b/.test(String(error)));
+}
+
 function newNodeCount(nodes) {
   // Q5: a deferred (pruned) node is still in the DAG for restoration, but it
   // must not consume a hot-node slot. Counting `nodes.length` let 40 pruned
@@ -86,6 +99,10 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
         lastPlanSkip: persisted.lastPlanSkip ?? null,
         lastPauseAt: Number.isFinite(persisted.lastPauseAt) ? persisted.lastPauseAt : null,
         pauseCounts: persisted.pauseCounts && typeof persisted.pauseCounts === 'object' ? { ...persisted.pauseCounts } : {},
+        leadFailureStreak: Number.isFinite(persisted.leadFailureStreak) ? persisted.leadFailureStreak : 0,
+        leadBackoffUntil: Number.isFinite(persisted.leadBackoffUntil) ? persisted.leadBackoffUntil : 0,
+        lastLeadFailureAt: Number.isFinite(persisted.lastLeadFailureAt) ? persisted.lastLeadFailureAt : null,
+        lastLeadError: typeof persisted.lastLeadError === 'string' ? persisted.lastLeadError : null,
       };
       states.set(projectId, state);
     }
@@ -122,6 +139,10 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       pauseCounts: { ...state.pauseCounts },
       lastDispatch: state.lastDispatch ?? null,
       dispatchStarted: state.dispatchStarted ?? 0,
+      leadFailureStreak: state.leadFailureStreak ?? 0,
+      leadBackoffUntil: state.leadBackoffUntil ?? 0,
+      lastLeadFailureAt: state.lastLeadFailureAt ?? null,
+      lastLeadError: state.lastLeadError ?? null,
       tokensUsed: tokensUsed(projectId),
       costUsed: costUsed(projectId),
       limits: {
@@ -155,6 +176,10 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
           lastPlanSkip: state.lastPlanSkip,
           lastPauseAt: state.lastPauseAt ?? null,
           pauseCounts: { ...state.pauseCounts },
+          leadFailureStreak: state.leadFailureStreak ?? 0,
+          leadBackoffUntil: state.leadBackoffUntil ?? 0,
+          lastLeadFailureAt: state.lastLeadFailureAt ?? null,
+          lastLeadError: state.lastLeadError ?? null,
         } } },
       ],
     });
@@ -192,6 +217,10 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     state.errorStreak = 0;
     state.lastCycleAt = 0;
     state.pauseCounts = {};
+    state.leadFailureStreak = 0;
+    state.leadBackoffUntil = 0;
+    state.lastLeadFailureAt = null;
+    state.lastLeadError = null;
     planners.delete(projectId);
     project.mode = 'auto';
     await saveEvent(project, 'auto/started', { at: state.startedAt });
@@ -223,6 +252,10 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     // streak: the breaker pauses at errorStreak >= 3 and would otherwise re-pause
     // on the very next tick, making auto_resume look like a no-op.
     state.errorStreak = 0;
+    state.leadFailureStreak = 0;
+    state.leadBackoffUntil = 0;
+    state.lastLeadFailureAt = null;
+    state.lastLeadError = null;
     if (!state.startedAt) state.startedAt = Date.now();
     return statusOf(projectId);
   }
@@ -356,6 +389,11 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       if (runnable.length > 0 && !anyFits(runnable, capacity)) return waiting(projectId, 'capacityFull');
       return undefined; // queue is healthy: let dispatchOnce keep the slots full
     }
+    if (state.leadBackoffUntil > Date.now()) {
+      const seconds = Math.max(1, Math.ceil((state.leadBackoffUntil - Date.now()) / 1000));
+      state.lastPlanSkip = `lead retry backoff; ${seconds}s remaining${state.lastLeadError ? `; last error: ${state.lastLeadError}` : ''}`;
+      return undefined;
+    }
 
     busy.add(projectId);
     planner.beginPlanning();
@@ -377,6 +415,18 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
         state.lastPlanSkip = null;
       }
       state.errorStreak = result.errors.length > 0 ? state.errorStreak + 1 : 0;
+      if (leadFailureInCycle(result.cycle)) {
+        const streak = (state.leadFailureStreak ?? 0) + 1;
+        state.leadFailureStreak = streak;
+        state.lastLeadFailureAt = Date.now();
+        state.leadBackoffUntil = state.lastLeadFailureAt + leadRetryBackoffMs(streak);
+        state.lastLeadError = result.errors.find((error) => /^lead\b/.test(String(error))) ?? 'lead failed';
+        state.lastPlanSkip = `lead retry backoff; ${Math.round(leadRetryBackoffMs(streak) / 1000)}s after: ${state.lastLeadError}`;
+      } else {
+        state.leadFailureStreak = 0;
+        state.leadBackoffUntil = 0;
+        state.lastLeadError = null;
+      }
       const fresh = store.getProject(projectId);
       if (!fresh) return undefined;
       if (state.cycles >= (auto.maxCycles ?? 50)) return pause(projectId, 'maxCycles');
