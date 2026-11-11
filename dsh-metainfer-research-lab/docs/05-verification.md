@@ -716,7 +716,7 @@ Host `0.8.7-v3`，package `0.9.0`，client 11,603 行；locale 914/914。
 - 持久 Copilot session 的上下文会增长；需要依赖 compaction/预算策略。
   （**已还债**：见下节「V12 修复：Copilot 会话缺少压缩能力」。）
 
-### V12 修复：Copilot 会话缺少压缩能力
+### V12 补丁：Copilot 会话缺少压缩能力
 
 **症状**：Copilot 抽屉里的对话从不压缩——长对话不自动压缩，历史一路增长直到 provider 以上下文
 超限拒绝请求。`compaction/*` 事件数为 0。
@@ -769,7 +769,26 @@ DSH 对 subagent 会话不提供斜杠命令：原生 composer 的命令目录�
 人可驱动的会话（含历史遗留 root Copilot）可用，并保持与官方 preset 同构。
 
 **谁挂、谁不挂**：`lab-chat` / `lab-worker` / `lab-merge` / `lab-dashboard` 都挂 compaction 组
-（都需要自动压缩）；单轮 `structured_output` preset 刻意不挂，避免多余摘要请求。
+（都需要自动压缩）。`advisor` / `scheduler` / `gc` 是单轮 `structured_output`，`controller` /
+anchor 从不运行 turn，`lab-intake` 每轮一次性且草稿在 Host——这几类刻意不挂，避免多余摘要请求。
+
+**生效方式：必须重启 `dsh web`**
+
+preset 在 **DSH 启动时** eager mount（`agent-preset-registry` 的 `register()` → `mountPreset()`），
+`mount(ctx, id)` 只做 retain + bind，**不重读磁盘**。所以改完 `presets.patch.yml` 必须重启。
+
+好消息是重启后**已有旧会话也能获得新组装**：resume 走 `mount()`（无 `lastTurn` 限制），而
+`agent-preset/locked` 只在 `select()` 抛出，resume 不经过 `select()`。
+
+**触发阈值与成本（已知边界）**
+
+- 默认 `thresholdRatio = 0.8`。本机模型 `contextWindow = 1,000,000`，故压力阈值约 **800k token**、
+  逐字保留预算约 150k。也就是说一个 600k 量级的长会话**不会**因本修复立刻被压缩——本修复防的是
+  继续增长后撞上限，不是"立即压一次"。
+- 触发时压缩会发起额外摘要请求（`compactionRetries` 默认 1，即最多 2 次），输入约等于被压缩区间、
+  输出上限为 `maxTokens`（默认 65536）。这些 token **不计入项目的 token/cost 预算统计**
+  （`host/auto.js` 只累加 nodes + runs 的 usage），属静默成本。
+- 压缩成功后旧历史被 surface 投影替换，UI 上会折叠较早的消息。
 
 ### V12 修复：Copilot resume 缺少 provider/model
 

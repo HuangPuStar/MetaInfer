@@ -7,17 +7,23 @@
  *       name: cordis:group
  *       isolate: { compaction: true, toolResultPruner: true }
  *
- * group that `lab-worker`, `lab-merge` and `lab-dashboard` already mount. In
- * that configuration the Copilot agent context never provides the `compaction`
- * service, so:
+ * group that `lab-worker`, `lab-merge` and `lab-dashboard` already mount.
+ * `dsh-web-app` disables the host-plane `compaction-basic` / `command-compact` /
+ * `tool-result-pruner` rows and hands compaction ownership to the preset plane,
+ * so a preset without this group has no compaction at all:
  *
- *   - `@deepseek-ai/dsh-command-compact` declares `inject = ['commands', 'compaction']`
- *     (it is mounted per leaf by `dsh-base/cordis.patch.yml`), so `/compact`
- *     cannot load and manual compaction is unavailable;
  *   - `@deepseek-ai/dsh-compaction-basic`'s `agent/pre-step` pressure listener is
  *     absent, so there is no automatic compaction;
  *   - its `CONTEXT_WINDOW_EXCEEDED` listener is absent, so there is no overflow
- *     recovery either.
+ *     recovery either;
+ *   - `@deepseek-ai/dsh-command-compact` is absent from the agent scope, so
+ *     `/compact` cannot resolve for sessions a human drives.
+ *
+ * Scope note: nothing here asserts that `/compact` is reachable from the
+ * composer. DSH gives subagent sessions an empty command directory
+ * (`dsh-client-ui-commands`: `if (sessions.subagentAddress(sessionId) !==
+ * void 0) return []`), and on master the Copilot is a subagent child, so manual
+ * compaction there is a framework property this preset cannot change.
  *
  * The Copilot keeps one resumable session per project, so its history only grows
  * and eventually every turn fails at the provider.
