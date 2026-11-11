@@ -20,7 +20,7 @@ import { createLedgerReader } from './context/ledger.js';
 import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
 import { baselineFor, normalizeExpected } from './kernel/prediction.js';
 import { BRANCH_REPORT_SCHEMA, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
-import { MAX_CONSUMPTIONS, buildBranchCandidateQueue, candidateNoProposalReason, candidateSkipReason, candidateStats } from './experts/candidates.js';
+import { MAX_CONSUMPTIONS, buildBranchCandidateQueue, candidateSkipReason, candidateStats } from './experts/candidates.js';
 import { assertModelSchema } from './schema-check.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
@@ -131,6 +131,22 @@ const ADVISOR_SCHEMA = {
         additionalProperties: false,
       },
     },
+    // Round 34: the lead must say what it did with every pending candidate it
+    // did not materialize. The Host stores this verbatim and merges it with the
+    // structural candidate reasons, so a no-create cycle is auditable.
+    candidateDecisions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          candidateId: { type: 'string' },
+          decision: { type: 'string' },
+          reason: { type: 'string' },
+        },
+        required: ['candidateId', 'reason'],
+        additionalProperties: false,
+      },
+    },
     needUserDecision: { type: 'boolean' },
     note: { type: 'string' },
   },
@@ -206,6 +222,8 @@ function leadPrompt(project, review, branchRuns, pendingCandidates = []) {
     candidateId: candidate.candidateId,
     branchId: candidate.branchId,
     sourceNodeId: candidate.sourceNodeId,
+    sourceParentId: candidate.sourceParentId,
+    sourceStatus: candidate.sourceStatus,
     kind: candidate.kind,
     priority: candidate.priority,
     title: candidate.title,
@@ -219,6 +237,8 @@ function leadPrompt(project, review, branchRuns, pendingCandidates = []) {
     'Create at most one successor per completed leaf. Return proposals with parentId, title, prompt, rationale.',
     'If a proposal implements one of the pending branch-report candidates, set candidateId to that exact id.',
     'A candidate is consumed only when the Host creates its node; repeating the same candidate without creating a node is useless.',
+    'For every pending candidate you do not implement, return a candidateDecisions entry: candidateId, decision (blocked_by_failed_source, needs_human_scope_decision, duplicate_of_consumed, low_confidence_only, deferred_by_pass_limit, not_selected_by_lead, implemented), and a one-line reason.',
+    'A retry/replace/decouple candidate whose sourceStatus is failed may be proposed under sourceParentId with the same scope and needs; the Host allows that one replacement even though the failed child exists.',
     'Escalate an exception instead of silently guessing; the chief is invisible to peers.',
     `Budget: at most ${ROLE_BUDGETS.lead.maxQueries} read calls; finish within 90 seconds.`,
     '',
@@ -233,6 +253,229 @@ function leadPrompt(project, review, branchRuns, pendingCandidates = []) {
     '',
     `Project: ${project.id}`,
   ].join('\n');
+}
+
+// Round 34: these are the named reasons a pending candidate can carry when the
+// lead did not materialize it. They are stable machine-readable codes; `reason`
+// keeps the lead's own sentence next to the code.
+const LEAD_DECISION_CODES = new Set([
+  'blocked_by_failed_source',
+  'needs_human_scope_decision',
+  'duplicate_of_consumed',
+  'low_confidence_only',
+  'deferred_by_pass_limit',
+  'not_selected_by_lead',
+  'lead_claimed_implemented_unapplied',
+  'proposal_rejected',
+  'implemented',
+]);
+
+function boundedText(value, max) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max - 1)}…` : trimmed;
+}
+
+function leadDecisionCode(row) {
+  const rawDecision = typeof row?.decision === 'string' ? row.decision.trim().toLowerCase() : '';
+  if (LEAD_DECISION_CODES.has(rawDecision)) return rawDecision;
+  const rawReason = typeof row?.reason === 'string' ? row.reason.trim().toLowerCase() : '';
+  for (const code of LEAD_DECISION_CODES) {
+    if (rawReason === code || rawReason.startsWith(`${code}:`) || rawReason.startsWith(`${code} `)) return code;
+  }
+  return 'lead_declined';
+}
+
+/** Parse the lead's own per-candidate decisions, restricted to pending ids. */
+function leadDecisionMap(output, pendingCandidates) {
+  const pendingIds = new Set(pendingCandidates.map((candidate) => candidate.candidateId));
+  const map = new Map();
+  const rows = Array.isArray(output?.candidateDecisions) ? output.candidateDecisions : [];
+  for (const row of rows) {
+    const candidateId = typeof row?.candidateId === 'string' ? row.candidateId.trim() : '';
+    if (!candidateId || !pendingIds.has(candidateId) || map.has(candidateId)) continue;
+    map.set(candidateId, {
+      decision: leadDecisionCode(row),
+      reason: boundedText(row.reason, 1000) || 'lead gave no reason',
+    });
+  }
+  return map;
+}
+
+function rejectionReasonCode(result, candidate) {
+  if (result?.code === 'candidate_not_pending') return 'duplicate_of_consumed';
+  if (result?.code === 'max_proposals') return 'deferred_by_pass_limit';
+  if (result?.code === 'parent_already_has_successor') {
+    return candidate?.sourceStatus === 'failed' || candidate?.sourceStatus === 'cancelled'
+      ? 'blocked_by_failed_source'
+      : 'duplicate_of_consumed';
+  }
+  const reason = String(result?.reason ?? '');
+  if (/replacement for .* already exists|already has a live successor/i.test(reason)) return 'duplicate_of_consumed';
+  if (candidate?.lowConfidence) return 'low_confidence_only';
+  if (/model/i.test(reason)) return 'needs_human_scope_decision';
+  return 'proposal_rejected';
+}
+
+/** Every pending candidate gets one named decision, even if the lead omitted it. */
+function candidateDecisionRows({ pendingCandidates, applied, project, nodes, leadDecisions }) {
+  const resultsByCandidate = new Map();
+  for (const result of applied?.proposalResults ?? []) {
+    if (result?.candidateId && !resultsByCandidate.has(result.candidateId)) resultsByCandidate.set(result.candidateId, result);
+  }
+  const successful = new Set((applied?.createdCandidates ?? []).map((row) => row.candidateId).filter(Boolean));
+  const consumedThisCycle = new Set(applied?.consumedCandidateIds ?? []);
+  // Use prior consumptions for the "this branch was already advanced" fallback.
+  // A retry created in this same cycle must not make its siblings look like
+  // duplicates of an earlier consumed candidate.
+  const consumedBranches = new Set((project?.candidateConsumptions ?? [])
+    .filter((row) => !consumedThisCycle.has(row.candidateId))
+    .map((row) => row.branchId)
+    .filter(Boolean));
+  const parentsOf = (node) => (Array.isArray(node.parentIds) && node.parentIds.length > 0 ? node.parentIds : (node.parentId ? [node.parentId] : []));
+  return pendingCandidates.map((candidate) => {
+    const result = resultsByCandidate.get(candidate.candidateId) ?? null;
+    if (successful.has(candidate.candidateId) || result?.status === 'created') {
+      return {
+        candidateId: candidate.candidateId,
+        branchId: candidate.branchId,
+        sourceNodeId: candidate.sourceNodeId,
+        kind: candidate.kind,
+        lowConfidence: candidate.lowConfidence,
+        decision: 'created',
+        reasonCode: 'created',
+        skipReason: null,
+        reason: 'Host created the proposal node',
+        nodeId: result?.nodeId ?? (applied?.createdCandidates ?? []).find((row) => row.candidateId === candidate.candidateId)?.nodeId ?? null,
+      };
+    }
+    if (result?.status === 'rejected') {
+      const reasonCode = rejectionReasonCode(result, candidate);
+      return {
+        candidateId: candidate.candidateId,
+        branchId: candidate.branchId,
+        sourceNodeId: candidate.sourceNodeId,
+        kind: candidate.kind,
+        lowConfidence: candidate.lowConfidence,
+        decision: 'rejected',
+        reasonCode,
+        skipReason: reasonCode,
+        reason: boundedText(result.reason, 1000),
+        code: result.code ?? null,
+        proposalIndex: result.index ?? null,
+      };
+    }
+    const lead = leadDecisions.get(candidate.candidateId) ?? null;
+    if (lead) {
+      const code = lead.decision === 'implemented' ? 'lead_claimed_implemented_unapplied' : lead.decision;
+      return {
+        candidateId: candidate.candidateId,
+        branchId: candidate.branchId,
+        sourceNodeId: candidate.sourceNodeId,
+        kind: candidate.kind,
+        lowConfidence: candidate.lowConfidence,
+        decision: 'lead_declined',
+        reasonCode: code,
+        skipReason: code,
+        reason: lead.reason,
+        leadDecision: lead.decision,
+      };
+    }
+    let reasonCode = 'not_selected_by_lead';
+    let reason = 'lead returned no proposal or decision for this candidate';
+    if (candidate.lowConfidence) {
+      reasonCode = 'low_confidence_only';
+      reason = 'candidate confidence is below 0.5; the lead did not spend a proposal on it';
+    } else if (candidate.sourceStatus === 'failed' || candidate.sourceStatus === 'cancelled') {
+      reasonCode = 'blocked_by_failed_source';
+      reason = `source ${candidate.sourceNodeId} is ${candidate.sourceStatus}; retry/replacement was not proposed`;
+    } else if (consumedBranches.has(candidate.branchId)) {
+      reasonCode = 'duplicate_of_consumed';
+      reason = `branch ${candidate.branchId} already has a consumed candidate and was not advanced again`;
+    } else if (nodes.some((node) => node.id !== candidate.branchId && parentsOf(node).includes(candidate.branchId) && node.status !== 'failed' && node.status !== 'cancelled')) {
+      reasonCode = 'branch_already_advanced';
+      reason = `branch ${candidate.branchId} already has a live child; the candidate was not selected`;
+    } else if (candidate.kind === 'split' || candidate.kind === 'decouple') {
+      reasonCode = 'needs_human_scope_decision';
+      reason = `${candidate.kind} changes scope and needs an explicit scope decision`;
+    }
+    return {
+      candidateId: candidate.candidateId,
+      branchId: candidate.branchId,
+      sourceNodeId: candidate.sourceNodeId,
+      kind: candidate.kind,
+      lowConfidence: candidate.lowConfidence,
+      decision: 'not_selected',
+      reasonCode,
+      skipReason: reasonCode,
+      reason,
+    };
+  });
+}
+
+function decisionSummary(decisions) {
+  const counts = new Map();
+  for (const row of decisions) {
+    counts.set(row.reasonCode, (counts.get(row.reasonCode) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([code, count]) => `${code}=${count}`).join(', ');
+}
+
+function leadStallReason({ proposalCount, applied, decisions, pendingCount }) {
+  const summary = decisionSummary(decisions);
+  if (proposalCount === 0) {
+    return `lead returned 0 proposals for ${pendingCount} pending candidate(s); ${summary || 'no candidate decisions'}`;
+  }
+  const firstRejection = applied?.rejected?.[0]?.reason;
+  return firstRejection
+    ? `lead made ${proposalCount} proposal(s) but created 0; first rejection: ${boundedText(firstRejection, 300)} (${summary})`
+    : `lead made ${proposalCount} proposal(s) but created 0; ${summary || 'no candidate decisions'}`;
+}
+
+/** Persist the lead's actual answer next to the Host's per-candidate decisions. */
+function buildLeadTrace({ leadRun, applied, decisions, skipReason }) {
+  const output = leadRun?.record?.output ?? null;
+  const proposals = Array.isArray(output?.proposals) ? output.proposals : [];
+  const results = new Map((applied?.proposalResults ?? []).map((row) => [row.index, row]));
+  const leadRows = Array.isArray(output?.candidateDecisions) ? output.candidateDecisions : [];
+  return {
+    runId: leadRun?.record?.id ?? null,
+    status: leadRun?.failure ? 'failed' : (output ? 'completed' : 'no_output'),
+    error: leadRun?.record?.error ?? null,
+    analysis: boundedText(output?.analysis, 6000),
+    note: boundedText(output?.note, 3000),
+    needUserDecision: output?.needUserDecision === true,
+    considered: proposals.length,
+    proposalCount: proposals.length,
+    proposals: proposals.slice(0, 50).map((proposal, index) => ({
+      index,
+      candidateId: typeof proposal?.candidateId === 'string' ? proposal.candidateId : null,
+      parentId: proposal?.parentId ?? null,
+      title: boundedText(proposal?.title, 300),
+      status: results.get(index)?.status ?? (index >= (applied?.proposalResults?.length ?? 0) ? 'not_processed' : 'unknown'),
+      nodeId: results.get(index)?.nodeId ?? null,
+      rejection: results.get(index)?.reason ?? null,
+    })),
+    leadCandidateDecisions: leadRows.slice(0, 200).map((row) => ({
+      candidateId: typeof row?.candidateId === 'string' ? row.candidateId : null,
+      decision: typeof row?.decision === 'string' ? boundedText(row.decision, 200) : null,
+      reason: boundedText(row?.reason, 1000),
+    })),
+    rejected: (applied?.rejected ?? []).slice(0, 50).map((row) => ({
+      parentId: row?.parentId ?? null,
+      title: boundedText(row?.title, 300),
+      candidateId: row?.candidateId ?? null,
+      reason: boundedText(row?.reason, 1000),
+      code: row?.code ?? null,
+    })),
+    decisions,
+    candidateDecisions: decisions,
+    decisionCounts: decisions.reduce((acc, row) => {
+      acc[row.reasonCode] = (acc[row.reasonCode] ?? 0) + 1;
+      return acc;
+    }, {}),
+    skipReason,
+  };
 }
 
 function chiefPrompt(project, node, review) {
@@ -660,41 +903,65 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     return { needs, error: null };
   }
 
-  function checkProposal(project, proposal, nodes) {
+  function checkProposal(project, proposal, nodes, candidate = null) {
     const parentId = typeof proposal?.parentId === 'string' ? proposal.parentId : '';
     if (!parentId) return { ok: false, reason: 'parentId is required' };
     const parent = nodes.find((node) => node.id === parentId);
     if (!parent || parent.status !== 'completed') return { ok: false, reason: `parent ${parentId} is not completed` };
     if (!parent.git?.headCommit) return { ok: false, reason: `parent ${parentId} has no commit` };
     const parentsOf = (node) => (Array.isArray(node.parentIds) && node.parentIds.length > 0 ? node.parentIds : (node.parentId ? [node.parentId] : []));
-    if (nodes.some((node) => node.status !== 'proposed' && node.id !== parentId && parentsOf(node).includes(parentId))) {
+    const sourceNodeId = typeof candidate?.sourceNodeId === 'string' ? candidate.sourceNodeId : '';
+    const source = sourceNodeId ? nodes.find((node) => node.id === sourceNodeId) ?? null : null;
+    const sourceFailed = Boolean(source && (source.status === 'failed' || source.status === 'cancelled'));
+    // Round 34: a failed child blocks ordinary succession, but it must not
+    // block its own retry/replacement. The replacement is a sibling under the
+    // failed node's completed parent, with the same scope and needs unless the
+    // lead overrides them.
+    const replacingFailedSource = Boolean(sourceFailed && parentsOf(source).includes(parentId));
+    const children = nodes.filter((node) => node.id !== parentId && parentsOf(node).includes(parentId));
+    const blockingChildren = children.filter((node) => node.status !== 'proposed');
+    if (replacingFailedSource) {
+      const duplicateReplacement = children.find((node) => node.id !== source.id
+        && (node.replacesNodeId === source.id || (candidate?.candidateId && node.candidateId === candidate.candidateId)));
+      if (duplicateReplacement) {
+        return { ok: false, reason: `replacement for ${source.id} already exists as ${duplicateReplacement.id}` };
+      }
+      const liveChild = blockingChildren.find((node) => node.id !== source.id && node.status !== 'failed' && node.status !== 'cancelled');
+      if (liveChild) {
+        return { ok: false, reason: `parent ${parentId} already has a live successor ${liveChild.id}; only the failed child ${source.id} is retryable` };
+      }
+    } else if (blockingChildren.length > 0) {
       return { ok: false, reason: `parent ${parentId} already has a successor; propose from a leaf` };
     }
     // A title is a label, not an instruction: clamp it instead of rejecting the
     // whole proposal (rejections here used to starve the auto driver silently).
-    const title = clampNodeTitle(proposal?.title);
-    const prompt = typeof proposal.prompt === 'string' ? proposal.prompt.trim() : '';
+    const title = clampNodeTitle(proposal?.title || (source?.title ? `Retry ${source.title}` : ''));
+    const prompt = typeof proposal?.prompt === 'string' && proposal.prompt.trim()
+      ? proposal.prompt.trim()
+      : (typeof source?.prompt === 'string' ? source.prompt.trim() : '');
     if (isBlank(title)) return { ok: false, reason: 'title is required' };
     if (prompt.length < 10 || prompt.length > 8000) return { ok: false, reason: 'prompt must be 10..8000 characters' };
-    const { needs, error } = normalizeNeeds(proposal.needs, project);
+    const rawNeeds = proposal?.needs === undefined || proposal?.needs === null ? source?.needs : proposal.needs;
+    const { needs, error } = normalizeNeeds(rawNeeds, project);
     if (error) return { ok: false, reason: error };
     const maxMinutes = project.config.maxNodeTimeoutMinutes ?? 240;
+    const sourceTimeboxMinutes = source?.timeboxMs ? Math.ceil(source.timeboxMs / 60_000) : null;
     const timeboxMinutes = Number.isInteger(proposal.timeboxMinutes)
       ? proposal.timeboxMinutes
-      : project.config.nodeTimeoutMinutes;
+      : (sourceTimeboxMinutes ?? project.config.nodeTimeoutMinutes);
     if (!Number.isInteger(timeboxMinutes) || timeboxMinutes < 1 || timeboxMinutes > maxMinutes) {
       return { ok: false, reason: `timeboxMinutes must be 1..${maxMinutes}` };
     }
     const hash = promptHash(prompt);
-    if (nodes.some((node) => node.parentId === parentId && promptHash(node.prompt) === hash)) {
+    if (!replacingFailedSource && nodes.some((node) => node.parentId === parentId && promptHash(node.prompt) === hash)) {
       return { ok: false, reason: 'duplicate proposal (same parent and prompt hash)' };
     }
     if (nodes.length >= (project.config.maxNodes ?? 60)) return { ok: false, reason: 'maxNodes reached' };
     let execution;
     try {
       execution = resolveExecutionProfile(project, {
-        executionProfile: proposal.executionProfile,
-        taskType: proposal.taskType,
+        executionProfile: proposal?.executionProfile ?? source?.execution?.profile,
+        taskType: proposal?.taskType ?? source?.taskType,
         // A wrong profile name in a suggestion is not a reason to throw the
         // experiment away; it falls back to the project default and the cycle
         // records the correction.
@@ -706,6 +973,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     return {
       ok: true,
       parent,
+      replacesNodeId: replacingFailedSource ? source.id : null,
       executionNote: execution.profileFallback
         ? { requestedProfile: execution.requestedProfile, usedProfile: execution.profile }
         : null,
@@ -717,6 +985,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         timeboxMinutes,
         model: null,
         execution,
+        ...(replacingFailedSource ? { replacesNodeId: source.id } : {}),
       },
     };
   }
@@ -786,6 +1055,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
       ...(meta.candidateId ? { candidateId: meta.candidateId } : {}),
+      ...(spec.replacesNodeId ? { replacesNodeId: spec.replacesNodeId } : {}),
       ...(meta.reviewLevel ? { reviewLevel: meta.reviewLevel, ratifiedBy: null } : {}),
       ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
       ...(meta.expected ? { expected: meta.expected, expectedBaseline: meta.expectedBaseline ?? null } : {}),
@@ -879,6 +1149,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
       ...(meta.candidateId ? { candidateId: meta.candidateId } : {}),
+      ...(spec.replacesNodeId ? { replacesNodeId: spec.replacesNodeId } : {}),
       ...(meta.reviewLevel ? { reviewLevel: meta.reviewLevel, ratifiedBy: null } : {}),
       ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
       ...(meta.expected ? { expected: meta.expected, expectedBaseline: meta.expectedBaseline ?? null } : {}),
@@ -969,6 +1240,16 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       return candidate ? { candidate, explicit: true } : { candidate: null, explicit: true, unknown: explicit };
     }
     const byId = new Map(nodes.map((node) => [node.id, node]));
+    const parentIdsOf = (node) => (Array.isArray(node.parentIds) && node.parentIds.length > 0 ? node.parentIds : (node.parentId ? [node.parentId] : []));
+    const parentNodeId = parent?.id ?? '';
+    // A retry's source is the failed child, not an ancestor of the parent. Match
+    // that direct failed child before falling back to lineage/branch so an
+    // omitted candidateId cannot bind a retry to an unrelated branch candidate.
+    const failedChildren = new Set(nodes
+      .filter((node) => parentNodeId && parentIdsOf(node).includes(parentNodeId) && (node.status === 'failed' || node.status === 'cancelled'))
+      .map((node) => node.id));
+    const failedChildMatch = pendingCandidates.find((row) => row.sourceNodeId && failedChildren.has(row.sourceNodeId));
+    if (failedChildMatch) return { candidate: failedChildMatch, explicit: false };
     const ancestry = new Set();
     const stack = [parent];
     while (stack.length > 0) {
@@ -985,13 +1266,13 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     }
     const lineageMatch = pendingCandidates.find((row) => row.sourceNodeId && ancestry.has(row.sourceNodeId));
     if (lineageMatch) return { candidate: lineageMatch, explicit: false };
-    const branchId = branchIdOf(parent.id, byId);
+    const branchId = parent ? branchIdOf(parent.id, byId) : null;
     const branchMatch = pendingCandidates.find((row) => row.branchId === branchId);
     return { candidate: branchMatch ?? null, explicit: false };
   }
 
   async function applyAdvisorOutput(projectId, cycle, output, pendingCandidates = []) {
-    const applied = { createdNodeIds: [], rejected: [], consumedCandidateIds: [] };
+    const applied = { createdNodeIds: [], rejected: [], consumedCandidateIds: [], createdCandidates: [], proposalResults: [] };
     if (!output || typeof output !== 'object') {
       applied.rejected.push({ reason: 'advisor run had no structured output' });
       return applied;
@@ -1031,52 +1312,65 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       let project = requireProject(projectId);
       const max = project.config.advisor?.maxProposalsPerPass ?? 3;
       const extra = proposals.slice(max);
-      for (const proposal of extra) {
-        applied.rejected.push({ parentId: proposal?.parentId ?? null, title: proposal?.title ?? null, reason: `maxProposalsPerPass=${max}` });
+      for (const [extraIndex, proposal] of extra.entries()) {
+        const reason = `maxProposalsPerPass=${max}`;
+        const candidateId = typeof proposal?.candidateId === 'string' && proposal.candidateId.trim() ? proposal.candidateId.trim() : null;
+        applied.rejected.push({ parentId: proposal?.parentId ?? null, title: proposal?.title ?? null, candidateId, reason, code: 'max_proposals' });
+        applied.proposalResults.push({ index: max + extraIndex, candidateId, parentId: proposal?.parentId ?? null, title: proposal?.title ?? null, status: 'rejected', reason, code: 'max_proposals', nodeId: null });
       }
       let availableCandidates = [...pendingCandidates];
       for (const [proposalIndex, proposal] of proposals.slice(0, max).entries()) {
         project = requireProject(projectId);
         const nodes = store.listNodes(projectId);
-        const check = checkProposal(project, proposal, nodes);
+        const result = {
+          index: proposalIndex,
+          candidateId: typeof proposal?.candidateId === 'string' && proposal.candidateId.trim() ? proposal.candidateId.trim() : null,
+          parentId: proposal?.parentId ?? null,
+          title: proposal?.title ?? null,
+          status: 'rejected',
+          reason: null,
+          code: null,
+          nodeId: null,
+        };
+        applied.proposalResults.push(result);
+        const rejectResult = (reason, code = null) => {
+          result.status = 'rejected';
+          result.reason = reason;
+          result.code = code;
+          applied.rejected.push({
+            parentId: proposal?.parentId ?? null,
+            title: proposal?.title ?? null,
+            candidateId: result.candidateId,
+            reason,
+            ...(code ? { code } : {}),
+          });
+        };
         const advisorModel = advisorModels.get(proposalIndex);
-        if (advisorModel?.error) {
-          applied.rejected.push({
-            parentId: proposal?.parentId ?? null,
-            title: proposal?.title ?? null,
-            reason: `recommendedModel rejected: ${advisorModel.error}`,
-          });
-          continue;
-        }
-        if (!check.ok) {
-          applied.rejected.push({
-            parentId: proposal?.parentId ?? null,
-            title: proposal?.title ?? null,
-            reason: check.reason,
-          });
-          continue;
-        }
-        const candidateSelection = candidateForProposal(proposal, check.parent, nodes, availableCandidates);
+        const parent = nodes.find((node) => node.id === (typeof proposal?.parentId === 'string' ? proposal.parentId : '')) ?? null;
+        const candidateSelection = candidateForProposal(proposal, parent, nodes, availableCandidates);
+        if (candidateSelection.candidate) result.candidateId = candidateSelection.candidate.candidateId;
         if (candidateSelection.unknown) {
-          applied.rejected.push({
-            parentId: proposal?.parentId ?? null,
-            title: proposal?.title ?? null,
-            reason: `candidateId ${candidateSelection.unknown} is not pending`,
-            code: 'candidate_not_pending',
-          });
+          rejectResult(`candidateId ${candidateSelection.unknown} is not pending`, 'candidate_not_pending');
+          continue;
+        }
+        if (advisorModel?.error) {
+          rejectResult(`recommendedModel rejected: ${advisorModel.error}`, 'recommended_model_rejected');
           continue;
         }
         const selectedCandidate = candidateSelection.candidate;
+        const check = checkProposal(project, proposal, nodes, selectedCandidate);
+        if (!check.ok) {
+          const code = /already has a successor|already has a live successor|replacement for .* already exists/.test(check.reason)
+            ? 'parent_already_has_successor'
+            : null;
+          rejectResult(check.reason, code);
+          continue;
+        }
         let expected = null;
         try {
           expected = normalizeExpected(proposal?.expected);
         } catch (expectedError) {
-          applied.rejected.push({
-            parentId: proposal?.parentId ?? null,
-            title: proposal?.title ?? null,
-            reason: `expected rejected: ${expectedError.message}`,
-            code: 'invalid_expected',
-          });
+          rejectResult(`expected rejected: ${expectedError.message}`, 'invalid_expected');
           continue;
         }
         const claim = reviewClaims.claim({
@@ -1087,12 +1381,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           title: proposal?.title ?? '',
         });
         if (!claim.ok) {
-          applied.rejected.push({
-            parentId: proposal?.parentId ?? null,
-            title: proposal?.title ?? null,
-            reason: claim.message,
-            code: claim.code,
-          });
+          rejectResult(claim.message, claim.code);
           continue;
         }
         try {
@@ -1134,6 +1423,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
             ? await createProposed(project, check.parent, check.spec, { ...reviewMeta, expectedInfoGain: proposal.expectedInfoGain })
             : await createChild(project, check.parent, check.spec, reviewMeta);
           applied.createdNodeIds.push(node.id);
+          applied.createdCandidates.push({ candidateId: selectedCandidate?.candidateId ?? null, nodeId: node.id, parentId: check.parent.id, replacesNodeId: check.replacesNodeId ?? null });
+          result.status = 'created';
+          result.reason = null;
+          result.code = null;
+          result.nodeId = node.id;
           if (selectedCandidate) {
             applied.consumedCandidateIds.push(selectedCandidate.candidateId);
             availableCandidates = availableCandidates.filter((row) => row.candidateId !== selectedCandidate.candidateId);
@@ -1162,11 +1456,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
             }], { causeId: `review:${parent.id}` });
           }
         } catch (error) {
-          applied.rejected.push({
-            parentId: proposal?.parentId ?? null,
-            title: proposal?.title ?? null,
-            reason: error instanceof Error ? error.message : String(error),
-          });
+          rejectResult(error instanceof Error ? error.message : String(error), 'create_failed');
         }
       }
       // Mark remaining completed leaves as reviewed without new nodes, so a
@@ -1467,18 +1757,44 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       { timeoutMs: ROLE_BUDGETS.lead.timeoutMs, maxQueries: ROLE_BUDGETS.lead.maxQueries },
     );
     cycle.leadRunId = leadRun.record.id;
+    const pendingBefore = [...queue.pending];
     if (leadRun.failure) {
       cycle.errors.push(`lead: ${leadRun.record.error}`);
+      const leadDecisions = leadDecisionMap(leadRun.record.output, pendingBefore);
+      const decisions = candidateDecisionRows({
+        pendingCandidates: pendingBefore,
+        applied: { createdNodeIds: [], createdCandidates: [], proposalResults: [], rejected: [] },
+        project,
+        nodes: store.listNodes(projectId),
+        leadDecisions,
+      });
       const failedReason = queue.pendingCount > 0
-        ? `blocked by failed lead run; ${queue.pendingCount} candidate(s) pending`
+        ? `blocked by failed lead run; ${queue.pendingCount} candidate(s) pending; ${decisionSummary(decisions)}`
         : candidateSkipReason(queue, { events, reports: queue.reports.length });
+      cycle.lead = buildLeadTrace({
+        leadRun,
+        applied: { createdNodeIds: [], createdCandidates: [], proposalResults: [], rejected: [] },
+        decisions,
+        skipReason: failedReason,
+      });
+      leadRun.record.candidateDecisions = decisions;
+      leadRun.record.outcome = {
+        status: 'failed',
+        error: leadRun.record.error ?? null,
+        proposalCount: 0,
+        created: 0,
+        rejected: 0,
+        decisionCounts: cycle.lead.decisionCounts,
+        skipReason: failedReason,
+      };
+      await saveRun(projectId, leadRun.record, 'run/updated', { created: 0, failed: true });
       if (failedReason) {
         recordCandidates(queue, { skipReason: failedReason });
         cycle.skipped.push({ stage: 'advisor', reason: failedReason });
       }
       return;
     }
-    let applied = { createdNodeIds: [], rejected: [], consumedCandidateIds: [] };
+    let applied = { createdNodeIds: [], rejected: [], consumedCandidateIds: [], createdCandidates: [], proposalResults: [] };
     if (leadRun.record.output && Array.isArray(leadRun.record.output.proposals)) {
       try {
         applied = await applyAdvisorOutput(projectId, cycle, leadRun.record.output, queue.pending);
@@ -1487,21 +1803,41 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         cycle.errors.push(`lead apply: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    leadRun.record.createdNodeIds = applied.createdNodeIds;
-    leadRun.record.rejected = applied.rejected;
-    await saveRun(projectId, leadRun.record, 'run/updated', { created: applied.createdNodeIds.length });
 
     // Candidate accounting is recomputed from the durable consumption records,
-    // not assumed from the lead's answer.
+    // not assumed from the lead's answer. The lead's own answer and one named
+    // decision per pending candidate are written even when it created nothing.
     project = requireProject(projectId);
     queue = buildBranchCandidateQueue({ project, nodes: store.listNodes(projectId), runs: store.listRuns(projectId, 500) });
-    recordCandidates(queue, { consumedThisCycle: applied.consumedCandidateIds?.length ?? 0 });
-    if (applied.createdNodeIds.length === 0) {
-      const reason = queue.pendingCount > 0
-        ? candidateNoProposalReason(queue)
-        : candidateSkipReason(queue, { events, reports: queue.reports.length });
-      if (reason) cycle.skipped.push({ stage: 'advisor', reason });
-    }
+    const leadDecisions = leadDecisionMap(leadRun.record.output, pendingBefore);
+    const decisions = candidateDecisionRows({
+      pendingCandidates: pendingBefore,
+      applied,
+      project,
+      nodes: store.listNodes(projectId),
+      leadDecisions,
+    });
+    const proposalCount = Array.isArray(leadRun.record.output?.proposals) ? leadRun.record.output.proposals.length : 0;
+    const stallReason = applied.createdNodeIds.length === 0
+      ? (queue.pendingCount > 0
+          ? leadStallReason({ proposalCount, applied, decisions, pendingCount: queue.pendingCount })
+          : candidateSkipReason(queue, { events, reports: queue.reports.length }))
+      : null;
+    recordCandidates(queue, { consumedThisCycle: applied.consumedCandidateIds?.length ?? 0, skipReason: stallReason });
+    cycle.lead = buildLeadTrace({ leadRun, applied, decisions, skipReason: stallReason });
+    leadRun.record.createdNodeIds = applied.createdNodeIds;
+    leadRun.record.rejected = applied.rejected;
+    leadRun.record.candidateDecisions = decisions;
+    leadRun.record.outcome = {
+      status: cycle.lead.status,
+      proposalCount,
+      created: applied.createdNodeIds.length,
+      rejected: applied.rejected.length,
+      decisionCounts: cycle.lead.decisionCounts,
+      skipReason: stallReason,
+    };
+    await saveRun(projectId, leadRun.record, 'run/updated', { created: applied.createdNodeIds.length });
+    if (stallReason) cycle.skipped.push({ stage: 'advisor', reason: stallReason });
 
     // L2 is exception-only: it activates only for a node that got a pending
     // window in this cycle. No pending node means no chief run at all.

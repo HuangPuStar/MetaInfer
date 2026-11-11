@@ -437,7 +437,7 @@ export function childVoteWeight({ project = {}, nodes = [], parent = null, child
   const hourAgo = now - 60 * 60_000;
   if (sameExpert.filter((vote) => Number(vote.at) >= hourAgo).length >= maxPerHour) return { weight: 0, reason: 'quota_exceeded' };
   const prompt = text(child?.prompt, 500);
-  const duplicate = (nodes || []).some((node) => node && node.id !== child?.id && !node.archivedAt
+  const duplicate = (nodes || []).some((node) => node && node.id !== child?.id && node.id !== child?.replacesNodeId && !node.archivedAt
     && ((prompt && node.promptHash && child?.promptHash && node.promptHash === child.promptHash)
       || (text(node.title, 200) === text(child?.title, 200) && text(node.prompt, 500) === prompt)));
   if (duplicate) return { weight: 0, reason: 'duplicate' };

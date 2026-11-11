@@ -71,7 +71,7 @@ function actionOf(candidate) {
   return fieldString(candidate?.action).slice(0, 48) || null;
 }
 
-function normalizeCandidate(candidate, { branchId, run }) {
+function normalizeCandidate(candidate, { branchId, run, nodeById = null }) {
   if (candidate == null) return null;
   const object = typeof candidate === 'object' && !Array.isArray(candidate) ? candidate : null;
   if (!object && typeof candidate !== 'string') return null;
@@ -90,6 +90,13 @@ function normalizeCandidate(candidate, { branchId, run }) {
     ? text(firstString(candidate.rationale, candidate.note, candidate.basis, candidate.expectedImpact), 500)
     : '';
   const sourceNodeId = object ? sourceNodeIdOf(candidate) : null;
+  // Round 34: a retry/replacement must know the failed node's parent. Resolve it
+  // from the node map when available; reports may also carry sourceParentId.
+  const sourceNode = sourceNodeId && nodeById ? nodeById.get(sourceNodeId) : null;
+  const sourceParentId = sourceNode
+    ? (fieldString(sourceNode.parentId) || fieldString(Array.isArray(sourceNode.parentIds) ? sourceNode.parentIds[0] : ''))
+    : (object ? fieldString(candidate.sourceParentId) : '');
+  const sourceStatus = sourceNode ? fieldString(sourceNode.status) : null;
   const kind = object ? kindOf(candidate) : 'idea';
   const priority = object ? priorityOf(candidate) : null;
   const action = object ? actionOf(candidate) : null;
@@ -102,6 +109,8 @@ function normalizeCandidate(candidate, { branchId, run }) {
   return {
     branchId,
     sourceNodeId,
+    sourceParentId: sourceParentId || null,
+    sourceStatus,
     kind,
     priority,
     action,
@@ -154,6 +163,7 @@ export function buildBranchCandidateQueue({ project = {}, runs = [], nodes = [],
     });
   }
 
+  const nodeById = new Map((Array.isArray(nodes) ? nodes : []).filter((node) => node?.id).map((node) => [node.id, node]));
   const candidatesById = new Map();
   const skipped = [];
   for (const run of branchRuns) {
@@ -167,7 +177,7 @@ export function buildBranchCandidateQueue({ project = {}, runs = [], nodes = [],
         skipped.push({ branchId, runId: run.id ?? null, candidateIndex: index, reason: 'candidate_limit' });
         continue;
       }
-      const normalized = normalizeCandidate(raw[index], { branchId, run });
+      const normalized = normalizeCandidate(raw[index], { branchId, run, nodeById });
       if (!normalized) {
         skipped.push({ branchId, runId: run.id ?? null, candidateIndex: index, reason: 'candidate has no structural or descriptive fields' });
         continue;
@@ -238,9 +248,9 @@ export function candidateSkipReason(queue, { events = 0, reports = null } = {}) 
 export function candidateNoProposalReason(queue) {
   if (!queue || queue.pendingCount === 0) return null;
   if (queue.pending.every((candidate) => candidate.lowConfidence)) {
-    return `low-confidence candidates only (${queue.pendingCount}); lead produced no proposal`;
+    return `low-confidence candidates only (${queue.pendingCount}); lead returned no decision`;
   }
-  return `lead produced no proposal for ${queue.pendingCount} pending branch-report candidate(s)`;
+  return `lead returned no decision for ${queue.pendingCount} pending branch-report candidate(s); per-candidate reasons are recorded on cycle.lead`;
 }
 
 /** Compact candidate accounting stored on cycle.candidates. */

@@ -361,15 +361,32 @@ const prodCtx = {
       const candidateSection = JSON.parse(section('Pending branch-report candidates') ?? '[]');
       const candidates = Array.isArray(candidateSection) ? candidateSection : (candidateSection.candidates ?? []);
       const leadParent = reports[0]?.branchId ?? 'parent';
+      const promptProjectId = /^Project: (.+)$/m.exec(promptText)?.[1]?.trim() ?? '';
+      const noProposalProbe = promptProjectId === 'round35-noreply-p';
       const structured = preset === 'lab-branch'
         ? { branchId, health: 'watch', verified: [], ruledOut: [], candidates: [], escalate: true, reasonCodes: ['low_confidence'], evidence: [{ nodeId: branchId, field: 'report.summary', quote: 'done' }] }
         : preset === 'lab-lead'
           ? {
-              analysis: 'lead',
+              analysis: noProposalProbe ? 'I considered every candidate and intentionally made no proposal.' : 'lead',
               needUserDecision: false,
-              proposals: candidates.length > 0
-                ? candidates.slice(0, 4).map((candidate) => ({
-                    parentId: candidate.sourceNodeId ?? candidate.branchId,
+              ...(noProposalProbe ? {
+                candidateDecisions: candidates.map((candidate) => ({
+                  candidateId: candidate.candidateId,
+                  decision: candidate.lowConfidence
+                    ? 'low_confidence_only'
+                    : candidate.sourceStatus === 'failed'
+                      ? 'blocked_by_failed_source'
+                      : 'not_selected_by_lead',
+                  reason: candidate.sourceStatus === 'failed' ? 'retry requires a separate decision' : 'not selected in this pass',
+                })),
+              } : {}),
+              proposals: noProposalProbe ? [] : candidates.length > 0
+                ? candidates.slice(0, 12).map((candidate) => ({
+                    // Round 34: a failed source is retried under its completed
+                    // parent; ordinary candidates branch from their source.
+                    parentId: candidate.sourceStatus === 'failed' && candidate.sourceParentId
+                      ? candidate.sourceParentId
+                      : (candidate.sourceNodeId ?? candidate.branchId),
                     title: `child for ${candidate.kind} ${candidate.sourceNodeId ?? candidate.branchId}`,
                     prompt: `do child work for ${candidate.sourceNodeId ?? candidate.branchId} ${candidate.kind} ${candidate.candidateId}`,
                     rationale: 'r',
@@ -537,6 +554,116 @@ const round33Second = await prodOrch.step(candidateId, 'round33-candidate-probe-
 const round33SecondCycle = store.listCycles(candidateId, 1)[0];
 const round33SecondPresets = productionPresets.slice(round33BeforeSecond);
 check('Round 33: a consumed queue stops with a named reason instead of re-running the lead', round33SecondPresets.includes('lab-lead') === false && round33Second.created.length === 0 && round33SecondCycle?.leadRunId == null && round33SecondCycle?.candidates?.skipReason === 'all branch-report candidates consumed' && round33SecondCycle?.candidates?.pending === 0 && round33SecondCycle?.skipped?.some((row) => row.stage === 'advisor' && row.reason === 'all branch-report candidates consumed'), JSON.stringify({ presets: round33SecondPresets, created: round33Second.created, cycle: round33SecondCycle?.candidates, skipped: round33SecondCycle?.skipped }));
+// Round 34: ten pending candidates, including two retries whose source nodes
+// died on transport timeouts. The lead's proposals must be materialized as
+// replacements under the failed node's completed parent, with the failed node's
+// scope/needs, and the cycle must retain the lead's own answer.
+const round34Id = 'round34-retry-p';
+const round34CompletedIds = ['n-0001', 'n-0002', 'n-0003', 'n-0004', 'n-0007', 'n-0008', 'n-0009', 'n-0010', 'n-0011', 'n-0012'];
+const round34Node = (id, status, parentId = null) => ({
+  id,
+  parentId,
+  title: `${id} ${status}`,
+  prompt: `${id} work ${'z'.repeat(20)}`,
+  status,
+  git: { headCommit: status === 'completed' ? `head-${id}` : null },
+  needs: status === 'failed' ? { gpu: 1 } : {},
+  timeboxMs: status === 'failed' ? 3 * 60 * 60_000 : 30 * 60_000,
+  report: status === 'completed' ? { summary: `${id} completed`, confidence: 0.8 } : null,
+  error: status === 'failed'
+    ? { message: 'Reconnecting... 2/5 (stream disconnected before completion: Operation timed out (os error 110))', stage: 'run', at: 100 }
+    : null,
+  createdBy: 'seed',
+  timestamps: { createdAt: 1, completedAt: status === 'completed' ? 2 : null, endedAt: status === 'failed' ? 2 : null },
+});
+await store.saveProject({
+  id: round34Id, name: 'round34-retries', brief: 'retry failed sources', revision: 0,
+  counters: { eventSeq: 0, nextNodeSeq: 13, nodes: 12 },
+  config: {
+    maxRunningNodes: 4, resourcePools: { gpu: 8 }, maxNodes: 40, expertsMode: 'hierarchy', migration: { phase: 2 },
+    advisor: { maxProposalsPerPass: 10, maxProposalsPerReviewer: 10, ancestorDepth: 1, acceptMode: 'auto', maxPendingProposals: 20, timeoutSeconds: 60, reviewers: [] },
+    auto: { maxCycles: 1 },
+  },
+  branchReviews: [
+    ...round34CompletedIds.map((id) => ({ eventKey: `${id}:completed:2` })),
+    { eventKey: 'n-0005:failed:2' },
+    { eventKey: 'n-0006:failed:2' },
+  ],
+  repo: { path: process.cwd(), worktreeRoot: '/tmp/hierarchy-round34-wt', baseBranch: 'main', baseCommit: 'base' },
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(round34Id);
+await kernel.executor.commit(round34Id, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [
+    ...round34CompletedIds.map((id) => ({ op: 'node.create', node: round34Node(id, 'completed') })),
+    { op: 'node.create', node: round34Node('n-0005', 'failed', 'n-0001') },
+    { op: 'node.create', node: round34Node('n-0006', 'failed', 'n-0002') },
+  ],
+});
+const round34Sources = ['n-0005', 'n-0006', 'n-0003', 'n-0004', 'n-0007', 'n-0008', 'n-0009', 'n-0010', 'n-0011', 'n-0012'];
+const round34Candidates = round34Sources.map((source, index) => index < 2
+  ? { nodeId: source, kind: 'retry', title: `retry ${source}`, note: 'same scope, retry the transport failure' }
+  : { nodeId: source, kind: 'optimization', title: `optimize ${source}`, priority: 'p2' });
+await store.saveRun(round34Id, {
+  id: 'run-round34-branch', projectId: round34Id, role: 'branch', lens: 'n-0001', status: 'completed',
+  startedAt: 100, endedAt: 101, output: {
+    branchId: 'n-0001', health: 'watch', verified: [], ruledOut: [], candidates: round34Candidates,
+    escalate: false, reasonCodes: [], evidence: [{ nodeId: 'n-0001', field: 'report.summary', quote: 'n-0001 completed' }],
+  },
+});
+const round34Step = await prodOrch.step(round34Id, 'round34-retry-probe');
+const round34Cycle = store.listCycles(round34Id, 1)[0];
+const round34Nodes = store.listNodes(round34Id);
+const round34Created = round34Nodes.filter((node) => round34Step.created.includes(node.id));
+const round34Retries = round34Created.filter((node) => node.replacesNodeId === 'n-0005' || node.replacesNodeId === 'n-0006');
+check('Round 34: ten pending candidates, including two transport-failed retries, are planned in one cycle', round34Cycle?.candidates?.considered === 10 && round34Cycle?.candidates?.pending === 0 && round34Cycle?.candidates?.consumedThisCycle >= 2 && round34Created.length === 10, JSON.stringify({ created: round34Step.created, candidates: round34Cycle?.candidates, skipped: round34Cycle?.skipped, errors: round34Cycle?.errors }));
+check('Round 34: a failed-source retry becomes a replacement under the completed parent with the source needs', round34Retries.length === 2 && round34Retries.every((node) => node.status === 'planned' && node.needs?.gpu === 1 && node.replacesNodeId), JSON.stringify(round34Retries.map((node) => ({ id: node.id, parentId: node.parentId, replacesNodeId: node.replacesNodeId, needs: node.needs, status: node.status }))));
+check('Round 34: the lead output and one named decision per candidate are persisted', round34Cycle?.lead?.proposalCount === 10 && round34Cycle?.lead?.decisions?.length === 10 && round34Cycle.lead.decisions.every((row) => typeof row.reasonCode === 'string' && row.reasonCode.length > 0) && round34Cycle.lead.decisionCounts?.created === 10 && typeof round34Cycle.lead.analysis === 'string' && round34Cycle.lead.analysis.length > 0, JSON.stringify({ lead: round34Cycle?.lead, skipped: round34Cycle?.skipped, errors: round34Cycle?.errors }));
+check('Round 34: a no-create cycle cannot end with the generic lead-produced-no-proposal reason', !(round34Cycle?.skipped ?? []).some((row) => /lead produced no proposal/i.test(row.reason ?? '')), JSON.stringify(round34Cycle?.skipped));
+
+// Round 34b: the lead intentionally returns zero proposals for ten pending
+// candidates. The cycle must keep the lead's answer and a named per-candidate
+// skip reason instead of the old generic "lead produced no proposal".
+const round35Id = 'round35-noreply-p';
+await store.saveProject({
+  id: round35Id, name: 'round34-no-proposal', brief: 'named reasons', revision: 0,
+  counters: { eventSeq: 0, nextNodeSeq: 13, nodes: 12 },
+  config: {
+    maxRunningNodes: 4, resourcePools: { gpu: 8 }, maxNodes: 40, expertsMode: 'hierarchy', migration: { phase: 2 },
+    advisor: { maxProposalsPerPass: 10, maxProposalsPerReviewer: 10, ancestorDepth: 1, acceptMode: 'auto', maxPendingProposals: 20, timeoutSeconds: 60, reviewers: [] },
+    auto: { maxCycles: 1 },
+  },
+  branchReviews: [
+    ...round34CompletedIds.map((id) => ({ eventKey: `${id}:completed:2` })),
+    { eventKey: 'n-0005:failed:2' },
+    { eventKey: 'n-0006:failed:2' },
+  ],
+  repo: { path: process.cwd(), worktreeRoot: '/tmp/hierarchy-round35-wt', baseBranch: 'main', baseCommit: 'base' },
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(round35Id);
+await kernel.executor.commit(round35Id, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [
+    ...round34CompletedIds.map((id) => ({ op: 'node.create', node: round34Node(id, 'completed') })),
+    { op: 'node.create', node: round34Node('n-0005', 'failed', 'n-0001') },
+    { op: 'node.create', node: round34Node('n-0006', 'failed', 'n-0002') },
+  ],
+});
+const round35Candidates = round34Candidates.map((candidate, index) => index === 2 ? { ...candidate, confidence: 0.2 } : candidate);
+await store.saveRun(round35Id, {
+  id: 'run-round35-branch', projectId: round35Id, role: 'branch', lens: 'n-0001', status: 'completed',
+  startedAt: 100, endedAt: 101, output: {
+    branchId: 'n-0001', health: 'watch', verified: [], ruledOut: [], candidates: round35Candidates,
+    escalate: false, reasonCodes: [], evidence: [{ nodeId: 'n-0001', field: 'report.summary', quote: 'n-0001 completed' }],
+  },
+});
+const round35Step = await prodOrch.step(round35Id, 'round35-no-proposal-probe');
+const round35Cycle = store.listCycles(round35Id, 1)[0];
+check('Round 34: a lead that intentionally returns zero proposals still records its answer and names every pending candidate', round35Step.created.length === 0 && round35Cycle?.lead?.proposalCount === 0 && /intentionally made no proposal/.test(round35Cycle?.lead?.analysis ?? '') && round35Cycle?.lead?.decisions?.length === 10 && round35Cycle.lead.decisions.every((row) => typeof row.skipReason === 'string' && row.skipReason.length > 0), JSON.stringify({ created: round35Step.created, lead: round35Cycle?.lead, candidates: round35Cycle?.candidates, skipped: round35Cycle?.skipped }));
+check('Round 34: the no-proposal cycle names failed-source and low-confidence candidates, not a generic reason', round35Cycle?.lead?.decisionCounts?.blocked_by_failed_source === 2 && round35Cycle?.lead?.decisionCounts?.low_confidence_only === 1 && /^lead returned 0 proposals/.test(round35Cycle?.candidates?.skipReason ?? '') && !/lead produced no proposal/i.test(JSON.stringify(round35Cycle?.skipped ?? [])), JSON.stringify({ decisions: round35Cycle?.lead?.decisionCounts, skipReason: round35Cycle?.candidates?.skipReason, skipped: round35Cycle?.skipped }));
+
 const budgetId = 'prod-budget';
 await store.saveProject({
   id: budgetId, name: 'budget', brief: 'budget probe', revision: 0,

@@ -1,5 +1,62 @@
 # v2 发布说明（草稿）
 
+## Round 34 — failed-source retries are proposable and every pending candidate gets a named decision
+
+- **Blocker:** live cycle `cyc-e7938b31` reused three BranchReports, but its lead
+  run `run-a82000cd` returned two valid proposals and both were rejected by
+  `checkProposal` because the completed parents `n-0004` and `n-0002` already
+  had *failed* children (`n-0005`, `n-0006`). The cycle saw
+  `createdNodeIds=[]` and emitted only `lead produced no proposal for 10 pending
+  branch-report candidate(s)`. The lead had in fact proposed a retry and a
+  decoupled replacement; the failed child was being treated as a live
+  successor.
+- **Retry mapping:** `checkProposal(project, proposal, nodes, candidate)` now
+  recognises a candidate whose source is `failed`/`cancelled` and whose source
+  parent is the proposed parent. It allows exactly one replacement sibling under
+  the completed parent, even though the failed child remains in the DAG, and
+  records `node.replacesNodeId = source.id`. It rejects a second replacement or
+  a parent with a live successor. When the lead omits scope fields, the Host
+  inherits the failed source's prompt, needs, timebox and execution profile.
+- **Why the live proposals failed:** the lead's own analysis correctly chose
+  `parentId:n-0004` for the `n-0005` retry and `parentId:n-0002` for the
+  `n-0006` decoupled sweep. Both were rejected with
+  `parent n-0004 already has a successor; propose from a leaf` /
+  `parent n-0002 already has a successor; propose from a leaf`. The code changed
+  in this round turns those into materialized replacements:
+  `n-0009` (`replacesNodeId=n-0005`, `{gpu:1}`, 90m) and `n-0010`
+  (`replacesNodeId=n-0006`, `{gpu:2}`, 120m).
+- **Silent lead eliminated:** the lead schema now accepts
+  `candidateDecisions: [{candidateId, decision, reason}]`; the prompt requires
+  one entry for every candidate the lead does not materialize. The cycle
+  persists `cycle.lead` with the actual `analysis`, `note`,
+  `proposalCount/considered`, per-proposal status, Host rejections,
+  `candidateDecisions`, and `decisionCounts`. The run record gets the same
+  decisions plus a compact `outcome`.
+- **Named per-candidate reasons:** every pending candidate has
+  `reasonCode = skipReason` in `cycle.lead.decisions`:
+  `created`, `blocked_by_failed_source`, `needs_human_scope_decision`,
+  `duplicate_of_consumed`, `low_confidence_only`, `branch_already_advanced`,
+  `deferred_by_pass_limit`, `proposal_rejected`, or `lead_declined`. A
+  no-create cycle now says, for example,
+  `lead returned 0 proposals for 10 pending candidate(s); low_confidence_only=4,
+  blocked_by_failed_source=2, ...`, or
+  `lead made 2 proposal(s) but created 0; first rejection: ...`.
+- **Regression:** a project with 10 pending candidates, including two retries of
+  transport-timeout nodes, creates both retry replacements under the completed
+  parents and keeps `replacesNodeId` plus the source needs. A second project
+  returns zero proposals: it creates nothing but records all 10 named decisions
+  and the lead's intentional `analysis`, with no generic message.
+- **Live simulation:** replaying the exact stored `run-a82000cd` output against
+  a copy of `prj-421b80bf` now creates `n-0009` and `n-0010`, records
+  `duplicate_of_consumed` for the five n-0003 candidates,
+  `branch_already_advanced` for the n-0001 follow-up, and
+  `low_confidence_only` for the two low-confidence n-0002 rows. No model call or
+  Host restart was performed.
+- **Gates:** `npm test` EXIT 0 (1047 ok / 0 FAIL); hierarchy-selftest all checks
+  passed; auto-wip 12/12; plugin smoke 6/6.
+- **Boundary:** live 3080 still runs the previous build; restart/reload is
+  required before the paused project can create these replacements.
+
 ## Round 33 — the optimization loop plans from unconsumed BranchReport candidates
 
 - **Blocker:** `lastPlanSkip="no completed/failed branch event"` paused

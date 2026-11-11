@@ -7727,3 +7727,133 @@ performed.
 Boundary: no external model call; live 3080 was not restarted. The new code
 requires a Host restart/reload before the paused live project can plan from its
 existing candidates.
+
+### 60. Round 34 — failed-source retries and the lead's per-candidate answer
+
+#### 60.1 Exact live failure
+
+Live cycle `cyc-e7938b31` for `prj-421b80bf`:
+
+```text
+candidates: {considered:11, consumed:1, pending:10, lowConfidence:4, failedReports:3}
+skipped: [
+  {stage:"branch", reason:"reused 3 stored branch report(s); 10 unconsumed candidate(s)"},
+  {stage:"advisor", reason:"lead produced no proposal for 10 pending branch-report candidate(s)"},
+  {stage:"scheduler", reason:"no planned nodes"}
+]
+leadRunId: run-a82000cd
+createdNodeIds: []
+```
+
+The lead run was `completed` and its actual output was not empty:
+
+```text
+proposalCount: 2
+proposal[0]: candidateId cand:n-0001:n-0005:retry:1qqz4tx:0
+             parentId n-0004
+             title "Retry n-0005: Triton BF16 paged decode — fsync'd per-row results, bounded steps"
+proposal[1]: candidateId cand:n-0002:n-0006:decouple:jjl91o:0
+             parentId n-0002
+             title "Decoupled gap sweep: committed harness, chunked scripted run, 66 shapes × bf16/fp16"
+rejected[0]: "parent n-0004 already has a successor; propose from a leaf"
+rejected[1]: "parent n-0002 already has a successor; propose from a leaf"
+```
+
+The lead's analysis explicitly identified `n-0004` and `n-0002` as the completed
+leaves with dead children, and identified both failures as
+`Operation timed out (os error 110)` worker-stream failures. The lost work was
+not scientific: the Host rejected the replacements because the failed child was
+counted as a successor.
+
+#### 60.2 Failed-source replacement rule
+
+`checkProposal(project, proposal, nodes, candidate)` now:
+
+1. selects the candidate before validating the proposal;
+2. resolves `source` from `candidate.sourceNodeId`;
+3. if `source.status` is `failed`/`cancelled` and `source`'s parent equals the
+   proposal parent, allows one sibling replacement;
+4. rejects a second replacement for the same source or any live child;
+5. keeps ordinary parents with a live successor rejected;
+6. falls back to `source.prompt`, `source.needs`, `source.timeboxMs` and
+   `source.execution` when the lead omits them;
+7. returns `replacesNodeId`, persisted on the node and ignored by
+   `childVoteWeight` duplicate detection so a same-scope retry is not a
+   zero-weight duplicate.
+
+The new node is a sibling of the failed node, not its child: the DAG only bases
+new worktrees on a completed parent. `replacesNodeId` is the durable cause link.
+
+#### 60.3 Lead answer and per-candidate decisions
+
+`ADVISOR_SCHEMA` now has optional:
+
+```json
+"candidateDecisions": [
+  {"candidateId": "cand:...", "decision": "blocked_by_failed_source", "reason": "..."}
+]
+```
+
+`leadPrompt` asks for one entry for every pending candidate not materialized,
+including the failed-source retry instruction. `runHierarchyPass` persists
+`cycle.lead`:
+
+| Field | Meaning |
+|---|---|
+| `analysis`, `note` | bounded copy of the lead's actual text |
+| `proposalCount` / `considered` | number of proposals the lead returned |
+| `proposals[]` | id, parent, title, status (`created`/`rejected`/`not_processed`) |
+| `rejected[]` | Host rejection reason and candidate id |
+| `leadCandidateDecisions[]` | raw lead decisions |
+| `candidateDecisions[]` / `decisions[]` | one Host-normalized row per pending candidate |
+| `decisionCounts` | counts by named reason |
+| `skipReason` | actionable cycle stop reason |
+
+Every non-created row has `reasonCode` and `skipReason` set to a stable name:
+`blocked_by_failed_source`, `needs_human_scope_decision`,
+`duplicate_of_consumed`, `low_confidence_only`, `branch_already_advanced`,
+`deferred_by_pass_limit`, `proposal_rejected`, `lead_declined`, or
+`lead_claimed_implemented_unapplied`. A cycle with zero created nodes uses
+`leadStallReason`; it no longer emits `lead produced no proposal`.
+
+#### 60.4 Regression
+
+`hierarchy-selftest.mjs` adds:
+
+- `round34-retry-p`: 10 pending candidates, two source nodes failed with
+  transport timeout. The lead proposes all 10. Both replacements are created
+  under `n-0001`/`n-0002` with `replacesNodeId=n-0005`/`n-0006`, `needs.gpu`
+  inherited from the failed source, 10 decisions, `decisionCounts.created=10`.
+- `round35-noreply-p`: the lead intentionally returns zero proposals and
+  explicit decisions for all 10. Created count is 0, the lead's `analysis` is
+  preserved, all 10 rows have a `skipReason`, two are
+  `blocked_by_failed_source`, one is `low_confidence_only`, and the cycle reason
+  starts with `lead returned 0 proposals` — never the generic text.
+
+#### 60.5 Exact live replay
+
+A read-only in-memory copy of the live project, nodes, branch runs and the exact
+stored `run-a82000cd` output was stepped through the changed orchestrator:
+
+```text
+created: n-0009 parent n-0004 replacesNodeId n-0005 needs {gpu:1} timebox 90m
+         n-0010 parent n-0002 replacesNodeId n-0006 needs {gpu:2} timebox 120m
+decisions: created=2, duplicate_of_consumed=5, branch_already_advanced=1,
+           low_confidence_only=2
+pending: 8, errors: []
+```
+
+No Host restart, no external model call and no live project mutation were
+performed.
+
+#### 60.6 Gates
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1047 `ok`, 0 FAIL |
+| `hierarchy-selftest` | all checks passed (including 6 Round 34 checks) |
+| `auto-wip-selftest` | 12/12 |
+| `plugin-smoke` | 6/6 |
+
+Boundary: live 3080 still runs the previous build. A Host restart/reload is
+required before the live paused project can materialize the replacements.
