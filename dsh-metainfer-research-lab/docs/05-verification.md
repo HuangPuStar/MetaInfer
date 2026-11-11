@@ -731,16 +731,7 @@ Host `0.8.7-v3`，package `0.9.0`，client 11,603 行；locale 914/914。
 toolResultPruner: true }`）。`isolate` 不可省——preset registry 的 `leakedServices` 审计会拒绝把
 服务注册进 root realm 的行。
 
-**生效方式**：preset 在 DSH 启动时 eager mount，`mount(ctx, id)` 只做 retain + bind、不重读磁盘，
-所以改完 `presets.patch.yml` **必须重启 `dsh web`**。重启后已有会话也会获得新组装（resume 走
-`mount()`，而 `agent-preset/locked` 只在 `select()` 抛出）。
-
-**两条容易被误读的边界**
-
-- **阈值**：默认 `thresholdRatio 0.8`，1M 上下文窗口下压力阈值约 800k token。600k 量级的长会话
-  不会立刻被压缩；本补丁防的是继续增长后撞上限，不是"立即压一次"。
-- **成本**：触发时最多 2 次摘要请求，这些 token 不计入项目 token/cost 预算（`host/auto.js` 只累加
-  nodes + runs 的 usage）。
+**生效方式**：preset 在 DSH 启动时 mount，改完 `presets.patch.yml` 需重启 `dsh web`。
 
 ### V12 修复：Copilot resume 缺少 provider/model
 
