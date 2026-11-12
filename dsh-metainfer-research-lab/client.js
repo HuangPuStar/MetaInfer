@@ -187,12 +187,14 @@ window.__ModuleLoader__.load({
       "badge": "M1 · 项目与 DAG 画布",
       "common.cancel": "取消",
       "common.loading": "加载中…",
+      "common.no": "否",
       "common.none": "—",
       "common.refresh": "刷新",
       "common.remove": "移除",
       "common.retry": "重试",
       "common.save": "保存",
       "common.unknown": "未知",
+      "common.yes": "是",
       "crash.hint": "错误已被隔离，页面其余部分不受影响。",
       "crash.title": "面板渲染异常",
       "createdBy.advisor": "专家组",
@@ -1028,11 +1030,40 @@ window.__ModuleLoader__.load({
       "ws.execution.title": "执行轨迹",
       "ws.experts.actionError": "专家操作失败",
       "ws.experts.backgroundNote": "这些是后台专家运行（顾问/评审/调度/GC），不是 worker 节点。",
+      "ws.experts.budget.childVotesHint": "0–1000，整数",
+      "ws.experts.budget.queriesHint": "1–1000，整数",
+      "ws.experts.budget.tokensHint": "每小时 token 上限，整数",
+      "ws.experts.budget.wallClockHint": "1000–86400000 毫秒",
       "ws.experts.budgetUsage": "预算：每轮查询 {queries}/{queriesLimit}，每小时 token {tokens}/{tokensLimit}",
       "ws.experts.chipHint": "后台专家运行状态（点击查看详细运行）",
       "ws.experts.chipIdle": "专家组 · 空闲",
       "ws.experts.chipRunning": "专家组 · {count} 运行中",
+      "ws.experts.create.cancel": "取消",
+      "ws.experts.create.capabilityLocked": "模板固定为 {value}，不可覆盖。",
+      "ws.experts.create.created": "已创建 {id}；现在可以聘用或临时邀请。",
+      "ws.experts.create.custom": "自定义专家",
+      "ws.experts.create.error.id": "ID 必须形如 custom:<slug>，slug 为 2–32 位小写字母/数字/连字符。",
+      "ws.experts.create.error.name": "名称不能为空。",
+      "ws.experts.create.error.save": "创建失败，请检查输入后重试。",
+      "ws.experts.create.error.template": "请选择一个角色模板。",
+      "ws.experts.create.hint": "先选择角色模板；模板决定输出契约、可提议动作、mayCreate 与 mayVeto。自定义专家仍然只能提议，不能执行。",
+      "ws.experts.create.id": "专家 ID",
+      "ws.experts.create.idHint": "格式 custom:<slug>，仅小写字母、数字和连字符，2–32 位；修改名称会自动生成。",
+      "ws.experts.create.name": "名称",
+      "ws.experts.create.namePlaceholder": "例如：Delta 探索者",
+      "ws.experts.create.open": "＋ 新建专家",
+      "ws.experts.create.personaPlaceholder": "描述这个专家关注什么、如何给出建议。",
+      "ws.experts.create.projectOnly": "仅本项目",
+      "ws.experts.create.saving": "创建中…",
+      "ws.experts.create.submit": "创建专家",
+      "ws.experts.create.template": "角色模板",
+      "ws.experts.create.templateHint": "模板决定输出 schema 与权限；创建后不可更改。",
+      "ws.experts.create.templateLocked": "模板锁定：mayCreate={mayCreate} · mayVeto={mayVeto} · mayExecute 永远为空。",
+      "ws.experts.create.templateLockedWhenEditing": "模板在创建时固定，不能在此修改。",
+      "ws.experts.create.title": "新建自定义专家",
       "ws.experts.curator": "策展器：{status}",
+      "ws.experts.decision.created": "已创建",
+      "ws.experts.decision.deleted": "已删除",
       "ws.experts.decision.draining": "交接中",
       "ws.experts.decision.hired": "已雇佣",
       "ws.experts.decision.invited": "临时邀请",
@@ -1040,6 +1071,9 @@ window.__ModuleLoader__.load({
       "ws.experts.decision.rolledBack": "已回滚",
       "ws.experts.decision.updated": "已修改覆盖参数",
       "ws.experts.decisions": "最近决策",
+      "ws.experts.delete": "删除",
+      "ws.experts.deleteError": "删除失败：已雇佣或仍有运行中节点时不能删除，请先交接并退休。",
+      "ws.experts.deleted": "已删除自定义专家 {id}。",
       "ws.experts.drain": "开始交接",
       "ws.experts.drainHint": "交接只会停止招募新工作，不会终止正在运行的节点；运行结束后才能退休。未完成节点会交还人工。",
       "ws.experts.draining": "{id} 已进入交接；运行中的节点会继续。",
@@ -1071,6 +1105,7 @@ window.__ModuleLoader__.load({
       "ws.experts.empty.title": "还没有雇佣任何专家",
       "ws.experts.expiresAt": "到期：{at}",
       "ws.experts.field.budget": "预算",
+      "ws.experts.field.childVotes": "子代投票/小时",
       "ws.experts.field.effort": "推理强度（可选）",
       "ws.experts.field.level": "层级",
       "ws.experts.field.mayVeto": "否决权",
@@ -1117,8 +1152,16 @@ window.__ModuleLoader__.load({
       "ws.experts.roles": "顾问 {advisor} · 评审 {reviewer} · 调度 {scheduler} · GC {gc}",
       "ws.experts.stats.active": "在岗 {count} 位",
       "ws.experts.stats.catalog": "目录 {count} 位",
+      "ws.experts.stats.custom": "自定义 {count} 位",
+      "ws.experts.template.branch": "分支压缩",
+      "ws.experts.template.chief": "仲裁者",
+      "ws.experts.template.curator": "策展者",
+      "ws.experts.template.proposer": "提议者",
+      "ws.experts.template.reviewer": "评审者",
       "ws.experts.temporary": "临时",
       "ws.experts.title": "专家管理",
+      "ws.experts.toolsChip": "工具：{tools}",
+      "ws.experts.triggersChip": "触发：{triggers}",
       "ws.explain.cause": "因果链",
       "ws.explain.empty": "还没有可解释的事件",
       "ws.explain.error": "读取原因链失败",
@@ -1270,9 +1313,12 @@ window.__ModuleLoader__.load({
       "ws.model.catalogEmpty": "模型目录为空，暂时无法选择 provider/model。",
       "ws.model.context": "上下文 {count}",
       "ws.model.effort": "推理强度",
+      "ws.model.effort.default": "默认",
+      "ws.model.effort.defaultNamed": "默认（{effort}）",
       "ws.model.effort.inherit": "默认强度",
       "ws.model.error": "模型列表加载失败",
       "ws.model.free": "手动填写 provider / model",
+      "ws.model.freeHint": "该 provider 未登记模型列表；可直接填写模型名，或从候选中选择。",
       "ws.model.freeModel": "model",
       "ws.model.freeProvider": "provider",
       "ws.model.inherit": "继承项目默认",
@@ -1730,12 +1776,14 @@ window.__ModuleLoader__.load({
       "badge": "M1 · projects & DAG canvas",
       "common.cancel": "Cancel",
       "common.loading": "Loading…",
+      "common.no": "No",
       "common.none": "—",
       "common.refresh": "Refresh",
       "common.remove": "Remove",
       "common.retry": "Retry",
       "common.save": "Save",
       "common.unknown": "Unknown",
+      "common.yes": "Yes",
       "crash.hint": "The error was contained; the rest of the page keeps working.",
       "crash.title": "The panel failed to render",
       "createdBy.advisor": "advisor",
@@ -2571,11 +2619,40 @@ window.__ModuleLoader__.load({
       "ws.execution.title": "Execution trace",
       "ws.experts.actionError": "Expert action failed",
       "ws.experts.backgroundNote": "These are background expert runs (advisor/reviewer/scheduler/GC), not worker nodes.",
+      "ws.experts.budget.childVotesHint": "0–1000, integer",
+      "ws.experts.budget.queriesHint": "1–1000, integer",
+      "ws.experts.budget.tokensHint": "Tokens per hour, integer",
+      "ws.experts.budget.wallClockHint": "1000–86400000 ms",
       "ws.experts.budgetUsage": "Budget: {queries}/{queriesLimit} queries per run, {tokens}/{tokensLimit} tokens per hour",
       "ws.experts.chipHint": "Background expert runs (click for details)",
       "ws.experts.chipIdle": "Expert group · idle",
       "ws.experts.chipRunning": "Expert group · {count} running",
+      "ws.experts.create.cancel": "Cancel",
+      "ws.experts.create.capabilityLocked": "Template fixes this to {value}; it cannot be overridden.",
+      "ws.experts.create.created": "Created {id}; it can now be hired or temporarily invited.",
+      "ws.experts.create.custom": "Custom expert",
+      "ws.experts.create.error.id": "ID must be custom:<slug> with a 2–32 char lowercase slug.",
+      "ws.experts.create.error.name": "Name is required.",
+      "ws.experts.create.error.save": "Create failed; check the fields and retry.",
+      "ws.experts.create.error.template": "Choose a role template.",
+      "ws.experts.create.hint": "Pick a role template first. The template owns the output contract, allowed proposals, mayCreate and mayVeto. A custom expert still only advises; it never executes.",
+      "ws.experts.create.id": "Expert ID",
+      "ws.experts.create.idHint": "Format custom:<slug>, lowercase letters/digits/hyphens, 2–32 chars; generated from the name.",
+      "ws.experts.create.name": "Name",
+      "ws.experts.create.namePlaceholder": "e.g. Delta explorer",
+      "ws.experts.create.open": "＋ New expert",
+      "ws.experts.create.personaPlaceholder": "What should this expert focus on, and how should it advise?",
+      "ws.experts.create.projectOnly": "This project only",
+      "ws.experts.create.saving": "Creating…",
+      "ws.experts.create.submit": "Create expert",
+      "ws.experts.create.template": "Role template",
+      "ws.experts.create.templateHint": "The template fixes the output schema and capabilities; it cannot change after creation.",
+      "ws.experts.create.templateLocked": "Template lock: mayCreate={mayCreate} · mayVeto={mayVeto} · mayExecute is always empty.",
+      "ws.experts.create.templateLockedWhenEditing": "The template is fixed at creation time and cannot be edited here.",
+      "ws.experts.create.title": "Create custom expert",
       "ws.experts.curator": "Curator: {status}",
+      "ws.experts.decision.created": "Created",
+      "ws.experts.decision.deleted": "Deleted",
       "ws.experts.decision.draining": "Draining",
       "ws.experts.decision.hired": "Hired",
       "ws.experts.decision.invited": "Temporary invite",
@@ -2583,6 +2660,9 @@ window.__ModuleLoader__.load({
       "ws.experts.decision.rolledBack": "Rolled back",
       "ws.experts.decision.updated": "Override updated",
       "ws.experts.decisions": "Recent decisions",
+      "ws.experts.delete": "Delete",
+      "ws.experts.deleteError": "Delete failed: an active/draining expert or running nodes still use it; drain and retire first.",
+      "ws.experts.deleted": "Deleted custom expert {id}.",
       "ws.experts.drain": "Start drain",
       "ws.experts.drainHint": "Draining stops new work but never kills running nodes; retire only after those nodes finish. Unfinished ownership is handed back to the human.",
       "ws.experts.draining": "{id} is draining; running nodes keep going.",
@@ -2614,6 +2694,7 @@ window.__ModuleLoader__.load({
       "ws.experts.empty.title": "No expert is hired yet",
       "ws.experts.expiresAt": "Expires: {at}",
       "ws.experts.field.budget": "Budget",
+      "ws.experts.field.childVotes": "Child votes / hour",
       "ws.experts.field.effort": "Reasoning effort (optional)",
       "ws.experts.field.level": "Level",
       "ws.experts.field.mayVeto": "Veto",
@@ -2660,8 +2741,16 @@ window.__ModuleLoader__.load({
       "ws.experts.roles": "advisor {advisor} · reviewers {reviewer} · scheduler {scheduler} · GC {gc}",
       "ws.experts.stats.active": "{count} active",
       "ws.experts.stats.catalog": "{count} in catalog",
+      "ws.experts.stats.custom": "{count} custom",
+      "ws.experts.template.branch": "Branch compressor",
+      "ws.experts.template.chief": "Arbitrator",
+      "ws.experts.template.curator": "Curator",
+      "ws.experts.template.proposer": "Proposer",
+      "ws.experts.template.reviewer": "Reviewer",
       "ws.experts.temporary": "Temporary",
       "ws.experts.title": "Expert management",
+      "ws.experts.toolsChip": "Tools: {tools}",
+      "ws.experts.triggersChip": "Triggers: {triggers}",
       "ws.explain.cause": "Cause chain",
       "ws.explain.empty": "No events to explain yet",
       "ws.explain.error": "Failed to read cause chain",
@@ -2813,9 +2902,12 @@ window.__ModuleLoader__.load({
       "ws.model.catalogEmpty": "The model catalog is empty; provider/model cannot be chosen right now.",
       "ws.model.context": "context {count}",
       "ws.model.effort": "Reasoning effort",
+      "ws.model.effort.default": "default",
+      "ws.model.effort.defaultNamed": "Default ({effort})",
       "ws.model.effort.inherit": "Default effort",
       "ws.model.error": "Could not load the model catalog",
       "ws.model.free": "Enter provider / model manually",
+      "ws.model.freeHint": "This provider has no registered model list; enter a model name or pick a suggestion.",
       "ws.model.freeModel": "model",
       "ws.model.freeProvider": "provider",
       "ws.model.inherit": "Inherit project default",
@@ -3501,8 +3593,14 @@ window.__ModuleLoader__.load({
       '.rl-expert-editor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 12px; }',
       '.rl-expert-inline { display: flex; gap: 6px; flex-wrap: wrap; }',
       '.rl-expert-inline .rl-input { min-width: 0; flex: 1 1 88px; }',
-      '.rl-expert-tools { display: flex; gap: 4px 10px; flex-wrap: wrap; }',
-      '.rl-expert-check { display: inline-flex; align-items: center; gap: 5px; color: var(--dsw-alias-label-secondary); font-size: 11px; }',
+      '.rl-expert-tools, .rl-expert-triggers { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 4px 10px; }',
+      '.rl-expert-check { display: inline-flex; align-items: flex-start; gap: 5px; color: var(--dsw-alias-label-secondary); font-size: 11px; }',
+      '.rl-expert-check input { margin-top: 2px; }',
+      '.rl-expert-check-copy { display: inline-flex; flex-direction: column; gap: 1px; min-width: 0; }',
+      '.rl-expert-check-copy .rl-hint { margin: 0; font-size: 10px; line-height: 1.3; }',
+      '.rl-expert-budget-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }',
+      '.rl-expert-budget-grid .rl-input { min-width: 0; }',
+      '.rl-model-free { display: flex; flex-direction: column; gap: 3px; }',
       '.rl-expert-errors { display: flex; flex-direction: column; gap: 2px; }',
       '.rl-expert-diff { display: flex; flex-direction: column; gap: 4px; }',
       '.rl-expert-diff-table { display: flex; flex-direction: column; gap: 2px; }',
@@ -5211,6 +5309,20 @@ window.__ModuleLoader__.load({
       const current = firstString(currentProvider);
       if (current !== '' && !seen.has(current)) choices.push({ value: current, label: current });
       return choices;
+    }
+    function providerModelCountOf(providers, provider) {
+      const providerId = firstString(provider);
+      const match = asArray(providers).filter((entry) => firstString(entry?.id) === providerId)[0] || null;
+      return match === null ? 0 : asArray(match.models).filter((model) => firstString(model.id) !== '').length;
+    }
+    function effortChoicesOf(options, provider, model) {
+      const providerId = firstString(provider);
+      const modelId = firstString(model);
+      const match = asArray(options).filter((option) => option.provider === providerId && option.model === modelId)[0] || null;
+      return {
+        efforts: match === null ? [] : stringListOf(match.efforts),
+        defaultEffort: match === null ? '' : firstString(match.defaultEffort),
+      };
     }
     function modelChoicesOf(providers, provider, currentModel, t) {
       const providerId = firstString(provider);
@@ -7091,7 +7203,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Single-line controlled input. */
-    function LabInput({ value, placeholder, type, disabled, ariaLabel, onChange }) {
+    function LabInput({ value, placeholder, type, disabled, ariaLabel, onChange, min, max, step, list, id }) {
       return h('input', {
         className: 'rl-input',
         type: type === 'number' ? 'number' : type === 'password' ? 'password' : 'text',
@@ -7099,6 +7211,11 @@ window.__ModuleLoader__.load({
         placeholder: placeholder,
         disabled: disabled === true,
         'aria-label': ariaLabel,
+        min: min === undefined ? undefined : String(min),
+        max: max === undefined ? undefined : String(max),
+        step: step === undefined ? undefined : String(step),
+        list: typeof list === 'string' ? list : undefined,
+        id: typeof id === 'string' ? id : undefined,
         spellCheck: false,
         onChange: onChange,
       });
@@ -16769,9 +16886,13 @@ window.__ModuleLoader__.load({
         (profileId !== '' && option.id === profileId)
         || (option.provider === provider && option.model === currentModel)
       ))[0] || null;
-      const effortChoices = matchedOption !== null && matchedOption.efforts.length > 0
-        ? matchedOption.efforts
-        : ['minimal', 'low', 'medium', 'high', 'max'];
+      const efforts = effortChoicesOf(options, provider, currentModel);
+      const effortChoices = efforts.efforts.length > 0
+        ? efforts.efforts
+        : (matchedOption !== null && matchedOption.efforts.length > 0 ? matchedOption.efforts : []);
+      const providerModelCount = providerModelCountOf(providers, provider);
+      const modelNeedsFreeEntry = provider !== '' && providerModelCount === 0;
+      const datalistId = 'rl-model-list-' + String(provider).replace(/[^a-zA-Z0-9_-]/g, '-');
       const selectedModelAvailable = matchedOption !== null ? matchedOption.available : null;
       const selectedModelReason = matchedOption !== null ? matchedOption.reason : '';
       const emit = (nextProvider, nextModel, nextEffort) => {
@@ -16814,21 +16935,43 @@ window.__ModuleLoader__.load({
               options: providerChoices,
               onChange: (event) => changeProvider(event?.target.value),
             })),
-          h(LabField, { label: t('ws.model.model') },
-            h(LabSelect, {
-              value: currentModel,
-              ariaLabel: t('ws.model.model'),
-              disabled: disabled === true || provider === '' || emptyCatalog,
-              options: modelChoices,
-              onChange: (event) => emit(provider, event?.target.value),
-            })),
+          h(LabField, { label: t('ws.model.model'), hint: modelNeedsFreeEntry ? t('ws.model.freeHint') : undefined },
+            modelNeedsFreeEntry
+              ? h('div', { className: 'rl-model-free' },
+                  h('input', {
+                    className: 'rl-input',
+                    type: 'text',
+                    list: datalistId,
+                    value: currentModel,
+                    disabled: disabled === true,
+                    'aria-label': t('ws.model.model'),
+                    spellCheck: false,
+                    onChange: (event) => emit(provider, event?.target.value ?? ''),
+                  }),
+                  h('datalist', { id: datalistId }, modelChoices
+                    .filter((choice) => choice.value !== '')
+                    .map((choice) => h('option', { key: choice.value, value: choice.value }, choice.label))))
+              : h(LabSelect, {
+                  value: currentModel,
+                  ariaLabel: t('ws.model.model'),
+                  disabled: disabled === true || provider === '' || emptyCatalog,
+                  options: modelChoices,
+                  onChange: (event) => emit(provider, event?.target.value),
+                })),
           h(LabField, { label: t('ws.model.effort') },
             h(LabSelect, {
               value: effortValue,
               ariaLabel: t('ws.model.effort'),
               disabled: disabled === true || provider === '',
-              options: [{ value: '', label: t('ws.model.effort.inherit') }].concat(
-                effortChoices.map((effort) => ({ value: effort, label: effort })),
+              options: [{
+                value: '',
+                label: efforts.defaultEffort !== ''
+                  ? t('ws.model.effort.defaultNamed', { effort: efforts.defaultEffort })
+                  : t('ws.model.effort.inherit'),
+              }].concat(
+                effortChoices
+                  .filter((effort) => effort !== '')
+                  .map((effort) => ({ value: effort, label: effort === efforts.defaultEffort ? effort + ' · ' + t('ws.model.effort.default') : effort })),
               ),
               onChange: (event) => changeEffort(event?.target.value),
             })),
@@ -17693,7 +17836,8 @@ window.__ModuleLoader__.load({
 
 
     // ---- top-level expert management ----------------------------------------
-    const EXPERT_EDIT_TOOLS = Object.freeze(['dag_map', 'dag_walk', 'dag_get', 'dag_query', 'ledger_read', 'intent_list']);
+    // The server owns the enumerable catalogs (GET /experts); these helpers only
+    // choose how to render them. No tool/trigger/level list is duplicated here.
     const EXPERT_EDIT_LEVELS = Object.freeze(['branch', 'lead', 'chief']);
     const EXPERT_LIFECYCLE_STATES = Object.freeze(['catalog', 'active', 'draining', 'retired']);
 
@@ -17703,6 +17847,8 @@ window.__ModuleLoader__.load({
 
     function expertDecisionKey(type) {
       const known = {
+        'expert/created': 'created',
+        'expert/deleted': 'deleted',
         'expert/hired': 'hired',
         'expert/invited': 'invited',
         'expert/draining': 'draining',
@@ -17711,6 +17857,20 @@ window.__ModuleLoader__.load({
         'expert/update_rolled_back': 'rolledBack',
       };
       return known[type] ? 'ws.experts.decision.' + known[type] : '';
+    }
+
+    function expertSlugify(value) {
+      return String(value ?? '')
+        .normalize('NFKD')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 32)
+        .replace(/-+$/g, '');
+    }
+
+    function expertCatalogNames(rows) {
+      return asArray(rows).map((row) => firstString(row?.name ?? row?.id ?? row)).filter((name) => name !== '');
     }
 
     function expertDraftOf(expert) {
@@ -17725,15 +17885,17 @@ window.__ModuleLoader__.load({
         queriesPerRun: String(numberOr(budget.queriesPerRun, '')),
         tokensPerHour: String(numberOr(budget.tokensPerHour, '')),
         wallClockMs: String(numberOr(budget.wallClockMs, '')),
-        triggers: stringListOf(expert?.triggers).join(', '),
+        childVotesPerHour: String(numberOr(budget.childVotesPerHour, 0)),
+        triggers: stringListOf(expert?.triggers),
         mayVeto: expert?.mayVeto === true,
         level: EXPERT_EDIT_LEVELS.includes(expert?.level) ? expert.level : 'branch',
+        template: firstString(expert?.template),
+        name: firstString(expert?.name),
       };
     }
 
     function expertDraftPayload(draft) {
       const tools = stringListOf(draft.tools);
-      const triggers = firstString(draft.triggers).split(',').map((row) => row.trim()).filter((row) => row !== '');
       const model = {
         provider: firstString(draft.provider).trim(),
         model: firstString(draft.model).trim(),
@@ -17748,25 +17910,30 @@ window.__ModuleLoader__.load({
           queriesPerRun: Number(draft.queriesPerRun),
           tokensPerHour: Number(draft.tokensPerHour),
           wallClockMs: Number(draft.wallClockMs),
+          childVotesPerHour: Number(draft.childVotesPerHour),
         },
-        triggers,
+        triggers: stringListOf(draft.triggers),
         mayVeto: draft.mayVeto === true,
         level: EXPERT_EDIT_LEVELS.includes(draft.level) ? draft.level : 'branch',
       };
     }
 
-    function expertDraftErrors(draft, t) {
+    function expertDraftErrors(draft, t, catalogs = {}) {
       const errors = {};
+      const tools = expertCatalogNames(catalogs.tools ?? catalogs.toolCatalog);
+      const triggers = expertCatalogNames(catalogs.triggers ?? catalogs.triggerCatalog);
+      const levels = asArray(catalogs.levels).length > 0 ? asArray(catalogs.levels) : EXPERT_EDIT_LEVELS;
       if (firstString(draft.persona).trim() === '') errors.persona = t('ws.experts.edit.error.persona');
       if (firstString(draft.provider).trim() === '') errors.model = t('ws.experts.edit.error.model');
       if (firstString(draft.model).trim() === '') errors.model = t('ws.experts.edit.error.model');
       for (const tool of stringListOf(draft.tools)) {
-        if (!EXPERT_EDIT_TOOLS.includes(tool)) errors.tools = t('ws.experts.edit.error.tools');
+        if (!tools.includes(tool)) errors.tools = t('ws.experts.edit.error.tools');
       }
       const numeric = [
         ['queriesPerRun', 1, 1000],
         ['tokensPerHour', 1, 1_000_000_000],
         ['wallClockMs', 1000, 86_400_000],
+        ['childVotesPerHour', 0, 1000],
       ];
       for (const [field, min, max] of numeric) {
         const value = Number(draft[field]);
@@ -17774,14 +17941,48 @@ window.__ModuleLoader__.load({
           errors.budget = t('ws.experts.edit.error.budget');
         }
       }
-      const triggers = firstString(draft.triggers).split(',').map((row) => row.trim()).filter((row) => row !== '');
-      for (const trigger of triggers) {
-        if (!/^[a-z][a-z0-9_.-]*(?:[<>=:][a-z0-9_.-]+)?$/.test(trigger)) {
-          errors.triggers = t('ws.experts.edit.error.triggers');
-        }
+      for (const trigger of stringListOf(draft.triggers)) {
+        if (!triggers.includes(trigger)) errors.triggers = t('ws.experts.edit.error.triggers');
       }
-      if (!EXPERT_EDIT_LEVELS.includes(draft.level)) errors.level = t('ws.experts.edit.error.level');
+      if (!levels.includes(draft.level)) errors.level = t('ws.experts.edit.error.level');
       return errors;
+    }
+
+    function expertCreateDraftOf(template) {
+      const defaults = asObject(template?.defaults);
+      const model = asObject(defaults.model);
+      const budget = asObject(defaults.budget);
+      return {
+        name: '',
+        id: '',
+        idTouched: false,
+        template: firstString(template?.id),
+        persona: '',
+        provider: firstString(model.provider),
+        model: firstString(model.model),
+        reasoningEffort: firstString(model.reasoningEffort),
+        tools: stringListOf(defaults.tools),
+        triggers: stringListOf(defaults.triggers),
+        queriesPerRun: String(numberOr(budget.queriesPerRun, 1)),
+        tokensPerHour: String(numberOr(budget.tokensPerHour, 1)),
+        wallClockMs: String(numberOr(budget.wallClockMs, 1000)),
+        childVotesPerHour: String(numberOr(budget.childVotesPerHour, 0)),
+        mayVeto: template?.mayVeto === true,
+        level: firstString(defaults.level) || firstString(template?.defaultLevel) || 'branch',
+      };
+    }
+
+    function expertCreateErrors(draft, t, catalogs = {}) {
+      const errors = expertDraftErrors(draft, t, catalogs);
+      if (firstString(draft.name).trim() === '') errors.name = t('ws.experts.create.error.name');
+      const id = firstString(draft.id);
+      if (!/^custom:[a-z0-9-]{2,32}$/.test(id)) errors.id = t('ws.experts.create.error.id');
+      if (firstString(draft.template) === '') errors.template = t('ws.experts.create.error.template');
+      return errors;
+    }
+
+    function expertTriggerText(expert) {
+      return stringListOf(expert?.triggers).join(', ');
     }
 
     function expertDraftDiff(draft, expert, t) {
@@ -17797,7 +17998,8 @@ window.__ModuleLoader__.load({
       add('queriesPerRun', t('ws.experts.field.queries'), String(before.queriesPerRun), String(after.queriesPerRun));
       add('tokensPerHour', t('ws.experts.field.tokens'), String(before.tokensPerHour), String(after.tokensPerHour));
       add('wallClockMs', t('ws.experts.field.wallClock'), String(before.wallClockMs), String(after.wallClockMs));
-      add('triggers', t('ws.experts.field.triggers'), before.triggers, after.triggers);
+      add('childVotesPerHour', t('ws.experts.field.childVotes'), String(before.childVotesPerHour), String(after.childVotesPerHour));
+      add('triggers', t('ws.experts.field.triggers'), before.triggers.join(', '), after.triggers.join(', '));
       add('mayVeto', t('ws.experts.field.mayVeto'), String(before.mayVeto), String(after.mayVeto));
       add('level', t('ws.experts.field.level'), before.level, after.level);
       return rows;
@@ -17805,7 +18007,11 @@ window.__ModuleLoader__.load({
 
     /** First-class expert page: roster, lifecycle, metrics, edit/diff/rollback. */
     function ExpertsTab({ projectId, t }) {
-      const [snapshot, setSnapshot] = React.useState({ loading: true, experts: [], curator: null, error: '' });
+      const [snapshot, setSnapshot] = React.useState({
+        loading: true, experts: [], catalog: [], custom: [], curator: null, error: '',
+        toolCatalog: [], triggerCatalog: [], templates: [], levels: ['branch', 'lead', 'chief'],
+        models: { options: [], providers: [], allowlist: [] }, modelError: '',
+      });
       const [action, setAction] = React.useState('');
       const [notice, setNotice] = React.useState('');
       const [error, setError] = React.useState('');
@@ -17814,18 +18020,42 @@ window.__ModuleLoader__.load({
       const [reason, setReason] = React.useState('');
       const [saving, setSaving] = React.useState(false);
       const [inviteTtl, setInviteTtl] = React.useState('24');
+      const [creating, setCreating] = React.useState(false);
+      const [createDraft, setCreateDraft] = React.useState(null);
+      const [createSaving, setCreateSaving] = React.useState(false);
 
       const load = React.useCallback(async (signal) => {
         setSnapshot((previous) => ({ ...previous, loading: previous.experts.length === 0, error: '' }));
-        try {
-          const data = await api.fetchExperts(projectId, signal, t);
-          if (signal?.aborted) return;
-          setSnapshot({ loading: false, experts: asArray(asObject(data).experts), curator: asObject(data).curator ?? null, error: '' });
-        } catch (reasonValue) {
-          if (!signal?.aborted && !isAbortError(reasonValue)) {
-            setSnapshot((previous) => ({ ...previous, loading: false, error: describeError(reasonValue, t) }));
+        const [expertsResult, modelsResult] = await Promise.allSettled([
+          api.fetchExperts(projectId, signal, t),
+          api.fetchModels(projectId, signal, t),
+        ]);
+        if (signal?.aborted) return;
+        if (expertsResult.status === 'rejected') {
+          if (!isAbortError(expertsResult.reason)) {
+            setSnapshot((previous) => ({ ...previous, loading: false, error: describeError(expertsResult.reason, t) }));
           }
+          return;
         }
+        const data = asObject(expertsResult.value);
+        const experts = asArray(data.experts);
+        const models = modelsResult.status === 'fulfilled'
+          ? normalizeModelCatalog(modelsResult.value)
+          : { options: [], providers: [], allowlist: [] };
+        setSnapshot({
+          loading: false,
+          experts,
+          catalog: asArray(data.catalog).length > 0 ? asArray(data.catalog) : experts.filter((expert) => expert?.custom !== true),
+          custom: asArray(data.custom).length > 0 ? asArray(data.custom) : experts.filter((expert) => expert?.custom === true),
+          curator: data.curator ?? null,
+          error: '',
+          toolCatalog: asArray(data.toolCatalog),
+          triggerCatalog: asArray(data.triggerCatalog),
+          templates: asArray(data.templates),
+          levels: asArray(data.levels).length > 0 ? asArray(data.levels) : ['branch', 'lead', 'chief'],
+          models,
+          modelError: modelsResult.status === 'rejected' ? describeError(modelsResult.reason, t) || t('ws.model.error') : '',
+        });
       }, [projectId, t]);
 
       React.useEffect(() => {
@@ -17852,19 +18082,41 @@ window.__ModuleLoader__.load({
         }
       };
 
+      const removeExpert = async (expertId) => {
+        if (action !== '') return;
+        setAction('delete:' + expertId);
+        setNotice('');
+        setError('');
+        try {
+          await api.command({ type: 'expert_delete', projectId, expertId }, undefined, t);
+          await load(undefined);
+          setNotice(t('ws.experts.deleted', { id: expertId }));
+        } catch (reasonValue) {
+          if (!isAbortError(reasonValue)) setError(describeError(reasonValue, t) || t('ws.experts.deleteError'));
+        } finally {
+          setAction('');
+        }
+      };
+
       const openEditor = (expert) => {
         setEditingId(firstString(expert?.id));
         setDraft(expertDraftOf(expert));
         setReason('');
         setError('');
         setNotice('');
+        setCreating(false);
       };
       const closeEditor = () => {
         setEditingId('');
         setDraft(null);
         setReason('');
       };
-      const errors = draft === null ? {} : expertDraftErrors(draft, t);
+      const catalogs = {
+        tools: snapshot.toolCatalog,
+        triggers: snapshot.triggerCatalog,
+        levels: snapshot.levels,
+      };
+      const errors = draft === null ? {} : expertDraftErrors(draft, t, catalogs);
       const editingExpert = editingId === '' ? null : snapshot.experts.find((expert) => firstString(expert?.id) === editingId) ?? null;
       const diff = draft === null || editingExpert === null ? [] : expertDraftDiff(draft, editingExpert, t);
 
@@ -17908,56 +18160,261 @@ window.__ModuleLoader__.load({
         }
       };
 
+      const openCreate = () => {
+        const template = asArray(snapshot.templates)[0] ?? null;
+        if (template === null) {
+          setError(t('ws.experts.create.error.template'));
+          return;
+        }
+        setCreating(true);
+        setCreateDraft(expertCreateDraftOf(template));
+        setEditingId('');
+        setDraft(null);
+        setError('');
+        setNotice('');
+      };
+      const closeCreate = () => {
+        setCreating(false);
+        setCreateDraft(null);
+      };
+      const setCreateField = (field, value) => {
+        setCreateDraft((previous) => (previous === null ? previous : { ...previous, [field]: value }));
+      };
+      const setCreateName = (value) => {
+        setCreateDraft((previous) => {
+          if (previous === null) return previous;
+          const next = { ...previous, name: value };
+          if (previous.idTouched !== true) {
+            const slug = expertSlugify(value);
+            next.id = slug.length >= 2 ? 'custom:' + slug : '';
+          }
+          return next;
+        });
+      };
+      const chooseCreateTemplate = (templateId) => {
+        const template = asArray(snapshot.templates).find((row) => firstString(row?.id) === templateId) ?? null;
+        if (template === null) return;
+        const defaults = expertCreateDraftOf(template);
+        setCreateDraft((previous) => ({
+          ...defaults,
+          name: firstString(previous?.name),
+          id: firstString(previous?.id),
+          idTouched: previous?.idTouched === true,
+          persona: firstString(previous?.persona),
+        }));
+      };
+      const createErrors = createDraft === null ? {} : expertCreateErrors(createDraft, t, catalogs);
+      const createTemplate = createDraft === null
+        ? null
+        : asArray(snapshot.templates).find((row) => firstString(row?.id) === firstString(createDraft.template)) ?? null;
+
+      const submitCreate = async () => {
+        if (createDraft === null || createSaving) return;
+        if (Object.keys(createErrors).length > 0) return;
+        setCreateSaving(true);
+        setError('');
+        try {
+          const payload = expertDraftPayload(createDraft);
+          await api.command({
+            type: 'expert_create',
+            projectId,
+            expert: {
+              name: firstString(createDraft.name).trim(),
+              id: firstString(createDraft.id),
+              template: firstString(createDraft.template),
+              ...payload,
+            },
+          }, undefined, t);
+          await load(undefined);
+          setNotice(t('ws.experts.created', { id: firstString(createDraft.id) }));
+          closeCreate();
+        } catch (reasonValue) {
+          if (!isAbortError(reasonValue)) setError(describeError(reasonValue, t) || t('ws.experts.create.error.save'));
+        } finally {
+          setCreateSaving(false);
+        }
+      };
+
       const hired = snapshot.experts.filter((expert) => firstString(expert?.lifecycle?.status) !== 'catalog');
       const active = snapshot.experts.filter((expert) => expert?.lifecycle?.status === 'active');
       const ttl = Math.max(1, Math.min(168, Math.trunc(Number(inviteTtl) || 24)));
-      const field = (labelKey, child) => h(LabField, { label: t(labelKey) }, child);
+      const field = (labelKey, child, hint) => h(LabField, { label: t(labelKey), hint: hint ?? undefined }, child);
+
+      const toolsEditor = (value, setValue) => h('div', { className: 'rl-expert-tools' }, asArray(snapshot.toolCatalog).map((tool) => {
+        const name = firstString(tool?.name);
+        return h('label', { key: name, className: 'rl-expert-check' },
+          h('input', {
+            type: 'checkbox',
+            value: name,
+            'aria-label': name,
+            checked: stringListOf(value).includes(name),
+            onChange: (event) => setValue(event?.target.checked === true
+              ? [...stringListOf(value), name]
+              : stringListOf(value).filter((row) => row !== name)),
+          }),
+          h('span', { className: 'rl-expert-check-copy' },
+            h('span', { className: 'rl-mono' }, name),
+            h('span', { className: 'rl-hint' }, firstString(tool?.description))));
+      }));
+
+      const triggersEditor = (value, setValue) => h('div', { className: 'rl-expert-triggers', 'data-testid': 'expert-trigger-options' }, asArray(snapshot.triggerCatalog).map((trigger) => {
+        const name = firstString(trigger?.name);
+        return h('label', { key: name, className: 'rl-expert-check' },
+          h('input', {
+            type: 'checkbox',
+            value: name,
+            'aria-label': name,
+            checked: stringListOf(value).includes(name),
+            onChange: (event) => setValue(event?.target.checked === true
+              ? [...stringListOf(value), name]
+              : stringListOf(value).filter((row) => row !== name)),
+          }),
+          h('span', { className: 'rl-expert-check-copy' },
+            h('span', { className: 'rl-mono' }, name),
+            h('span', { className: 'rl-hint' }, firstString(trigger?.description))));
+      }));
+
+      const modelEditor = (value, setValue) => h(ModelPicker, {
+        model: {
+          provider: firstString(value.provider),
+          model: firstString(value.model),
+          reasoningEffort: firstString(value.reasoningEffort),
+        },
+        modelOptions: snapshot.models.options,
+        modelProviders: snapshot.models.providers,
+        disabled: saving || createSaving,
+        t,
+        onChange: (next) => {
+          const model = asObject(next);
+          setValue({
+            ...value,
+            provider: firstString(model.provider),
+            model: firstString(model.model),
+            reasoningEffort: firstString(model.reasoningEffort),
+          });
+        },
+      });
+
+      const budgetEditor = (value, setValue) => h('div', { className: 'rl-expert-budget-grid' },
+        h(LabField, { label: t('ws.experts.field.queries'), hint: t('ws.experts.budget.queriesHint') },
+          h(LabInput, { type: 'number', min: 1, max: 1000, step: 1, value: value.queriesPerRun, ariaLabel: t('ws.experts.field.queries'), onChange: (event) => setValue({ ...value, queriesPerRun: event?.target.value ?? '' }) })),
+        h(LabField, { label: t('ws.experts.field.tokens'), hint: t('ws.experts.budget.tokensHint') },
+          h(LabInput, { type: 'number', min: 1, max: 1_000_000_000, step: 1, value: value.tokensPerHour, ariaLabel: t('ws.experts.field.tokens'), onChange: (event) => setValue({ ...value, tokensPerHour: event?.target.value ?? '' }) })),
+        h(LabField, { label: t('ws.experts.field.wallClock'), hint: t('ws.experts.budget.wallClockHint') },
+          h(LabInput, { type: 'number', min: 1000, max: 86_400_000, step: 1000, value: value.wallClockMs, ariaLabel: t('ws.experts.field.wallClock'), onChange: (event) => setValue({ ...value, wallClockMs: event?.target.value ?? '' }) })),
+        h(LabField, { label: t('ws.experts.field.childVotes'), hint: t('ws.experts.budget.childVotesHint') },
+          h(LabInput, { type: 'number', min: 0, max: 1000, step: 1, value: value.childVotesPerHour, ariaLabel: t('ws.experts.field.childVotes'), onChange: (event) => setValue({ ...value, childVotesPerHour: event?.target.value ?? '' }) })));
+
+      const createForm = !creating || createDraft === null ? null : h(
+        'section',
+        { className: 'rl-expert-editor rl-expert-create', 'data-testid': 'expert-create-form', role: 'region', 'aria-label': t('ws.experts.create.title') },
+        h('div', { className: 'rl-expert-editor-head' },
+          h('h3', { className: 'rl-card-title' }, t('ws.experts.create.title')),
+          h('span', { className: 'rl-chip' }, t('ws.experts.create.projectOnly')),
+          h('span', { className: 'rl-chip' }, t('ws.experts.library.noExecute'))),
+        h('p', { className: 'rl-hint' }, t('ws.experts.create.hint')),
+        h('div', { className: 'rl-expert-editor-grid' },
+          field('ws.experts.create.template', h(LabSelect, {
+            value: createDraft.template,
+            ariaLabel: t('ws.experts.create.template'),
+            options: asArray(snapshot.templates).map((template) => ({
+              value: firstString(template?.id),
+              label: t('ws.experts.template.' + firstString(template?.id)),
+            })),
+            onChange: (event) => chooseCreateTemplate(event?.target.value),
+          }), t('ws.experts.create.templateHint')),
+          field('ws.experts.create.name', h(LabInput, {
+            value: createDraft.name,
+            ariaLabel: t('ws.experts.create.name'),
+            placeholder: t('ws.experts.create.namePlaceholder'),
+            onChange: (event) => setCreateName(event?.target.value ?? ''),
+          })),
+          field('ws.experts.create.id', h(LabInput, {
+            value: createDraft.id,
+            ariaLabel: t('ws.experts.create.id'),
+            placeholder: 'custom:delta',
+            onChange: (event) => setCreateDraft({ ...createDraft, id: event?.target.value ?? '', idTouched: true }),
+          }), t('ws.experts.create.idHint')),
+          field('ws.experts.field.persona', h(LabTextarea, {
+            value: createDraft.persona,
+            rows: 3,
+            ariaLabel: t('ws.experts.field.persona'),
+            placeholder: t('ws.experts.create.personaPlaceholder'),
+            onChange: (event) => setCreateField('persona', event?.target.value ?? ''),
+          })),
+          field('ws.experts.field.model', modelEditor(createDraft, setCreateDraft)),
+          field('ws.experts.field.tools', toolsEditor(createDraft.tools, (tools) => setCreateField('tools', tools))),
+          field('ws.experts.field.triggers', triggersEditor(createDraft.triggers, (triggers) => setCreateField('triggers', triggers))),
+          field('ws.experts.field.level', h(LabSelect, {
+            value: createDraft.level,
+            ariaLabel: t('ws.experts.field.level'),
+            options: snapshot.levels.map((level) => ({ value: level, label: t('ws.experts.level.' + level) })),
+            onChange: (event) => setCreateField('level', event?.target.value),
+          })),
+          field('ws.experts.field.budget', budgetEditor(createDraft, setCreateDraft)),
+        ),
+        h('p', { className: 'rl-hint' }, t('ws.experts.create.templateLocked', {
+          mayCreate: createTemplate?.mayCreate === true ? t('common.yes') : t('common.no'),
+          mayVeto: createTemplate?.mayVeto === true ? t('common.yes') : t('common.no'),
+        })),
+        h('p', { className: 'rl-hint', 'data-testid': 'expert-create-may-execute-readonly' }, t('ws.experts.edit.readonly')),
+        Object.keys(createErrors).length > 0
+          ? h('div', { className: 'rl-expert-errors', role: 'alert', 'data-testid': 'expert-create-errors' }, Object.values(createErrors).map((message, index) => h('p', { key: index, className: 'rl-error-text' }, message)))
+          : null,
+        h('div', { className: 'rl-form-actions' },
+          h(LabButton, { label: t('ws.experts.create.cancel'), variant: 'ghost', disabled: createSaving, onClick: closeCreate }),
+          h(LabButton, {
+            label: createSaving ? t('ws.experts.create.saving') : t('ws.experts.create.submit'),
+            variant: 'primary',
+            disabled: createSaving || Object.keys(createErrors).length > 0,
+            onClick: () => void submitCreate(),
+          })),
+      );
 
       const editor = editingExpert === null || draft === null ? null : h(
         'section',
         { className: 'rl-expert-editor', 'data-testid': 'expert-editor', role: 'region', 'aria-label': t('ws.experts.edit.title') },
         h('div', { className: 'rl-expert-editor-head' },
           h('h3', { className: 'rl-card-title' }, t('ws.experts.edit.title') + ' · ' + editingId),
-          h('span', { className: 'rl-chip' }, t('ws.experts.edit.projectOverride')),
+          h('span', { className: 'rl-chip' }, editingExpert.custom === true ? t('ws.experts.create.custom') : t('ws.experts.edit.projectOverride')),
           h('span', { className: 'rl-chip' }, t('ws.experts.library.noExecute'))),
         h('p', { className: 'rl-hint' }, t('ws.experts.edit.hint')),
         h('div', { className: 'rl-expert-editor-grid' },
+          editingExpert.custom === true
+            ? field('ws.experts.create.template', h(LabSelect, {
+                value: firstString(editingExpert.template),
+                disabled: true,
+                ariaLabel: t('ws.experts.create.template'),
+                options: asArray(snapshot.templates).map((template) => ({
+                  value: firstString(template?.id),
+                  label: t('ws.experts.template.' + firstString(template?.id)),
+                })),
+                onChange: () => {},
+              }), t('ws.experts.create.templateLockedWhenEditing'))
+            : null,
           field('ws.experts.field.persona', h(LabTextarea, {
             value: draft.persona,
             rows: 3,
             ariaLabel: t('ws.experts.field.persona'),
             onChange: (event) => setDraft({ ...draft, persona: event?.target.value ?? '' }),
           })),
-          field('ws.experts.field.model', h('div', { className: 'rl-expert-inline' },
-            h(LabInput, { value: draft.provider, placeholder: t('ws.experts.field.provider'), ariaLabel: t('ws.experts.field.provider'), onChange: (event) => setDraft({ ...draft, provider: event?.target.value ?? '' }) }),
-            h(LabInput, { value: draft.model, placeholder: t('ws.experts.field.modelName'), ariaLabel: t('ws.experts.field.modelName'), onChange: (event) => setDraft({ ...draft, model: event?.target.value ?? '' }) }),
-            h(LabInput, { value: draft.reasoningEffort, placeholder: t('ws.experts.field.effort'), ariaLabel: t('ws.experts.field.effort'), onChange: (event) => setDraft({ ...draft, reasoningEffort: event?.target.value ?? '' }) }))),
-          field('ws.experts.field.tools', h('div', { className: 'rl-expert-tools' }, EXPERT_EDIT_TOOLS.map((tool) => h('label', { key: tool, className: 'rl-expert-check' },
-            h('input', {
-              type: 'checkbox',
-              checked: draft.tools.includes(tool),
-              onChange: (event) => setDraft({ ...draft, tools: event?.target.checked ? [...draft.tools, tool] : draft.tools.filter((row) => row !== tool) }),
-            }),
-            h('span', { className: 'rl-mono' }, tool))))),
-          field('ws.experts.field.budget', h('div', { className: 'rl-expert-inline' },
-            h(LabInput, { type: 'number', value: draft.queriesPerRun, ariaLabel: t('ws.experts.field.queries'), onChange: (event) => setDraft({ ...draft, queriesPerRun: event?.target.value ?? '' }) }),
-            h(LabInput, { type: 'number', value: draft.tokensPerHour, ariaLabel: t('ws.experts.field.tokens'), onChange: (event) => setDraft({ ...draft, tokensPerHour: event?.target.value ?? '' }) }),
-            h(LabInput, { type: 'number', value: draft.wallClockMs, ariaLabel: t('ws.experts.field.wallClock'), onChange: (event) => setDraft({ ...draft, wallClockMs: event?.target.value ?? '' }) }))),
-          field('ws.experts.field.triggers', h(LabInput, {
-            value: draft.triggers,
-            placeholder: 'node.completed, review.requested',
-            ariaLabel: t('ws.experts.field.triggers'),
-            onChange: (event) => setDraft({ ...draft, triggers: event?.target.value ?? '' }),
-          })),
+          field('ws.experts.field.model', modelEditor(draft, setDraft)),
+          field('ws.experts.field.tools', toolsEditor(draft.tools, (tools) => setDraft({ ...draft, tools }))),
+          field('ws.experts.field.budget', budgetEditor(draft, setDraft)),
+          field('ws.experts.field.triggers', triggersEditor(draft.triggers, (triggers) => setDraft({ ...draft, triggers }))),
           field('ws.experts.field.level', h(LabSelect, {
             value: draft.level,
             ariaLabel: t('ws.experts.field.level'),
-            options: EXPERT_EDIT_LEVELS.map((level) => ({ value: level, label: t('ws.experts.level.' + level) })),
+            options: snapshot.levels.map((level) => ({ value: level, label: t('ws.experts.level.' + level) })),
             onChange: (event) => setDraft({ ...draft, level: event?.target.value }),
           })),
-          field('ws.experts.field.mayVeto', h('label', { className: 'rl-expert-check' },
-            h('input', { type: 'checkbox', checked: draft.mayVeto, onChange: (event) => setDraft({ ...draft, mayVeto: event?.target.checked === true }) }),
-            h('span', null, t('ws.experts.field.mayVetoHint')))),
+          editingExpert.custom === true
+            ? field('ws.experts.field.mayVeto', h('span', { className: 'rl-chip' }, t('ws.experts.create.capabilityLocked', {
+                value: draft.mayVeto === true ? t('common.yes') : t('common.no'),
+              })))
+            : field('ws.experts.field.mayVeto', h('label', { className: 'rl-expert-check' },
+                h('input', { type: 'checkbox', checked: draft.mayVeto, onChange: (event) => setDraft({ ...draft, mayVeto: event?.target.checked === true }) }),
+                h('span', null, t('ws.experts.field.mayVetoHint')))),
           field('ws.experts.edit.reason', h(LabInput, {
             value: reason,
             placeholder: t('ws.experts.edit.reasonHint'),
@@ -18004,7 +18461,8 @@ window.__ModuleLoader__.load({
         return h('article', { key: id, className: 'rl-expert-card' + (isEditing ? ' rl-expert-card-editing' : ''), 'data-testid': 'expert-card', 'data-expert-id': id },
           h('div', { className: 'rl-expert-card-head' },
             h('div', { className: 'rl-expert-card-title' },
-              h('strong', { className: 'rl-expert-id rl-mono' }, id),
+              h('strong', { className: 'rl-expert-id rl-mono' }, expert?.custom === true && firstString(expert?.name) !== '' ? firstString(expert.name) + ' · ' + id : id),
+              expert?.custom === true ? h('span', { className: 'rl-chip' }, t('ws.experts.template.' + firstString(expert?.template))) : null,
               h('span', { className: 'rl-chip rl-chip-lifecycle rl-chip-lifecycle-' + status }, t(expertLifecycleKey(status))),
               expert?.temporary === true || expert?.roster?.temporary === true ? h('span', { className: 'rl-chip' }, t('ws.experts.temporary')) : null),
             h('div', { className: 'rl-expert-card-actions' },
@@ -18020,7 +18478,10 @@ window.__ModuleLoader__.load({
               status === 'catalog' || status === 'retired'
                 ? h(LabButton, { label: t('ws.experts.invite'), variant: 'ghost', disabled: action !== '', onClick: () => void runLifecycle('expert_invite', id, { ttlHours: ttl }) })
                 : null,
-              h(LabButton, { label: t('ws.experts.edit.open'), variant: isEditing ? 'primary' : 'ghost', disabled: action !== '' || saving, onClick: () => (isEditing ? closeEditor() : openEditor(expert)) }))),
+              h(LabButton, { label: t('ws.experts.edit.open'), variant: isEditing ? 'primary' : 'ghost', disabled: action !== '' || saving, onClick: () => (isEditing ? closeEditor() : openEditor(expert)) }),
+              expert?.custom === true
+                ? h(LabButton, { label: action === 'delete:' + id ? '…' : t('ws.experts.delete'), variant: 'ghost', disabled: action !== '', onClick: () => void removeExpert(id) })
+                : null)),
           h('p', { className: 'rl-hint' }, firstString(expert?.persona)),
           h('div', { className: 'rl-expert-meta' },
             h('span', { className: 'rl-chip rl-chip-mono' }, t('ws.experts.providerModel', { provider: firstString(expert?.model?.provider) || '—', model: firstString(expert?.model?.model) || '—' })),
@@ -18040,6 +18501,8 @@ window.__ModuleLoader__.load({
           h('div', { className: 'rl-expert-flags' },
             expert?.override !== null && expert?.override !== undefined ? h('span', { className: 'rl-chip' }, t('ws.experts.overridden', { count: asArray(expert?.overriddenFields).length })) : null,
             h('span', { className: 'rl-chip' }, t('ws.experts.library.noExecute')),
+            h('span', { className: 'rl-chip rl-mono' }, t('ws.experts.toolsChip', { tools: stringListOf(expert?.tools).join(', ') || '—' })),
+            h('span', { className: 'rl-chip rl-mono' }, t('ws.experts.triggersChip', { triggers: expertTriggerText(expert) || '—' })),
             expert?.roster?.expiresAt ? h('span', { className: 'rl-chip' }, t('ws.experts.expiresAt', { at: formatDateTime(expert.roster.expiresAt, t) })) : null),
           decisions.length === 0
             ? null
@@ -18068,16 +18531,20 @@ window.__ModuleLoader__.load({
             h('h2', { className: 'rl-page-title' }, t('ws.experts.title')),
             h('p', { className: 'rl-page-subtitle' }, t('ws.experts.hint'))),
           h('div', { className: 'rl-experts-stats' },
-            h('span', { className: 'rl-chip' }, t('ws.experts.stats.catalog', { count: snapshot.experts.length })),
+            h('span', { className: 'rl-chip' }, t('ws.experts.stats.catalog', { count: snapshot.catalog.length })),
+            h('span', { className: 'rl-chip' }, t('ws.experts.stats.custom', { count: snapshot.custom.length })),
             h('span', { className: 'rl-chip' }, t('ws.experts.stats.active', { count: active.length })),
             h('label', { className: 'rl-expert-ttl' }, t('ws.experts.inviteTtl'),
-              h(LabInput, { type: 'number', value: inviteTtl, ariaLabel: t('ws.experts.inviteTtl'), onChange: (event) => setInviteTtl(event?.target.value ?? '') })),
+              h(LabInput, { type: 'number', min: 1, max: 168, value: inviteTtl, ariaLabel: t('ws.experts.inviteTtl'), onChange: (event) => setInviteTtl(event?.target.value ?? '') })),
+            h(LabButton, { label: t('ws.experts.create.open'), variant: 'primary', disabled: snapshot.loading || creating, onClick: openCreate }),
             h(LabButton, { label: snapshot.loading ? t('common.loading') : t('ws.experts.refresh'), variant: 'ghost', disabled: snapshot.loading, onClick: () => void load(undefined) }))),
         snapshot.error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, snapshot.error) : null,
+        snapshot.modelError !== '' ? h('p', { className: 'rl-hint', role: 'status' }, snapshot.modelError) : null,
         error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, error) : null,
         notice !== '' ? h('p', { className: 'rl-hint', role: 'status' }, notice) : null,
         h('p', { className: 'rl-hint' }, t('ws.experts.drainHint')),
         snapshot.curator !== null ? h('p', { className: 'rl-hint' }, t('ws.experts.curator', { status: firstString(asObject(snapshot.curator).status) || 'unknown' })) : null,
+        createForm,
         emptyGuidance,
         snapshot.loading && snapshot.experts.length === 0
           ? h('p', { className: 'rl-hint' }, t('common.loading'))
