@@ -255,7 +255,6 @@ window.__ModuleLoader__.load({
       "dashboard.stalePartial": "部分刷新失败",
       "dashboard.staleRevision": "上次刷新后项目已变化",
       "dashboard.title": "仪表盘",
-      "dashboard.toggle": "打开或关闭 Dashboard",
       "dashboard.updatedAt": "最近更新",
       "dashboard.widgets": "Dashboard widgets",
       "error.http": "请求失败（HTTP {status}）",
@@ -611,7 +610,6 @@ window.__ModuleLoader__.load({
       "subtitle": "用动态 DAG 组织科研实验：每个节点绑定独立 git worktree 与 subagent 会话。",
       "title": "MetaInfer Research Lab · 科研实验台",
       "trajectory.back": "返回科研实验台",
-      "trajectory.open": "轨迹与技能",
       "trajectory.panel": "轨迹与技能",
       "wizard.brief": "研究目标 / 假设",
       "wizard.brief.placeholder": "例如：验证在 seed-42 上扫描 ridge 正则化系数能否降低 val_loss。",
@@ -734,6 +732,7 @@ window.__ModuleLoader__.load({
       "ws.auto.resume": "继续",
       "ws.auto.running": "自动运行中",
       "ws.auto.start": "启动自动挡",
+      "ws.auto.stepOnlyManual": "自动挡运行时不可手动 Step",
       "ws.auto.stop": "停止",
       "ws.auto.title": "自动挡",
       "ws.auto.tokens": "tokens {used}/{max}",
@@ -947,6 +946,8 @@ window.__ModuleLoader__.load({
       "ws.clusterConfig.urlHint": "客户端角色需要填写协调器地址，例如 {example}",
       "ws.clusterConfig.userId": "userId",
       "ws.clusterConfig.warning.title": "警告",
+      "ws.compact.nodes": "{count}/{max}",
+      "ws.compact.pending": "待确认 {count}",
       "ws.composer.disabled.notLeaf": "该节点已有后继节点，对话已封存只读。",
       "ws.composer.disabled.running": "节点运行中，暂时无法继续对话。",
       "ws.composer.disabled.sealed": "该节点已封存，对话只读。",
@@ -1096,15 +1097,9 @@ window.__ModuleLoader__.load({
       "ws.experts.level.branch": "分支",
       "ws.experts.level.chief": "Chief",
       "ws.experts.level.lead": "Lead",
-      "ws.experts.library": "专家库",
-      "ws.experts.library.empty": "暂无专家",
-      "ws.experts.library.error": "读取专家库失败",
-      "ws.experts.library.hint": "后台专家的只读目录：人设、可提议动作与实测产出。专家只能提议，Host 独占写入。",
-      "ws.experts.library.loading": "正在读取专家库…",
       "ws.experts.library.metrics": "{proposals} 个提案 · {completed} 个完成",
       "ws.experts.library.noExecute": "只提议，不执行",
       "ws.experts.library.proposes": "可提议：{actions}",
-      "ws.experts.library.refresh": "刷新专家库",
       "ws.experts.lifecycle": "生命周期",
       "ws.experts.lifecycle.active": "在岗",
       "ws.experts.lifecycle.catalog": "未聘用",
@@ -1370,6 +1365,7 @@ window.__ModuleLoader__.load({
       "ws.project.unknown": "未命名项目",
       "ws.projectMenu": "项目操作",
       "ws.projectMenu.close": "关闭项目菜单",
+      "ws.projectMenu.cluster": "集群状态",
       "ws.projectMenu.clusterConfig": "集群设置",
       "ws.projectMenu.delete": "删除项目",
       "ws.projectMenu.push": "推送分支与 tag",
@@ -1454,7 +1450,6 @@ window.__ModuleLoader__.load({
       "ws.runs.lensLabel": "评审视角",
       "ws.runs.loading": "正在加载运行记录…",
       "ws.runs.noSelection": "选择一条运行记录查看详情。",
-      "ws.runs.open": "运行记录",
       "ws.runs.openDetail": "查看运行详情",
       "ws.runs.panel": "评审组 {count}",
       "ws.runs.panelLabel": "评审组人数",
@@ -1477,21 +1472,26 @@ window.__ModuleLoader__.load({
       "ws.sealed.successorHint": "在已封存基线上添加后继（从当前 HEAD 分叉）。",
       "ws.sessions.allNodes": "全部节点",
       "ws.sessions.attempt": "第 {index} 次尝试",
+      "ws.sessions.collapse": "收起",
       "ws.sessions.copilot": "Copilot 会话",
       "ws.sessions.copilotEmpty": "还没有 Copilot 会话；从 DAG 顶部打开 Copilot 并创建会话后，这里会出现记录。",
       "ws.sessions.copilotHint": "项目内创建的 Copilot 会话，可直接进入原生对话。",
       "ws.sessions.cycleRuns": "周期 / 专家运行",
       "ws.sessions.cycleRunsEmpty": "还没有运行记录；执行一次 Step 后会出现。",
       "ws.sessions.cycleRunsHint": "来自运行台账，按时间倒序展示。",
+      "ws.sessions.defaultLimit": "默认每节显示前 {count} 条；加载更多按 {count} 条递增。",
       "ws.sessions.hint": "按项目查看 Copilot 会话、节点执行记录与周期运行；可打开原生会话继续对话。",
+      "ws.sessions.more": "显示更多（+{count}）",
       "ws.sessions.nodeFilter": "按节点筛选",
       "ws.sessions.nodeRun": "节点运行",
       "ws.sessions.nodeRuns": "节点执行记录",
       "ws.sessions.nodeRunsEmpty": "还没有节点执行记录；启动节点后会出现尝试记录。",
       "ws.sessions.nodeRunsHint": "展示节点的尝试、会话与错误；选择上方节点可只看一个节点。",
       "ws.sessions.open": "打开",
+      "ws.sessions.openTrajectory": "在 DSH 中打开轨迹",
       "ws.sessions.partial": "部分数据加载失败",
       "ws.sessions.refresh": "刷新",
+      "ws.sessions.rowCount": "已显示 {shown} / {total} 条",
       "ws.sessions.title": "会话记录",
       "ws.sessions.untitled": "未命名",
       "ws.settings.acceptMode": "新提案接入模式",
@@ -1502,8 +1502,6 @@ window.__ModuleLoader__.load({
       "ws.settings.advisorTimeoutSeconds": "专家组超时（秒）",
       "ws.settings.advisorTimeoutSeconds.hint": "单次 advisor/reviewer 运行的最长等待时间；默认 180 秒（原为硬编码 3 分钟）。",
       "ws.settings.autoUpgrade": "失败后自动升级模型",
-      "ws.settings.cancel": "取消",
-      "ws.settings.close": "关闭项目设置",
       "ws.settings.cluster.connected": "协调器已连接",
       "ws.settings.cluster.disconnected": "协调器未连接",
       "ws.settings.cluster.hint": "在顶部集群面板中查看并刷新详细租约与队列。",
@@ -1569,7 +1567,6 @@ window.__ModuleLoader__.load({
       "ws.settings.modelOptions.hint": "定义可路由的模型档位；每项包含 id、provider、model 与价格（每百万 token）。",
       "ws.settings.models.hint": "留空使用 profile 默认模型；同时填写 provider 与 model 才生效。",
       "ws.settings.nodeTimeoutMinutes": "默认执行时限（分钟）",
-      "ws.settings.open": "项目设置",
       "ws.settings.pageHint": "项目配置、预算与模型、迁移开关都在这里集中管理；保存后立即生效。",
       "ws.settings.placement.catalog": "可用标签与 GPU 型号",
       "ws.settings.placement.catalogEmpty": "当前 fleet 没有可用标签或 GPU 型号；配置 Fleet 后策略才会生效。",
@@ -1622,8 +1619,6 @@ window.__ModuleLoader__.load({
       "ws.settings.prompts.schedulerHint": "这段提示词只决定本项目哪些 planned 节点先开始；GPU 能否启动由集群协调器决定，节点可能排队等待整卡。",
       "ws.settings.prompts.workerEmpty": "默认：无额外 worker 前缀",
       "ws.settings.prompts.workerPrefix": "worker 前缀",
-      "ws.settings.quickHint": "设置、专家、审计等已拆分为独立页签；这里只提供跳转。",
-      "ws.settings.quickTitle": "快捷入口",
       "ws.settings.reset": "重置",
       "ws.settings.reviewer.add": "＋ 添加评审",
       "ws.settings.reviewer.effort": "推理强度",
@@ -1803,7 +1798,6 @@ window.__ModuleLoader__.load({
       "dashboard.stalePartial": "Partial refresh failed",
       "dashboard.staleRevision": "Project changed since the last refresh",
       "dashboard.title": "Dashboard",
-      "dashboard.toggle": "Open or close the dashboard",
       "dashboard.updatedAt": "Last updated",
       "dashboard.widgets": "Dashboard widgets",
       "error.http": "Request failed (HTTP {status})",
@@ -2159,7 +2153,6 @@ window.__ModuleLoader__.load({
       "subtitle": "Organise research experiments as a living DAG: every node owns its own git worktree and subagent session.",
       "title": "MetaInfer Research Lab",
       "trajectory.back": "Back to Research Lab",
-      "trajectory.open": "Trajectories & Skills",
       "trajectory.panel": "Trajectories & Skills",
       "wizard.brief": "Research goal / hypothesis",
       "wizard.brief.placeholder": "For example: check whether sweeping ridge regularisation on seed-42 lowers val_loss.",
@@ -2282,6 +2275,7 @@ window.__ModuleLoader__.load({
       "ws.auto.resume": "Resume",
       "ws.auto.running": "Auto running",
       "ws.auto.start": "Start auto mode",
+      "ws.auto.stepOnlyManual": "Stop auto mode before stepping manually",
       "ws.auto.stop": "Stop",
       "ws.auto.title": "Auto mode",
       "ws.auto.tokens": "tokens {used}/{max}",
@@ -2495,6 +2489,8 @@ window.__ModuleLoader__.load({
       "ws.clusterConfig.urlHint": "The client role needs a coordinator URL, e.g. {example}",
       "ws.clusterConfig.userId": "userId",
       "ws.clusterConfig.warning.title": "Warnings",
+      "ws.compact.nodes": "{count}/{max}",
+      "ws.compact.pending": "{count} pending",
       "ws.composer.disabled.notLeaf": "This node already has successors, so its conversation is sealed read-only.",
       "ws.composer.disabled.running": "The node is running; the conversation cannot be continued right now.",
       "ws.composer.disabled.sealed": "This node is sealed; the conversation is read-only.",
@@ -2644,15 +2640,9 @@ window.__ModuleLoader__.load({
       "ws.experts.level.branch": "Branch",
       "ws.experts.level.chief": "Chief",
       "ws.experts.level.lead": "Lead",
-      "ws.experts.library": "Expert library",
-      "ws.experts.library.empty": "No experts",
-      "ws.experts.library.error": "Could not load the expert library",
-      "ws.experts.library.hint": "Read-only catalog of background experts: persona, allowed proposals and measured output. Experts propose only; the Host owns every write.",
-      "ws.experts.library.loading": "Loading expert library…",
       "ws.experts.library.metrics": "{proposals} proposals · {completed} completed",
       "ws.experts.library.noExecute": "Proposes only, never executes",
       "ws.experts.library.proposes": "May propose: {actions}",
-      "ws.experts.library.refresh": "Refresh expert library",
       "ws.experts.lifecycle": "Lifecycle",
       "ws.experts.lifecycle.active": "Active",
       "ws.experts.lifecycle.catalog": "Available",
@@ -2918,6 +2908,7 @@ window.__ModuleLoader__.load({
       "ws.project.unknown": "Untitled project",
       "ws.projectMenu": "Project actions",
       "ws.projectMenu.close": "Close project menu",
+      "ws.projectMenu.cluster": "Cluster status",
       "ws.projectMenu.clusterConfig": "Cluster settings",
       "ws.projectMenu.delete": "Delete project",
       "ws.projectMenu.push": "Push branches & tags",
@@ -3002,7 +2993,6 @@ window.__ModuleLoader__.load({
       "ws.runs.lensLabel": "Review lens",
       "ws.runs.loading": "Loading runs…",
       "ws.runs.noSelection": "Select a run to see its details.",
-      "ws.runs.open": "Runs",
       "ws.runs.openDetail": "View run details",
       "ws.runs.panel": "panel {count}",
       "ws.runs.panelLabel": "Panel size",
@@ -3025,21 +3015,26 @@ window.__ModuleLoader__.load({
       "ws.sealed.successorHint": "Add a successor on the sealed baseline (forks from the current HEAD).",
       "ws.sessions.allNodes": "All nodes",
       "ws.sessions.attempt": "Attempt {index}",
+      "ws.sessions.collapse": "Collapse",
       "ws.sessions.copilot": "Copilot sessions",
       "ws.sessions.copilotEmpty": "No Copilot sessions yet. Open Copilot from the DAG top bar and create one; it will appear here.",
       "ws.sessions.copilotHint": "Copilot sessions created in this project. Open one in the native chat.",
       "ws.sessions.cycleRuns": "Cycle / expert runs",
       "ws.sessions.cycleRunsEmpty": "No runs yet. Run one Step and refresh.",
       "ws.sessions.cycleRunsHint": "From the run ledger, newest first.",
+      "ws.sessions.defaultLimit": "Shows the first {count} rows per section; Load more adds {count} at a time.",
       "ws.sessions.hint": "Copilot conversations, node execution records and cycle runs for this project. Open a native session to continue.",
+      "ws.sessions.more": "Load more (+{count})",
       "ws.sessions.nodeFilter": "Filter by node",
       "ws.sessions.nodeRun": "Node run",
       "ws.sessions.nodeRuns": "Node execution records",
       "ws.sessions.nodeRunsEmpty": "No node execution records yet. Start a node to create attempt records.",
       "ws.sessions.nodeRunsHint": "Attempts, sessions and errors for nodes. Pick a node above to narrow the list.",
       "ws.sessions.open": "Open",
+      "ws.sessions.openTrajectory": "Open trajectory in DSH",
       "ws.sessions.partial": "Some data failed to load",
       "ws.sessions.refresh": "Refresh",
+      "ws.sessions.rowCount": "Showing {shown} / {total}",
       "ws.sessions.title": "Sessions",
       "ws.sessions.untitled": "Untitled",
       "ws.settings.acceptMode": "New-proposal intake",
@@ -3050,8 +3045,6 @@ window.__ModuleLoader__.load({
       "ws.settings.advisorTimeoutSeconds": "Advisor timeout (seconds)",
       "ws.settings.advisorTimeoutSeconds.hint": "Maximum wait for one advisor/reviewer run; default 180 s (previously hard-coded at 3 minutes).",
       "ws.settings.autoUpgrade": "Auto-upgrade model after failures",
-      "ws.settings.cancel": "Cancel",
-      "ws.settings.close": "Close project settings",
       "ws.settings.cluster.connected": "coordinator connected",
       "ws.settings.cluster.disconnected": "coordinator disconnected",
       "ws.settings.cluster.hint": "Open the top-bar cluster panel to inspect leases and queue with refresh.",
@@ -3117,7 +3110,6 @@ window.__ModuleLoader__.load({
       "ws.settings.modelOptions.hint": "Define routable model tiers: id, provider, model and prices per million tokens.",
       "ws.settings.models.hint": "Leave blank to use the profile default; both provider and model are required to take effect.",
       "ws.settings.nodeTimeoutMinutes": "Default node timebox (minutes)",
-      "ws.settings.open": "Project settings",
       "ws.settings.pageHint": "Project configuration, budgets, models and migration switches live here; changes apply on save.",
       "ws.settings.placement.catalog": "Available labels and GPU models",
       "ws.settings.placement.catalogEmpty": "No fleet labels or GPU models yet; the policy takes effect after the fleet is configured.",
@@ -3170,8 +3162,6 @@ window.__ModuleLoader__.load({
       "ws.settings.prompts.schedulerHint": "This prompt only decides which planned nodes of this project start next; GPU admission is decided by the cluster coordinator and nodes may queue for a whole GPU.",
       "ws.settings.prompts.workerEmpty": "Default: no extra worker prefix",
       "ws.settings.prompts.workerPrefix": "worker prefix",
-      "ws.settings.quickHint": "Settings, experts, audit and the rest live in their own tabs. This dialog only navigates.",
-      "ws.settings.quickTitle": "Quick links",
       "ws.settings.reset": "Reset",
       "ws.settings.reviewer.add": "Add reviewer",
       "ws.settings.reviewer.effort": "reasoning effort",
@@ -3505,7 +3495,6 @@ window.__ModuleLoader__.load({
       '.rl-expert-diff-arrow { color: var(--dsw-alias-label-tertiary); }',
       '.rl-expert-diff-after { color: var(--dsw-alias-brand-primary); overflow-wrap: anywhere; }',
       '.rl-form-actions { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }',
-      '.rl-quick-links { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }',
       '.rl-settings-tab { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; gap: 12px; overflow: auto; padding: 16px 18px 24px; }',
       '.rl-settings-page { display: flex; flex: 0 0 auto; flex-direction: column; }',
       '.rl-settings-panel { display: flex; flex-direction: column; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); overflow: hidden; }',
@@ -3518,6 +3507,7 @@ window.__ModuleLoader__.load({
       '.rl-session-list, .rl-session-table, .rl-audit-table, .rl-audit-ledger { display: flex; flex-direction: column; gap: 2px; }',
       '.rl-session-row { display: grid; grid-template-columns: minmax(120px, 0.9fr) minmax(0, 1.4fr) minmax(110px, 0.5fr) auto; gap: 8px; align-items: center; padding: 6px 2px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); font-size: 11.5px; }',
       '.rl-session-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+      '.rl-row-actions { display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; }',
       '.rl-session-run-row { display: grid; grid-template-columns: 100px minmax(0, 1fr) 86px 82px minmax(100px, 0.9fr) minmax(100px, 1fr) auto; gap: 7px; align-items: center; padding: 5px 2px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); font-size: 11px; }',
       '.rl-audit-row { display: grid; grid-template-columns: 110px minmax(0, 1.6fr) 100px minmax(0, 1fr) minmax(80px, 0.6fr) auto; gap: 8px; align-items: center; padding: 6px 2px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); font-size: 11.5px; }',
       '.rl-audit-hypothesis { overflow-wrap: anywhere; min-width: 0; }',
@@ -3847,7 +3837,6 @@ window.__ModuleLoader__.load({
       '.rl-attempt-index { color: var(--dsw-alias-label-primary); font-size: 11.5px; font-weight: 500; line-height: 17px; }',
       '.rl-attempt-meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 16px; }',
       '.rl-attempt-error { color: var(--dsw-alias-state-error-primary); overflow-wrap: anywhere; }',
-      '.rl-cluster-chip { cursor: pointer; }',
       '.rl-cluster-body { display: flex; flex-direction: column; gap: 8px; }',
       '.rl-cluster-line { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 11.5px; line-height: 17px; overflow-wrap: anywhere; }',
       '.rl-cluster-mono { font-family: ' + MONO + '; color: var(--dsw-alias-label-primary); }',
@@ -3883,7 +3872,8 @@ window.__ModuleLoader__.load({
       '@media (max-width: 1180px) { .rl-workspace-grid { grid-template-columns: 210px minmax(0, 1fr) 300px; } }',
       '@media (max-width: 980px) { .rl-workspace-grid { grid-template-columns: minmax(0, 1fr) minmax(250px, 30vw); } .rl-rail { display: none; } }',
       '@media (max-width: 760px) { .rl-workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(170px, 42vh); overflow: auto; } .rl-inspector { grid-column: 1; grid-row: 2; max-height: 42vh; border-left: 0; border-top: 0.5px solid var(--dsw-alias-border-l2); } .rl-canvas { min-height: 260px; } .rl-copilot-native-layer { padding: 8px; } .rl-copilot-native { width: calc(100vw - 16px); max-width: calc(100vw - 16px); height: calc(100dvh - 16px); max-height: calc(100vh - 16px); border-radius: 10px; } .rl-copilot-native-head { padding: 8px 10px; } .rl-copilot-native-hint { flex: 1 1 100%; margin-left: 0; white-space: normal; } }',
-      '@media (max-width: 640px) { .rl-settings-model-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-settings-model-role { grid-column: 1 / -1; padding: 0; } .rl-reviewer-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-model-option-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-config-device-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-config-grid, .rl-config-grid-3 { grid-template-columns: minmax(0, 1fr); } .rl-reviewer-row .rl-reviewer-actions, .rl-model-option-row > :last-child { grid-column: 1 / -1; } .rl-drawer { width: 100%; min-width: 0; } .rl-modal, .rl-modal-wide, .rl-modal-narrow { width: 100%; max-height: calc(100vh - 20px); max-height: calc(100dvh - 20px); } .rl-modal-body { padding: 10px 12px; } .rl-modal-head, .rl-modal-foot { padding: 10px 12px; } .rl-log-row, .rl-log-row-btn { grid-template-columns: 46px 62px minmax(0, 1fr); gap: 6px; font-size: 11px; } .rl-topbar { padding: 8px 10px; } .rl-workspace-grid { grid-template-rows: minmax(0, 1fr) minmax(190px, 46vh); } .rl-inspector { max-height: 46vh; } }',
+'@media (max-width: 1720px) { .rl-topbar-branch { display: none; } }',
+            '@media (max-width: 640px) { .rl-settings-model-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-settings-model-role { grid-column: 1 / -1; padding: 0; } .rl-reviewer-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-model-option-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-config-device-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-config-grid, .rl-config-grid-3 { grid-template-columns: minmax(0, 1fr); } .rl-reviewer-row .rl-reviewer-actions, .rl-model-option-row > :last-child { grid-column: 1 / -1; } .rl-drawer { width: 100%; min-width: 0; } .rl-modal, .rl-modal-wide, .rl-modal-narrow { width: 100%; max-height: calc(100vh - 20px); max-height: calc(100dvh - 20px); } .rl-modal-body { padding: 10px 12px; } .rl-modal-head, .rl-modal-foot { padding: 10px 12px; } .rl-log-row, .rl-log-row-btn { grid-template-columns: 46px 62px minmax(0, 1fr); gap: 6px; font-size: 11px; } .rl-topbar { padding: 8px 10px; } .rl-workspace-grid { grid-template-rows: minmax(0, 1fr) minmax(190px, 46vh); } .rl-inspector { max-height: 46vh; } }',
       '@media (max-width: 420px) { .rl-settings-model-row, .rl-reviewer-row, .rl-model-option-row, .rl-config-device-row { grid-template-columns: minmax(0, 1fr); } .rl-reviewer-row .rl-reviewer-actions, .rl-model-option-row > :last-child { grid-column: auto; } .rl-node-actions { opacity: 1; } .rl-canvas-hint { display: none; } }',
       '.rl-guide-layer { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: clamp(8px, 2vw, 24px); pointer-events: none; }',
       '.rl-guide-backdrop { position: fixed; inset: 0; z-index: 89; background: var(--dsw-alias-bg-mask-2, transparent); pointer-events: auto; }',
@@ -7002,7 +6992,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Small shared button. */
-    function LabButton({ label, onClick, variant, disabled, title, className }) {
+    function LabButton({ label, onClick, variant, disabled, title, ariaLabel, className }) {
       let classes = 'rl-btn';
       if (variant === 'primary') classes += ' rl-btn-primary';
       else if (variant === 'ghost') classes += ' rl-btn-ghost';
@@ -7014,6 +7004,7 @@ window.__ModuleLoader__.load({
           className: classes,
           disabled: disabled === true,
           title: typeof title === 'string' ? title : undefined,
+          'aria-label': typeof ariaLabel === 'string' ? ariaLabel : undefined,
           onClick: typeof onClick === 'function' ? onClick : undefined,
         },
         label,
@@ -9410,7 +9401,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Full-screen translucent dashboard with free-moving widgets and a widget-editing chat. */
-    function DashboardPanel({ projectId, events, onSelectNode, onOpenRun, open, embedded = false, onClose, t }) {
+    function DashboardPanel({ projectId, events, onSelectNode, onOpenRun, open, t }) {
       const [dashboard, setDashboard] = React.useState(null);
       const [widgets, setWidgets] = React.useState([]);
       const [busy, setBusy] = React.useState('');
@@ -9519,12 +9510,10 @@ window.__ModuleLoader__.load({
       const showFailureAlert = (lastRun?.status === 'error' || lastRun?.status === 'partial') && failureAt !== dismissedFailureAt;
       return h(
         'div',
-        embedded
-          ? { className: 'rl-dash-embedded', role: 'region', 'aria-label': t('dashboard.title') }
-          : { className: 'rl-dash-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('dashboard.title') },
+        { className: 'rl-dash-embedded', role: 'region', 'aria-label': t('dashboard.title') },
         h(
           'div',
-          { className: 'rl-dash-window' + (embedded ? ' rl-dash-window-embedded' : '') },
+          { className: 'rl-dash-window rl-dash-window-embedded' },
           h(
             'div',
             { className: 'rl-dash-head' },
@@ -9543,7 +9532,6 @@ window.__ModuleLoader__.load({
                 disabled: busy !== '',
                 onClick: refresh,
               }),
-              embedded ? null : h(LabButton, { label: '✕', variant: 'ghost', title: t('dashboard.close'), onClick: onClose }),
             ),
           ),
           showFailureAlert
@@ -9798,9 +9786,13 @@ window.__ModuleLoader__.load({
     }
 
     /** Copilot conversations plus the node execution records behind them. */
+    /** Default rows per session section; large projects must not render every row. */
+    const SESSIONS_DEFAULT_ROWS = 10;
     function SessionsTab({ projectId, nodes, onOpenSession, t }) {
       const [snapshot, setSnapshot] = React.useState({ loading: true, copilot: [], runs: [], error: '', partial: false });
       const [nodeFilter, setNodeFilter] = React.useState('');
+      const [visibleRows, setVisibleRows] = React.useState(SESSIONS_DEFAULT_ROWS);
+      React.useEffect(() => { setVisibleRows(SESSIONS_DEFAULT_ROWS); }, [nodeFilter]);
       const load = React.useCallback(async (signal) => {
         setSnapshot((previous) => ({ ...previous, loading: true, error: '', partial: false }));
         const [copilotResult, runsResult] = await Promise.allSettled([
@@ -9871,6 +9863,8 @@ window.__ModuleLoader__.load({
       }
       const visibleRuns = asArray(snapshot.runs).filter((run) => nodeFilter === '' || firstString(run?.nodeId, run?.inputSnapshot?.nodeId) === nodeFilter);
       const visibleSessions = asArray(snapshot.copilot);
+      const totalRows = Math.max(visibleSessions.length, nodeRows.length, visibleRuns.length);
+      const remainingRows = Math.max(0, totalRows - visibleRows);
 
       return h(
         'section',
@@ -9878,7 +9872,8 @@ window.__ModuleLoader__.load({
         h('header', { className: 'rl-experts-head' },
           h('div', null,
             h('h2', { className: 'rl-page-title' }, t('ws.sessions.title')),
-            h('p', { className: 'rl-page-subtitle' }, t('ws.sessions.hint'))),
+            h('p', { className: 'rl-page-subtitle' }, t('ws.sessions.hint')),
+            h('p', { className: 'rl-hint', 'data-testid': 'sessions-page-size' }, t('ws.sessions.defaultLimit', { count: SESSIONS_DEFAULT_ROWS }))),
           h('div', { className: 'rl-experts-stats' },
             h('label', { className: 'rl-expert-ttl' }, t('ws.sessions.nodeFilter'),
               h(LabSelect, {
@@ -9894,22 +9889,29 @@ window.__ModuleLoader__.load({
           h('p', { className: 'rl-hint' }, t('ws.sessions.copilotHint')),
           visibleSessions.length === 0
             ? h('p', { className: 'rl-hint' }, t('ws.sessions.copilotEmpty'))
-            : h('div', { className: 'rl-session-list' }, visibleSessions.map((session) => h('div', { key: firstString(session?.id), className: 'rl-session-row' },
+            : h('div', { className: 'rl-session-list' }, visibleSessions.slice(0, visibleRows).map((session) => h('div', { key: firstString(session?.id), className: 'rl-session-row' },
                 h('span', { className: 'rl-mono' }, firstString(session?.id)),
                 h('span', { className: 'rl-session-title' }, firstString(session?.title) || t('ws.sessions.untitled')),
                 h('span', { className: 'rl-hint' }, formatDateTime(session?.updatedAt, t)),
-                h(LabButton, {
-                  label: t('ws.sessions.open'),
-                  variant: 'ghost',
-                  disabled: firstString(session?.id) === '' || typeof onOpenSession !== 'function',
-                  onClick: () => onOpenSession(firstString(session?.id), 'chat', ''),
-                }))))),
+                h('span', { className: 'rl-row-actions' },
+                  h(LabButton, {
+                    label: t('ws.sessions.open'),
+                    variant: 'ghost',
+                    disabled: firstString(session?.id) === '' || typeof onOpenSession !== 'function',
+                    onClick: () => onOpenSession(firstString(session?.id), 'chat', ''),
+                  }),
+                  h(LabButton, {
+                    label: t('ws.sessions.openTrajectory'),
+                    variant: 'ghost',
+                    disabled: firstString(session?.id) === '' || typeof onOpenSession !== 'function',
+                    onClick: () => onOpenSession(firstString(session?.id), 'trajectory', ''),
+                  })))))),
         h('section', { className: 'rl-sessions-section' },
           h('h3', { className: 'rl-settings-section-title' }, t('ws.sessions.nodeRuns')),
           h('p', { className: 'rl-hint' }, selectedNode === null ? t('ws.sessions.nodeRunsHint') : (firstString(selectedNode?.title) || nodeIdOf(selectedNode))),
           nodeRows.length === 0
             ? h('p', { className: 'rl-hint' }, t('ws.sessions.nodeRunsEmpty'))
-            : h('div', { className: 'rl-session-table' }, nodeRows.slice(0, 200).map((row) => h('div', { key: row.key, className: 'rl-session-run-row' },
+            : h('div', { className: 'rl-session-table' }, nodeRows.slice(0, visibleRows).map((row) => h('div', { key: row.key, className: 'rl-session-run-row' },
                 h('span', { className: 'rl-mono' }, row.nodeId),
                 h('span', null, row.title),
                 h('span', { className: 'rl-mono' }, row.label),
@@ -9917,22 +9919,32 @@ window.__ModuleLoader__.load({
                 h('span', { className: 'rl-hint' }, row.sessionId || row.runId || '—'),
                 h('span', { className: 'rl-hint' }, row.error || formatDateTime(row.startedAt, t)),
                 firstString(row.sessionId) !== '' && typeof onOpenSession === 'function'
-                  ? h(LabButton, { label: t('ws.sessions.open'), variant: 'ghost', onClick: () => onOpenSession(row.sessionId, 'trajectory', row.nodeId) })
+                  ? h(LabButton, { label: t('ws.sessions.openTrajectory'), variant: 'ghost', onClick: () => onOpenSession(row.sessionId, 'trajectory', row.nodeId) })
                   : null)))),
         h('section', { className: 'rl-sessions-section' },
           h('h3', { className: 'rl-settings-section-title' }, t('ws.sessions.cycleRuns')),
           h('p', { className: 'rl-hint' }, t('ws.sessions.cycleRunsHint')),
           visibleRuns.length === 0
             ? h('p', { className: 'rl-hint' }, t('ws.sessions.cycleRunsEmpty'))
-            : h('div', { className: 'rl-session-table' }, visibleRuns.slice(0, 100).map((run) => h('div', { key: firstString(run?.id), className: 'rl-session-run-row' },
+            : h('div', { className: 'rl-session-table' }, visibleRuns.slice(0, visibleRows).map((run) => h('div', { key: firstString(run?.id), className: 'rl-session-run-row' },
                 h('span', { className: 'rl-mono' }, firstString(run?.id)),
                 h('span', { className: 'rl-mono' }, firstString(run?.role)),
                 h('span', { className: 'rl-chip' }, firstString(run?.status)),
                 h('span', { className: 'rl-hint' }, firstString(run?.sessionId) || '—'),
                 h('span', { className: 'rl-hint' }, formatDateTime(run?.startedAt, t)),
                 firstString(run?.sessionId) !== '' && typeof onOpenSession === 'function'
-                  ? h(LabButton, { label: t('ws.sessions.open'), variant: 'ghost', onClick: () => onOpenSession(firstString(run.sessionId), 'trajectory', '') })
+                  ? h(LabButton, { label: t('ws.sessions.openTrajectory'), variant: 'ghost', onClick: () => onOpenSession(firstString(run.sessionId), 'trajectory', '') })
                   : null)))),
+        totalRows > SESSIONS_DEFAULT_ROWS
+          ? h('div', { className: 'rl-form-actions', 'data-testid': 'sessions-pager' },
+              h('span', { className: 'rl-hint' }, t('ws.sessions.rowCount', { shown: Math.min(visibleRows, totalRows), total: totalRows })),
+              remainingRows > 0
+                ? h(LabButton, { label: t('ws.sessions.more', { count: Math.min(SESSIONS_DEFAULT_ROWS, remainingRows) }), variant: 'ghost', onClick: () => setVisibleRows((value) => value + SESSIONS_DEFAULT_ROWS) })
+                : null,
+              visibleRows > SESSIONS_DEFAULT_ROWS
+                ? h(LabButton, { label: t('ws.sessions.collapse'), variant: 'ghost', onClick: () => setVisibleRows(SESSIONS_DEFAULT_ROWS) })
+                : null)
+          : null,
       );
     }
 
@@ -10072,7 +10084,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function WorkspaceScreen({ projectId, initialNodeId, tab, onSelectTab, onNodeChange, onBack, openNativeSession, openNativeFiles, retainCopilotSession, SessionProvider, renderFactorySlot, onOpenTrajectory, t }) {
+    function WorkspaceScreen({ projectId, initialNodeId, tab, onSelectTab, onNodeChange, onBack, openNativeSession, openNativeFiles, retainCopilotSession, SessionProvider, renderFactorySlot, t }) {
       const { snapshot, events, offline, retry, reload, loadMore, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t);
       const [selectedId, setSelectedId] = React.useState(null);
       const [continueNodeId, setContinueNodeId] = React.useState(null);
@@ -10099,7 +10111,6 @@ window.__ModuleLoader__.load({
       const [runsInitialRunId, setRunsInitialRunId] = React.useState(null);
       const [autoBusy, setAutoBusy] = React.useState(false);
       const [autoConfirmOpen, setAutoConfirmOpen] = React.useState(false);
-      const [settingsOpen, setSettingsOpen] = React.useState(false);
       const [confirmRequest, setConfirmRequest] = React.useState(null);
       const [projectMenuOpen, setProjectMenuOpen] = React.useState(false);
       const [deleteOpen, setDeleteOpen] = React.useState(false);
@@ -10235,10 +10246,6 @@ window.__ModuleLoader__.load({
             setAutoConfirmOpen(false);
             return;
           }
-          if (settingsOpen) {
-            setSettingsOpen(false);
-            return;
-          }
           if (successorOpen) {
             setSuccessorOpen(false);
             setSuccessorNodeId(null);
@@ -10255,7 +10262,7 @@ window.__ModuleLoader__.load({
         };
         document.addEventListener('keydown', onKeyDown);
         return () => document.removeEventListener('keydown', onKeyDown);
-      }, [continueNodeId, successorOpen, runsOpen, confirmRequest, autoConfirmOpen, settingsOpen, deleteOpen, projectMenuOpen, mergeCreateOpen, finishMergeNodeId, pushOpen, clusterOpen, clusterConfigOpen, replayOpen, copilotOpen]);
+      }, [continueNodeId, successorOpen, runsOpen, confirmRequest, autoConfirmOpen, deleteOpen, projectMenuOpen, mergeCreateOpen, finishMergeNodeId, pushOpen, clusterOpen, clusterConfigOpen, replayOpen, copilotOpen]);
 
       React.useEffect(() => {
         if (confirmRequest === null) return;
@@ -10648,8 +10655,6 @@ window.__ModuleLoader__.load({
           return { ok: false, error: describeError(error, t) };
         }
       }, [applyCommandResult, projectId, reload, t]);
-      const openSettings = React.useCallback(() => setSettingsOpen(true), []);
-      const closeSettings = React.useCallback(() => setSettingsOpen(false), []);
 
       /** Merge creation from the inspector: 2..4 completed parents. */
       const openMergeCreate = React.useCallback((nodeId) => {
@@ -10899,8 +10904,6 @@ window.__ModuleLoader__.load({
                 onSelectNode: setSelectedId,
                 onOpenRun: openRuns,
                 open: activeTab === 'dashboard',
-                embedded: true,
-                onClose: () => selectTab('dag'),
                 t,
               })
             : null),
@@ -10940,10 +10943,10 @@ window.__ModuleLoader__.load({
           pendingProposals: Math.max(pendingProposalsCount, Math.round(numberOr(snapshot?.pendingProposals, 0))),
           autoBusy,
           onStep: runStep,
-          onOpenRuns: () => openRuns(null),
+          onOpenExperts: () => selectTab('experts'),
+          onOpenStatus: () => selectTab('settings'),
           activeTab,
-          onToggleDashboard: () => selectTab('dashboard'),
-          onToggleObservability: () => selectTab('observability'),
+          onSelectTab: selectTab,
           replayOpen,
           onToggleReplay: openReplay,
           onAutoStart: () => setAutoConfirmOpen(true),
@@ -10951,19 +10954,16 @@ window.__ModuleLoader__.load({
           onAutoResume: resumeAuto,
           onManualMode: switchToManual,
           onViewPending: viewPendingProposals,
-          onOpenSettings: openSettings,
           projectMenuOpen,
           onToggleProjectMenu: () => setProjectMenuOpen((value) => !value),
           onDeleteProject: requestDeleteProject,
           onPush: openPush,
           onOpenClusterConfig: openClusterConfig,
           onCloseProjectMenu: () => setProjectMenuOpen(false),
-          cluster: snapshot?.cluster,
           onOpenCluster: () => setClusterOpen(true),
           runs: runsFeed.state.runs,
           copilotOpen,
           onToggleCopilot: toggleCopilot,
-          onOpenTrajectory,
           onBack,
           t,
         }),
@@ -10993,7 +10993,6 @@ window.__ModuleLoader__.load({
             )
           : null,
         stepInfo !== null ? h(StepBanner, { info: stepInfo, onDismiss: () => setStepInfo(null), t }) : null,
-        h(ProjectTabBar, { activeTab, onSelect: selectTab, t }),
         h('div', { className: 'rl-workspace-shell' },
           h('div', { className: 'rl-workspace-main' }, tabPanels),
         ),
@@ -11045,13 +11044,6 @@ window.__ModuleLoader__.load({
               project,
               onConfirm: confirmAutoStart,
               onClose: cancelAutoStart,
-              t,
-            })
-          : null,
-        settingsOpen
-          ? h(SettingsQuickLinksModal, {
-              onClose: closeSettings,
-              onSelectTab: selectTab,
               t,
             })
           : null,
@@ -11443,6 +11435,31 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /** One compact, clickable status cluster for auto state, node budget and running count. */
+    function CompactStatusCluster({ auto, project, nodeCount, runningCount, pendingProposals, onOpen, t }) {
+      const status = autoStatusOf(auto);
+      const maxNodes = Math.round(projectMaxNodes(project));
+      const reason = status === 'paused' ? t(autoPauseLabelKeyOf(autoPauseReasonOf(auto))) : '';
+      const statusText = status === 'off' ? t('ws.mode.manual')
+        : status === 'running' ? t('ws.auto.running')
+          : status === 'paused' ? t('ws.auto.paused') : t('ws.auto.waiting');
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: 'rl-compact-status rl-compact-status-' + status,
+          title: statusText + (reason === '' ? '' : ' · ' + reason),
+          'aria-label': statusText + (reason === '' ? '' : ' · ' + reason),
+          onClick: onOpen,
+        },
+        h('span', { className: 'rl-compact-dot', 'aria-hidden': true }),
+        h('span', { className: 'rl-compact-label' }, statusText + (reason === '' ? '' : ' · ' + reason)),
+        h('span', { className: 'rl-compact-metric rl-mono' }, t('ws.compact.nodes', { count: nodeCount, max: maxNodes })),
+        h('span', { className: 'rl-compact-metric' }, t('ws.runningCount', { count: runningCount })),
+        pendingProposals > 0 ? h('span', { className: 'rl-compact-metric' }, t('ws.compact.pending', { count: pendingProposals })) : null,
+      );
+    }
+
     function WorkspaceTopBar({
       project,
       resources,
@@ -11454,10 +11471,10 @@ window.__ModuleLoader__.load({
       pendingProposals,
       autoBusy,
       onStep,
-      onOpenRuns,
+      onOpenExperts,
+      onOpenStatus,
       activeTab,
-      onToggleDashboard,
-      onToggleObservability,
+      onSelectTab,
       replayOpen,
       onToggleReplay,
       onAutoStart,
@@ -11465,19 +11482,16 @@ window.__ModuleLoader__.load({
       onAutoResume,
       onManualMode,
       onViewPending,
-      onOpenSettings,
       projectMenuOpen,
       onToggleProjectMenu,
       onCloseProjectMenu,
       onDeleteProject,
       onPush,
       onOpenClusterConfig,
-      cluster,
       onOpenCluster,
       runs,
       copilotOpen,
       onToggleCopilot,
-      onOpenTrajectory,
       onBack,
       t,
     }) {
@@ -11487,178 +11501,146 @@ window.__ModuleLoader__.load({
       const commit = shortCommit(projectBaseCommit(project));
       const repoPath = projectRepoPath(project);
       const dirty = projectGitDirty(project);
-      const maxNodes = Math.round(projectMaxNodes(project));
       const chips = resourceChips(resources, projectConfig(project));
+      const resourceText = chips.map((chip) => t('ws.resourceChip', { key: chip.key, free: chip.free, total: chip.total })).join(' · ');
+      const projectTitle = [name, repoPath, branch ? branch + '@' + commit : '', dirty ? t('ws.dirty') : '', resourceText, t('ws.revision', { revision })]
+        .filter((part) => part !== '' && part !== null && part !== undefined)
+        .join(' · ');
+      const autoActions = [];
+      if (autoStatus === 'paused') {
+        autoActions.push(h(LabButton, { key: 'resume', label: '▶', variant: 'primary', title: t('ws.auto.resume'), ariaLabel: t('ws.auto.resume'), disabled: autoBusy === true, onClick: onAutoResume }));
+        autoActions.push(h(LabButton, { key: 'stop', label: '■', title: t('ws.auto.stop'), ariaLabel: t('ws.auto.stop'), disabled: autoBusy === true, onClick: onAutoStop }));
+      } else if (autoStatus === 'running') {
+        autoActions.push(h(LabButton, { key: 'stop', label: '■', title: t('ws.auto.stop'), ariaLabel: t('ws.auto.stop'), disabled: autoBusy === true, onClick: onAutoStop }));
+      } else if (autoStatus === 'waiting') {
+        autoActions.push(h(LabButton, { key: 'view', label: '…', title: t('ws.auto.viewPending'), ariaLabel: t('ws.auto.viewPending'), disabled: autoBusy === true, onClick: onViewPending }));
+        autoActions.push(h(LabButton, { key: 'stop', label: '■', title: t('ws.auto.stop'), ariaLabel: t('ws.auto.stop'), disabled: autoBusy === true, onClick: onAutoStop }));
+      }
       return h(
-        'header',
-        { className: 'rl-topbar' },
-        h(LabButton, { label: t('ws.back'), variant: 'ghost', onClick: onBack }),
+        React.Fragment,
+        null,
         h(
-          'div',
-          { className: 'rl-topbar-project' },
-          h('h1', { className: 'rl-topbar-title', title: name }, name),
-          branch || commit
-            ? h(
-                'span',
-                { className: 'rl-chip rl-chip-mono', title: repoPath },
-                [branch, commit].filter((part) => part !== '').join('@') + (dirty ? ' *' : ''),
-              )
-            : null,
-        ),
-        h('div', { className: 'rl-topbar-spacer' }),
-        h(ClusterChip, { cluster, onOpen: onOpenCluster, t }),
-        h(
-          'div',
-          { className: 'rl-topbar-chips' },
-          chips.map((chip) =>
-            h('span', { key: 'resource-' + chip.key, className: 'rl-chip' }, t('ws.resourceChip', {
-              key: chip.key,
-              free: chip.free,
-              total: chip.total,
-            }))),
-          heldEntriesOf(resources).map((entry) =>
-            h('span', { key: 'held-' + entry?.key, className: 'rl-chip' }, t('ws.held', {
-              key: entry?.key,
-              held: entry?.held,
-            }))),
-          h('span', { className: 'rl-chip' }, t('ws.runningCount', { count: runningCount })),
-          h('span', { className: 'rl-chip' }, t('ws.nodeCount', { count: nodeCount, max: maxNodes })),
-          revision !== null ? h('span', { className: 'rl-chip rl-chip-mono' }, t('ws.revision', { revision })) : null,
-          dirty ? h('span', { className: 'rl-chip' }, t('ws.dirty')) : null,
-        ),
-        h(
-          'div',
-          { className: 'rl-topbar-controls' },
+          'header',
+          { className: 'rl-topbar' },
+          h(LabButton, { label: '←', variant: 'ghost', title: t('ws.back'), ariaLabel: t('ws.back'), onClick: onBack }),
           h(
             'div',
-            { className: 'rl-segment', role: 'group', 'aria-label': t('ws.mode') },
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'rl-segment-item' + (autoStatus === 'off' ? ' rl-segment-active' : ''),
-                'aria-pressed': autoStatus === 'off',
-                disabled: autoBusy === true,
-                onClick: onManualMode,
-              },
-              t('ws.mode.manual'),
-            ),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'rl-segment-item' + (autoStatus !== 'off' ? ' rl-segment-active' : ''),
-                'aria-pressed': autoStatus !== 'off',
-                disabled: autoBusy === true,
-                title: autoStatus === 'off' ? t('ws.auto.confirmTitle') : undefined,
-                onClick: autoStatus === 'off' ? onAutoStart : undefined,
-              },
-              t('ws.mode.auto'),
-            ),
-          ),
-          h(AutoStatusChip, {
-            auto,
-            project,
-            pendingProposals,
-            busy: autoBusy === true,
-            onResume: onAutoResume,
-            onStop: onAutoStop,
-            onViewPending,
-            t,
-          }),
-          h(ExpertChip, { runs, onOpen: onOpenRuns, t }),
-          h(LabButton, {
-            label: t('ws.copilot.toggle'),
-            variant: 'ghost',
-            onClick: onToggleCopilot,
-          }),
-          h(LabButton, {
-            label: '⌁ ' + t('trajectory.open'),
-            variant: 'ghost',
-            title: t('trajectory.open'),
-            disabled: !project,
-            onClick: () => onOpenTrajectory(project),
-          }),
-          h(LabButton, {
-            label: '📊',
-            variant: activeTab === 'observability' ? 'primary' : 'ghost',
-            title: t('ws.tabs.observability'),
-            onClick: onToggleObservability,
-          }),
-          h(LabButton, { label: '⚙', variant: 'ghost', title: t('ws.settings.open'), onClick: onOpenSettings }),
-          h(
-            'div',
-            { className: 'rl-menu-wrap' },
-            h(LabButton, {
-              label: '⋯',
-              variant: 'ghost',
-              title: t('ws.projectMenu'),
-              onClick: onToggleProjectMenu,
-            }),
-            projectMenuOpen
-              ? h(
-                  'div',
-                  { className: 'rl-menu', role: 'menu', 'aria-label': t('ws.projectMenu') },
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'rl-menu-item',
-                      role: 'menuitem',
-                      onClick: () => { onCloseProjectMenu(); onOpenClusterConfig(); },
-                    },
-                    t('ws.projectMenu.clusterConfig'),
-                  ),
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'rl-menu-item',
-                      role: 'menuitem',
-                      onClick: () => { onCloseProjectMenu(); onPush(); },
-                    },
-                    t('ws.projectMenu.push'),
-                  ),
-                  h(
-                    'button',
-                    {
-                      type: 'button',
-                      className: 'rl-menu-item rl-menu-item-danger',
-                      role: 'menuitem',
-                      onClick: () => { onCloseProjectMenu(); onDeleteProject(); },
-                    },
-                    t('ws.projectMenu.delete'),
-                  ),
-                )
+            { className: 'rl-topbar-project' },
+            h('h1', { className: 'rl-topbar-title', title: projectTitle }, name),
+            branch || commit
+              ? h('span', { className: 'rl-chip rl-chip-mono rl-topbar-branch', title: projectTitle },
+                  [branch, commit].filter((part) => part !== '').join('@') + (dirty ? ' *' : ''))
               : null,
           ),
-          h(LabButton, {
-            label: '◫ ' + t('dashboard.title'),
-            variant: activeTab === 'dashboard' ? 'primary' : 'ghost',
-            title: t('dashboard.toggle'),
-            onClick: onToggleDashboard,
+          h(
+            'div',
+            { className: 'rl-segment rl-topbar-mode', 'data-testid': 'topbar-action-mode' },
+            h('button', {
+              type: 'button',
+              className: 'rl-segment-item' + (autoStatus === 'off' ? ' rl-segment-active' : ''),
+              'aria-pressed': autoStatus === 'off',
+              disabled: autoBusy === true,
+              onClick: autoStatus === 'off' ? undefined : onManualMode,
+            }, t('ws.mode.manual')),
+            h('button', {
+              type: 'button',
+              className: 'rl-segment-item' + (autoStatus !== 'off' ? ' rl-segment-active' : ''),
+              'aria-pressed': autoStatus !== 'off',
+              disabled: autoBusy === true || autoStatus !== 'off',
+              onClick: autoStatus === 'off' ? onAutoStart : undefined,
+            }, t('ws.mode.auto')),
+          ),
+          h('div', { className: 'rl-topbar-spacer' }),
+          h(CompactStatusCluster, {
+            auto,
+            project,
+            nodeCount,
+            runningCount,
+            pendingProposals,
+            onOpen: onOpenStatus,
+            t,
           }),
-          h(LabButton, {
-            label: '◷ ' + t('replay.short'),
-            variant: replayOpen === true ? 'primary' : 'ghost',
-            title: t('replay.toggle'),
-            onClick: onToggleReplay,
-          }),
-          h(LabButton, { label: t('ws.runs.open'), variant: 'ghost', onClick: onOpenRuns }),
-          autoStatus === 'off'
-            ? h(
-                'button',
-                {
+          h(
+            'div',
+            { className: 'rl-topbar-actions' },
+            h('span', { 'data-testid': 'topbar-action-auto', className: 'rl-topbar-auto-actions' }, autoActions),
+            h('span', { 'data-testid': 'topbar-action-experts' }, h(ExpertChip, { runs, onOpen: onOpenExperts, t })),
+            h('span', { 'data-testid': 'topbar-action-step' }, autoStatus === 'off'
+              ? h('button', {
                   type: 'button',
-                  className: 'rl-btn rl-btn-primary',
+                  className: 'rl-btn rl-btn-primary rl-topbar-step',
                   disabled: stepBusy === true,
                   title: t('ws.step.hint'),
                   onClick: onStep,
                 },
                 stepBusy === true ? h('span', { className: 'rl-spinner', 'aria-hidden': true }) : null,
-                stepBusy === true ? t('ws.step.running') : t('ws.step'),
-              )
-            : null,
+                stepBusy === true ? t('ws.step.running') : t('ws.step'))
+              : null),
+            h(
+              'div',
+              { className: 'rl-menu-wrap', 'data-testid': 'topbar-action-menu' },
+              h(LabButton, {
+                label: '⋯',
+                variant: 'ghost',
+                title: t('ws.projectMenu'),
+                ariaLabel: t('ws.projectMenu'),
+                onClick: onToggleProjectMenu,
+              }),
+              projectMenuOpen
+                ? h(
+                    'div',
+                    { className: 'rl-menu', role: 'menu', 'aria-label': t('ws.projectMenu') },
+                    h('button', {
+                      type: 'button',
+                      className: 'rl-menu-item',
+                      role: 'menuitem',
+                      onClick: () => { onCloseProjectMenu(); onOpenCluster(); },
+                    }, t('ws.projectMenu.cluster')),
+                    h('button', {
+                      type: 'button',
+                      className: 'rl-menu-item',
+                      role: 'menuitem',
+                      onClick: () => { onCloseProjectMenu(); onOpenClusterConfig(); },
+                    }, t('ws.projectMenu.clusterConfig')),
+                    h('button', {
+                      type: 'button',
+                      className: 'rl-menu-item',
+                      role: 'menuitem',
+                      onClick: () => { onCloseProjectMenu(); onPush(); },
+                    }, t('ws.projectMenu.push')),
+                    h('button', {
+                      type: 'button',
+                      className: 'rl-menu-item rl-menu-item-danger',
+                      role: 'menuitem',
+                      onClick: () => { onCloseProjectMenu(); onDeleteProject(); },
+                    }, t('ws.projectMenu.delete')),
+                  )
+                : null,
+            ),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'rl-topbar-tabs' },
+          h(ProjectTabBar, { activeTab, onSelect: onSelectTab, t }),
+          h(
+            'div',
+            { className: 'rl-topbar-secondary' },
+            h('span', { 'data-testid': 'topbar-action-copilot' }, h(LabButton, {
+              label: '💬',
+              variant: copilotOpen ? 'primary' : 'ghost',
+              title: t('ws.copilot.toggle'),
+              ariaLabel: t('ws.copilot.toggle'),
+              onClick: onToggleCopilot,
+            })),
+            h('span', { 'data-testid': 'topbar-action-replay' }, h(LabButton, {
+              label: '◷',
+              variant: replayOpen === true ? 'primary' : 'ghost',
+              title: t('replay.toggle'),
+              ariaLabel: t('replay.toggle'),
+              onClick: onToggleReplay,
+            })),
+          ),
         ),
       );
     }
@@ -14428,21 +14410,6 @@ window.__ModuleLoader__.load({
     }
 
     /** Top-bar cluster chip: mode, GPU free/total and queue length. */
-    function ClusterChip({ cluster, onOpen, t }) {
-      if (!clusterEnabledOf(cluster)) return null;
-      const pools = clusterPoolsOf(cluster);
-      const gpu = asObject(pools.gpu);
-      const free = Math.round(numberOr(gpu.free, 0));
-      const total = Math.round(numberOr(gpu.total, 0));
-      const queue = clusterQueueOf(cluster).length;
-      return h(
-        'button',
-        { type: 'button', className: 'rl-chip rl-cluster-chip', title: t('ws.cluster.title'), onClick: onOpen },
-        t('ws.cluster.chip', { mode: t('ws.cluster.mode.' + clusterModeOf(cluster)), free, total, queue }),
-      );
-    }
-
-    /** Cluster coordinator panel: machines, devices, leases, queue and usage. */
     function ClusterModal({ projectId, onClose, onOpenConfig, t }) {
       const { state, refresh } = useCluster(projectId, t, true);
       const cluster = asObject(state.cluster);
@@ -15527,33 +15494,8 @@ window.__ModuleLoader__.load({
     }
 
     /** The settings entry point only links to pages; configuration lives in tabs. */
-    function SettingsQuickLinksModal({ onClose, onSelectTab, t }) {
-      const tabs = ['settings', 'experts', 'observability', 'dashboard', 'sessions', 'audit', 'dag'];
-      return h(
-        'div',
-        { className: 'rl-overlay-layer rl-overlay-layer-top' },
-        h(
-          'div',
-          { className: 'rl-modal rl-modal-narrow', role: 'dialog', 'aria-label': t('ws.settings.quickTitle') },
-          h('div', { className: 'rl-modal-head' },
-            h('h2', { className: 'rl-modal-title' }, t('ws.settings.quickTitle')),
-            h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.settings.close'), onClick: onClose })),
-          h('div', { className: 'rl-modal-body' },
-            h('p', { className: 'rl-hint' }, t('ws.settings.quickHint')),
-            h('div', { className: 'rl-quick-links' }, tabs.map((tab) => h(LabButton, {
-              key: tab,
-              label: t('ws.tabs.' + tab),
-              variant: tab === 'settings' ? 'primary' : 'ghost',
-              onClick: () => { onClose(); onSelectTab(tab); },
-            })))),
-          h('div', { className: 'rl-modal-foot' },
-            h(LabButton, { label: t('ws.settings.close'), variant: 'ghost', onClick: onClose })),
-        ),
-      );
-    }
-
-    /** Project settings modal (advisor/auto budgets/limits/pools/models/prompts). */
-    function SettingsModal({ project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders, onClose, onSave, onSavePlacementPolicy, embedded = false, t }) {
+    /** Project settings page body (advisor/auto budgets/limits/pools/models/prompts). */
+    function SettingsModal({ project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders, onSave, onSavePlacementPolicy, t }) {
       const [draft, setDraft] = React.useState(() => settingsDraftOf(project, promptDefaults));
       const [saving, setSaving] = React.useState(false);
       const [error, setError] = React.useState('');
@@ -15740,7 +15682,7 @@ window.__ModuleLoader__.load({
         const result = await onSave(config);
         setSaving(false);
         if (result !== null && result !== undefined && result?.ok === true) {
-          if (embedded !== true && typeof onClose === 'function') onClose();
+          // Settings is a page, not a modal: a successful save stays in place.
         } else {
           setError((result && result?.error) || t('ws.settings.error'));
         }
@@ -15791,23 +15733,16 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { className: embedded ? 'rl-settings-page' : 'rl-overlay-layer rl-overlay-layer-top' },
+        { className: 'rl-settings-page' },
         h(
           'div',
-          { className: embedded ? 'rl-settings-panel' : 'rl-modal rl-modal-wide', role: embedded ? 'region' : 'dialog', 'aria-label': t('ws.settings.title') },
-          embedded
-            ? h('div', { className: 'rl-settings-head' },
-                h('h2', { className: 'rl-page-title' }, t('ws.settings.title')),
-                h('p', { className: 'rl-page-subtitle' }, t('ws.settings.pageHint')))
-            : h(
-                'div',
-                { className: 'rl-modal-head' },
-                h('h2', { className: 'rl-modal-title' }, t('ws.settings.title')),
-                h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.settings.close'), onClick: onClose }),
-              ),
+          { className: 'rl-settings-panel', role: 'region', 'aria-label': t('ws.settings.title') },
+          h('div', { className: 'rl-settings-head' },
+            h('h2', { className: 'rl-page-title' }, t('ws.settings.title')),
+            h('p', { className: 'rl-page-subtitle' }, t('ws.settings.pageHint'))),
           h(
             'div',
-            { className: embedded ? 'rl-settings-body' : 'rl-modal-body' },
+            { className: 'rl-settings-body' },
             h(
               'div',
               { className: 'rl-settings-section' },
@@ -16340,9 +16275,8 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { className: embedded ? 'rl-settings-foot' : 'rl-modal-foot' },
+            { className: 'rl-settings-foot' },
             h(LabButton, { label: t('ws.settings.reset'), variant: 'ghost', onClick: reset }),
-            embedded ? null : h(LabButton, { label: t('ws.settings.cancel'), variant: 'ghost', onClick: onClose }),
             h(LabButton, {
               label: saving ? t('ws.settings.saving') : t('ws.settings.save'),
               variant: 'primary',
@@ -16455,7 +16389,7 @@ window.__ModuleLoader__.load({
         { className: 'rl-settings-tab', 'data-testid': 'settings-tab' },
         h(SettingsModal, {
           project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders,
-          onClose: () => {}, onSave, onSavePlacementPolicy, embedded: true, t,
+          onSave, onSavePlacementPolicy, t,
         }),
         h(MigrationPanel, { project, projectId, reload, t }),
       );
@@ -18039,7 +17973,7 @@ window.__ModuleLoader__.load({
           })),
       );
 
-      const emptyGuidance = !snapshot.loading && hired.length === 0
+      const emptyGuidance = !snapshot.loading && snapshot.error === '' && hired.length === 0
         ? h('section', { className: 'rl-expert-empty', 'data-testid': 'experts-empty-state' },
             h('h2', { className: 'rl-tab-empty-title' }, t('ws.experts.empty.title')),
             h('p', { className: 'rl-hint' }, t('ws.experts.empty.body')),
@@ -18133,83 +18067,6 @@ window.__ModuleLoader__.load({
         snapshot.loading && snapshot.experts.length === 0
           ? h('p', { className: 'rl-hint' }, t('common.loading'))
           : h('div', { className: 'rl-expert-list' }, cards),
-      );
-    }
-
-    function ExpertLibraryPanel({ projectId, t }) {
-      const [snapshot, setSnapshot] = React.useState({ loading: true, experts: [], curator: null, error: '' });
-      const [action, setAction] = React.useState('');
-      const [message, setMessage] = React.useState('');
-      const loadExperts = React.useCallback(async (signal) => {
-        setSnapshot((previous) => ({ ...previous, loading: previous.experts.length === 0 && previous.curator === null, error: '' }));
-        try {
-          const data = await api.fetchExperts(projectId, signal, t);
-          if (signal?.aborted) return;
-          setSnapshot({ loading: false, experts: asArray(asObject(data).experts), curator: asObject(data).curator ?? null, error: '' });
-        } catch (reason) {
-          if (!signal?.aborted && !isAbortError(reason)) {
-            setSnapshot((previous) => ({ ...previous, loading: false, experts: previous.experts, curator: previous.curator, error: describeError(reason, t) }));
-          }
-        }
-      }, [projectId, t]);
-      React.useEffect(() => {
-        const controller = new AbortController();
-        void loadExperts(controller.signal);
-        return () => controller.abort();
-      }, [loadExperts]);
-      const runAction = async (type, expertId) => {
-        if (action !== '') return;
-        setAction(type + ':' + expertId);
-        setMessage('');
-        try {
-          await api.command({ type, projectId, expertId }, undefined, t);
-          await loadExperts(undefined);
-          setMessage(t(type === 'expert_hire' ? 'ws.experts.hired' : type === 'expert_drain' ? 'ws.experts.draining' : 'ws.experts.fired', { id: expertId }));
-        } catch (reason) {
-          if (!isAbortError(reason)) setMessage(describeError(reason, t) || t('ws.experts.actionError'));
-        } finally {
-          setAction('');
-        }
-      };
-      const curator = asObject(snapshot.curator);
-      const head = h('div', { className: 'rl-card-head' },
-        h('h3', { className: 'rl-card-title' }, 'Expert library'),
-        h('span', { className: 'rl-card-meta' }, snapshot.error !== '' ? 'expert count unavailable' : `${snapshot.experts.length} experts`),
-        h(LabButton, { label: 'Retry', variant: 'ghost', disabled: snapshot.loading, onClick: () => { const controller = new AbortController(); void loadExperts(controller.signal); } }));
-      if (snapshot.loading) return h('section', { className: 'rl-card', 'data-testid': 'obs-expert-library' }, head, h('p', { className: 'rl-hint' }, t('common.loading')));
-      return h(
-        'section',
-        { className: 'rl-card', 'data-testid': 'obs-expert-library' },
-        head,
-        snapshot.error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, snapshot.error) : null,
-        message !== '' ? h('p', { className: 'rl-hint', role: 'status' }, message) : null,
-        h('p', { className: 'rl-hint' }, 'Curator: ' + (firstString(curator.status) || (curator.open === true ? 'open' : 'unknown'))),
-        snapshot.error !== ''
-          ? null
-          : snapshot.experts.length === 0
-          ? h('p', { className: 'rl-hint' }, 'The Host returned no expert descriptors.')
-          : snapshot.experts.map((expert) => {
-              const lifecycle = asObject(expert?.lifecycle);
-              const metrics = asObject(expert?.metrics);
-              return h('div', { key: expert?.id, className: 'rl-log-row' },
-                h('span', { className: 'rl-mono' }, firstString(lifecycle.status) || 'catalog'),
-                h('span', { className: 'rl-mono' }, firstString(expert?.id)),
-                h('span', null,
-                  firstString(expert?.name) || firstString(expert?.role) || 'expert',
-                  ' · proposals ' + numberOr(metrics.proposals, 0)
-                  + ' · accepted ' + numberOr(metrics.accepted, 0)
-                  + ' · success ' + (Number.isFinite(Number(metrics.successRate)) ? Math.round(Number(metrics.successRate) * 100) + '%' : '—'),
-                  h('span', { style: { display: 'inline-flex', gap: 6, marginLeft: 8 } },
-                    lifecycle.status === 'catalog'
-                      ? h(LabButton, { label: t('ws.experts.hire'), variant: 'ghost', disabled: action !== '', onClick: () => void runAction('expert_hire', expert.id) })
-                      : null,
-                    lifecycle.status === 'active'
-                      ? h(LabButton, { label: t('ws.experts.drain'), variant: 'ghost', disabled: action !== '', onClick: () => void runAction('expert_drain', expert.id) })
-                      : null,
-                    (lifecycle.status === 'active' || lifecycle.status === 'draining')
-                      ? h(LabButton, { label: t('ws.experts.fire'), variant: 'ghost', disabled: action !== '', onClick: () => void runAction('expert_fire', expert.id) })
-                      : null)));
-            }),
       );
     }
 
@@ -18685,42 +18542,27 @@ window.__ModuleLoader__.load({
         setDeepLinkNodeId(id);
         if (activeProjectId !== null) rememberLabNode(activeProjectId, id);
       }, [activeProjectId]);
-      const openTrajectory = React.useCallback((project) => {
-        setTrajectoryProject(project || null);
-        setTrajectoryOpen(true);
-      }, []);
-      const closeTrajectory = React.useCallback(() => {
-        setTrajectoryOpen(false);
-        setTrajectoryProject(null);
-      }, []);
-      const page = trajectoryOpen
-        ? h(
-            MetainferLabErrorBoundary,
-            { t },
-            h(TrajectoryPage, { onClose: closeTrajectory, t, project: trajectoryProject }),
-          )
-        : h(
-            MetainferLabErrorBoundary,
-            { t },
-            activeProjectId === null
-              ? h(LandingScreen, { key: 'landing', t, onOpenProject: openProject })
-              : h(WorkspaceScreen, {
-                  key: activeProjectId,
-                  projectId: activeProjectId,
-                  initialNodeId: deepLinkNodeId,
-                  tab: activeTab,
-                  onSelectTab: selectTab,
-                  onNodeChange: noteNode,
-                  onBack: backToList,
-                  openNativeSession,
-                  openNativeFiles,
-                  retainCopilotSession,
-                  SessionProvider,
-                  renderFactorySlot,
-                  onOpenTrajectory: openTrajectory,
-                  t,
-                }),
-          );
+      const page = h(
+        MetainferLabErrorBoundary,
+        { t },
+        activeProjectId === null
+          ? h(LandingScreen, { key: 'landing', t, onOpenProject: openProject })
+          : h(WorkspaceScreen, {
+              key: activeProjectId,
+              projectId: activeProjectId,
+              initialNodeId: deepLinkNodeId,
+              tab: activeTab,
+              onSelectTab: selectTab,
+              onNodeChange: noteNode,
+              onBack: backToList,
+              openNativeSession,
+              openNativeFiles,
+              retainCopilotSession,
+              SessionProvider,
+              renderFactorySlot,
+              t,
+            }),
+      );
       return h(
         'div',
         { className: 'rl-operator-shell' },
@@ -18970,6 +18812,7 @@ window.__ModuleLoader__.load({
         ProjectTabBar,
         ProjectTabPanel,
         WorkspaceScreen,
+        WorkspaceTopBar,
         ProjectsPanel,
         DashboardPanel,
         RunsPanel,
@@ -18978,7 +18821,6 @@ window.__ModuleLoader__.load({
         GcPanel,
         SettingsModal,
         SettingsTab,
-        SettingsQuickLinksModal,
         SessionsTab,
         AuditTab,
         FinishMergeDialog,
@@ -18990,7 +18832,6 @@ window.__ModuleLoader__.load({
         DispatchQueuePanel,
         EventTimelinePanel,
         ClaimEvidencePanel,
-        ExpertLibraryPanel,
         ExpertsTab,
         DisputeTablePanel,
         ObserverPanel,

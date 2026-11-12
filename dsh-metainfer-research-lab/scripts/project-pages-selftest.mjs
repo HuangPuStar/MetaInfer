@@ -118,6 +118,8 @@ const settings = await render(components.SettingsTab, {
   onSave: async () => ({ ok: true }), onSavePlacementPolicy: async () => ({ ok: true }), reload: () => {},
 });
 check('settings is a page, not an overlay', settings.host.querySelector('[role="dialog"]') === null && settings.host.querySelector('[data-testid="settings-tab"]') !== null);
+check('settings page has no duplicate expert-library entry', settings.host.querySelector('[data-testid="obs-expert-library"]') === null);
+check('settings page no longer renders a modal close control', settings.host.querySelector('.rl-modal-head') === null);
 check('settings page keeps the project configuration editor', settings.host.querySelector('.rl-settings-section') !== null);
 check('settings page exposes the migration phase control', settings.host.querySelector('[data-testid="settings-migration"]') !== null);
 const advance = buttonByText(settings.host, 'ws.settings.migration.advance');
@@ -156,6 +158,24 @@ await React.act(async () => {
 });
 const filteredRows = Array.from(sessions.host.querySelectorAll('.rl-session-run-row')).map((row) => row.textContent);
 check('node filter narrows the execution records', filteredRows.some((row) => row.includes('sess-n1')) && !filteredRows.some((row) => row.includes('Node Pending')), JSON.stringify(filteredRows));
+
+const manyNodes = Array.from({ length: 25 }, (_, index) => ({
+  id: 'm' + index, title: 'Many ' + index, status: 'completed', prompt: 'p',
+  attempts: [{ attempt: 1, status: 'completed', sessionId: 'sess-m' + index, startedAt: 1700000000000, endedAt: 1700000100000 }],
+}));
+const paged = await render(components.SessionsTab, {
+  projectId: 'p1', nodes: manyNodes,
+  onOpenSession: () => {},
+});
+const pagedRows = Array.from(paged.host.querySelectorAll('.rl-session-run-row')).filter((row) => (row.textContent ?? '').includes('sess-m'));
+check('sessions default to ten rows per section for large projects', pagedRows.length === 10, String(pagedRows.length));
+check('sessions expose a load-more pager', paged.host.querySelector('[data-testid="sessions-pager"]') !== null);
+const more = Array.from(paged.host.querySelectorAll('button')).find((button) => (button.textContent ?? '').includes('ws.sessions.more'));
+await React.act(async () => {
+  more?.click();
+  await wait(40);
+});
+check('load more adds another ten rows', Array.from(paged.host.querySelectorAll('.rl-session-run-row')).filter((row) => (row.textContent ?? '').includes('sess-m')).length === 20, String(Array.from(paged.host.querySelectorAll('.rl-session-run-row')).filter((row) => (row.textContent ?? '').includes('sess-m')).length));
 
 let openedNode = null;
 const audit = await render(components.AuditTab, {

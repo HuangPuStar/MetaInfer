@@ -347,7 +347,6 @@ async function renderWith(component, fetchImpl) {
   const panelCases = [
     ['DispatchQueue', components.DispatchQueuePanel],
     ['ClaimEvidence', components.ClaimEvidencePanel],
-    ['ExpertLibrary', components.ExpertLibraryPanel],
     ['DisputeTable', components.DisputeTablePanel],
   ];
   for (const [label, component] of panelCases) {
@@ -437,19 +436,19 @@ async function renderWith(component, fetchImpl) {
     const data = { experts: [{ id: 'e1', name: 'expert after retry', lifecycle: { status: 'catalog' }, metrics: {} }], curator: { status: 'open' } };
     return { ok: true, status: 200, json: async () => data, text: async () => JSON.stringify(data) };
   };
-  const view = await renderWith(components.ExpertLibraryPanel, fetchImpl);
+  const view = await renderWith(components.ExpertsTab, fetchImpl);
   extraChecks += 1;
   const failedText = view.host.textContent ?? '';
-  if (!failedText.includes('experts exploded') || failedText.includes('The Host returned no expert descriptors.') || failedText.includes('0 experts')) {
-    extraFailures.push(`U12 ExpertLibrary error plus empty state: ${failedText.slice(0, 700)}`);
-  } else process.stdout.write('ok   U12 ExpertLibrary reports an error without an empty-state claim\n');
-  const retry = [...view.host.querySelectorAll('button')].find((button) => (button.textContent ?? '').includes('Retry'));
-  if (!retry) extraFailures.push('U12 ExpertLibrary failure has no Retry button');
+  if (!failedText.includes('experts exploded') || failedText.includes('ws.experts.empty.title')) {
+    extraFailures.push(`U12 ExpertsTab error plus empty state: ${failedText.slice(0, 700)}`);
+  } else process.stdout.write('ok   U12 ExpertsTab reports an error without an empty-state claim\n');
+  const retry = [...view.host.querySelectorAll('button')].find((button) => (button.textContent ?? '').includes('ws.experts.refresh'));
+  if (!retry) extraFailures.push('U12 ExpertsTab failure has no refresh control');
   else {
     await React.act(async () => { retry.click(); await new Promise((resolve) => setTimeout(resolve, 60)); });
     extraChecks += 1;
-    if (!(view.host.textContent ?? '').includes('expert after retry')) extraFailures.push(`U12 ExpertLibrary Retry did not re-fetch: ${(view.host.textContent ?? '').slice(0, 600)}`);
-    else process.stdout.write('ok   U12 ExpertLibrary Retry re-fetches after an error\n');
+    if (!(view.host.textContent ?? '').includes('expert after retry') && !(view.host.textContent ?? '').includes('e1')) extraFailures.push(`U12 ExpertsTab refresh did not re-fetch: ${(view.host.textContent ?? '').slice(0, 600)}`);
+    else process.stdout.write('ok   U12 ExpertsTab refresh re-fetches after an error\n');
   }
   await React.act(async () => view.root.unmount()); view.restore(); view.host.remove();
 }
