@@ -3852,12 +3852,176 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   /** An empty roster means the catalog is available; a non-empty roster is the source of truth. */
   function recruitabilityOf(project) {
     const roster = expertRosterOf(project);
-    if (roster.length === 0) return listExpertDescriptors();
+    if (roster.length === 0) return listExpertDescriptors().map((descriptor) => effectiveExpertDescriptor(project, descriptor.id));
     const now = Date.now();
     const active = new Set(roster
       .filter((row) => row.status === 'active' && !(row.temporary === true && Number(row.expiresAt) > 0 && Number(row.expiresAt) <= now))
       .map((row) => row.expertId));
-    return listExpertDescriptors().filter((descriptor) => active.has(descriptor.id));
+    return listExpertDescriptors()
+      .filter((descriptor) => active.has(descriptor.id))
+      .map((descriptor) => effectiveExpertDescriptor(project, descriptor.id));
+  }
+
+  // ---- project-level expert overrides ---------------------------------------
+  // The catalog stays immutable. A project edits these seven fields; mayExecute
+  // is deliberately absent because only the Host may commit mutations.
+  const EXPERT_EDITABLE_FIELDS = Object.freeze(['persona', 'model', 'tools', 'budget', 'triggers', 'mayVeto', 'level']);
+  const EXPERT_LEVELS = Object.freeze(['branch', 'lead', 'chief']);
+  const EXPERT_TOOL_NAMES = new Set(['dag_map', 'dag_walk', 'dag_get', 'dag_query', 'ledger_read', 'intent_list']);
+  const EXPERT_BUDGET_KEYS = Object.freeze(['queriesPerRun', 'tokensPerHour', 'wallClockMs', 'childVotesPerHour']);
+
+  function expertOverridesOf(project) {
+    const raw = project?.config?.expertOverrides;
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  }
+
+  function expertOverrideOf(project, expertId) {
+    const row = expertOverridesOf(project)[expertId];
+    return row && typeof row === 'object' && !Array.isArray(row) ? structuredClone(row) : null;
+  }
+
+  function expertEditableFieldsOf(descriptor, override = null) {
+    const source = override && typeof override === 'object' ? override : {};
+    return {
+      persona: typeof source.persona === 'string' ? source.persona : descriptor.persona,
+      model: { ...(descriptor.model ?? {}), ...(source.model && typeof source.model === 'object' ? source.model : {}) },
+      tools: Array.isArray(source.tools) ? [...source.tools] : [...(descriptor.tools ?? [])],
+      budget: { ...(descriptor.budget ?? {}), ...(source.budget && typeof source.budget === 'object' ? source.budget : {}) },
+      triggers: Array.isArray(source.triggers) ? [...source.triggers] : [...(descriptor.triggers ?? [])],
+      mayVeto: typeof source.mayVeto === 'boolean' ? source.mayVeto : descriptor.mayVeto === true,
+      level: EXPERT_LEVELS.includes(source.level) ? source.level : descriptor.level,
+    };
+  }
+
+  /** Merge a project override into a catalog descriptor without mutating it. */
+  function effectiveExpertDescriptor(project, expertId) {
+    const descriptor = getExpertDescriptor(expertId);
+    if (!descriptor) return null;
+    const override = expertOverrideOf(project, expertId);
+    const fields = expertEditableFieldsOf(descriptor, override);
+    const overriddenFields = EXPERT_EDITABLE_FIELDS.filter((field) => JSON.stringify(fields[field]) !== JSON.stringify(descriptor[field]));
+    return {
+      ...descriptor,
+      ...fields,
+      mayExecute: Object.freeze([...(descriptor.mayExecute ?? [])]),
+      override,
+      overriddenFields,
+      source: override === null ? 'catalog' : 'project',
+    };
+  }
+
+  function expertRecentDecisionsOf(events, expertId) {
+    return events
+      .filter((event) => event && typeof event.type === 'string' && event.type.startsWith('expert/')
+        && (event.data?.expertId === expertId || event.type === 'expert/updated' && event.data?.expertId === expertId))
+      .slice(-8)
+      .reverse()
+      .map((event) => {
+        const data = event.data && typeof event.data === 'object' ? event.data : {};
+        return {
+          seq: event.seq,
+          type: event.type,
+          at: event.at,
+          causeId: event.causeId ?? null,
+          reason: typeof data.reason === 'string' ? data.reason : '',
+          changedFields: Array.isArray(data.changedFields) ? data.changedFields : [],
+          targetEventSeq: Number.isInteger(data.targetEventSeq) ? data.targetEventSeq : null,
+        };
+      });
+  }
+
+  function expertUpdateDraftOf(descriptor, override, patch) {
+    const source = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {};
+    const draft = expertEditableFieldsOf(descriptor, override);
+    if (source.persona !== undefined) {
+      draft.persona = text(source.persona, 'expert.persona', { required: true, max: 4000 });
+    }
+    if (source.model !== undefined) {
+      if (!source.model || typeof source.model !== 'object' || Array.isArray(source.model)) {
+        throw new LabError('bad_request', 'expert.model must be an object', 400);
+      }
+      const provider = text(source.model.provider, 'expert.model.provider', { required: true, max: 120 });
+      const model = text(source.model.model, 'expert.model.model', { required: true, max: 200 });
+      const reasoningEffort = source.model.reasoningEffort === undefined
+        ? undefined
+        : text(source.model.reasoningEffort, 'expert.model.reasoningEffort', { max: 40 });
+      draft.model = { provider, model, ...(reasoningEffort ? { reasoningEffort } : {}) };
+    }
+    if (source.tools !== undefined) {
+      if (!Array.isArray(source.tools) || source.tools.length > 32) {
+        throw new LabError('bad_request', 'expert.tools must be an array of at most 32 tool names', 400);
+      }
+      const tools = [];
+      for (const raw of source.tools) {
+        const tool = text(raw, 'expert.tools[]', { required: true, max: 64 });
+        if (!EXPERT_TOOL_NAMES.has(tool)) {
+          throw new LabError('expert_tool_unknown', `unknown expert tool: ${tool}`, 400);
+        }
+        if (!tools.includes(tool)) tools.push(tool);
+      }
+      draft.tools = tools;
+    }
+    if (source.budget !== undefined) {
+      if (!source.budget || typeof source.budget !== 'object' || Array.isArray(source.budget)) {
+        throw new LabError('bad_request', 'expert.budget must be an object', 400);
+      }
+      const budget = { ...draft.budget };
+      for (const key of Object.keys(source.budget)) {
+        if (!EXPERT_BUDGET_KEYS.includes(key)) {
+          throw new LabError('expert_budget_unknown', `unknown expert budget field: ${key}`, 400);
+        }
+      }
+      if (source.budget.queriesPerRun !== undefined) {
+        budget.queriesPerRun = integer(source.budget.queriesPerRun, 'expert.budget.queriesPerRun', 1, 1, 1000);
+      }
+      if (source.budget.tokensPerHour !== undefined) {
+        budget.tokensPerHour = integer(source.budget.tokensPerHour, 'expert.budget.tokensPerHour', 1, 1, 1_000_000_000);
+      }
+      if (source.budget.wallClockMs !== undefined) {
+        budget.wallClockMs = integer(source.budget.wallClockMs, 'expert.budget.wallClockMs', 1000, 1000, 86_400_000);
+      }
+      if (source.budget.childVotesPerHour !== undefined) {
+        budget.childVotesPerHour = integer(source.budget.childVotesPerHour, 'expert.budget.childVotesPerHour', 0, 0, 1000);
+      }
+      draft.budget = budget;
+    }
+    if (source.triggers !== undefined) {
+      if (!Array.isArray(source.triggers) || source.triggers.length > 32) {
+        throw new LabError('bad_request', 'expert.triggers must be an array of at most 32 codes', 400);
+      }
+      draft.triggers = [];
+      for (const raw of source.triggers) {
+        const trigger = text(raw, 'expert.triggers[]', { required: true, max: 120 });
+        if (!/^[a-z][a-z0-9_.-]*(?:[<>=:][a-z0-9_.-]+)?$/.test(trigger)) {
+          throw new LabError('expert_trigger_invalid', `invalid expert trigger: ${trigger}`, 400);
+        }
+        if (!draft.triggers.includes(trigger)) draft.triggers.push(trigger);
+      }
+    }
+    if (source.mayVeto !== undefined) {
+      if (typeof source.mayVeto !== 'boolean') throw new LabError('bad_request', 'expert.mayVeto must be boolean', 400);
+      draft.mayVeto = source.mayVeto;
+    }
+    if (source.level !== undefined) {
+      if (!EXPERT_LEVELS.includes(source.level)) {
+        throw new LabError('bad_request', `expert.level must be one of ${EXPERT_LEVELS.join(', ')}`, 400);
+      }
+      draft.level = source.level;
+    }
+    // Read-only invariant: an edit may acknowledge the field (an empty list),
+    // but can never grant execution authority.
+    if (source.mayExecute !== undefined && (!Array.isArray(source.mayExecute) || source.mayExecute.length > 0)) {
+      throw new LabError('expert_may_execute_readonly', 'mayExecute is Host-owned and read-only', 400);
+    }
+    return draft;
+  }
+
+  function expertChangedFields(descriptor, before, after) {
+    return EXPERT_EDITABLE_FIELDS.filter((field) => {
+      const left = before === null ? descriptor[field] : before[field];
+      const right = after === null ? descriptor[field] : after[field];
+      return JSON.stringify(left) !== JSON.stringify(right);
+    });
   }
 
   function assertOperator(actor, action) {
@@ -4102,11 +4266,16 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const project = requireProject(projectId);
     const nodes = store.listNodes(projectId);
     const runs = store.listRuns(projectId);
+    const recentEvents = store.listEvents(projectId, Math.max(0, (project.counters?.eventSeq ?? 0) - 200));
     return publicView({
       ok: true,
       projectId,
       revision: project.revision,
-      experts: filterVisibleExperts(listExpertDescriptors(), actor).map((descriptor) => {
+      experts: filterVisibleExperts(listExpertDescriptors(), actor).map((catalogDescriptor) => {
+        const descriptor = effectiveExpertDescriptor(project, catalogDescriptor.id);
+        const rosterRow = expertRosterRow(project, descriptor.id);
+        const decisions = expertRecentDecisionsOf(recentEvents, descriptor.id);
+        const lastUpdate = decisions.find((event) => event.type === 'expert/updated') ?? null;
         // Q4: budget is a descriptor contract, so expose its measured usage and
         // whether this project is still inside it. `runs` is the same bounded
         // list the performance metrics use.
@@ -4144,8 +4313,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         };
         return {
           ...descriptor,
+          lens: typeof rosterRow?.lens === 'string' ? rosterRow.lens : '',
+          roster: rosterRow === null ? null : {
+            temporary: rosterRow.temporary === true,
+            expiresAt: rosterRow.expiresAt ?? null,
+            invitedAt: rosterRow.invitedAt ?? null,
+            hiredBy: rosterRow.hiredBy ?? null,
+          },
           lifecycle: expertLifecycleOf(project, descriptor.id),
           budgetUsage,
+          recentDecisions: decisions,
+          lastUpdate,
           metrics: {
             ...computeExpertMetrics({ expertId: descriptor.id, nodes, runs }),
             ...disputePerformance(project, descriptor.id),
@@ -4169,7 +4347,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       task: typeof task === 'string' ? task : '',
       experts: recall.experts.map((row) => ({
         ...row,
-        descriptor: getExpertDescriptor(row.id),
+        descriptor: effectiveExpertDescriptor(project, row.id),
         lifecycle: expertLifecycleOf(project, row.id),
         metrics: {
           ...computeExpertMetrics({ expertId: row.id, nodes, runs }),
@@ -4178,6 +4356,132 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       })),
       total: recall.total,
       _truncated: recall.total > recall.experts.length ? { shown: recall.experts.length, total: recall.total } : null,
+    };
+  }
+
+  /**
+   * Edit one expert's project-level override. The catalog descriptor remains
+   * immutable; this writes a full editable snapshot plus before/after trace so
+   * a later rollback is a pure data operation.
+   */
+  async function updateExpert(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const actor = actorFromToolExecution(exec);
+    assertOperator(actor, 'edit experts');
+    const expertId = text(input.expertId, 'expertId', { required: true, max: 120 });
+    const descriptor = getExpertDescriptor(expertId);
+    if (!descriptor) throw new LabError('expert_not_found', `unknown expert: ${expertId}`, 404);
+    const patch = input.expert && typeof input.expert === 'object' && !Array.isArray(input.expert)
+      ? input.expert
+      : input.fields && typeof input.fields === 'object' && !Array.isArray(input.fields)
+        ? input.fields
+        : input;
+    const current = expertOverrideOf(project, expertId);
+    const draft = expertUpdateDraftOf(descriptor, current, patch);
+    const changedFields = expertChangedFields(descriptor, current, draft);
+    if (changedFields.length === 0) {
+      return {
+        ok: true,
+        projectId,
+        changed: false,
+        expert: effectiveExpertDescriptor(project, expertId),
+        event: null,
+        readonlyFields: ['mayExecute'],
+      };
+    }
+    const now = Date.now();
+    const entry = {
+      ...draft,
+      updatedAt: now,
+      updatedBy: actor.id,
+    };
+    const reason = text(input.reason, 'reason', { max: 500 }) || '';
+    const nextOverrides = { ...expertOverridesOf(project), [expertId]: entry };
+    const result = await commitProjectFields(projectId, {
+      config: { ...project.config, expertOverrides: nextOverrides },
+    }, {
+      actor,
+      eventType: 'expert/updated',
+      eventData: {
+        expertId,
+        before: current,
+        after: entry,
+        changedFields,
+        ...(reason !== '' ? { reason } : {}),
+      },
+      causeId: `expert:${projectId}:${expertId}:updated`,
+    });
+    const event = Array.isArray(result.events) ? result.events[0] : null;
+    return {
+      ok: true,
+      projectId,
+      changed: true,
+      expert: effectiveExpertDescriptor(requireProject(projectId), expertId),
+      event: event ? { seq: event.seq, type: event.type } : null,
+      readonlyFields: ['mayExecute'],
+    };
+  }
+
+  /** Roll one expert override back to the before state recorded by a trace event. */
+  async function rollbackExpert(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const actor = actorFromToolExecution(exec);
+    assertOperator(actor, 'roll back experts');
+    const expertId = text(input.expertId, 'expertId', { required: true, max: 120 });
+    if (!getExpertDescriptor(expertId)) throw new LabError('expert_not_found', `unknown expert: ${expertId}`, 404);
+    const requestedSeq = input.eventSeq === undefined || input.eventSeq === null
+      ? null
+      : Number(input.eventSeq);
+    const events = store.listEvents(projectId, 0);
+    const updates = events.filter((event) => event?.type === 'expert/updated' && event?.data?.expertId === expertId);
+    const target = requestedSeq === null
+      ? updates[updates.length - 1] ?? null
+      : updates.find((event) => Number(event.seq) === requestedSeq) ?? null;
+    if (!target) {
+      throw new LabError('expert_update_not_found', 'no matching expert/updated event to roll back', 404);
+    }
+    const current = expertOverrideOf(project, expertId);
+    const before = target.data?.before && typeof target.data.before === 'object' && !Array.isArray(target.data.before)
+      ? structuredClone(target.data.before)
+      : null;
+    if (JSON.stringify(current) === JSON.stringify(before)) {
+      return {
+        ok: true,
+        projectId,
+        changed: false,
+        expert: effectiveExpertDescriptor(project, expertId),
+        event: null,
+        targetEventSeq: target.seq,
+      };
+    }
+    const nextOverrides = { ...expertOverridesOf(project) };
+    if (before === null) delete nextOverrides[expertId];
+    else nextOverrides[expertId] = before;
+    const changedFields = expertChangedFields(getExpertDescriptor(expertId), current, before ?? expertEditableFieldsOf(getExpertDescriptor(expertId)));
+    const reason = text(input.reason, 'reason', { max: 500 }) || '';
+    const result = await commitProjectFields(projectId, {
+      config: { ...project.config, expertOverrides: nextOverrides },
+    }, {
+      actor,
+      eventType: 'expert/update_rolled_back',
+      eventData: {
+        expertId,
+        before: current,
+        after: before,
+        changedFields,
+        targetEventSeq: target.seq,
+        ...(reason !== '' ? { reason } : {}),
+      },
+      causeId: `expert:${projectId}:${expertId}:rolled_back`,
+    });
+    const event = Array.isArray(result.events) ? result.events[0] : null;
+    return {
+      ok: true,
+      projectId,
+      changed: true,
+      expert: effectiveExpertDescriptor(requireProject(projectId), expertId),
+      event: event ? { seq: event.seq, type: event.type } : null,
+      targetEventSeq: target.seq,
     };
   }
 
@@ -4190,7 +4494,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       throw new LabError('self_hire_forbidden', 'an expert cannot hire itself', 403);
     }
     assertOperator(actor, 'hire experts');
-    const descriptor = getExpertDescriptor(expertId);
+    const descriptor = effectiveExpertDescriptor(project, expertId);
     if (!descriptor) throw new LabError('expert_not_found', `unknown expert: ${expertId}`, 404);
     if (descriptor.mayExecute.length > 0) {
       throw new LabError('expert_may_execute', 'an executing expert cannot be hired into the advisory roster', 409);
@@ -5722,6 +6026,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'expert_recall') return recallExpertFor(input?.projectId, input?.task ?? input?.text ?? '', { limit: input?.limit, actor: exec ? actorFromToolExecution(exec) : null });
     if (action === 'expert_hire') return hireExpert(input?.projectId, input, exec);
     if (action === 'expert_invite') return inviteExpert(input?.projectId, input, exec);
+    if (action === 'expert_update') return updateExpert(input?.projectId, input, exec);
+    if (action === 'expert_rollback') return rollbackExpert(input?.projectId, input, exec);
     if (action === 'expert_drain') return drainExpert(input?.projectId, input, exec);
     if (action === 'expert_fire') return fireExpert(input?.projectId, input, exec);
     if (action === 'curator_nominate') return nominateDuplicates(input?.projectId, input, exec);
@@ -5777,6 +6083,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     recallExpertFor,
     hireExpert,
     inviteExpert,
+    updateExpert,
+    rollbackExpert,
     drainExpert,
     fireExpert,
     rotationStatus,

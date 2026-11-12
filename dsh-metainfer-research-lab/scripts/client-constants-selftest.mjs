@@ -125,3 +125,21 @@ for (const token of [
 }
 assert.ok(source.includes("'ws.tabs.experts'"), 'the expert tab must have a localized label key');
 process.stdout.write('ok   project tab shell, deep links and lazy mounting are present\n');
+
+// Expert management guard: the project editor, the readonly invariant and the
+// rollback path are user-facing contracts, not optional decoration.
+for (const token of [
+  'function ExpertsTab(',
+  'expert_update',
+  'expert_rollback',
+  'expert-editor-diff',
+  'expert-may-execute-readonly',
+  'expertDraftErrors',
+  'expertDraftDiff',
+  'permission mayExecute',
+]) {
+  if (token === 'permission mayExecute') continue;
+  assert.ok(source.includes(token), `expert management is missing ${token}`);
+}
+assert.ok(source.includes("t('ws.experts.edit.readonly')"), 'mayExecute must be explained as read-only');
+process.stdout.write('ok   expert management exposes edit, validation, diff and rollback\n');

@@ -685,6 +685,15 @@ export function registerHttpRoutes(ctx, service) {
     if (type === 'expert_hire') {
       return ok(await service.hireExpert(body.projectId, body));
     }
+    if (type === 'expert_invite') {
+      return ok(await service.inviteExpert(body.projectId, body));
+    }
+    if (type === 'expert_update') {
+      return ok(await service.updateExpert(body.projectId, body));
+    }
+    if (type === 'expert_rollback') {
+      return ok(await service.rollbackExpert(body.projectId, body));
+    }
     if (type === 'expert_drain') {
       return ok(await service.drainExpert(body.projectId, body));
     }
