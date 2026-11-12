@@ -700,6 +700,12 @@ export function registerHttpRoutes(ctx, service) {
     if (type === 'expert_fire') {
       return ok(await service.fireExpert(body.projectId, body));
     }
+    if (type === 'expert_create') {
+      return ok(await service.createExpert(body.projectId, body));
+    }
+    if (type === 'expert_delete') {
+      return ok(await service.deleteExpert(body.projectId, body));
+    }
     const error = new Error(`unknown command: ${String(type)}`);
     error.code = 'unknown_command';
     throw error;

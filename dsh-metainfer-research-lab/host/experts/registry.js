@@ -5,6 +5,67 @@
  */
 const READ_TOOLS = Object.freeze(['dag_map', 'dag_walk', 'dag_get', 'dag_query', 'ledger_read', 'intent_list']);
 
+/**
+ * The only tools an advisory expert may ever hold. Each one is read-only; the
+ * Host remains the sole writer. This catalogue is served by GET /experts so the
+ * UI does not duplicate (or drift from) the allowlist.
+ */
+export const EXPERT_TOOL_CATALOG = Object.freeze([
+  Object.freeze({ name: 'dag_map', description: 'Read the project DAG map (nodes, edges, status).', readOnly: true }),
+  Object.freeze({ name: 'dag_walk', description: 'Walk a subtree and read its structure.', readOnly: true }),
+  Object.freeze({ name: 'dag_get', description: 'Read one node, including its latest report.', readOnly: true }),
+  Object.freeze({ name: 'dag_query', description: 'Query nodes by status, owner, branch or text.', readOnly: true }),
+  Object.freeze({ name: 'ledger_read', description: 'Read the claim ledger and its evidence pointers.', readOnly: true }),
+  Object.freeze({ name: 'intent_list', description: 'Read pending Host intents; never submit one.', readOnly: true }),
+]);
+export const EXPERT_TOOL_NAMES = Object.freeze(EXPERT_TOOL_CATALOG.map((tool) => tool.name));
+
+/**
+ * Trigger codes understood by the expert lifecycle. The list is deliberately
+ * closed: a custom expert picks from it instead of inventing a new event.
+ */
+export const EXPERT_TRIGGER_CATALOG = Object.freeze([
+  Object.freeze({ name: 'node.completed', description: 'A node run finished successfully.' }),
+  Object.freeze({ name: 'node.failed', description: 'A node run failed or exhausted retries.' }),
+  Object.freeze({ name: 'low_water', description: 'The runnable queue is running low.' }),
+  Object.freeze({ name: 'review.requested', description: 'A proposal is waiting for review.' }),
+  Object.freeze({ name: 'escalation', description: 'A deterministic escalation code fired.' }),
+  Object.freeze({ name: 'branch.report', description: 'A branch report is ready for a lead.' }),
+  Object.freeze({ name: 'branch.event', description: 'A branch lifecycle event was recorded.' }),
+  Object.freeze({ name: 'duplicate.candidates>=5', description: 'At least five duplicate-candidate pairs are waiting.' }),
+  Object.freeze({ name: 'interval:15m', description: 'The 15-minute curator interval elapsed.' }),
+]);
+export const EXPERT_TRIGGER_NAMES = Object.freeze(EXPERT_TRIGGER_CATALOG.map((trigger) => trigger.name));
+
+/**
+ * A custom expert never invents an output contract. It picks one of these role
+ * templates, and the template supplies mayPropose/schema/mayCreate/mayVeto.
+ * `baseId` makes the inheritance auditable in the catalog.
+ */
+export const EXPERT_TEMPLATE_CATALOG = Object.freeze([
+  Object.freeze({
+    id: 'proposer', baseId: 'lab-advisor', mayPropose: Object.freeze(['proposal', 'priority']),
+    mayCreate: true, mayVeto: false, schemaSource: 'lab-advisor', defaultLevel: 'lead',
+  }),
+  Object.freeze({
+    id: 'reviewer', baseId: 'lab-reviewer', mayPropose: Object.freeze(['review']),
+    mayCreate: false, mayVeto: false, schemaSource: 'lab-reviewer', defaultLevel: 'branch',
+  }),
+  Object.freeze({
+    id: 'branch', baseId: 'lab-branch', mayPropose: Object.freeze(['branch_report', 'escalate']),
+    mayCreate: false, mayVeto: false, schemaSource: 'lab-branch', defaultLevel: 'branch',
+  }),
+  Object.freeze({
+    id: 'curator', baseId: 'lab-curator', mayPropose: Object.freeze(['close', 'defer']),
+    mayCreate: false, mayVeto: false, schemaSource: 'lab-curator', defaultLevel: 'branch',
+  }),
+  Object.freeze({
+    id: 'chief', baseId: 'lab-chief', mayPropose: Object.freeze(['review', 'priority']),
+    mayCreate: false, mayVeto: true, schemaSource: 'lab-chief', defaultLevel: 'chief',
+  }),
+]);
+export const EXPERT_TEMPLATE_IDS = Object.freeze(EXPERT_TEMPLATE_CATALOG.map((template) => template.id));
+
 function freezeDescriptor(input) {
   return Object.freeze({
     id: input.id,
@@ -113,6 +174,17 @@ export function listExpertDescriptors() {
 export function getExpertDescriptor(id) {
   const found = EXPERT_DESCRIPTORS.find((descriptor) => descriptor.id === id);
   return found ? structuredClone(found) : null;
+}
+
+export function getExpertTemplate(id) {
+  const found = EXPERT_TEMPLATE_CATALOG.find((template) => template.id === id);
+  return found ? structuredClone(found) : null;
+}
+
+/** Resolve a role template to the immutable catalog descriptor that owns its contract. */
+export function getExpertTemplateDescriptor(templateId) {
+  const template = getExpertTemplate(templateId);
+  return template === null ? null : getExpertDescriptor(template.baseId);
 }
 
 /**

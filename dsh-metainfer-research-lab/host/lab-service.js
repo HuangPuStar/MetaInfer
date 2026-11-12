@@ -36,7 +36,7 @@ import { highReviewResolution, validateHighReviewRationale } from './high-review
 import { actorKeyOf, hasActorIdentity, isIssuedActorKey, publicView, sameActor } from './kernel/actors.js';
 import { ESCALATION_REASON_CODES, INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, detectIntentConflicts, intentBasis, intentId, intentMutation } from './kernel/intent.js';
 import { ACTION_VERIFICATION, IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
-import { listExpertDescriptors, getExpertDescriptor, computeExpertMetrics } from './experts/registry.js';
+import { EXPERT_TEMPLATE_CATALOG, EXPERT_TOOL_CATALOG, EXPERT_TRIGGER_CATALOG, EXPERT_TOOL_NAMES as REGISTRY_TOOL_NAMES, listExpertDescriptors, getExpertDescriptor, getExpertTemplateDescriptor, computeExpertMetrics } from './experts/registry.js';
 import { recallExperts } from './experts/similarity.js';
 import { evaluateEscalationTriggers, evaluateThresholdTriggers, queueOverloadState, THRESHOLD_TRIGGER_CODES, TRIGGER_CODES } from './experts/triggers.js';
 import { applyNomination, createCurator } from './experts/curator.js';
@@ -3852,12 +3852,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   /** An empty roster means the catalog is available; a non-empty roster is the source of truth. */
   function recruitabilityOf(project) {
     const roster = expertRosterOf(project);
-    if (roster.length === 0) return listExpertDescriptors().map((descriptor) => effectiveExpertDescriptor(project, descriptor.id));
+    if (roster.length === 0) return allExpertDescriptorsOf(project).map((descriptor) => effectiveExpertDescriptor(project, descriptor.id));
     const now = Date.now();
     const active = new Set(roster
       .filter((row) => row.status === 'active' && !(row.temporary === true && Number(row.expiresAt) > 0 && Number(row.expiresAt) <= now))
       .map((row) => row.expertId));
-    return listExpertDescriptors()
+    return allExpertDescriptorsOf(project)
       .filter((descriptor) => active.has(descriptor.id))
       .map((descriptor) => effectiveExpertDescriptor(project, descriptor.id));
   }
@@ -3867,8 +3867,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   // is deliberately absent because only the Host may commit mutations.
   const EXPERT_EDITABLE_FIELDS = Object.freeze(['persona', 'model', 'tools', 'budget', 'triggers', 'mayVeto', 'level']);
   const EXPERT_LEVELS = Object.freeze(['branch', 'lead', 'chief']);
-  const EXPERT_TOOL_NAMES = new Set(['dag_map', 'dag_walk', 'dag_get', 'dag_query', 'ledger_read', 'intent_list']);
+  const EXPERT_TOOL_NAMES = new Set(REGISTRY_TOOL_NAMES);
+  const EXPERT_TRIGGER_NAMES = new Set(EXPERT_TRIGGER_CATALOG.map((trigger) => trigger.name));
   const EXPERT_BUDGET_KEYS = Object.freeze(['queriesPerRun', 'tokensPerHour', 'wallClockMs', 'childVotesPerHour']);
+  const EXPERT_TEMPLATE_BY_ID = new Map(EXPERT_TEMPLATE_CATALOG.map((template) => [template.id, template]));
+  const EXPERT_ID_PATTERN = /^custom:[a-z0-9-]{2,32}$/;
+  const CUSTOM_EXPERT_LIMIT = 32;
 
   function expertOverridesOf(project) {
     const raw = project?.config?.expertOverrides;
@@ -3878,6 +3882,55 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   function expertOverrideOf(project, expertId) {
     const row = expertOverridesOf(project)[expertId];
     return row && typeof row === 'object' && !Array.isArray(row) ? structuredClone(row) : null;
+  }
+
+  function customExpertsOf(project) {
+    const raw = project?.config?.customExperts;
+    return Array.isArray(raw) ? raw.filter((row) => row && typeof row === 'object' && !Array.isArray(row)) : [];
+  }
+
+  function customExpertRecordOf(project, expertId) {
+    const row = customExpertsOf(project).find((entry) => entry.id === expertId);
+    return row ? structuredClone(row) : null;
+  }
+
+  function customExpertDescriptorOf(project, expertId) {
+    const record = customExpertRecordOf(project, expertId);
+    if (record === null) return null;
+    const template = EXPERT_TEMPLATE_BY_ID.get(record.template);
+    const base = template === undefined ? null : getExpertTemplateDescriptor(record.template);
+    if (!template || !base) return null;
+    return {
+      ...base,
+      id: expertId,
+      name: typeof record.name === 'string' ? record.name : expertId,
+      persona: typeof record.persona === 'string' ? record.persona : base.persona,
+      model: record.model && typeof record.model === 'object' ? structuredClone(record.model) : structuredClone(base.model),
+      tools: Array.isArray(record.tools) ? [...record.tools] : [...base.tools],
+      triggers: Array.isArray(record.triggers) ? [...record.triggers] : [...base.triggers],
+      budget: record.budget && typeof record.budget === 'object' ? structuredClone(record.budget) : structuredClone(base.budget),
+      level: EXPERT_LEVELS.includes(record.level) ? record.level : template.defaultLevel,
+      mayPropose: Object.freeze([...template.mayPropose]),
+      mayExecute: Object.freeze([]),
+      schema: Object.freeze({ ...base.schema }),
+      mayCreate: template.mayCreate === true,
+      mayVeto: template.mayVeto === true,
+      custom: true,
+      template: record.template,
+      createdAt: Number(record.createdAt) || null,
+      createdBy: typeof record.createdBy === 'string' ? record.createdBy : null,
+    };
+  }
+
+  function expertBaseDescriptorOf(project, expertId) {
+    return customExpertDescriptorOf(project, expertId) ?? getExpertDescriptor(expertId);
+  }
+
+  function allExpertDescriptorsOf(project) {
+    return [
+      ...listExpertDescriptors(),
+      ...customExpertsOf(project).map((record) => customExpertDescriptorOf(project, record.id)).filter(Boolean),
+    ];
   }
 
   function expertEditableFieldsOf(descriptor, override = null) {
@@ -3893,12 +3946,15 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     };
   }
 
-  /** Merge a project override into a catalog descriptor without mutating it. */
+  /** Merge a project override into a catalog/custom descriptor without mutating it. */
   function effectiveExpertDescriptor(project, expertId) {
-    const descriptor = getExpertDescriptor(expertId);
+    const descriptor = expertBaseDescriptorOf(project, expertId);
     if (!descriptor) return null;
     const override = expertOverrideOf(project, expertId);
     const fields = expertEditableFieldsOf(descriptor, override);
+    // The role template owns these capabilities. A project override may edit
+    // persona/tools/budget, but never grant a veto the template did not grant.
+    if (descriptor.custom === true) fields.mayVeto = descriptor.mayVeto === true;
     const overriddenFields = EXPERT_EDITABLE_FIELDS.filter((field) => JSON.stringify(fields[field]) !== JSON.stringify(descriptor[field]));
     return {
       ...descriptor,
@@ -3906,7 +3962,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       mayExecute: Object.freeze([...(descriptor.mayExecute ?? [])]),
       override,
       overriddenFields,
-      source: override === null ? 'catalog' : 'project',
+      source: descriptor.custom === true ? (override === null ? 'custom' : 'custom-override') : (override === null ? 'catalog' : 'project'),
     };
   }
 
@@ -3992,15 +4048,24 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       draft.triggers = [];
       for (const raw of source.triggers) {
         const trigger = text(raw, 'expert.triggers[]', { required: true, max: 120 });
-        if (!/^[a-z][a-z0-9_.-]*(?:[<>=:][a-z0-9_.-]+)?$/.test(trigger)) {
-          throw new LabError('expert_trigger_invalid', `invalid expert trigger: ${trigger}`, 400);
+        if (!EXPERT_TRIGGER_NAMES.has(trigger)) {
+          throw new LabError('expert_trigger_invalid', `invalid expert trigger: ${trigger}; choose one of ${[...EXPERT_TRIGGER_NAMES].join(', ')}`, 400);
         }
         if (!draft.triggers.includes(trigger)) draft.triggers.push(trigger);
       }
     }
+    if (source.mayCreate !== undefined && source.mayCreate !== (descriptor.mayCreate === true)) {
+      throw new LabError('expert_template_capability_locked', `mayCreate is fixed by the role template (${descriptor.mayCreate === true})`, 400);
+    }
     if (source.mayVeto !== undefined) {
       if (typeof source.mayVeto !== 'boolean') throw new LabError('bad_request', 'expert.mayVeto must be boolean', 400);
+      if (descriptor.custom === true && source.mayVeto !== (descriptor.mayVeto === true)) {
+        throw new LabError('expert_template_capability_locked', `template "${descriptor.template}" fixes mayVeto=${descriptor.mayVeto === true}; it cannot be overridden`, 400);
+      }
       draft.mayVeto = source.mayVeto;
+    }
+    if (source.template !== undefined) {
+      throw new LabError('expert_template_locked', 'template is fixed when the custom expert is created', 400);
     }
     if (source.level !== undefined) {
       if (!EXPERT_LEVELS.includes(source.level)) {
@@ -4008,10 +4073,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       }
       draft.level = source.level;
     }
-    // Read-only invariant: an edit may acknowledge the field (an empty list),
-    // but can never grant execution authority.
-    if (source.mayExecute !== undefined && (!Array.isArray(source.mayExecute) || source.mayExecute.length > 0)) {
-      throw new LabError('expert_may_execute_readonly', 'mayExecute is Host-owned and read-only', 400);
+    // Read-only invariant: the field is not writable at all. Even an empty list
+    // is rejected so a caller cannot mistake it for a supported mutation.
+    if (Object.prototype.hasOwnProperty.call(source, 'mayExecute')) {
+      throw new LabError('expert_may_execute_readonly', 'mayExecute is Host-owned and cannot be written; remove the field from the request', 400);
     }
     return draft;
   }
@@ -4267,11 +4332,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const nodes = store.listNodes(projectId);
     const runs = store.listRuns(projectId);
     const recentEvents = store.listEvents(projectId, Math.max(0, (project.counters?.eventSeq ?? 0) - 200));
-    return publicView({
-      ok: true,
-      projectId,
-      revision: project.revision,
-      experts: filterVisibleExperts(listExpertDescriptors(), actor).map((catalogDescriptor) => {
+    const experts = filterVisibleExperts(allExpertDescriptorsOf(project), actor).map((catalogDescriptor) => {
         const descriptor = effectiveExpertDescriptor(project, catalogDescriptor.id);
         const rosterRow = expertRosterRow(project, descriptor.id);
         const decisions = expertRecentDecisionsOf(recentEvents, descriptor.id);
@@ -4329,7 +4390,31 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
             ...disputePerformance(project, descriptor.id),
           },
         };
-      }),
+      });
+    const templates = EXPERT_TEMPLATE_CATALOG.map((template) => {
+      const base = getExpertTemplateDescriptor(template.id);
+      return {
+        ...template,
+        defaults: {
+          model: structuredClone(base.model),
+          tools: [...base.tools],
+          triggers: [...base.triggers],
+          budget: structuredClone(base.budget),
+          level: template.defaultLevel,
+        },
+      };
+    });
+    return publicView({
+      ok: true,
+      projectId,
+      revision: project.revision,
+      experts,
+      catalog: experts.filter((expert) => expert.custom !== true),
+      custom: experts.filter((expert) => expert.custom === true),
+      toolCatalog: EXPERT_TOOL_CATALOG.map((tool) => ({ ...tool })),
+      triggerCatalog: EXPERT_TRIGGER_CATALOG.map((trigger) => ({ ...trigger })),
+      templates,
+      levels: [...EXPERT_LEVELS],
       curator: curator.status(),
     });
   }
@@ -4368,8 +4453,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const project = requireProject(projectId);
     const actor = actorFromToolExecution(exec);
     assertOperator(actor, 'edit experts');
+    if (Object.prototype.hasOwnProperty.call(input, 'mayExecute')) {
+      throw new LabError('expert_may_execute_readonly', 'mayExecute is Host-owned and cannot be written; remove the field from the request', 400);
+    }
     const expertId = text(input.expertId, 'expertId', { required: true, max: 120 });
-    const descriptor = getExpertDescriptor(expertId);
+    const descriptor = expertBaseDescriptorOf(project, expertId);
     if (!descriptor) throw new LabError('expert_not_found', `unknown expert: ${expertId}`, 404);
     const patch = input.expert && typeof input.expert === 'object' && !Array.isArray(input.expert)
       ? input.expert
@@ -4428,7 +4516,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const actor = actorFromToolExecution(exec);
     assertOperator(actor, 'roll back experts');
     const expertId = text(input.expertId, 'expertId', { required: true, max: 120 });
-    if (!getExpertDescriptor(expertId)) throw new LabError('expert_not_found', `unknown expert: ${expertId}`, 404);
+    if (!expertBaseDescriptorOf(project, expertId)) throw new LabError('expert_not_found', `unknown expert: ${expertId}`, 404);
     const requestedSeq = input.eventSeq === undefined || input.eventSeq === null
       ? null
       : Number(input.eventSeq);
@@ -4457,7 +4545,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const nextOverrides = { ...expertOverridesOf(project) };
     if (before === null) delete nextOverrides[expertId];
     else nextOverrides[expertId] = before;
-    const changedFields = expertChangedFields(getExpertDescriptor(expertId), current, before ?? expertEditableFieldsOf(getExpertDescriptor(expertId)));
+    const baseDescriptor = expertBaseDescriptorOf(project, expertId);
+    const changedFields = expertChangedFields(baseDescriptor, current, before ?? expertEditableFieldsOf(baseDescriptor));
     const reason = text(input.reason, 'reason', { max: 500 }) || '';
     const result = await commitProjectFields(projectId, {
       config: { ...project.config, expertOverrides: nextOverrides },
@@ -4483,6 +4572,173 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       event: event ? { seq: event.seq, type: event.type } : null,
       targetEventSeq: target.seq,
     };
+  }
+
+  function slugifyExpertName(value) {
+    return String(value ?? '')
+      .normalize('NFKD')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 32)
+      .replace(/-+$/g, '');
+  }
+
+  function customExpertDefinitionOf(input) {
+    const source = input?.expert && typeof input.expert === 'object' && !Array.isArray(input.expert)
+      ? input.expert
+      : input;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) {
+      throw new LabError('bad_request', 'expert_create requires an expert object', 400);
+    }
+    if (Object.prototype.hasOwnProperty.call(source, 'mayExecute')) {
+      throw new LabError('expert_may_execute_readonly', 'mayExecute is Host-owned and cannot be written; remove the field from the request', 400);
+    }
+    const templateId = text(source.template, 'expert.template', { required: true, max: 40 });
+    const template = EXPERT_TEMPLATE_BY_ID.get(templateId);
+    if (!template) {
+      throw new LabError('expert_template_unknown', `unknown expert template: ${templateId}; choose one of ${[...EXPERT_TEMPLATE_BY_ID.keys()].join(', ')}`, 400);
+    }
+    if (source.mayCreate !== undefined && source.mayCreate !== template.mayCreate) {
+      throw new LabError('expert_template_capability_locked', `template "${templateId}" fixes mayCreate=${template.mayCreate}`, 400);
+    }
+    if (source.mayVeto !== undefined && source.mayVeto !== template.mayVeto) {
+      throw new LabError('expert_template_capability_locked', `template "${templateId}" fixes mayVeto=${template.mayVeto}`, 400);
+    }
+    const name = text(source.name, 'expert.name', { max: 120 }) || text(source.id, 'expert.id', { max: 120 });
+    if (name === '') throw new LabError('bad_request', 'expert.name is required', 400);
+    const rawId = text(source.id, 'expert.id', { max: 120 });
+    const id = rawId === '' ? `custom:${slugifyExpertName(name)}` : rawId;
+    if (!EXPERT_ID_PATTERN.test(id)) {
+      throw new LabError('expert_id_invalid', `custom expert id must match custom:<slug> with [a-z0-9-]{2,32}; got "${id}"`, 400);
+    }
+    const persona = text(source.persona, 'expert.persona', { required: true, max: 400 });
+    const modelSource = source.model;
+    if (!modelSource || typeof modelSource !== 'object' || Array.isArray(modelSource)) {
+      throw new LabError('bad_request', 'expert.model must be an object with provider and model', 400);
+    }
+    const provider = text(modelSource.provider, 'expert.model.provider', { required: true, max: 120 });
+    const model = text(modelSource.model, 'expert.model.model', { required: true, max: 200 });
+    const reasoningEffort = modelSource.reasoningEffort === undefined
+      ? ''
+      : text(modelSource.reasoningEffort, 'expert.model.reasoningEffort', { max: 40 });
+    if (!Array.isArray(source.tools) || source.tools.length > 32) {
+      throw new LabError('bad_request', 'expert.tools must be an array of at most 32 tool names', 400);
+    }
+    const tools = [];
+    for (const raw of source.tools) {
+      const tool = text(raw, 'expert.tools[]', { required: true, max: 64 });
+      if (!EXPERT_TOOL_NAMES.has(tool)) {
+        throw new LabError('expert_tool_unknown', `unknown expert tool: ${tool}; allowed: ${[...EXPERT_TOOL_NAMES].join(', ')}`, 400);
+      }
+      if (!tools.includes(tool)) tools.push(tool);
+    }
+    if (!Array.isArray(source.triggers) || source.triggers.length > 32) {
+      throw new LabError('bad_request', 'expert.triggers must be an array of at most 32 codes', 400);
+    }
+    const triggers = [];
+    for (const raw of source.triggers) {
+      const trigger = text(raw, 'expert.triggers[]', { required: true, max: 120 });
+      if (!EXPERT_TRIGGER_NAMES.has(trigger)) {
+        throw new LabError('expert_trigger_invalid', `invalid expert trigger: ${trigger}; choose one of ${[...EXPERT_TRIGGER_NAMES].join(', ')}`, 400);
+      }
+      if (!triggers.includes(trigger)) triggers.push(trigger);
+    }
+    if (!source.budget || typeof source.budget !== 'object' || Array.isArray(source.budget)) {
+      throw new LabError('bad_request', 'expert.budget must be an object', 400);
+    }
+    for (const key of Object.keys(source.budget)) {
+      if (!EXPERT_BUDGET_KEYS.includes(key)) throw new LabError('expert_budget_unknown', `unknown expert budget field: ${key}`, 400);
+    }
+    const base = getExpertTemplateDescriptor(templateId);
+    const budget = {
+      queriesPerRun: integer(source.budget.queriesPerRun, 'expert.budget.queriesPerRun', base.budget.queriesPerRun, 1, 1000),
+      tokensPerHour: integer(source.budget.tokensPerHour, 'expert.budget.tokensPerHour', base.budget.tokensPerHour, 1, 1_000_000_000),
+      wallClockMs: integer(source.budget.wallClockMs, 'expert.budget.wallClockMs', base.budget.wallClockMs, 1000, 86_400_000),
+      childVotesPerHour: integer(source.budget.childVotesPerHour, 'expert.budget.childVotesPerHour', Number(base.budget.childVotesPerHour ?? 0), 0, 1000),
+    };
+    const level = source.level === undefined ? template.defaultLevel : source.level;
+    if (!EXPERT_LEVELS.includes(level)) {
+      throw new LabError('bad_request', `expert.level must be one of ${EXPERT_LEVELS.join(', ')}`, 400);
+    }
+    return {
+      id,
+      name,
+      template: templateId,
+      persona,
+      model: { provider, model, ...(reasoningEffort === '' ? {} : { reasoningEffort }) },
+      tools,
+      triggers,
+      budget,
+      level,
+    };
+  }
+
+  /** Create one project-scoped custom expert from a role template. */
+  async function createExpert(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const actor = actorFromToolExecution(exec);
+    assertOperator(actor, 'create experts');
+    if (Object.prototype.hasOwnProperty.call(input, 'mayExecute')) {
+      throw new LabError('expert_may_execute_readonly', 'mayExecute is Host-owned and cannot be written; remove the field from the request', 400);
+    }
+    const definition = customExpertDefinitionOf(input);
+    if (getExpertDescriptor(definition.id) || customExpertRecordOf(project, definition.id)) {
+      throw new LabError('expert_id_taken', `expert id already exists: ${definition.id}`, 409);
+    }
+    if (customExpertsOf(project).length >= CUSTOM_EXPERT_LIMIT) {
+      throw new LabError('expert_custom_limit', `custom expert limit reached (${CUSTOM_EXPERT_LIMIT})`, 409);
+    }
+    const record = {
+      ...definition,
+      createdAt: Date.now(),
+      createdBy: actor.id,
+    };
+    await commitProjectFields(projectId, {
+      config: { ...project.config, customExperts: [...customExpertsOf(project), record] },
+    }, {
+      actor,
+      eventType: 'expert/created',
+      eventData: { expertId: definition.id, template: definition.template, name: definition.name },
+      causeId: `expert:${projectId}:${definition.id}:created`,
+    });
+    return {
+      ok: true,
+      projectId,
+      expert: effectiveExpertDescriptor(requireProject(projectId), definition.id),
+      template: definition.template,
+    };
+  }
+
+  /** Delete a custom expert definition once it is no longer on duty. */
+  async function deleteExpert(projectId, input = {}, exec = null) {
+    const project = requireProject(projectId);
+    const actor = actorFromToolExecution(exec);
+    assertOperator(actor, 'delete experts');
+    const expertId = text(input.expertId, 'expertId', { required: true, max: 120 });
+    if (!customExpertRecordOf(project, expertId)) {
+      throw new LabError('expert_not_custom', `not a custom expert: ${expertId}; catalog experts cannot be deleted`, 404);
+    }
+    const row = expertRosterRow(project, expertId);
+    if (row && row.status !== 'retired') {
+      throw new LabError('expert_in_use', `expert is ${row.status}; drain and retire it before deleting the definition`, 409);
+    }
+    const running = store.listNodes(projectId).filter((node) => node.createdBy === expertId && node.status === 'running');
+    if (running.length > 0) {
+      throw new LabError('expert_in_use', `expert owns ${running.length} running node(s); wait for them to finish before deleting`, 409);
+    }
+    const nextCustom = customExpertsOf(project).filter((entry) => entry.id !== expertId);
+    const nextOverrides = { ...expertOverridesOf(project) };
+    delete nextOverrides[expertId];
+    await commitProjectFields(projectId, {
+      config: { ...project.config, customExperts: nextCustom, expertOverrides: nextOverrides },
+    }, {
+      actor,
+      eventType: 'expert/deleted',
+      eventData: { expertId, template: customExpertRecordOf(project, expertId)?.template ?? null },
+      causeId: `expert:${projectId}:${expertId}:deleted`,
+    });
+    return { ok: true, projectId, deleted: true, expertId };
   }
 
   /** Hire one catalog expert into the project roster. */
@@ -6030,6 +6286,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'expert_rollback') return rollbackExpert(input?.projectId, input, exec);
     if (action === 'expert_drain') return drainExpert(input?.projectId, input, exec);
     if (action === 'expert_fire') return fireExpert(input?.projectId, input, exec);
+    if (action === 'expert_create') return createExpert(input?.projectId, input, exec);
+    if (action === 'expert_delete') return deleteExpert(input?.projectId, input, exec);
     if (action === 'curator_nominate') return nominateDuplicates(input?.projectId, input, exec);
     if (action === 'curator_outcome') return recordCuratorOutcome(input);
     if (action === 'curator_reset') return resetCurator();
@@ -6081,6 +6339,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     resetCurator,
     listExperts,
     recallExpertFor,
+    createExpert,
+    deleteExpert,
     hireExpert,
     inviteExpert,
     updateExpert,
