@@ -16,6 +16,7 @@ import { DEFAULT_EXECUTION_PROFILES, normalizeExecutionProfile, resolveExecution
 import { ExecutionLog } from './execution-log.js';
 import { DEFAULT_DASHBOARD_SPEC, DASHBOARD_CHAT_SCHEMA, WIDGET_DATA_RESULT_SCHEMA, sanitizeDashboardSpec, normalizeWidgets, normalizeWidgetData, applyWidgetLayouts, buildWidgetPrompt, buildDashboardChatPrompt } from './dashboard.js';
 import { newProjectId, newSessionId } from './store.js';
+import { nodeReportView } from './snapshot.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
 
@@ -40,6 +41,14 @@ function integer(value, field, fallback, min, max) {
     throw new LabError('bad_request', `${field} must be between ${min} and ${max}`);
   }
   return rounded;
+}
+
+function checkedTimeboxMs(value, project) {
+  const max = Math.min(MAX_TIMEOUT_MINUTES, project.config?.maxNodeTimeoutMinutes ?? 240);
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > max || value > MAX_TIMEOUT_MINUTES) {
+    throw new LabError('timebox_invalid', `timeboxMinutes must be an integer between 1 and ${max}; increase the project limit in Settings if needed`, 400);
+  }
+  return value * 60_000;
 }
 
 function normalizeResourcePools(raw) {
@@ -590,6 +599,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }
     const nodes = rawNodes.map((node) => ({
       ...node,
+      ...nodeReportView(node),
       sealed: parentIds.has(node.id),
       isLeaf: !parentIds.has(node.id),
     }));
@@ -655,8 +665,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       executionRun: node.executionRun ?? null,
       needs: node.needs ?? {},
       git: node.git ? { branch: node.git.branch, headCommit: node.git.headCommit } : null,
-      report: node.report ?? null,
-      reportText: (node.reportText ?? '').slice(0, 1200),
+      report: nodeReportView(node).report,
+      reportText: nodeReportView(node).reportText.slice(0, 1200),
       error: node.error ?? null,
       timestamps: node.timestamps ?? null,
       usage: node.usage ?? null,
@@ -1069,6 +1079,20 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   async function updateNode(projectId, nodeId, input) {
+    const preProject = requireProject(projectId);
+    const preNode = requireNode(projectId, nodeId);
+    const hasTimebox = Object.prototype.hasOwnProperty.call(input ?? {}, 'timeboxMinutes');
+    const transportKeys = ['type', 'action', 'projectId', 'nodeId'];
+    const timeboxOnly = hasTimebox && Object.keys(input ?? {}).every((key) => key === 'timeboxMinutes' || transportKeys.includes(key));
+    if (!['planned', 'proposed'].includes(preNode.status) && !timeboxOnly) {
+      throw new LabError('node_not_editable', 'only the timebox can be changed after execution starts; other fields require a planned or proposed node', 409);
+    }
+    if (timeboxOnly) {
+      const timeboxMs = checkedTimeboxMs(input.timeboxMinutes, preProject);
+      if (!runtime?.updateTimebox) throw new LabError('node_timebox_unavailable', 'runtime timebox management is unavailable; reload the plugin before retrying', 503);
+      const result = await runtime.updateTimebox(projectId, nodeId, timeboxMs);
+      return { ...result, node: { ...result.node, ...nodeReportView(result.node) } };
+    }
     let validatedModel;
     if (input?.model !== undefined) {
       const candidate = cleanModelRef(input.model);
@@ -1082,6 +1106,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       if (node.status !== 'planned' && node.status !== 'proposed') {
         throw new LabError('node_not_editable', 'only planned or proposed nodes can be edited', 409);
       }
+      const timeboxMs = hasTimebox ? checkedTimeboxMs(input.timeboxMinutes, project) : null;
       let changed = false;
       if (input?.title !== undefined) {
         node.title = text(input.title, 'title', { required: true, max: 120 });
@@ -1097,9 +1122,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         node.successCriteria = text(input.successCriteria, 'successCriteria', { max: 2000 }) ?? '';
         changed = true;
       }
-      if (input?.timeboxMinutes !== undefined) {
-        const minutes = integer(input.timeboxMinutes, 'timeboxMinutes', project.config.nodeTimeoutMinutes, 1, project.config.maxNodeTimeoutMinutes);
-        node.timeboxMs = minutes * 60_000;
+      if (hasTimebox) {
+        node.timeboxMs = timeboxMs;
         changed = true;
       }
       if (input?.needs !== undefined) {
@@ -1128,14 +1152,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         node.taskType = execution.taskType;
         changed = true;
       }
-      if (!changed) return { node, revision: project.revision };
+      if (!changed) return { node: { ...node, ...nodeReportView(node) }, revision: project.revision };
       node.timestamps = { ...(node.timestamps ?? {}), lastActivityAt: Date.now() };
       project.revision += 1;
       project.updatedAt = Date.now();
       await store.saveNode(projectId, node);
       await store.appendEvent(project, 'node/edited', { nodeId, data: { revision: project.revision } });
       await store.saveProject(project);
-      return { node, revision: project.revision };
+      return { node: { ...node, ...nodeReportView(node) }, revision: project.revision };
     });
   }
 

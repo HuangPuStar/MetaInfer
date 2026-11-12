@@ -112,6 +112,7 @@ Codex 使用本机 Codex 原生登录/配置，不通过 DSH 模型 API。首次
 | [docs/03-ui-spec.md](docs/03-ui-spec.md) | 界面信息架构、DAG 画布、节点检查器、对话抽屉、模式开关/Step、空状态、视觉规范 | 想做前端/交互 |
 | [docs/04-mvp-plan.md](docs/04-mvp-plan.md) | MVP 范围（做什么/不做什么）、里程碑、验收场景、风险、待拍板问题 | 想排期或验收 |
 | [docs/06-multi-tenant-and-model-routing.md](docs/06-multi-tenant-and-model-routing.md) | V3 设计与实现：轻量多实例整卡 GPU 协调器、节点级模型/强度、成本预算；第 9 节为协调器使用/可视化/多协调器治理手册 | 想部署集群或做模型路由 |
+| [docs/07-node-lifecycle.md](docs/07-node-lifecycle.md) | 运行中调整时限、续聊报告新鲜度、自动暂停原因、存储/重启边界与离线回归 | 想执行长实验或排查自动暂停 |
 | [cluster.example.json](cluster.example.json) | 协调器/client 配置样例（默认关闭） | 部署多机共享 GPU |
 
 ## 设计结论速览（TL;DR）
@@ -124,20 +125,20 @@ Codex 使用本机 Codex 原生登录/配置，不通过 DSH 模型 API。首次
    而 subagent 子会话的 header.cwd 继承 parent，所以每个节点先建一个 **cwd=worktree 的 node anchor Agent**，
    再在它下面用 `ctx.subagents.startActivation({provider:'spawn', request:{cwd:<worktree>, parent:<node anchor>, prompt, agentPreset:'lab-worker', outputSchema}})` 创建 worker。
 3. **完成信号**：`await activation.result`（含 `structured` 与 `stopReason`）；`subagent/end` 事件只有 stopReason，仅作观测。
-   继续对话的完成信号是 durable `turn/end`（只认 `reason.kind==='completed'`）。完成后 Host 自动 commit worktree，把报告写入节点记录。
+   本地继续对话以本条 MessageId 对应的 inbox claim 绑定 Session/turn，再接收 durable `turn/end`（只认 `reason.kind==='completed'`）；不猜下一 turn。完成后 Host 自动 commit worktree，把报告写入节点记录。
 4. **权威状态在 Host**：项目/DAG/节点/运行记录存 `ctx.storageDomain`；Git 仓库保存代码历史；Agent 的输出只是「提案」，
    必须经过 Host 的 schema + 业务规则校验才能变成节点或启动动作。
 5. **资源约束是硬校验**：调度 Agent 只是建议，Host 在启动节点前强制检查资源池与并发上限；专家组的输出同样要过校验。
-6. **自动挡默认安全**：进程重启后自动挡默认关闭；自动循环有最大步数/最大节点数/最长运行时间/空转熔断。
+6. **自动挡默认安全**：进程重启后自动挡默认关闭；自动循环有最大步数/最大节点数/最长运行时间/真正连续无进展熔断；运行、排队与人工确认不等同空转。
 7. **历史可回看**：DAG 图 + 每个节点的 commit + 封存时的 `dshex/...` git tag + advisor/scheduler 运行记录 + 事件日志，
    四者合起来就是完整的科研迭代路径。
 8. **人工确认档不阻塞**：`advisor.acceptMode='confirm'` 时，专家组的新提案先进入 `proposed`（待确认）队列；
    批准才 commit+tag 封存父节点并转 `planned`，拒绝则删除提案。待确认节点不占资源、不参与调度、**不阻塞**任何
    已建立节点的执行；自动挡在只剩待确认提案时进入 `waiting` 状态而不是空转。
-9. **确定性超时 + 善后 Agent**：每节点默认 **10 分钟**硬超时（创建节点时可改，上限 4h）。到点由 Host 的
+9. **受管时限 + 善后 Agent**：每节点默认 **10 分钟**，项目默认上限 **240 分钟**、可在设置提高至最多 **1440 分钟**。运行中可只改本次总时限，保留已用时间、不重启；终态未封存节点可改下次预算。到点由 Host 的
    **Watchdog / Reaper 纯代码**终止：取消 Agent 树 → kill 会话 jobs → 回收 worktree 下 OS 进程 → `nvidia-smi`
-   验证 GPU → `finally` 释放资源 → 验证无残留；**全程不经过任何 LLM**。杀完后异步启动 `lab-gc` 善后 Agent 做
-   postmortem 与「请求确定性清理」；专家组看到 timeout 失败后自行决定拆小任务 / 延长时间 / 换路 / 放弃分支。
+   验证 GPU → `finally` 释放资源 → 记录清理验证结果；确定性清理代码**不经过任何 LLM**。随后异步启动 `lab-gc` 善后 Agent 做
+   postmortem 与「请求确定性清理」；专家组看到 timeout 失败后自行决定拆小任务 / 延长时间 / 换路 / 放弃分支。重载不是热迁移，也不是远端清理证明，见 [生命周期与时限说明](docs/07-node-lifecycle.md)。
 
 ## 命名约定（占位，可改）
 

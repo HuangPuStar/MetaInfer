@@ -155,6 +155,13 @@ export async function apply(ctx) {
   }, 'metainfer-research-lab: timeout watchdog');
 
   ctx.effect(
+    () => ctx.on('agent/inbox/claimed', (payload) => {
+      runtime.onInboxClaimed(payload).catch(() => {});
+    }),
+    'metainfer-research-lab: inbox turn correlation',
+  );
+
+  ctx.effect(
     () => ctx.on('session/event', (session, event) => {
       runtime.onSessionEvent(session, event).catch(() => {});
     }),

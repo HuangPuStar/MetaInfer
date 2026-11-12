@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_GC_PROMPT } from './prompts.js';
+import { nodeReportView } from './snapshot.js';
 
 /**
  * GC (after-care) runner: after a deterministic termination, spawn one cheap
@@ -32,6 +33,7 @@ function blocksText(blocks) {
 }
 
 function gcPrompt(project, node, termination) {
+  const { report, reportText } = nodeReportView(node);
   const payload = {
     project: { name: project.name, brief: project.brief },
     node: {
@@ -41,7 +43,7 @@ function gcPrompt(project, node, termination) {
       timeboxMinutes: Math.round((node.timeboxMs ?? 0) / 60_000),
       needs: node.needs ?? {},
       worktreePath: node.git?.worktreePath,
-      lastReport: node.report?.summary ?? node.reportText ?? null,
+      lastReport: report?.summary ?? reportText ?? null,
       error: node.error ?? null,
       followUps: node.followUps?.length ?? 0,
     },

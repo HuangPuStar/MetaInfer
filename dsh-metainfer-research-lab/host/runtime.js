@@ -18,6 +18,7 @@ import {
 import { isDshExecution, EXECUTION_DRIVERS } from './execution.js';
 import { ExecutionLog, executionLogPath } from './execution-log.js';
 import { newSessionId } from './store.js';
+import { nodeReportView } from './snapshot.js';
 import { prepareRemoteRun } from './remote-run.js';
 import { DEFAULT_MERGE_PROMPT, DEFAULT_WORKER_PREFIX, WORKER_RULES } from './prompts.js';
 
@@ -420,6 +421,146 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     return project.revision;
   }
 
+  function isSealed(projectId, nodeId) {
+    const node = store.getNode(projectId, nodeId);
+    if (node?.timestamps?.sealedAt || node?.tag) return true;
+    return store.listNodes(projectId).some((candidate) => {
+      if (candidate.status === 'proposed') return false;
+      const ids = Array.isArray(candidate.parentIds) ? candidate.parentIds : [candidate.parentId];
+      return ids.includes(nodeId);
+    });
+  }
+
+  /** Claim before awaiting IO. Disposal must never hold the project lock:
+   * the SDK turn/end callback may itself be waiting for that lock.
+   */
+  async function claimEntry(projectId, nodeId, phase, { expected, deadlineAt, allowStarting = false } = {}) {
+    return store.withProjectLock(projectId, async () => {
+      const key = keyOf(projectId, nodeId);
+      const entry = active.get(key);
+      const node = store.getNode(projectId, nodeId);
+      if (!entry || (expected && entry !== expected) || node?.status !== 'running') return null;
+      if (!['running', 'idle', ...(allowStarting ? ['starting'] : [])].includes(entry.phase)) return null;
+      if (deadlineAt !== undefined && (node.deadlineAt !== deadlineAt || Date.now() < node.deadlineAt)) return null;
+      entry.phase = phase;
+      entry.node = node;
+      deadlines.delete(key);
+      if (pendingFollowUps.get(entry.sessionId)?.entry === entry) pendingFollowUps.delete(entry.sessionId);
+      return entry;
+    });
+  }
+
+  function forgetEntry(entry) {
+    const key = keyOf(entry.projectId, entry.nodeId);
+    if (active.get(key) !== entry) return;
+    active.delete(key);
+    deadlines.delete(key);
+    if (pendingFollowUps.get(entry.sessionId)?.entry === entry) pendingFollowUps.delete(entry.sessionId);
+  }
+
+  async function disposeActivation(entry, timeoutMs = 0) {
+    if (!entry.activation) return;
+    let timer;
+    try {
+      const disposed = entry.activation.dispose();
+      if (timeoutMs > 0) {
+        await Promise.race([disposed, new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs); })]);
+      } else {
+        await disposed;
+      }
+    } catch {
+      // Cleanup/reaping still runs when cooperative cancellation fails.
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Persist before publishing the watchdog deadline. Failed writes restore
+   * only this node's budget fields; project reservations are not rewound.
+   */
+  async function updateTimebox(projectId, nodeId, timeboxMs) {
+    return store.withProjectLock(projectId, async () => {
+      const project = requireProject(projectId);
+      const node = requireNode(projectId, nodeId);
+      const maximum = Math.min(1440, project.config.maxNodeTimeoutMinutes ?? 1440);
+      if (!Number.isSafeInteger(timeboxMs) || timeboxMs < 60_000 || timeboxMs % 60_000 !== 0 || timeboxMs > maximum * 60_000) {
+        throw new LabError('timebox_invalid', `timebox must be an integer number of minutes in 1..${maximum}`, 400);
+      }
+      const key = keyOf(projectId, nodeId);
+      const entry = active.get(key);
+      if (entry && !['running', 'idle'].includes(entry.phase)) {
+        throw new LabError('node_timebox_unavailable', 'node is starting, finishing or terminating; try again shortly', 409);
+      }
+      if (isSealed(projectId, nodeId)) {
+        throw new LabError('node_sealed', 'node already has successors and is sealed', 409);
+      }
+      const oldBudget = node.timeboxMs ?? project.config.nodeTimeoutMinutes * 60_000;
+      let newDeadline = node.deadlineAt;
+      if (node.status === 'running') {
+        if (!entry || !Number.isFinite(node.deadlineAt) || node.deadlineAt <= Date.now()) {
+          throw new LabError('node_timebox_unavailable', 'node is starting or its deadline already elapsed; try again shortly if starting', 409);
+        }
+        newDeadline = node.deadlineAt + timeboxMs - oldBudget;
+        if (newDeadline <= Date.now()) {
+          throw new LabError('timebox_elapsed', 'new timebox is shorter than the time already used by this run', 409);
+        }
+      } else if (!['planned', 'proposed', 'failed', 'cancelled', 'completed'].includes(node.status)) {
+        throw new LabError('node_timebox_unavailable', 'node timebox is not available in this state', 409);
+      }
+      const beforeNode = structuredClone(node);
+      const reservedRevision = (project.revision ?? 0) + 1;
+      const reservedEventSeq = (project.counters?.eventSeq ?? 0) + 1;
+      node.timeboxMs = timeboxMs;
+      if (node.status === 'running') node.deadlineAt = newDeadline;
+      try {
+        project.revision = reservedRevision;
+        project.updatedAt = Date.now();
+        // Reserve the event seq with the authoritative node/project first: a
+        // failed saveProject must not leave a successful timebox audit event.
+        const eventProject = structuredClone(project);
+        project.counters = { ...(project.counters ?? {}), eventSeq: reservedEventSeq };
+        await store.saveNode(project.id, node);
+        await store.saveProject(project);
+        await store.appendEvent(eventProject, 'node/timebox_changed', {
+          nodeId: node.id, data: { previousTimeboxMs: oldBudget, timeboxMs, deadlineAt: node.deadlineAt ?? null },
+        });
+      } catch (error) {
+        for (const name of ['timeboxMs', 'deadlineAt']) {
+          if (Object.hasOwn(beforeNode, name)) node[name] = beforeNode[name];
+          else delete node[name];
+        }
+        // Keep project revision/seq reservations: even a fresh compensating
+        // project put can overwrite another writer already queued before us.
+        try { await store.saveNode(projectId, node); } catch (rollbackError) { error.rollbackError = rollbackError; }
+        throw error;
+      }
+      if (entry) { entry.node = node; entry.project = project; }
+      if (node.status === 'running') deadlines.set(key, newDeadline);
+      return { node, revision: project.revision };
+    });
+  }
+
+  function requireStarting(entry) {
+    if (active.get(keyOf(entry.projectId, entry.nodeId)) !== entry || entry.phase !== 'starting' || entry.node.status !== 'running' || entry.node.sessionId !== entry.sessionId) {
+      throw new LabError('node_not_startable', 'node stopped while activation was starting', 409);
+    }
+  }
+
+  async function registerActivation(entry, activation, patch = {}) {
+    try {
+      await store.withProjectLock(entry.projectId, async () => {
+        requireStarting(entry);
+        Object.assign(entry, patch, { activation, phase: 'running' });
+      });
+      return entry;
+    } catch (error) {
+      try { ctx.agents.get(entry.sessionId)?.cancel?.({ kind: 'parent' }); } catch { /* best effort */ }
+      Promise.resolve(activation.result).catch(() => {});
+      await disposeActivation({ activation }, 8000);
+      throw error;
+    }
+  }
+
   function runningNodes(projectId) {
     return store.listNodes(projectId).filter((node) => node.status === 'running');
   }
@@ -502,9 +643,10 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     while (cursor && guard < depth) {
       const parent = store.getNode(projectId, cursor);
       if (!parent) break;
+      const view = nodeReportView(parent);
       out.push({
         title: parent.title,
-        summary: parent.report?.summary ?? (parent.reportText ?? '').slice(0, 400),
+        summary: view.report?.summary ?? view.reportText.slice(0, 400),
         headCommit: parent.git?.headCommit ?? null,
       });
       cursor = parent.parentId;
@@ -522,16 +664,14 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
         title: parent.title,
         branch: parent.git?.branch ?? null,
         headCommit: parent.git?.headCommit ?? null,
-        report: parent.report?.summary ?? null,
+        report: nodeReportView(parent).report?.summary ?? nodeReportView(parent).reportText.slice(0, 400),
       }));
     const state = node.merge?.state ?? 'pending';
     const custom = project.config?.prompts?.merge;
     return [
       custom && custom.trim() ? custom.trim() : DEFAULT_MERGE_PROMPT,
       `Worktree: ${node.git.worktreePath} (branch ${node.git.branch}). Work only inside it.`,
-      external
-        ? `Execution profile: ${node.execution?.profile ?? 'external'} (driver ${node.execution?.driver ?? 'unknown'}${node.execution?.model ? `, model ${node.execution.model}` : ''})`
-        : `Model for this attempt: ${selection?.provider ?? 'default'}/${selection?.model ?? 'default'}${selection?.reasoningEffort ? ` (reasoning effort: ${selection.reasoningEffort})` : ''}`,
+      `Model for this attempt: ${selection?.provider ?? 'default'}/${selection?.model ?? 'default'}${selection?.reasoningEffort ? ` (reasoning effort: ${selection.reasoningEffort})` : ''}`,
       `Parents merged into this worktree: ${JSON.stringify(parents, null, 2)}`,
       `Merge state: ${state}. Conflict files: ${JSON.stringify(node.merge?.conflictFiles ?? [])}.`,
       state === 'conflict'
@@ -581,20 +721,25 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     });
   }
 
-  async function onMergeTurnEnd(projectId, nodeId, result) {
-    const key = keyOf(projectId, nodeId);
-    const entry = active.get(key);
-    if (!entry || entry.phase !== 'running') return;
-    entry.phase = 'idle';
-    const project = store.getProject(projectId);
-    const node = store.getNode(projectId, nodeId);
-    if (!project || !node) return;
+  async function onMergeTurnEnd(projectId, nodeId, result, expected) {
+    if (result?.stopReason !== 'completed') {
+      await finishFailure(projectId, nodeId, new Error(`merge turn ended: ${result?.stopReason}`), expected);
+      return;
+    }
     const text = blocksText(result?.output);
-    node.lastReport = text || node.lastReport || '';
-    applyUsage(project, node, await sessionUsage(node.sessionId));
-    node.timestamps = { ...(node.timestamps ?? {}), lastActivityAt: Date.now() };
-    await persistNode(project, node, 'node/merge_turn', {
-      data: { stopReason: result?.stopReason ?? null, chars: text.length },
+    const usage = await sessionUsage(expected.sessionId);
+    await store.withProjectLock(projectId, async () => {
+      const entry = active.get(keyOf(projectId, nodeId));
+      const project = store.getProject(projectId);
+      const node = store.getNode(projectId, nodeId);
+      if (entry !== expected || entry.phase !== 'running' || node?.status !== 'running' || !project) return;
+      entry.phase = 'idle';
+      node.lastReport = text || node.lastReport || '';
+      applyUsage(project, node, usage);
+      node.timestamps = { ...(node.timestamps ?? {}), lastActivityAt: Date.now() };
+      await persistNode(project, node, 'node/merge_turn', {
+        data: { stopReason: result?.stopReason ?? null, chars: text.length },
+      });
     });
   }
 
@@ -784,17 +929,13 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     void project;
   }
 
-  async function finish(projectId, nodeId, result) {
-    const key = keyOf(projectId, nodeId);
-    const entry = active.get(key);
-    if (!entry || entry.phase !== 'running') return;
-    entry.phase = 'finishing';
-    active.delete(key);
-    deadlines.delete(key);
+  async function finish(projectId, nodeId, result, expected) {
+    const entry = await claimEntry(projectId, nodeId, 'finishing', { expected });
+    if (!entry) return;
 
     const project = store.getProject(projectId);
     const node = store.getNode(projectId, nodeId);
-    if (!project || !node) return;
+    if (!project || !node) { forgetEntry(entry); return; }
 
     try {
       const child = ctx.agents.get(node.sessionId);
@@ -820,7 +961,10 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       const commit = await git.commitWorktree(project, node, `dshex(${node.id}): ${node.title}`);
       node.git.headCommit = commit.head;
       node.report = result?.structured && typeof result.structured === 'object' ? result.structured : null;
-      node.reportText = blocksText(result?.output) || node.reportText || '';
+      node.reportText = blocksText(result?.output);
+      node.reportSource = 'activation';
+      node.reportUpdatedAt = Date.now();
+      delete node.review;
       if (entry.external) {
         node.executionThreadId = result?.threadId ?? node.executionThreadId;
         node.executionRun = {
@@ -848,12 +992,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     } catch (error) {
       await failNode(project, node, error, error?.stage === 'run' ? 'run' : 'commit');
     } finally {
-      try {
-        await entry.activation.dispose();
-      } catch {
-        // Activation already settled.
-      }
-      await disposeAnchor(node);
+      await disposeActivation(entry);
+      await disposeAnchor({ anchorSessionId: entry.anchorSessionId });
+      forgetEntry(entry);
     }
   }
 
@@ -918,7 +1059,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     };
   }
 
-  async function startExternalNode(project, node, execution) {
+  async function startExternalNode(project, node, execution, startingEntry) {
     const driver = EXECUTION_DRIVERS[execution.driver];
     if (typeof driver !== 'function') {
       throw new LabError('unavailable', `execution driver "${execution.driver}" is not registered`, 503);
@@ -926,6 +1067,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     const runId = `${node.id}-a${node.currentAttempt}`;
     const log = new ExecutionLog(executionLogPath(project.id, node.id, runId));
     await log.init();
+    requireStarting(startingEntry);
     await log.append({
       type: 'run/started',
       profile: execution.profile,
@@ -934,6 +1076,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       reasoningEffort: execution.reasoningEffort ?? null,
       worktreePath: node.git.worktreePath,
     });
+    requireStarting(startingEntry);
     node.executionRun = {
       runId,
       profile: execution.profile,
@@ -947,6 +1090,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     await persistNode(project, node, 'node/execution_started', {
       data: { runId, driver: execution.driver, profile: execution.profile, logPath: log.filePath },
     });
+    requireStarting(startingEntry);
 
     const controller = new AbortController();
     let settled = false;
@@ -995,21 +1139,10 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
         await log.append({ type: 'run/cancelled' });
       },
     };
-    active.set(keyOf(project.id, node.id), {
-      projectId: project.id,
-      nodeId: node.id,
-      project,
-      node,
-      activation,
-      phase: 'running',
-      external: true,
-      execution,
-      executionLog: log,
-    });
-    deadlines.set(keyOf(project.id, node.id), node.deadlineAt);
+    const entry = await registerActivation(startingEntry, activation, { external: true, execution, executionLog: log });
     resultPromise.then(
-      (result) => finish(project.id, node.id, result).catch(() => {}),
-      (error) => finishFailure(project.id, node.id, error),
+      (result) => finish(project.id, node.id, result, entry).catch(() => {}),
+      (error) => finishFailure(project.id, node.id, error, entry).catch(() => {}),
     );
     return { node: store.getNode(project.id, node.id), revision: project.revision };
   }
@@ -1148,6 +1281,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     }
     let project;
     let node;
+    let startingEntry;
     await store.withProjectLock(projectId, async () => {
       project = requireProject(projectId);
       node = requireNode(projectId, nodeId);
@@ -1206,10 +1340,14 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
           reasoningEffort: node.modelResolved.reasoningEffort ?? null,
         },
       });
+      startingEntry = { projectId, nodeId, project, node, sessionId: node.sessionId, anchorSessionId: node.anchorSessionId, activation: null, phase: 'starting', external: externalExecution };
+      active.set(keyOf(projectId, nodeId), startingEntry);
+      deadlines.set(keyOf(projectId, nodeId), node.deadlineAt);
     });
 
     try {
       await git.ensureWorktree(project, node);
+      requireStarting(startingEntry);
       if (externalExecution) {
         if (node.kind === 'merge') {
           throw new LabError('bad_request', 'merge nodes require the dsh execution profile', 400);
@@ -1217,14 +1355,16 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
         if (node.lease?.placement === 'fleet') {
           throw new LabError('unsupported', 'external execution profiles currently require local placement', 409);
         }
-        return await startExternalNode(project, node, execution);
+        return await startExternalNode(project, node, execution, startingEntry);
       }
       const anchor = await ensureAnchor(project, node);
+      requireStarting(startingEntry);
       let remotePrompt = '';
       if (node.lease?.placement === 'fleet') {
         const remote = await prepareRemoteRun({ project, node, lease: node.lease, cluster });
         remotePrompt = remote.prompt;
         await store.withProjectLock(projectId, async () => {
+          requireStarting(startingEntry);
           const remoteProject = requireProject(projectId);
           const remoteNode = requireNode(projectId, nodeId);
           remoteNode.remote = {
@@ -1246,14 +1386,16 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
           machineIds: (node.lease.machines ?? []).map((group) => group.machineId),
         };
       }
+      requireStarting(startingEntry);
       if (node.kind === 'merge') {
         await prepareMerge(project, node);
+        requireStarting(startingEntry);
         const mergeActivation = await ctx.subagents.startActivation({
           provider: 'spawn',
           label: `mir-merge/${project.id}/${node.id}`,
           delivery: 'caller',
           signal: lifetime.signal,
-          childId: node.sessionId,
+          childId: startingEntry.sessionId,
           request: {
             parent: anchor,
             cwd: node.git.worktreePath,
@@ -1262,29 +1404,19 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
             agentOptions: selectionToAgentOptions(selection),
           },
         });
-        seedNodeSandbox(node.sessionId, project, node);
-        active.set(keyOf(projectId, nodeId), {
-          projectId,
-          nodeId,
-          project,
-          node,
-          activation: mergeActivation,
-          anchorSessionId: node.anchorSessionId,
-          phase: 'running',
-          mode: 'merge',
-        });
-        deadlines.set(keyOf(projectId, nodeId), node.deadlineAt);
-        const mergeChild = ctx.agents.get(node.sessionId);
+        const mergeEntry = await registerActivation(startingEntry, mergeActivation, { mode: 'merge' });
+        seedNodeSandbox(mergeEntry.sessionId, project, node);
+        const mergeChild = ctx.agents.get(mergeEntry.sessionId);
         const mergeCwd = mergeChild?.session?.header?.cwd;
         if (mergeCwd !== undefined && !sameFsPath(mergeCwd, node.git.worktreePath)) {
           await terminate(projectId, nodeId, 'failure', {
-            message: `sandbox boundary mismatch: ${mergeCwd} != ${node.git.worktreePath}`,
+            message: `sandbox boundary mismatch: ${mergeCwd} != ${node.git.worktreePath}`, expectedEntry: mergeEntry,
           });
           throw new LabError('sandbox_mismatch', 'merge session cwd does not equal the node worktree', 409);
         }
         mergeActivation.result.then(
-          (result) => onMergeTurnEnd(projectId, nodeId, result).catch(() => {}),
-          (error) => finishFailure(projectId, nodeId, error),
+          (result) => onMergeTurnEnd(projectId, nodeId, result, mergeEntry).catch(() => {}),
+          (error) => finishFailure(projectId, nodeId, error, mergeEntry).catch(() => {}),
         );
         return { node: store.getNode(projectId, nodeId), revision: store.getProject(projectId).revision };
       }
@@ -1293,7 +1425,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
         label: `mir/${project.id}/${node.id}`,
         delivery: 'caller',
         signal: lifetime.signal,
-        childId: node.sessionId,
+        childId: startingEntry.sessionId,
         request: {
           parent: anchor,
           cwd: node.git.worktreePath,
@@ -1303,197 +1435,187 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
           outputSchema: NODE_REPORT_SCHEMA,
         },
       });
-      seedNodeSandbox(node.sessionId, project, node);
-      const activeEntry = {
-        projectId,
-        nodeId,
-        project,
-        node,
-        activation,
-        anchorSessionId: node.anchorSessionId,
-        phase: 'running',
-      };
-      active.set(keyOf(projectId, nodeId), activeEntry);
-      deadlines.set(keyOf(projectId, nodeId), node.deadlineAt);
-      const child = ctx.agents.get(node.sessionId);
+      const activeEntry = await registerActivation(startingEntry, activation);
+      seedNodeSandbox(activeEntry.sessionId, project, node);
+      const child = ctx.agents.get(activeEntry.sessionId);
       const childCwd = child?.session?.header?.cwd;
       if (childCwd !== undefined && !sameFsPath(childCwd, node.git.worktreePath)) {
         await terminate(projectId, nodeId, 'failure', {
-          message: `sandbox boundary mismatch: ${childCwd} != ${node.git.worktreePath}`,
+          message: `sandbox boundary mismatch: ${childCwd} != ${node.git.worktreePath}`, expectedEntry: activeEntry,
         });
         throw new LabError('sandbox_mismatch', 'worker session cwd does not equal the node worktree', 409);
       }
       activation.result.then(
-        (result) => finish(projectId, nodeId, result).catch(() => {}),
-        (error) => finishFailure(projectId, nodeId, error),
+        (result) => finish(projectId, nodeId, result, activeEntry).catch(() => {}),
+        (error) => finishFailure(projectId, nodeId, error, activeEntry).catch(() => {}),
       );
       return { node: store.getNode(projectId, nodeId), revision: project.revision };
     } catch (error) {
-      const failed = active.get(keyOf(projectId, nodeId));
-      if (!failed) {
-        const current = store.getNode(projectId, nodeId);
-        if (current) {
-          await failStart(store.getProject(projectId), current, error);
-          await disposeAnchor(current);
+      const failed = await claimEntry(projectId, nodeId, 'finishing', { expected: startingEntry, allowStarting: true });
+      if (failed) {
+        try {
+          await failStart(store.getProject(projectId), node, error);
+          await disposeActivation(failed);
+          await disposeAnchor({ anchorSessionId: startingEntry.anchorSessionId });
+        } finally {
+          forgetEntry(failed);
         }
       }
       throw error;
     }
   }
 
-  async function finishFailure(projectId, nodeId, error) {
-    const key = keyOf(projectId, nodeId);
-    const entry = active.get(key);
-    if (!entry || entry.phase !== 'running') return;
-    entry.phase = 'finishing';
-    active.delete(key);
-    deadlines.delete(key);
+  async function finishFailure(projectId, nodeId, error, expected) {
+    const entry = await claimEntry(projectId, nodeId, 'finishing', { expected });
+    if (!entry) return;
     const project = store.getProject(projectId);
     const node = store.getNode(projectId, nodeId);
-    if (node && entry.external) {
-      node.executionRun = {
-        ...(node.executionRun ?? {}),
-        status: 'failed',
-        endedAt: Date.now(),
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-    if (project && node) await failNode(project, node, error, 'run');
     try {
-      await entry.activation.dispose();
-    } catch {
-      // already settled
+      if (node && entry.external) {
+        node.executionRun = {
+          ...(node.executionRun ?? {}), status: 'failed', endedAt: Date.now(),
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+      if (project && node) await failNode(project, node, error, 'run');
+    } finally {
+      await disposeActivation(entry);
+      if (node) await disposeAnchor({ anchorSessionId: entry.anchorSessionId });
+      forgetEntry(entry);
     }
-    if (node) await disposeAnchor(node);
   }
 
   async function terminate(projectId, nodeId, kind, payload = {}) {
-    const key = keyOf(projectId, nodeId);
-    const entry = active.get(key);
-    if (!entry || entry.phase !== 'running') return null;
-    entry.phase = 'terminating';
-    active.delete(key);
-    deadlines.delete(key);
-
-    const requestedAt = Date.now();
-    const child = ctx.agents.get(nodeId === undefined ? '' : entry.node.sessionId);
-    if (child && typeof child.cancel === 'function') {
-      try {
-        child.cancel({ kind: 'parent' });
-      } catch {
-        // cancellation is cooperative
-      }
-    }
-    // Cancelling the activation escalates if the child ignores the first cancel.
+    const entry = await claimEntry(projectId, nodeId, 'terminating', {
+      expected: payload.expectedEntry, deadlineAt: payload.expectedDeadlineAt, allowStarting: true,
+    });
+    if (!entry) return null;
     try {
-      await Promise.race([entry.activation.dispose(), sleep(8000)]);
-    } catch {
-      // ignore dispose failure; the reaper still runs
-    }
-    if (entry.external) {
-      try {
-        entry.node.executionRun = {
-          ...(entry.node.executionRun ?? {}),
-          status: kind === 'cancelled' ? 'cancelled' : 'terminated',
-          endedAt: Date.now(),
-          termination: kind,
-        };
-      } catch {
-        // status is best-effort
+      const requestedAt = Date.now();
+      const child = ctx.agents.get(entry.sessionId);
+      if (child && typeof child.cancel === 'function') {
+        try {
+          child.cancel({ kind: 'parent' });
+        } catch {
+          // cancellation is cooperative
+        }
       }
-    }
-    const killedJobs = await killSessionJobs(entry.node.sessionId);
-    const reaped = await reapWorktree(entry.node.git.worktreePath);
-    const gpu = await checkGpu(reaped.killedPids);
-
-    const project = store.getProject(projectId);
-    const node = store.getNode(projectId, nodeId);
-    if (project && node) {
+      // Activation disposal escalates if the child ignores the first cancel.
+      await disposeActivation(entry, 8000);
       if (entry.external) {
-        node.executionRun = {
-          ...(node.executionRun ?? entry.node.executionRun ?? {}),
-          status: kind === 'cancel' ? 'cancelled' : 'terminated',
-          endedAt: Date.now(),
-          termination: kind,
-        };
+        try {
+          entry.node.executionRun = {
+            ...(entry.node.executionRun ?? {}),
+            status: kind === 'cancel' ? 'cancelled' : 'terminated',
+            endedAt: Date.now(),
+            termination: kind,
+          };
+        } catch {
+          // status is best-effort
+        }
       }
-      try {
-        const commit = await git.commitWorktree(project, node, `dshex(${node.id}): ${node.title} (${kind})`);
-        node.git.headCommit = commit.head;
-      } catch {
-        // best-effort
-      }
-      await releaseNode(project, node);
-      applyUsage(project, node, await sessionUsage(entry.node.sessionId));
-      endAttempt(node, {
-        stopReason: kind === 'cancel' ? 'cancelled' : 'timeout',
-        status: kind === 'cancel' ? 'cancelled' : 'failed',
-      });
-      const leftover = [...reaped.leftover, ...gpu.leftover];
-      node.termination = {
-        kind,
-        requestedAt,
-        killedAt: Date.now(),
-        killedPids: reaped.killedPids,
-        killedJobs,
-        gpuFreed: gpu.gpuFreed,
-        verifiedClean: leftover.length === 0,
-        leftover,
-        reaper: reaped.reaper,
-        reaperSupported: reaped.reaperSupported,
-        reaperNote: reaped.reaperNote,
-      };
-      node.status = kind === 'cancel' ? 'cancelled' : 'failed';
-      node.error = {
-        message: payload.message || (kind === 'cancel' ? 'cancelled by user' : 'node timed out and was terminated'),
-        at: Date.now(),
-        stage: kind === 'cancel' ? 'run' : kind === 'timeout' ? 'timeout' : 'run',
-      };
-      node.timestamps = { ...(node.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
-      const terminalEvent = kind === 'cancel'
-        ? 'node/cancelled'
-        : kind === 'resource_lost'
-          ? 'node/resource_lost'
-          : 'node/timeout';
-      await persistNode(project, node, terminalEvent, {
-        data: {
+      const killedJobs = await killSessionJobs(entry.sessionId);
+      const reaped = await reapWorktree(entry.node.git.worktreePath);
+      const gpu = await checkGpu(reaped.killedPids);
+
+      const project = store.getProject(projectId);
+      const node = store.getNode(projectId, nodeId);
+      if (project && node) {
+        if (entry.external) {
+          node.executionRun = {
+            ...(node.executionRun ?? entry.node.executionRun ?? {}),
+            status: kind === 'cancel' ? 'cancelled' : 'terminated',
+            endedAt: Date.now(),
+            termination: kind,
+          };
+        }
+        try {
+          const commit = await git.commitWorktree(project, node, `dshex(${node.id}): ${node.title} (${kind})`);
+          node.git.headCommit = commit.head;
+        } catch {
+          // best-effort
+        }
+        await releaseNode(project, node);
+        applyUsage(project, node, await sessionUsage(entry.sessionId));
+        endAttempt(node, {
+          stopReason: kind === 'cancel' ? 'cancelled' : 'timeout',
+          status: kind === 'cancel' ? 'cancelled' : 'failed',
+        });
+        const leftover = [...reaped.leftover, ...gpu.leftover];
+        node.termination = {
           kind,
-          killedPids: reaped.killedPids.length,
-          killedJobs: killedJobs.length,
-          verifiedClean: node.termination.verifiedClean,
+          requestedAt,
+          killedAt: Date.now(),
+          killedPids: reaped.killedPids,
+          killedJobs,
+          gpuFreed: gpu.gpuFreed,
+          verifiedClean: leftover.length === 0,
           leftover,
           reaper: reaped.reaper,
           reaperSupported: reaped.reaperSupported,
-        },
-      });
-    }
-    pendingFollowUps.delete(entry.node.sessionId);
-    await disposeAnchor(entry.node);
-    try {
-      onTerminated?.(projectId, nodeId, node?.termination ?? null);
-    } catch {
-      // GC is advisory; never block termination.
-    }
-    if (kind === 'timeout' && project && node) {
-      try {
-        await maybeAutoUpgrade(store.getProject(projectId), store.getNode(projectId, nodeId), 'timeout');
-      } catch {
-        // Escalation is best-effort; the timeout failure state stays.
+          reaperNote: reaped.reaperNote,
+        };
+        node.status = kind === 'cancel' ? 'cancelled' : 'failed';
+        node.error = {
+          message: payload.message || (kind === 'cancel' ? 'cancelled by user' : 'node timed out and was terminated'),
+          at: Date.now(),
+          stage: kind === 'cancel' ? 'run' : kind === 'timeout' ? 'timeout' : 'run',
+        };
+        node.timestamps = { ...(node.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
+        const terminalEvent = kind === 'cancel'
+          ? 'node/cancelled'
+          : kind === 'resource_lost'
+            ? 'node/resource_lost'
+            : 'node/timeout';
+        await persistNode(project, node, terminalEvent, {
+          data: {
+            kind,
+            killedPids: reaped.killedPids.length,
+            killedJobs: killedJobs.length,
+            verifiedClean: node.termination.verifiedClean,
+            leftover,
+            reaper: reaped.reaper,
+            reaperSupported: reaped.reaperSupported,
+          },
+        });
       }
+      pendingFollowUps.delete(entry.sessionId);
+      await disposeAnchor({ anchorSessionId: entry.anchorSessionId });
+      try {
+        onTerminated?.(projectId, nodeId, node?.termination ?? null);
+      } catch {
+        // GC is advisory; never block termination.
+      }
+      if (kind === 'timeout' && project && node) {
+        try {
+          await maybeAutoUpgrade(store.getProject(projectId), store.getNode(projectId, nodeId), 'timeout');
+        } catch {
+          // Escalation is best-effort; the timeout failure state stays.
+        }
+      }
+      return { node, revision: project?.revision ?? null };
+    } finally {
+      forgetEntry(entry);
     }
-    return { node, revision: project?.revision ?? null };
   }
 
   async function cancel(projectId, nodeId) {
     const project = requireProject(projectId);
     const node = requireNode(projectId, nodeId);
     const key = keyOf(projectId, nodeId);
-    if (active.has(key)) return terminate(projectId, nodeId, 'cancel');
+    if (active.has(key)) {
+      const result = await terminate(projectId, nodeId, 'cancel');
+      if (result) return result;
+      throw new LabError('node_not_cancellable', 'node is already finishing or terminating', 409);
+    }
     if (node.status !== 'planned') {
       throw new LabError('node_not_cancellable', `node ${nodeId} is ${node.status}`, 409);
     }
     await store.withProjectLock(projectId, async () => {
       const current = requireNode(projectId, nodeId);
+      if (current.status !== 'planned' || active.has(key)) {
+        throw new LabError('node_not_cancellable', 'node is no longer planned; retry cancellation against its active runtime', 409);
+      }
       current.status = 'cancelled';
       current.timestamps = { ...(current.timestamps ?? {}), completedAt: Date.now() };
       await persistNode(project, current, 'node/cancelled', { data: { kind: 'planned' } });
@@ -1502,28 +1624,28 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
   }
 
   async function completeFollowUp(pending, reasonKind) {
-    const entry = pendingFollowUps.get(pending.sessionId);
-    if (entry) pendingFollowUps.delete(pending.sessionId);
+    const entry = await claimEntry(pending.projectId, pending.nodeId, 'finishing', { expected: pending.entry });
+    if (!entry) return;
     const project = store.getProject(pending.projectId);
     const node = store.getNode(pending.projectId, pending.nodeId);
-    if (!project || !node) return;
-    deadlines.delete(keyOf(pending.projectId, pending.nodeId));
+    if (!project || !node) { forgetEntry(entry); return; }
     try {
       if (reasonKind !== 'completed') {
         const error = new Error(`follow-up turn ended: ${reasonKind}`);
         error.stage = 'run';
         throw error;
       }
+      node.cleanup = await cleanupNodeRuntime(node);
       const commit = await git.commitWorktree(project, node, `dshex(${node.id}): ${node.title} (follow-up)`);
       node.git.headCommit = commit.head;
-      node.reportText = (await lastAssistantText(node.sessionId)) || node.reportText || '';
+      node.report = null;
+      node.reportText = await lastAssistantText(node.sessionId);
+      node.reportSource = 'followUp';
+      node.reportUpdatedAt = Date.now();
+      delete node.review;
       applyUsage(project, node, await sessionUsage(node.sessionId));
-      node.followUps = [...(node.followUps ?? []), {
-        at: Date.now(),
-        user: pending.text,
-        assistant: node.reportText,
-        headCommit: commit.head,
-      }];
+      const record = node.followUps?.[pending.historyIndex];
+      if (record) Object.assign(record, { completedAt: Date.now(), assistant: node.reportText, headCommit: commit.head });
       node.status = 'completed';
       node.error = undefined;
       await releaseNode(project, node);
@@ -1532,7 +1654,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     } catch (error) {
       await failNode(project, node, error, 'run');
     } finally {
-      await disposeAnchor(node);
+      await disposeActivation(entry);
+      await disposeAnchor({ anchorSessionId: entry.anchorSessionId });
+      forgetEntry(entry);
     }
   }
 
@@ -1601,59 +1725,75 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
       );
     }
 
+    let pending;
     await store.withProjectLock(projectId, async () => {
       const project = requireProject(projectId);
       const node = requireNode(projectId, nodeId);
+      const key = keyOf(projectId, nodeId);
+      const previous = active.get(key);
       const isLiveMerge = node.kind === 'merge' && node.status === 'running';
-      const allowed =
-        node.status === 'completed' ||
-        (options.allowFailed === true && node.status === 'failed') ||
-        isLiveMerge;
-      if (!allowed) {
-        throw new LabError('node_not_continuable', `node ${nodeId} is ${node.status}, expected completed`, 409);
+      const allowed = node.status === 'completed' || (options.allowFailed === true && node.status === 'failed') || isLiveMerge;
+      if (!allowed) throw new LabError('node_not_continuable', 'node is not available for follow-up', 409);
+      if (previous && (!isLiveMerge || previous.phase !== 'idle')) {
+        throw new LabError('node_not_continuable', 'node is starting, finishing or already processing a turn; try again shortly', 409);
       }
-      const hasChildren = store
-        .listNodes(projectId)
-        .some((candidate) => {
-          if (candidate.status === 'proposed') return false;
-          const ids = Array.isArray(candidate.parentIds) ? candidate.parentIds : [candidate.parentId];
-          return ids.includes(nodeId);
-        });
-      if (hasChildren) throw new LabError('node_sealed', 'node already has successors and is sealed', 409);
+      if (isLiveMerge && (!previous || node.deadlineAt <= Date.now())) {
+        throw new LabError('node_not_continuable', 'merge deadline elapsed or runtime is unavailable', 409);
+      }
+      if (isSealed(projectId, nodeId)) throw new LabError('node_sealed', 'node already has successors and is sealed', 409);
       if (!isLiveMerge) {
         ensureCapacity(project, node);
         node.status = 'running';
-        node.resourcesHeld = Object.fromEntries(
-          Object.entries(node.needs ?? {}).filter(([key]) => key !== 'machines'),
-        );
+        node.resourcesHeld = Object.fromEntries(Object.entries(node.needs ?? {}).filter(([key]) => key !== 'machines'));
         node.deadlineAt = Date.now() + (node.timeboxMs ?? project.config.nodeTimeoutMinutes * 60_000);
       }
+      node.followUps = [...(node.followUps ?? []), {
+        at: Date.now(), user: trimmed,
+        previousReport: structuredClone(node.report ?? null),
+        previousReportText: node.reportText ?? '',
+        previousReportSource: node.reportSource ?? null,
+        previousReportUpdatedAt: node.reportUpdatedAt ?? null,
+      }];
+      node.report = null;
+      node.reportText = '';
+      delete node.reportSource;
+      delete node.reportUpdatedAt;
+      delete node.review;
+      delete node.error;
+      delete node.termination;
+      delete node.cleanup;
       node.timestamps = { ...(node.timestamps ?? {}), lastActivityAt: Date.now() };
-      await persistNode(project, node, 'node/resumed', {
-        data: { text: trimmed.slice(0, 200), retry: options.allowFailed === true },
-      });
+      await persistNode(project, node, 'node/resumed', { data: { text: trimmed.slice(0, 200), retry: options.allowFailed === true } });
+      const entry = {
+        projectId, nodeId, project, node, sessionId: node.sessionId, phase: 'running',
+        mode: node.kind === 'merge' ? 'merge' : 'followUp',
+        anchorSessionId: node.anchorSessionId,
+        activation: previous?.activation ?? null,
+      };
+      active.set(key, entry);
+      pending = {
+        sessionId: node.sessionId, projectId, nodeId, mode: entry.mode, entry, historyIndex: node.followUps.length - 1,
+        correlation: { messageId: null, claim: null, claims: new Map(), ends: [], completing: false },
+      };
+      pendingFollowUps.set(node.sessionId, pending);
+      deadlines.set(key, node.deadlineAt);
     });
-
-    const project = requireProject(projectId);
-    const node = requireNode(projectId, nodeId);
-    const pending = {
-      sessionId: node.sessionId,
-      projectId,
-      nodeId,
-      text: trimmed,
-      mode: node.kind === 'merge' ? 'merge' : 'experiment',
-    };
-    pendingFollowUps.set(node.sessionId, pending);
-    deadlines.set(keyOf(projectId, nodeId), node.deadlineAt);
     try {
+      const project = requireProject(projectId);
+      const node = requireNode(projectId, nodeId);
       const anchor = await resumeAnchor(project, node);
-      await ctx.subagents.sendMessage(anchor, node.sessionId, [{ type: 'text', text: followUpPrompt(node, trimmed) }], {
-        signal: lifetime.signal,
-      });
+      if (active.get(keyOf(projectId, nodeId)) !== pending.entry || pending.entry.phase !== 'running') {
+        throw new LabError('node_not_continuable', 'follow-up was cancelled before delivery', 409);
+      }
+      const messageId = await ctx.subagents.sendMessage(anchor, node.sessionId, [{ type: 'text', text: followUpPrompt(node, trimmed) }], { signal: lifetime.signal });
+      if (isPendingCurrent(pending) && typeof messageId === 'string' && messageId.length > 0) {
+        pending.correlation.messageId = messageId;
+        pending.correlation.claim = pending.correlation.claims.get(messageId) ?? null;
+        pending.correlation.claims.clear();
+        await completeCorrelatedFollowUp(pending);
+      }
     } catch (error) {
-      pendingFollowUps.delete(node.sessionId);
-      const current = store.getNode(projectId, nodeId);
-      if (current) await failNode(project, current, error, 'run');
+      await finishFailure(projectId, nodeId, error, pending.entry);
       throw error;
     }
     return { node: store.getNode(projectId, nodeId), revision: store.getProject(projectId).revision };
@@ -1749,68 +1889,51 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
 
   /** Human-in-the-loop completion of a merge node: verify + commit the merge. */
   async function finishMerge(projectId, nodeId, payload = {}) {
-    const key = keyOf(projectId, nodeId);
-    const entry = active.get(key);
     const project = requireProject(projectId);
     const node = requireNode(projectId, nodeId);
-    if (node.kind !== 'merge') throw new LabError('not_a_merge_node', `node ${nodeId} is not a merge node`, 409);
-    if (node.status !== 'running') {
-      throw new LabError('node_not_mergeable', `node ${nodeId} is ${node.status}, expected running`, 409);
-    }
-    // A merge agent may have left a test server or shell job behind before the
-    // human pressed "finish merge"; reap it before joining the branch.
-    node.cleanup = await cleanupNodeRuntime(node);
-    const result = await git.finishMergeInWorktree(
-      node.git.worktreePath,
-      `dshex(${node.id}): merge ${node.parentIds.join(' + ')}`,
-    );
-    if (entry) {
-      entry.phase = 'finishing';
-      active.delete(key);
-      deadlines.delete(key);
-    }
-    node.git.headCommit = result.head;
-    node.merge = {
-      ...(node.merge ?? {}),
-      state: 'committed',
-      committedAt: Date.now(),
-      committedBy: 'human',
-      headCommit: result.head,
-    };
-    node.status = 'completed';
-    node.report = {
-      summary: typeof payload.summary === 'string' && payload.summary.trim()
-        ? payload.summary.trim()
-        : `Merge of ${node.parentIds.join(' + ')} completed by the user`,
-      success: true,
-      changes: [],
-      metrics: [],
-      reproduce: [],
-      next: [],
-      risks: [],
-    };
-    node.reportText = typeof payload.message === 'string' && payload.message.trim()
-      ? payload.message.trim().slice(0, 8000)
-      : (node.lastReport ?? '');
-    applyUsage(project, node, await sessionUsage(node.sessionId));
-    endAttempt(node, { stopReason: 'completed', status: 'completed' });
-    await releaseNode(project, node);
-    node.timestamps = {
-      ...(node.timestamps ?? {}),
-      completedAt: Date.now(),
-      lastActivityAt: Date.now(),
-    };
-    await persistNode(project, node, 'node/completed', {
-      data: { kind: 'merge', headCommit: result.head, committed: result.committed, cleanup: node.cleanup ?? null },
-    });
-    if (entry) {
-      try {
-        await entry.activation.dispose();
-      } catch {
-        // already settled
+    if (node.kind !== 'merge') throw new LabError('not_a_merge_node', 'node is not a merge node', 409);
+    const entry = await claimEntry(projectId, nodeId, 'finishing');
+    if (!entry) throw new LabError('node_not_mergeable', 'merge is starting, finishing, terminating or no longer running', 409);
+    try {
+      try { ctx.agents.get(node.sessionId)?.cancel?.({ kind: 'parent' }); } catch { /* best effort */ }
+      await disposeActivation(entry, 8000);
+      node.cleanup = await cleanupNodeRuntime(node);
+      const result = await git.finishMergeInWorktree(node.git.worktreePath, `dshex(${node.id}): merge ${node.parentIds.join(' + ')}`);
+      node.git.headCommit = result.head;
+      node.merge = { ...(node.merge ?? {}), state: 'committed', committedAt: Date.now(), committedBy: 'human', headCommit: result.head };
+      node.status = 'completed';
+      // Human completion confirms a git merge, not experimental success/metrics.
+      node.report = null;
+      node.reportText = [
+        typeof payload.summary === 'string' ? payload.summary.trim().slice(0, 8000) : '',
+        typeof payload.message === 'string' && payload.message.trim() ? payload.message.trim().slice(0, 8000) : (node.lastReport ?? ''),
+      ].filter(Boolean).join('\n');
+      node.reportSource = 'merge';
+      node.reportUpdatedAt = Date.now();
+      delete node.review;
+      applyUsage(project, node, await sessionUsage(node.sessionId));
+      endAttempt(node, { stopReason: 'completed', status: 'completed' });
+      await releaseNode(project, node);
+      node.timestamps = { ...(node.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
+      await persistNode(project, node, 'node/completed', {
+        data: { kind: 'merge', headCommit: result.head, committed: result.committed, cleanup: node.cleanup ?? null },
+      });
+    } catch (error) {
+      if (node.status === 'running') {
+        await store.withProjectLock(projectId, async () => {
+          if (active.get(keyOf(projectId, nodeId)) === entry) {
+            entry.phase = 'idle';
+            deadlines.set(keyOf(projectId, nodeId), node.deadlineAt);
+          }
+        });
+      }
+      throw error;
+    } finally {
+      if (node.status !== 'running') {
+        await disposeAnchor({ anchorSessionId: entry.anchorSessionId });
+        forgetEntry(entry);
       }
     }
-    await disposeAnchor(node);
     return { node: store.getNode(projectId, nodeId), revision: store.getProject(projectId).revision };
   }
 
@@ -1823,26 +1946,70 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     });
   }
 
-  async function onSessionEvent(session, event) {
-    if (event?.type !== 'turn/end') return;
-    const pending = pendingFollowUps.get(session?.id);
-    if (!pending) return;
-    pendingFollowUps.delete(session.id);
-    const reasonKind = event?.data?.reason?.kind ?? 'unknown';
+  function isPendingCurrent(pending) {
+    return pendingFollowUps.get(pending.sessionId) === pending
+      && active.get(keyOf(pending.projectId, pending.nodeId)) === pending.entry
+      && pending.entry.phase === 'running';
+  }
+
+  // All caches belong to one live pending delivery, contain correlation metadata
+  // only, and are bounded. Receipt, claim and end can arrive in any order.
+  const pendingCorrelationLimit = 32;
+
+  async function completeCorrelatedFollowUp(pending) {
+    const correlation = pending.correlation;
+    if (!isPendingCurrent(pending) || correlation.completing || correlation.messageId === null || correlation.claim === null) return;
+    const end = correlation.ends.find((item) => item.turn === correlation.claim.turn && item.session === correlation.claim.session);
+    if (!end) return;
+    correlation.completing = true;
+    correlation.claims.clear();
+    correlation.ends.length = 0;
+    const reasonKind = end.reasonKind;
     if (pending.mode === 'merge') {
-      const project = store.getProject(pending.projectId);
-      const node = store.getNode(pending.projectId, pending.nodeId);
-      if (project && node) {
-        const entry = active.get(keyOf(pending.projectId, pending.nodeId));
-        if (entry) entry.phase = 'idle';
-        node.lastReport = (await lastAssistantText(node.sessionId)) || node.lastReport || '';
-        applyUsage(project, node, await sessionUsage(node.sessionId));
-        node.timestamps = { ...(node.timestamps ?? {}), lastActivityAt: Date.now() };
-        await persistNode(project, node, 'node/merge_turn', { data: { followUp: true, reason: reasonKind } });
+      if (reasonKind !== 'completed') {
+        await finishFailure(pending.projectId, pending.nodeId, new Error(`merge follow-up ended: ${reasonKind}`), pending.entry);
+        return;
       }
+      const text = await lastAssistantText(pending.sessionId);
+      await onMergeTurnEnd(pending.projectId, pending.nodeId, { stopReason: reasonKind, output: [{ type: 'text', text }] }, pending.entry);
+      if (pendingFollowUps.get(pending.sessionId) === pending) pendingFollowUps.delete(pending.sessionId);
       return;
     }
     await completeFollowUp(pending, reasonKind);
+  }
+
+  async function onInboxClaimed(payload) {
+    const sessionId = payload?.agent?.id;
+    const session = payload?.agent?.session;
+    const messageId = payload?.message?.id;
+    const turn = payload?.turn;
+    const pending = pendingFollowUps.get(sessionId);
+    if (!pending || !isPendingCurrent(pending) || !session || session.id !== sessionId
+      || typeof messageId !== 'string' || !messageId.length || !Number.isFinite(turn)) return;
+    const correlation = pending.correlation;
+    if (correlation.completing) return;
+    if (correlation.messageId !== null) {
+      if (correlation.messageId !== messageId) return;
+      correlation.claim ??= { turn, session };
+    } else if (!correlation.claims.has(messageId)) {
+      correlation.claims.set(messageId, { turn, session });
+      if (correlation.claims.size > pendingCorrelationLimit) correlation.claims.delete(correlation.claims.keys().next().value);
+    }
+    await completeCorrelatedFollowUp(pending);
+  }
+
+  async function onSessionEvent(session, event) {
+    if (event?.type !== 'turn/end' || !Number.isFinite(event?.data?.turn)) return;
+    const pending = pendingFollowUps.get(session?.id);
+    if (!pending || !isPendingCurrent(pending) || pending.correlation.completing) return;
+    const correlation = pending.correlation;
+    const turn = event.data.turn;
+    if (correlation.claim && (correlation.claim.turn !== turn || correlation.claim.session !== session)) return;
+    if (!correlation.ends.some((item) => item.turn === turn && item.session === session)) {
+      correlation.ends.push({ session, turn, reasonKind: event?.data?.reason?.kind ?? 'unknown' });
+      if (correlation.ends.length > pendingCorrelationLimit) correlation.ends.shift();
+    }
+    await completeCorrelatedFollowUp(pending);
   }
 
   const leaseRenewedAt = new Map();
@@ -1852,14 +2019,15 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     if (!cluster?.enabled) return;
     const now = Date.now();
     for (const [key, entry] of active.entries()) {
-      if (entry.phase !== 'running') continue;
-      const lease = entry.node?.lease;
+      if (!['running', 'idle'].includes(entry.phase)) continue;
+      const node = store.getNode(entry.projectId, entry.nodeId);
+      const lease = node?.lease;
       if (!lease?.leaseId) continue;
       const last = leaseRenewedAt.get(key) ?? 0;
       if (now - last < cluster.heartbeatMs) continue;
       leaseRenewedAt.set(key, now);
       try {
-        const renewed = await cluster.renew(lease.leaseId, (entry.node.timeboxMs ?? 600_000) + 120_000);
+        const renewed = await cluster.renew(lease.leaseId, Math.max(0, node.deadlineAt - Date.now()) + 120_000);
         if (renewed?.status === 'lost') throw new Error('lease lost');
         if (renewed?.lease) {
           lease.expiresAt = renewed.lease.expiresAt;
@@ -1964,21 +2132,18 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
   }
 
   async function tick() {
-    const now = Date.now();
     try {
       await renewLeases();
     } catch {
       // renewLeases handles per-lease failures
     }
     for (const [key, deadlineAt] of [...deadlines.entries()]) {
-      if (now < deadlineAt) continue;
+      if (Date.now() < deadlineAt) continue;
       const entry = active.get(key);
-      if (!entry || entry.phase !== 'running') {
-        deadlines.delete(key);
-        continue;
-      }
+      if (!entry) continue;
       await terminate(entry.projectId, entry.nodeId, 'timeout', {
-        message: `node exceeded its ${Math.round((entry.node.timeboxMs ?? 0) / 60000)} minute deadline and was terminated deterministically`,
+        expectedEntry: entry, expectedDeadlineAt: deadlineAt,
+        message: 'node exceeded its deadline and was terminated deterministically',
       });
     }
   }
@@ -1995,12 +2160,12 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     lifetime.abort();
     for (const entry of active.values()) {
       try {
-        entry.activation.cancel?.();
+        ctx.agents.get(entry.sessionId)?.cancel?.({ kind: 'parent' });
       } catch {
         // ignore
       }
       try {
-        entry.activation.dispose?.();
+        Promise.resolve(entry.activation?.dispose?.()).catch(() => {});
       } catch {
         // ignore
       }
@@ -2020,6 +2185,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
 
   return {
     start,
+    updateTimebox,
     cancel,
     message,
     retry,
@@ -2032,6 +2198,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster }) {
     decorateNodes,
     ensureAnchor,
     onSessionEvent,
+    onInboxClaimed,
     dispose,
   };
 }
