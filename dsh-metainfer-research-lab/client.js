@@ -11048,6 +11048,7 @@ window.__ModuleLoader__.load({
                 projectId,
                 cluster: snapshot?.cluster,
                 catalogProviders: modelProviders,
+                catalogOptions: modelOptions,
                 promptDefaults,
                 promptPlaceholders,
                 onSave: saveProjectConfig,
@@ -15627,7 +15628,7 @@ window.__ModuleLoader__.load({
 
     /** The settings entry point only links to pages; configuration lives in tabs. */
     /** Project settings page body (advisor/auto budgets/limits/pools/models/prompts). */
-    function SettingsModal({ project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders, onSave, onSavePlacementPolicy, t }) {
+    function SettingsModal({ project, projectId, cluster, catalogProviders, catalogOptions = [], promptDefaults, promptPlaceholders, onSave, onSavePlacementPolicy, t }) {
       const [draft, setDraft] = React.useState(() => settingsDraftOf(project, promptDefaults));
       const [saving, setSaving] = React.useState(false);
       const [error, setError] = React.useState('');
@@ -15954,14 +15955,15 @@ window.__ModuleLoader__.load({
                   h(LabSelect, {
                     value: row?.reasoningEffort,
                     ariaLabel: t('ws.settings.reviewer.effort') + ' ' + String(index + 1),
-                    options: [
-                      { value: '', label: t('ws.settings.reviewer.effort.auto') },
-                      { value: 'minimal', label: 'minimal' },
-                      { value: 'low', label: 'low' },
-                      { value: 'medium', label: 'medium' },
-                      { value: 'high', label: 'high' },
-                      { value: 'max', label: 'max' },
-                    ],
+                    options: (() => {
+                      const efforts = effortChoicesOf(catalogOptions, row?.provider, row?.model);
+                      const choices = [{ value: '', label: t('ws.settings.reviewer.effort.auto') }];
+                      for (const effort of efforts.efforts) choices.push({ value: effort, label: effort });
+                      if (firstString(row?.reasoningEffort) !== '' && !efforts.efforts.includes(row.reasoningEffort)) {
+                        choices.push({ value: row.reasoningEffort, label: row.reasoningEffort });
+                      }
+                      return choices;
+                    })(),
                     onChange: (event) => setReviewer(row?.id, 'reasoningEffort', event?.target.value),
                   }),
                   h(
@@ -16016,9 +16018,20 @@ window.__ModuleLoader__.load({
                   h(LabSelect, {
                     value: row?.reasoningEffort,
                     ariaLabel: t('ws.settings.modelOption.effort') + ' ' + String(index + 1),
-                    options: [{ value: '', label: t('ws.model.effort.inherit') }].concat(
-                      ['minimal', 'low', 'medium', 'high', 'max'].map((effort) => ({ value: effort, label: effort })),
-                    ),
+                    options: (() => {
+                      const efforts = effortChoicesOf(catalogOptions, row?.provider, row?.model);
+                      const choices = [{
+                        value: '',
+                        label: efforts.defaultEffort !== ''
+                          ? t('ws.model.effort.defaultNamed', { effort: efforts.defaultEffort })
+                          : t('ws.model.effort.inherit'),
+                      }];
+                      for (const effort of efforts.efforts) choices.push({ value: effort, label: effort });
+                      if (firstString(row?.reasoningEffort) !== '' && !efforts.efforts.includes(row.reasoningEffort)) {
+                        choices.push({ value: row.reasoningEffort, label: row.reasoningEffort });
+                      }
+                      return choices;
+                    })(),
                     onChange: (event) => setModelOption(row?.id, 'reasoningEffort', event?.target.value),
                   }),
                   h(LabInput, {
@@ -16515,12 +16528,12 @@ window.__ModuleLoader__.load({
     }
 
     /** Settings as a page: the full editor plus the migration phase controls. */
-    function SettingsTab({ project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders, onSave, onSavePlacementPolicy, reload, t }) {
+    function SettingsTab({ project, projectId, cluster, catalogProviders, catalogOptions = [], promptDefaults, promptPlaceholders, onSave, onSavePlacementPolicy, reload, t }) {
       return h(
         'div',
         { className: 'rl-settings-tab', 'data-testid': 'settings-tab' },
         h(SettingsModal, {
-          project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders,
+          project, projectId, cluster, catalogProviders, catalogOptions, promptDefaults, promptPlaceholders,
           onSave, onSavePlacementPolicy, t,
         }),
         h(MigrationPanel, { project, projectId, reload, t }),
