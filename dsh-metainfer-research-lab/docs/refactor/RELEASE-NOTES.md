@@ -1,5 +1,48 @@
 # v2 发布说明（草稿）
 
+## Round 41 — a temporary quota is backpressure, not no progress
+
+- **Live evidence:** `state.auto.lastPlanSkip` was
+  `lead made 1 proposal(s) but created 0; first rejection: child creation vote rejected: quota_exceeded`;
+  auto was `paused pauseReason=noProgress cycles=3 errorStreak=0 idleStreak=3`, with
+  23 nodes and no running node. The lead budget is
+  `childVotesPerHour: 20`; 23 children in ~50 minutes exhausted the rolling
+  60-minute window. The quota rejection was therefore a temporary wait, but the
+  driver counted three such cycles as an empty planner and stopped the project.
+- **Quota is a first-class number:** `childVoteQuota` in
+  `host/experts/hierarchy.js` returns `used`, `limit`, `remaining`,
+  `windowMinutes`, `resetsAt` and `resetsInMs`; `childVoteWeight` carries that
+  object on every result. The lead prompt prints
+  `Child creation quota: N/M childVotes remaining this hour ... next reset in
+  Rm` next to the resource capability section, so the next activation can pace
+  itself instead of proposing into a closed window.
+- **Readable rejection without changing the code:** `createChild` still uses
+  `LabError.code='quota_exceeded'` (previously it leaked as
+  `vote_quota_exceeded` and was caught as `create_failed`) and now says
+  `child creation vote rejected: quota_exceeded (childVotes: 20/20 used in last
+  60m; resets in 12m)`. `applyAdvisorOutput` preserves the code and quota on
+  `applied.rejected`, `cycle.lead.rejected`, the next lead feedback and
+  `cycle.throttle`; it no longer degrades to `create_failed`.
+- **Separate throttle state:** auto increments `throttledStreak`, never
+  `idleStreak`, for a `quota_exceeded`/`provider_rate_limited` cycle. A retry is
+  scheduled at the quota release instant. If the wait is at most 10 minutes the
+  driver stays running with `resumeAt`/`quotaResumeAt`; if it is longer it pauses
+  with `pauseReason='quota_backoff'` and exposes `resumeAt`,
+  `quotaRemaining`, `quotaLimit` and `lastThrottle`. The timer resumes a
+  `quota_backoff` pause automatically at `resumeAt`; no manual `auto_start` is
+  required.
+- **Provider-rate-limit class:** a rate-limited advisor (or any temporary
+  provider rejection not covered by the lead's existing max-5-minute retry
+  backoff) takes the same non-idle path; a retryable lead failure still uses its
+  existing exponential backoff and also no longer adds an idle cycle.
+- **Regression:** an exhausted lead budget leaves `idleStreak` at 0 and grows
+  `throttledStreak`; a 12-minute wait yields `pauseReason='quota_backoff'` plus
+  `resumeAt`, a 5-minute wait schedules `quotaResumeAt` without pausing, and an
+  elapsed persisted `quota_backoff` resumes without `auto_start`. The prompt
+  probe asserts the `0/20` remaining line, and the rejection probe asserts
+  `quota_exceeded` plus `resets in Rm`.
+- **Tests:** see the gates in `VERIFICATION.md` §67; Host 3080 was not restarted.
+
 ## Round 40 — resource capability and an evidence schema the model can satisfy
 
 - **Live evidence (resources):** `state.auto.lastPlanSkip` said

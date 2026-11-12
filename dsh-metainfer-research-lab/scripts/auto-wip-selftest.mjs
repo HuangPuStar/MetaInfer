@@ -389,5 +389,131 @@ await test('Round 36: a fully blocked candidate queue is planned once and pauses
   assert.match(status.lastPlanSkip, /n-0006 -> n-0010 -> n-0013/);
 });
 
+await test('Round 41: an exhausted child-vote quota is throttled, not counted as idle, and pauses on quota_backoff', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const projectId = 'p-quota-backoff';
+  await store.saveProject({
+    id: projectId, name: projectId, mode: 'auto', repo: {}, revision: 0, counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 2, maxNodes: 100, resourcePools: {}, expertsVotesPerHour: 20 },
+  });
+  const kernel = createKernel({ store });
+  kernel.load(projectId);
+  let steps = 0;
+  const resetsAt = Date.now() + 12 * 60_000;
+  const quota = { used: 20, limit: 20, remaining: 0, windowMinutes: 60, resetsAt, resetsInMs: resetsAt - Date.now() };
+  const throttle = { kind: 'child_votes', code: 'quota_exceeded', quota, at: Date.now() };
+  const auto = createAutoController({
+    store, kernel, cluster: null,
+    dispatchOnce: async () => ({ started: 0, skipped: [] }),
+    orchestrator: {
+      step: async () => {
+        steps += 1;
+        return {
+          created: [], started: [], errors: [],
+          cycle: {
+            id: 'cyc-quota', errors: [],
+            lead: { rejected: [{ code: 'quota_exceeded', reason: 'child creation vote rejected: quota_exceeded (childVotes: 20/20 used in last 60m; resets in 12m)', quota }] },
+            throttle,
+          },
+        };
+      },
+    },
+    intervalMs: 60_000,
+  });
+  auto.start(projectId);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const status = auto.statusOf(projectId);
+  assert.equal(steps, 1);
+  assert.equal(status.cycles, 1);
+  assert.equal(status.idleStreak, 0, 'a temporary quota rejection must not increment idleStreak');
+  assert.equal(status.throttledStreak, 1, 'the throttle must have its own counter');
+  assert.equal(status.pauseReason, 'quota_backoff');
+  assert.equal(status.pauseCounts.quota_backoff, 1);
+  assert.ok(status.resumeAt >= resetsAt - 1000, 'resumeAt must be the quota release instant');
+  assert.equal(status.quotaRemaining, 0);
+  assert.match(status.lastPlanSkip, /quota_exceeded/);
+  assert.match(status.lastPlanSkip, /resets in 12m/);
+  assert.match(status.lastPlanSkip, /auto retry at/);
+  const persisted = store.getProject(projectId)?.autoState;
+  assert.equal(persisted?.pauseReason, 'quota_backoff');
+  assert.equal(persisted?.resumeAt, status.resumeAt);
+  auto.dispose();
+  kernel.dispose();
+});
+
+await test('Round 41: a short quota wait is scheduled without pausing the driver', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const projectId = 'p-quota-short';
+  await store.saveProject({
+    id: projectId, name: projectId, mode: 'auto', repo: {}, revision: 0, counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 2, maxNodes: 100, resourcePools: {}, expertsVotesPerHour: 20 },
+  });
+  const kernel = createKernel({ store });
+  kernel.load(projectId);
+  let steps = 0;
+  const resetsAt = Date.now() + 5 * 60_000;
+  const quota = { used: 20, limit: 20, remaining: 0, windowMinutes: 60, resetsAt };
+  const auto = createAutoController({
+    store, kernel, cluster: null,
+    dispatchOnce: async () => ({ started: 0, skipped: [] }),
+    orchestrator: {
+      step: async () => {
+        steps += 1;
+        return { created: [], started: [], errors: [], cycle: { id: 'cyc-short', errors: [], throttle: { kind: 'child_votes', code: 'quota_exceeded', quota, at: Date.now() } } };
+      },
+    },
+    intervalMs: 60_000,
+  });
+  auto.start(projectId);
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const status = auto.statusOf(projectId);
+  assert.equal(steps, 1);
+  assert.equal(status.idleStreak, 0);
+  assert.equal(status.throttledStreak, 1);
+  assert.equal(status.pauseReason, null, 'a wait below the threshold must not pause');
+  assert.ok(status.quotaResumeAt > Date.now(), 'a retry must be scheduled');
+  assert.equal(status.quotaRemaining, 0);
+  assert.match(status.lastPlanSkip, /resets in 5m/);
+  auto.dispose();
+  kernel.dispose();
+});
+
+await test('Round 41: a quota_backoff pause resumes automatically at resumeAt', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const projectId = 'p-quota-resume';
+  await store.saveProject({
+    id: projectId, name: projectId, mode: 'auto', repo: {}, revision: 0, counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 2, maxNodes: 100, resourcePools: {}, expertsVotesPerHour: 20 },
+    autoState: {
+      status: 'paused', pauseReason: 'quota_backoff', cycles: 3, idleStreak: 0, errorStreak: 0,
+      throttledStreak: 1, resumeAt: Date.now() - 1000, quotaRemaining: 0, quotaLimit: 20,
+      lastPlanSkip: 'lead proposal throttled: quota_exceeded',
+    },
+  });
+  const kernel = createKernel({ store });
+  kernel.load(projectId);
+  let steps = 0;
+  const auto = createAutoController({
+    store, kernel, cluster: null,
+    dispatchOnce: async () => ({ started: 0, skipped: [] }),
+    orchestrator: {
+      step: async () => {
+        steps += 1;
+        return { created: [{ id: 'resumed-child' }], started: [], errors: [], cycle: { id: 'cyc-resume', errors: [] } };
+      },
+    },
+    intervalMs: 60_000,
+  });
+  await auto.tick();
+  const status = auto.statusOf(projectId);
+  assert.equal(steps, 1, 'the elapsed quota backoff must be retried without auto_start');
+  assert.equal(status.status, 'running');
+  assert.equal(status.pauseReason, null);
+  assert.equal(status.resumeAt, 0);
+  assert.equal(status.cycles, 4);
+  auto.dispose();
+  kernel.dispose();
+});
+
 process.stdout.write(`${checks - failed}/${checks} auto WIP checks passed\n`);
 process.exit(failed === 0 ? 0 : 1);

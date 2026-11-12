@@ -317,6 +317,10 @@ export function computeProjectMetrics({
       pauseReason: auto?.pauseReason ?? null,
       idleStreak: auto?.idleStreak ?? 0,
       errorStreak: auto?.errorStreak ?? 0,
+      throttledStreak: auto?.throttledStreak ?? 0,
+      quotaBackoff: auto?.pauseCounts?.quota_backoff ?? 0,
+      resumeAt: auto?.resumeAt ?? 0,
+      quotaRemaining: auto?.quotaRemaining ?? null,
     },
     planning: auto?.planning ?? null,
   };

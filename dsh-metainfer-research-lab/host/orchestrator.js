@@ -19,7 +19,7 @@ import { createReviewClaimBoard } from './dispatch/review-claims.js';
 import { createLedgerReader } from './context/ledger.js';
 import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
 import { baselineFor, normalizeExpected } from './kernel/prediction.js';
-import { BRANCH_REPORT_SCHEMA, EVIDENCE_FIELDS, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
+import { BRANCH_REPORT_SCHEMA, EVIDENCE_FIELDS, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteQuota, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
 import { MAX_CONSUMPTIONS, buildBranchCandidateQueue, candidateSkipReason, candidateStats, candidateStructureKey, replacementChainForNode } from './experts/candidates.js';
 import { assertModelSchema } from './schema-check.js';
 import { classifyRoleFailure, formatRoleFailure } from './role-errors.js';
@@ -283,6 +283,22 @@ function resourceAvailabilityLabel(project) {
   return keys.length > 0 ? keys.join(', ') : 'none';
 }
 
+function quotaResetMinutes(quota, now = Date.now()) {
+  if (!Number.isFinite(Number(quota?.resetsAt))) return null;
+  return Math.max(1, Math.ceil((Number(quota.resetsAt) - now) / 60_000));
+}
+
+function childVoteQuotaText(quota, now = Date.now()) {
+  const reset = quotaResetMinutes(quota, now);
+  return `childVotes: ${quota.used}/${quota.limit} used in last ${quota.windowMinutes}m${reset === null ? '' : `; resets in ${reset}m`}`;
+}
+
+function childVoteQuotaLine(project) {
+  const quota = childVoteQuota({ project, expertId: 'lab-lead' });
+  const reset = quotaResetMinutes(quota);
+  return `Child creation quota: ${quota.remaining}/${quota.limit} childVotes remaining this hour (rolling ${quota.windowMinutes}m${reset === null ? '' : `; next reset in ${reset}m`}).`;
+}
+
 /** Live resource facts for a role prompt (same arithmetic as status_facts). */
 function resourceFacts(project, nodes = [], cluster = null) {
   const capacity = capacityOf(project, nodes, cluster);
@@ -510,6 +526,7 @@ function leadPromptParts(project, review, branchRuns, pendingCandidates = [], op
     'A retry/replace/decouple candidate whose sourceStatus is failed may be proposed under sourceParentId with the same scope and needs; the Host allows that one replacement even though the failed child exists.',
     timeboxLimitLine(project, 'lead'),
     resourceText,
+    childVoteQuotaLine(project),
     'Escalate an exception instead of silently guessing; the chief is invisible to peers.',
     `Budget: at most ${ROLE_BUDGETS.lead.maxQueries} read calls; finish within ${roleTimeoutMs(project, 'lead') / 1000} seconds.`,
     '',
@@ -615,6 +632,8 @@ function rejectionReasonCode(result, candidate) {
   if (result?.code === 'replacement_chain_exhausted') return 'replacement_chain_exhausted';
   if (result?.code === 'invalid_timebox') return 'invalid_timebox';
   if (result?.code === 'resource_not_available') return 'resource_not_available';
+  if (result?.code === 'quota_exceeded') return 'quota_exceeded';
+  if (result?.code === 'provider_rate_limited') return 'provider_rate_limited';
   if (result?.code === 'invalid_needs') return 'invalid_needs';
   if (result?.code === 'parent_already_has_successor') {
     return candidate?.sourceStatus === 'failed' || candidate?.sourceStatus === 'cancelled'
@@ -828,7 +847,9 @@ function buildLeadTrace({ leadRun, applied, decisions, skipReason, input = null 
       candidateId: row?.candidateId ?? null,
       reason: boundedText(row?.reason, 1000),
       code: row?.code ?? null,
+      quota: row?.quota ?? null,
     })),
+    throttle: applied?.throttle ?? null,
     decisions,
     candidateDecisions: decisions,
     decisionCounts: decisions.reduce((acc, row) => {
@@ -1692,7 +1713,13 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       ? childVoteWeight({ project, nodes: store.listNodes(project.id), parent, child: node, expertId: meta.createdBy, now })
       : null;
     if (vote && vote.weight === 0) {
-      throw new LabError(vote.reason === 'duplicate' ? 'duplicate_child' : 'vote_quota_exceeded', `child creation vote rejected: ${vote.reason}`, 409);
+      if (vote.reason === 'duplicate') {
+        throw new LabError('duplicate_child', 'child creation vote rejected: duplicate', 409);
+      }
+      const detail = vote.quota ? ` (${childVoteQuotaText(vote.quota, now)})` : '';
+      const error = new LabError('quota_exceeded', `child creation vote rejected: quota_exceeded${detail}`, 409);
+      error.quota = vote.quota ?? null;
+      throw error;
     }
     const mutations = [{
       op: 'node.create',
@@ -1872,16 +1899,18 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           nodeId: null,
         };
         applied.proposalResults.push(result);
-        const rejectResult = (reason, code = null) => {
+        const rejectResult = (reason, code = null, extra = null) => {
           result.status = 'rejected';
           result.reason = reason;
           result.code = code;
+          if (extra && typeof extra === 'object') Object.assign(result, extra);
           applied.rejected.push({
             parentId: proposal?.parentId ?? null,
             title: proposal?.title ?? null,
             candidateId: result.candidateId,
             reason,
             ...(code ? { code } : {}),
+            ...(extra ?? {}),
           });
         };
         const advisorModel = advisorModels.get(proposalIndex);
@@ -2002,7 +2031,21 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
             }], { causeId: `review:${parent.id}` });
           }
         } catch (error) {
-          rejectResult(error instanceof Error ? error.message : String(error), 'create_failed');
+          const code = error instanceof LabError ? error.code : 'create_failed';
+          const quota = error?.quota ?? null;
+          rejectResult(
+            error instanceof Error ? error.message : String(error),
+            code,
+            quota ? { quota } : null,
+          );
+          if (code === 'quota_exceeded') {
+            applied.throttle = applied.throttle ?? {
+              kind: 'child_votes',
+              code,
+              quota,
+              at: Date.now(),
+            };
+          }
         }
       }
       // Mark remaining completed leaves as reviewed without new nodes, so a
@@ -2396,6 +2439,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     if (leadRun.record.output && Array.isArray(leadRun.record.output.proposals)) {
       try {
         applied = await applyAdvisorOutput(projectId, cycle, leadRun.record.output, queue.pending);
+        cycle.throttle = applied.throttle ?? null;
         cycle.createdNodeIds.push(...applied.createdNodeIds);
       } catch (error) {
         cycle.errors.push(`lead apply: ${error instanceof Error ? error.message : String(error)}`);
@@ -2546,6 +2590,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
             ? mergeAdvisorOutputs(project, successful.map((run) => run.record.output))
             : successful[0].record.output;
           const applied = await applyAdvisorOutput(projectId, cycle, merged);
+          cycle.throttle = applied.throttle ?? null;
           cycle.createdNodeIds.push(...applied.createdNodeIds);
           successful.forEach((run, index) => {
             run.record.createdNodeIds = index === 0 ? applied.createdNodeIds : [];

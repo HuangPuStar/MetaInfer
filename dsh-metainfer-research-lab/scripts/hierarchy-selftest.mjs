@@ -1079,6 +1079,57 @@ check('Round 40: the next lead activation receives the resource rejection code a
   && resourceSecondPrompt.includes('Configured resource keys: none'),
   JSON.stringify({ feedback: resourceFeedback, prompt: resourceSecondPrompt.slice(0, 1200), errors: resourceSecondCycle?.errors, skipped: resourceSecondCycle?.skipped, leadRunId: resourceSecondCycle?.leadRunId, cycle: resourceSecondCycle && { id: resourceSecondCycle.id, lead: resourceSecondCycle.lead } }));
 
+// Round 41: the lead knows its remaining child-vote quota before it proposes,
+// and an exhausted rolling window is a named throttle with reset text, not an
+// opaque/create_failed rejection.
+const quotaProjectId = 'round41-quota-p';
+const quotaNow = Date.now();
+await store.saveProject({
+  id: quotaProjectId, name: 'quota-probe', brief: 'child vote quota probe', revision: 0,
+  counters: { eventSeq: 0, nextNodeSeq: 1, nodes: 1 },
+  childVotes: Array.from({ length: 20 }, (_, index) => ({
+    expertId: 'lab-lead',
+    parentId: 'parent',
+    nodeId: `old-${index}`,
+    at: quotaNow - index * 1000,
+    weight: 1,
+  })),
+  config: {
+    maxRunningNodes: 1, resourcePools: {}, maxNodes: 30, expertsMode: 'hierarchy', migration: { phase: 2 },
+    expertsVotesPerHour: 20,
+    advisor: { maxProposalsPerPass: 1, maxProposalsPerReviewer: 1, ancestorDepth: 1, acceptMode: 'confirm', maxPendingProposals: 5, timeoutSeconds: 60, reviewers: [] },
+    auto: { maxCycles: 1 },
+  },
+  repo: { path: process.cwd(), worktreeRoot: '/tmp/hierarchy-quota-wt', baseBranch: 'main', baseCommit: 'base' },
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(quotaProjectId);
+await kernel.executor.commit(quotaProjectId, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{ op: 'node.create', node: { id: 'parent', title: 'parent', prompt: 'do parent', status: 'completed', confidence: 0.4, git: { headCommit: 'abc' }, report: { summary: 'parent done', confidence: 0.4 }, createdBy: 'seed', timestamps: { createdAt: 1, completedAt: 2 } } }],
+});
+const quotaPromptBefore = leadPromptCaptures.filter((row) => row.projectId === quotaProjectId).length;
+const quotaStep = await prodOrch.step(quotaProjectId, 'round41-quota-probe');
+const quotaCycle = store.listCycles(quotaProjectId, 1)[0];
+const quotaPrompt = leadPromptCaptures.filter((row) => row.projectId === quotaProjectId)[quotaPromptBefore]?.prompt ?? '';
+const quotaRejection = quotaCycle?.lead?.rejected?.[0] ?? null;
+check('Round 41: the lead prompt states the remaining child-creation quota',
+  quotaPrompt.includes('Child creation quota: 0/20 childVotes remaining this hour')
+  && quotaPrompt.includes('next reset in'),
+  JSON.stringify({ prompt: quotaPrompt.slice(0, 1800), step: quotaStep, errors: quotaCycle?.errors }));
+check('Round 41: an exhausted child-vote quota is a named throttle with a reset instant',
+  quotaStep.created.length === 0
+  && quotaRejection?.code === 'quota_exceeded'
+  && /child creation vote rejected: quota_exceeded/.test(quotaRejection?.reason ?? '')
+  && /childVotes: 20\/20 used in last 60m/.test(quotaRejection?.reason ?? '')
+  && /resets in \d+m/.test(quotaRejection?.reason ?? '')
+  && quotaRejection?.quota?.used === 20
+  && quotaRejection?.quota?.limit === 20
+  && quotaRejection?.quota?.remaining === 0
+  && quotaCycle?.throttle?.code === 'quota_exceeded'
+  && quotaCycle?.throttle?.kind === 'child_votes',
+  JSON.stringify({ rejection: quotaRejection, throttle: quotaCycle?.throttle, errors: quotaCycle?.errors }));
+
 const prodMetrics = await service.metricsFor(prodId);
 check('5.4/C2: production metrics expose coverage, compression, chief ratio and escalation rate', prodMetrics.review?.levels?.join(',') === 'branch,lead,chief' && prodMetrics.review.coverage?.completed >= 1 && prodMetrics.review.compression?.length === 3 && prodMetrics.review.chief?.count === 1 && typeof prodMetrics.review.escalationRate?.ratio === 'number', JSON.stringify(prodMetrics.review));
 

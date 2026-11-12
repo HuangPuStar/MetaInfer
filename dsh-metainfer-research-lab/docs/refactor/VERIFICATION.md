@@ -8513,3 +8513,127 @@ context.
 | Host 3080 | not restarted |
 
 Live `prj-e1cbb8e1` was not mutated.
+
+## 67. Round 41 — quota backpressure is not no progress
+
+### 67.1 Live evidence
+
+```text
+state.auto.lastPlanSkip:
+lead made 1 proposal(s) but created 0; first rejection: child creation vote rejected: quota_exceeded
+
+state.auto:
+paused pauseReason=noProgress cycles=3 errorStreak=0 idleStreak=3 nodes=23 running=[]
+```
+
+`lab-lead` has `childVotesPerHour: 20`. Twenty-three children in roughly 50
+minutes exhausted the rolling 60-minute window, so the rejection was temporary
+backpressure. `childVoteWeight` returned only
+`{weight: 0, reason: 'quota_exceeded'}`; `createChild` re-coded it as
+`vote_quota_exceeded`; `applyAdvisorOutput` caught that as `create_failed`; and
+auto counted the proposal-less cycle as one more `idleStreak`, then paused on
+`noProgress`.
+
+### 67.2 Shared quota clock and prompt
+
+`childVoteQuota({ project, expertId, now })` returns:
+
+```json
+{
+  "expertId": "lab-lead",
+  "limit": 20,
+  "maxPerHour": 20,
+  "windowMs": 3600000,
+  "windowMinutes": 60,
+  "used": 20,
+  "remaining": 0,
+  "oldestVoteAt": 1794443891015,
+  "resetsAt": 1794447491015,
+  "resetsInMs": 720000
+}
+```
+
+`childVoteWeight` attaches it to counted, duplicate and quota results. The lead
+prompt places one line next to `# Resource capability`:
+
+```text
+Child creation quota: 0/20 childVotes remaining this hour
+(rolling 60m; next reset in 12m).
+```
+
+### 67.3 Rejection keeps its code and names the reset
+
+```text
+child creation vote rejected: quota_exceeded
+(childVotes: 20/20 used in last 60m; resets in 12m)
+
+code: quota_exceeded
+```
+
+`createChild` raises `LabError('quota_exceeded', ...)` with a `quota` payload.
+`applyAdvisorOutput` copies the code (not `create_failed`) and quota into
+`applied.rejected` / `proposalResults`; `buildLeadTrace` carries it into
+`cycle.lead.rejected` and sets `cycle.throttle`:
+
+```json
+{
+  "kind": "child_votes",
+  "code": "quota_exceeded",
+  "quota": { "used": 20, "limit": 20, "remaining": 0, "resetsAt": 1794447491015 },
+  "at": 1794446771015
+}
+```
+
+The quota code also appears in `rejectionReasonCode` and the next lead
+activation's previous-rejection feedback; it never becomes `create_failed`.
+
+### 67.4 Auto state machine
+
+For a cycle with a quota/rate-limit throttle and no progress:
+
+```text
+idleStreak        unchanged (the report above remains 0 in the reproduction)
+throttledStreak   +1
+lastThrottle      { kind, code, quota, at, resumeAt, skipReason }
+resumeAt          quota.resetsAt (or a bounded fallback)
+quotaRemaining    quota.remaining; quotaLimit = quota.limit
+```
+
+If `resumeAt - now <= 10 * 60_000`, auto stays `running` and sets
+`quotaResumeAt`; the timer retries at that instant. If the wait is longer, it
+pauses with `pauseReason='quota_backoff'`; `tick()` sees the elapsed
+`resumeAt`, changes the state back to `running`, records `auto/resumed`, and
+calls `tickOne` without `auto_start`. A retryable lead failure still uses its
+existing exponential `leadBackoffUntil` and no longer increments `idleStreak`;
+a provider-rate-limited advisor is treated as the same temporary class.
+
+`statusOf`/`state.auto`, status facts (`driver`) and metrics now expose
+`throttledStreak`, `lastThrottle`, `resumeAt`, `quotaResumeAt`,
+`quotaRemaining`, `quotaLimit`, and the `quota_backoff` pause count.
+
+### 67.5 Regression
+
+```text
+ok Round 41: an exhausted child-vote quota is throttled, not counted as idle, and pauses on quota_backoff
+ok Round 41: a short quota wait is scheduled without pausing the driver
+ok Round 41: a quota_backoff pause resumes automatically at resumeAt
+ok Round 41: the lead prompt states the remaining child-creation quota
+ok Round 41: an exhausted child-vote quota is a named throttle with a reset instant
+```
+
+The hierarchy probe is a real `prodOrch.step` on a project with twenty recent
+`lab-lead` votes and `expertsVotesPerHour: 20`. It asserts the lead prompt's
+`0/20` line, `code='quota_exceeded'`, the exact `childVotes: 20/20 ... resets
+in Rm` text, `quota.remaining=0`, and `cycle.throttle.kind='child_votes'`.
+
+### 67.6 Gates
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1081 `ok`, 0 FAIL |
+| `auto-wip-selftest` | 19/19 |
+| `hierarchy-selftest` | all checks passed (Round 41 probes) |
+| `plugin-smoke` | 6/6 |
+| Host 3080 | not restarted |
+
+Live `prj-e1cbb8e1` was not mutated.

@@ -30,6 +30,58 @@ function leadFailureRetryable(errorText) {
   return /(stream disconnected|disconnected before completion|os error 110|econnreset|econnrefused|etimedout|socket hang up|timed out|run exceeded|deadline exceeded|rate limit|429|503|504)/i.test(text);
 }
 
+export const QUOTA_BACKOFF_THRESHOLD_MS = 10 * 60_000;
+const THROTTLE_RETRY_FALLBACK_MS = 60_000;
+
+function quotaResetText(quota, now = Date.now()) {
+  if (!Number.isFinite(Number(quota?.resetsAt))) return '';
+  const minutes = Math.max(1, Math.ceil((Number(quota.resetsAt) - now) / 60_000));
+  return `; resets in ${minutes}m`;
+}
+
+/**
+ * Round 41: a quota/rate-limit rejection is temporary backpressure, not an
+ * empty planning pass. Read the structured cycle marker first, then fall back
+ * to the lead's rejection trace for older/fake cycles.
+ */
+function throttleOfCycle(cycle) {
+  if (cycle?.throttle && typeof cycle.throttle === 'object' && cycle.throttle.code) return cycle.throttle;
+  const rows = [
+    ...(Array.isArray(cycle?.lead?.rejected) ? cycle.lead.rejected : []),
+    ...(Array.isArray(cycle?.lead?.proposalResults) ? cycle.lead.proposalResults : []),
+  ];
+  const row = rows.find((item) => item && (item.code === 'quota_exceeded' || item.code === 'provider_rate_limited'));
+  if (row) {
+    return {
+      kind: row.code === 'quota_exceeded' ? 'child_votes' : 'provider',
+      code: row.code,
+      quota: row.quota ?? null,
+      at: Number(row.at) || Date.now(),
+    };
+  }
+  // A rate-limited advisor (not the lead, which has its own retry backoff) is
+  // also temporary backpressure, not an idle planner.
+  const errors = Array.isArray(cycle?.errors) ? cycle.errors.join(' ') : '';
+  if (!cycle?.leadFailure && /provider_rate_limited|rate limit/i.test(errors)) {
+    return { kind: 'provider', code: 'provider_rate_limited', quota: null, at: Date.now() };
+  }
+  return null;
+}
+
+function throttleResumeAt(throttle, now = Date.now()) {
+  const reset = Number(throttle?.quota?.resetsAt ?? throttle?.resumeAt);
+  if (Number.isFinite(reset) && reset > now) return reset;
+  return now + THROTTLE_RETRY_FALLBACK_MS;
+}
+
+function throttleText(throttle, resumeAt, now = Date.now()) {
+  const quota = throttle?.quota;
+  const detail = quota
+    ? ` (childVotes: ${quota.used}/${quota.limit} used in last ${quota.windowMinutes ?? 60}m${quotaResetText(quota, now)})`
+    : '';
+  return `lead proposal throttled: ${throttle?.code ?? 'quota_exceeded'}${detail}; auto retry at ${new Date(resumeAt).toISOString()}`;
+}
+
 function newNodeCount(nodes) {
   // Q5: a deferred (pruned) node is still in the DAG for restoration, but it
   // must not consume a hot-node slot. Counting `nodes.length` let 40 pruned
@@ -117,6 +169,12 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
           ? persisted.lastLeadErrorDetail
           : null,
         lastLeadRetryable: typeof persisted.lastLeadRetryable === 'boolean' ? persisted.lastLeadRetryable : null,
+        throttledStreak: Number.isFinite(persisted.throttledStreak) ? persisted.throttledStreak : 0,
+        lastThrottle: persisted.lastThrottle && typeof persisted.lastThrottle === 'object' ? persisted.lastThrottle : null,
+        resumeAt: Number.isFinite(persisted.resumeAt) ? persisted.resumeAt : 0,
+        quotaResumeAt: Number.isFinite(persisted.quotaResumeAt) ? persisted.quotaResumeAt : 0,
+        quotaRemaining: Number.isFinite(persisted.quotaRemaining) ? persisted.quotaRemaining : null,
+        quotaLimit: Number.isFinite(persisted.quotaLimit) ? persisted.quotaLimit : null,
       };
       states.set(projectId, state);
     }
@@ -160,6 +218,12 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       lastLeadErrorCode: state.lastLeadErrorCode ?? null,
       lastLeadErrorDetail: state.lastLeadErrorDetail ?? null,
       lastLeadRetryable: state.lastLeadRetryable ?? null,
+      throttledStreak: state.throttledStreak ?? 0,
+      lastThrottle: state.lastThrottle ?? null,
+      resumeAt: state.resumeAt ?? 0,
+      quotaResumeAt: state.quotaResumeAt ?? 0,
+      quotaRemaining: state.quotaRemaining ?? null,
+      quotaLimit: state.quotaLimit ?? null,
       tokensUsed: tokensUsed(projectId),
       costUsed: costUsed(projectId),
       limits: {
@@ -200,6 +264,12 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
           lastLeadErrorCode: state.lastLeadErrorCode ?? null,
           lastLeadErrorDetail: state.lastLeadErrorDetail ?? null,
           lastLeadRetryable: state.lastLeadRetryable ?? null,
+          throttledStreak: state.throttledStreak ?? 0,
+          lastThrottle: state.lastThrottle ?? null,
+          resumeAt: state.resumeAt ?? 0,
+          quotaResumeAt: state.quotaResumeAt ?? 0,
+          quotaRemaining: state.quotaRemaining ?? null,
+          quotaLimit: state.quotaLimit ?? null,
         } } },
       ],
     });
@@ -244,6 +314,12 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     state.lastLeadErrorCode = null;
     state.lastLeadErrorDetail = null;
     state.lastLeadRetryable = null;
+    state.throttledStreak = 0;
+    state.lastThrottle = null;
+    state.resumeAt = 0;
+    state.quotaResumeAt = 0;
+    state.quotaRemaining = null;
+    state.quotaLimit = null;
     planners.delete(projectId);
     project.mode = 'auto';
     await saveEvent(project, 'auto/started', { at: state.startedAt });
@@ -282,6 +358,12 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     state.lastLeadErrorCode = null;
     state.lastLeadErrorDetail = null;
     state.lastLeadRetryable = null;
+    state.throttledStreak = 0;
+    state.lastThrottle = null;
+    state.resumeAt = 0;
+    state.quotaResumeAt = 0;
+    state.quotaRemaining = null;
+    state.quotaLimit = null;
     if (!state.startedAt) state.startedAt = Date.now();
     return statusOf(projectId);
   }
@@ -322,6 +404,19 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     if (!project) return;
     const auto = project.config.auto ?? {};
     const nodes = store.listNodes(projectId);
+    const nowAtStart = Date.now();
+
+    // Round 41: a short quota wait is scheduled here without stopping auto.
+    // The timer keeps ticking; when the window releases, this guard falls
+    // through and the normal cycle retries the proposal automatically.
+    if (state.quotaResumeAt > nowAtStart) {
+      state.lastPlanSkip = state.lastThrottle?.skipReason ?? `quota backoff until ${new Date(state.quotaResumeAt).toISOString()}`;
+      return undefined;
+    }
+    if (state.quotaResumeAt > 0 && state.quotaResumeAt <= nowAtStart) {
+      state.quotaResumeAt = 0;
+      state.resumeAt = 0;
+    }
 
     // --- breakers ----------------------------------------------------------
     if (state.cycles >= (auto.maxCycles ?? 50)) return pause(projectId, 'maxCycles');
@@ -432,7 +527,46 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       state.lastCycleAt = Date.now();
       planner.endPlanning({ created: result.created.length, started: result.started.length });
       const progress = result.created.length + result.started.length;
-      state.idleStreak = progress === 0 ? state.idleStreak + 1 : 0;
+      const leadFailure = leadFailureInCycle(result.cycle);
+      const throttle = progress === 0 ? throttleOfCycle(result.cycle) : null;
+      // Round 41: a throttled proposal is not an idle planner. Keep the idle
+      // streak untouched and track the temporary backpressure separately.
+      if (throttle) {
+        state.throttledStreak = (state.throttledStreak ?? 0) + 1;
+      } else {
+        state.throttledStreak = 0;
+        if (progress > 0) {
+          state.idleStreak = 0;
+          state.quotaResumeAt = 0;
+          state.resumeAt = 0;
+          state.quotaRemaining = null;
+          state.quotaLimit = null;
+        } else if (!leadFailure) {
+          state.idleStreak += 1;
+        }
+      }
+      if (throttle) {
+        const resumeAt = throttleResumeAt(throttle, Date.now());
+        const quota = throttle.quota ?? null;
+        const skipReason = throttleText(throttle, resumeAt, Date.now());
+        state.lastThrottle = {
+          kind: throttle.kind ?? 'child_votes',
+          code: throttle.code ?? 'quota_exceeded',
+          quota,
+          at: Number(throttle.at) || Date.now(),
+          resumeAt,
+          skipReason,
+        };
+        state.resumeAt = resumeAt;
+        state.quotaResumeAt = resumeAt;
+        state.quotaRemaining = Number.isFinite(Number(quota?.remaining)) ? Number(quota.remaining) : null;
+        state.quotaLimit = Number.isFinite(Number(quota?.limit)) ? Number(quota.limit) : null;
+        state.lastPlanSkip = skipReason;
+        if (resumeAt - Date.now() > QUOTA_BACKOFF_THRESHOLD_MS) {
+          return pause(projectId, 'quota_backoff');
+        }
+        return undefined;
+      }
       if (progress === 0) {
         const skipped = Array.isArray(result.skipped) ? result.skipped : [];
         state.lastPlanSkip = result.cycle?.candidates?.skipReason
@@ -444,23 +578,23 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
         state.lastPlanSkip = null;
       }
       state.errorStreak = result.errors.length > 0 ? state.errorStreak + 1 : 0;
-      if (leadFailureInCycle(result.cycle)) {
+      if (leadFailure) {
         const failedLeadRun = result.cycle?.leadRunId && typeof store.getRun === 'function'
           ? store.getRun(projectId, result.cycle.leadRunId)
           : null;
-        const leadFailure = result.cycle?.leadFailure ?? null;
+        const leadFailureRecord = result.cycle?.leadFailure ?? null;
         const errorText = result.errors.find((error) => /^lead\b/.test(String(error)))
           ?? (failedLeadRun?.failureSummary ? `lead: ${failedLeadRun.failureSummary}` : null)
           ?? 'lead failed';
-        const retryable = leadFailure?.retryable
+        const retryable = leadFailureRecord?.retryable
           ?? failedLeadRun?.retryable
           ?? leadFailureRetryable(errorText);
         const streak = (state.leadFailureStreak ?? 0) + 1;
         state.leadFailureStreak = streak;
         state.lastLeadFailureAt = Date.now();
         state.lastLeadError = errorText;
-        state.lastLeadErrorCode = leadFailure?.errorCode ?? failedLeadRun?.errorCode ?? null;
-        state.lastLeadErrorDetail = leadFailure?.errorDetail ?? failedLeadRun?.errorDetail ?? null;
+        state.lastLeadErrorCode = leadFailureRecord?.errorCode ?? failedLeadRun?.errorCode ?? null;
+        state.lastLeadErrorDetail = leadFailureRecord?.errorDetail ?? failedLeadRun?.errorDetail ?? null;
         state.lastLeadRetryable = retryable;
         if (retryable) {
           state.leadBackoffUntil = state.lastLeadFailureAt + leadRetryBackoffMs(streak);
@@ -501,6 +635,19 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     for (const project of store.listProjects()) {
       if (project.mode !== 'auto') continue;
       const state = stateOf(project.id);
+      if (state.status === 'paused' && state.pauseReason === 'quota_backoff') {
+        const resumeAt = Number(state.resumeAt) || 0;
+        if (resumeAt > 0 && Date.now() >= resumeAt) {
+          state.status = 'running';
+          state.pauseReason = null;
+          state.resumeAt = 0;
+          state.quotaResumeAt = 0;
+          state.lastPlanSkip = 'quota backoff elapsed; retrying automatically';
+          await saveEvent(project, 'auto/resumed', { reason: 'quota_backoff', at: Date.now() });
+          await tickOne(project.id);
+        }
+        continue;
+      }
       if (state.status === 'running') await tickOne(project.id);
     }
   }

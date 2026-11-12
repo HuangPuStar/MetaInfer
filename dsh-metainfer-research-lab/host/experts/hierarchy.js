@@ -430,23 +430,56 @@ export function escalationRate({ escalations = [], intents = [], alertAt = 0.25,
 
 const getPath = (obj, path) => path.split('.').reduce((current, key) => (current && typeof current === 'object' ? current[key] : undefined), obj);
 
+export const CHILD_VOTE_WINDOW_MS = 60 * 60_000;
+
+/**
+ * C8/Round 41: the lead's child-creation budget is a rolling 60-minute quota.
+ * Return the window state, not just pass/fail, so prompts, rejection text and
+ * the auto driver can all talk about the same reset instant.
+ */
+export function childVoteQuota({ project = {}, expertId = 'lab-lead', now = Date.now() }) {
+  const votes = Array.isArray(project.childVotes) ? project.childVotes : [];
+  const sameExpert = votes.filter((vote) => vote.expertId === expertId);
+  const rosterConfig = Array.isArray(project.config?.experts) ? null : project.config?.experts;
+  const descriptorBudget = getExpertDescriptor(expertId)?.budget ?? {};
+  const limit = Math.max(1, Number(project.config?.expertsVotesPerHour ?? rosterConfig?.votesPerHour ?? descriptorBudget.childVotesPerHour ?? 50));
+  const hourAgo = now - CHILD_VOTE_WINDOW_MS;
+  const recent = sameExpert
+    .filter((vote) => Number(vote.at) >= hourAgo)
+    .sort((a, b) => Number(a.at) - Number(b.at));
+  const used = recent.length;
+  const remaining = Math.max(0, limit - used);
+  const oldest = recent[0] ?? null;
+  const resetsAt = used >= limit && oldest ? Math.max(now, Number(oldest.at) + CHILD_VOTE_WINDOW_MS) : null;
+  const resetsInMs = resetsAt === null ? null : Math.max(0, resetsAt - now);
+  return {
+    expertId,
+    limit,
+    maxPerHour: limit,
+    windowMs: CHILD_VOTE_WINDOW_MS,
+    windowMinutes: 60,
+    used,
+    remaining,
+    oldestVoteAt: oldest ? Number(oldest.at) : null,
+    resetsAt,
+    resetsInMs,
+  };
+}
+
 /** C8: child creation is a vote only when dedupe/budget/quota pass. */
 export function childVoteWeight({ project = {}, nodes = [], parent = null, child = null, expertId = 'lab-lead', now = Date.now() }) {
   const votes = Array.isArray(project.childVotes) ? project.childVotes : [];
   const sameExpert = votes.filter((vote) => vote.expertId === expertId);
   const sameTarget = sameExpert.filter((vote) => vote.parentId === parent?.id && vote.nodeId === child?.id);
-  if (sameTarget.length > 0) return { weight: 0, reason: 'same_expert_same_node' };
-  const rosterConfig = Array.isArray(project.config?.experts) ? null : project.config?.experts;
-  const descriptorBudget = getExpertDescriptor(expertId)?.budget ?? {};
-  const maxPerHour = Math.max(1, Number(project.config?.expertsVotesPerHour ?? rosterConfig?.votesPerHour ?? descriptorBudget.childVotesPerHour ?? 50));
-  const hourAgo = now - 60 * 60_000;
-  if (sameExpert.filter((vote) => Number(vote.at) >= hourAgo).length >= maxPerHour) return { weight: 0, reason: 'quota_exceeded' };
+  if (sameTarget.length > 0) return { weight: 0, reason: 'same_expert_same_node', quota: childVoteQuota({ project, expertId, now }) };
+  const quota = childVoteQuota({ project, expertId, now });
+  if (quota.used >= quota.limit) return { weight: 0, reason: 'quota_exceeded', quota };
   const prompt = text(child?.prompt, 500);
   const duplicate = (nodes || []).some((node) => node && node.id !== child?.id && node.id !== child?.replacesNodeId && !node.archivedAt
     && ((prompt && node.promptHash && child?.promptHash && node.promptHash === child.promptHash)
       || (text(node.title, 200) === text(child?.title, 200) && text(node.prompt, 500) === prompt)));
-  if (duplicate) return { weight: 0, reason: 'duplicate' };
-  return { weight: 1, reason: 'counted', vote: { expertId, parentId: parent?.id ?? null, nodeId: child?.id ?? null, at: now, weight: 1 } };
+  if (duplicate) return { weight: 0, reason: 'duplicate', quota };
+  return { weight: 1, reason: 'counted', quota, vote: { expertId, parentId: parent?.id ?? null, nodeId: child?.id ?? null, at: now, weight: 1 } };
 }
 
 /** Validate depth<=3 and each layer >=3x compression. */
