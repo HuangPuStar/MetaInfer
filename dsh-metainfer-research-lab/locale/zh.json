@@ -1034,6 +1034,8 @@
     "ws.poll.nextRetry": "下一次重试约 {seconds}s 后",
     "ws.poll.offline": "连接中断，正在重试…",
     "ws.poll.retry": "立即重试",
+    "ws.state.partial": "已加载 {shown} / {total} 个节点，继续加载",
+    "ws.state.more": "继续加载",
     "ws.priority.current": "优先级 {class}",
     "ws.priority.deferred": "deferred（变体）",
     "ws.priority.lower": "↓ 降低优先级",

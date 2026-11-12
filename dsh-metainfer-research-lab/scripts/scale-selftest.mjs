@@ -273,6 +273,68 @@ await test('status facts at 5k do not depend on the node count (bounded output)'
   console.log(`     facts ${bytes} B, next=${facts.nextToStart.length}`);
 });
 
+await test('HTTP state over 10,000 nodes stays under 3 MB and omits heavy fields', async () => {
+  const projectId = 'prj-http-lean10k';
+  await store.saveProject({
+    id: projectId,
+    name: 'http lean 10k',
+    brief: 'lean projection probe',
+    repo: {},
+    revision: 1,
+    counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 5, maxNodes: 20_000 },
+    updatedAt: 0,
+  });
+  for (let index = 0; index < 10_000; index += 1) {
+    const status = index < 7_000 ? 'completed' : (index < 9_000 ? 'planned' : 'failed');
+    await store.saveNode(projectId, {
+      id: `n-${String(index).padStart(5, '0')}`,
+      title: `lean scale node ${index}`,
+      prompt: 'p'.repeat(500),
+      successCriteria: 'must not appear in the lean index',
+      status,
+      parentId: null,
+      priority: { class: 'p2', score: 0, reason: 'probe' },
+      timestamps: { createdAt: index, updatedAt: index + 1 },
+      git: { branch: 'probe', worktreePath: '/tmp/probe', baseCommit: '0' },
+      attempts: [{ index: 1 }],
+      report: status === 'completed' ? { summary: 's'.repeat(300), confidence: 0.5 } : null,
+    });
+  }
+  const service = createLabService({
+    ctx: fakeCtx, store, git: null, runtime: null, transcript: null, orchestrator: null, auto: null, cluster: null, clusterAdmin: null,
+  });
+  let cursor = null;
+  let bytes = 0;
+  let nodes = 0;
+  let pages = 0;
+  let first = null;
+  const started = nowMs();
+  do {
+    const page = await service.getState(projectId, undefined, { http: true, limit: 1000, cursor });
+    if (first === null) first = page;
+    bytes += Buffer.byteLength(JSON.stringify(page), 'utf8');
+    nodes += page.nodes.length;
+    cursor = page.nextCursor;
+    pages += 1;
+  } while (cursor && pages < 20);
+  const elapsed = nowMs() - started;
+  assert.equal(nodes, 10_000);
+  assert.equal(first.lean, true);
+  assert.equal(first.nodes.length, 1000);
+  assert.ok(bytes < 3 * 1024 * 1024, `HTTP state ${bytes} B < 3 MB`);
+  const lean = first.nodes[0];
+  assert.deepEqual(Object.keys(lean).sort(), ['id', 'parentId', 'priority', 'promptChars', 'reportChars', 'status', 'timestamps', 'title']);
+  assert.deepEqual(Object.keys(lean.priority), ['class']);
+  assert.deepEqual(Object.keys(lean.timestamps).sort(), ['createdAt', 'updatedAt']);
+  for (const field of ['prompt', 'successCriteria', 'git', 'attempts', 'report', 'parentIds']) {
+    assert.equal(Object.prototype.hasOwnProperty.call(lean, field), false, `lean node omits ${field}`);
+  }
+  assert.equal(lean.promptChars, 500);
+  assert.equal(lean.reportChars, 300);
+  console.log(`     HTTP lean state ${(bytes / 1024 / 1024).toFixed(2)} MB / ${nodes} nodes in ${elapsed.toFixed(0)} ms, ${(bytes / nodes).toFixed(0)} B/node`);
+});
+
 let failed = 0;
 for (const result of results) {
   if (result.ok) console.log(`ok   ${result.name}`);

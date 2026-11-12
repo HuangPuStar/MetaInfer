@@ -273,12 +273,17 @@ export function registerHttpRoutes(ctx, service) {
     const revision = params.get('revision');
     const limit = Number(params.get('limit'));
     const cursor = params.get('cursor');
+    const leanParam = params.get('lean');
     return ok(await service.getState(projectId, revision, {
       // HTTP never returns unslim full records: `full` would bypass the byte
       // budget S11 relies on. Internal callers still use the service directly.
-      // Every HTTP list is bounded; the client follows `nextCursor`.
+      // Every HTTP list is bounded; the client follows `nextCursor`. Above
+      // 2,000 nodes the service defaults to the lean index projection; `lean=1`
+      // or `lean=0` can override that default explicitly.
       limit: Number.isFinite(limit) && limit > 0 ? Math.min(5000, Math.trunc(limit)) : 1000,
       cursor: cursor || null,
+      http: true,
+      lean: leanParam === null ? undefined : !/^(0|false|no)$/i.test(leanParam),
     }));
   });
 

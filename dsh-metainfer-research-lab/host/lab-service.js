@@ -46,6 +46,9 @@ import { createResidentSession, RESIDENT_LIMITS } from './experts/resident.js';
 const MAX_TIMEOUT_MINUTES = 1440;
 // A state index row never carries a full prompt; the inspector loads the node.
 const STATE_PROMPT_CHARS = 400;
+// Above this DAG size the HTTP index switches to the lean projection unless
+// the caller explicitly asks for the old slim shape (`lean=false`).
+const STATE_LEAN_NODE_THRESHOLD = 2_000;
 // Upper bound on independent root nodes created together with a project.
 const MAX_ROOT_NODES = 8;
 
@@ -826,8 +829,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
    * capped here and the full records are fetched per node on selection
    * (`getNode`). Without this, 5,000 nodes serialize to ~80 MB.
    */
-  function stateNode(node) {
-    return slimStateNode(node);
+  function stateNode(node, options = {}) {
+    return slimStateNode(node, options);
   }
 
   async function getState(projectId, sinceRevision, options = {}) {
@@ -854,7 +857,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const nextCursor = limit !== null && start + rawNodes.length < allRaw.length
       ? rawNodes[rawNodes.length - 1]?.id ?? null
       : null;
-    const projected = options.full === true ? rawNodes : rawNodes.map(stateNode);
+    const lean = options.full !== true
+      && (options.lean === true
+        || (options.lean !== false && options.http === true && allRaw.length > STATE_LEAN_NODE_THRESHOLD));
+    const projected = options.full === true ? rawNodes : rawNodes.map((node) => stateNode(node, { lean }));
     const parentIds = new Set();
     for (const node of allRaw) {
       if (node.status === 'proposed') continue;
@@ -863,13 +869,20 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         : (node.parentId ? [node.parentId] : []);
       for (const id of ids) parentIds.add(id);
     }
-    const nodes = projected.map((node) => ({
-      ...node,
-      sealed: parentIds.has(node.id),
-      isLeaf: !parentIds.has(node.id),
-    }));
+    // Lean rows stay exactly the documented projection; the derived leaf
+    // badges are only attached to the richer internal projection. The client
+    // marks them locally so the inspector still fetches the full record.
+    const nodes = lean
+      ? projected
+      : projected.map((node) => ({
+          ...node,
+          sealed: parentIds.has(node.id),
+          isLeaf: !parentIds.has(node.id),
+        }));
     const edges = [];
-    for (const node of nodes) {
+    // Build edges from the unprojected records: lean nodes intentionally omit
+    // parentIds, but a multi-parent graph must not lose its extra edges.
+    for (const node of rawNodes) {
       const ids = Array.isArray(node.parentIds) && node.parentIds.length > 0
         ? node.parentIds
         : (node.parentId ? [node.parentId] : []);
@@ -908,6 +921,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       auto: auto ? auto.statusOf(projectId) : { status: 'off', pauseReason: null },
       cluster: cluster ? cluster.getStatus() : { enabled: false, mode: 'local' },
       _indexed: options.full !== true,
+      lean,
       nextCursor,
       _truncated: nextCursor !== null ? { nodes: { shown: nodes.length, total: allRaw.length } } : null,
     });
@@ -5847,8 +5861,30 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   };
 }
 
+/** A large-DAG index row: no prompt/report bodies, git, attempts or review. */
+export function leanStateNode(node) {
+  const prompt = typeof node?.prompt === 'string' ? node.prompt : '';
+  const report = node?.report && typeof node.report === 'object' ? node.report : null;
+  const summary = report && typeof report.summary === 'string' ? report.summary : '';
+  const reportText = typeof node?.reportText === 'string' ? node.reportText : '';
+  return {
+    id: node?.id ?? null,
+    status: node?.status ?? null,
+    title: typeof node?.title === 'string' ? node.title.slice(0, 200) : '',
+    parentId: typeof node?.parentId === 'string' ? node.parentId : null,
+    priority: { class: node?.priority?.class ?? null },
+    timestamps: {
+      createdAt: Number.isFinite(Number(node?.timestamps?.createdAt)) ? Number(node.timestamps.createdAt) : null,
+      updatedAt: Number.isFinite(Number(node?.timestamps?.updatedAt)) ? Number(node.timestamps.updatedAt) : null,
+    },
+    reportChars: summary.length || reportText.length,
+    promptChars: prompt.length,
+  };
+}
+
 /** Exported for the scale test: the state-index projection of one node. */
-export function slimStateNode(node) {
+export function slimStateNode(node, options = {}) {
+  if (options.lean === true) return leanStateNode(node);
   const out = { ...node };
   // A terminal failure must have a readable reason on every projection. Old
   // records may only carry executionRun/attempt errors, or `error: null`.

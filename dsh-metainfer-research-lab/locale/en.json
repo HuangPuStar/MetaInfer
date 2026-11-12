@@ -1034,6 +1034,8 @@
     "ws.poll.nextRetry": "next retry in ~{seconds}s",
     "ws.poll.offline": "Connection lost — retrying…",
     "ws.poll.retry": "Retry now",
+    "ws.state.partial": "Loaded {shown} / {total} nodes — continue loading",
+    "ws.state.more": "Load more",
     "ws.priority.current": "Priority {class}",
     "ws.priority.deferred": "deferred (variant)",
     "ws.priority.lower": "↓ Lower priority",

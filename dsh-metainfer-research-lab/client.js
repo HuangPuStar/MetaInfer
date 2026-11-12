@@ -1487,6 +1487,8 @@ window.__ModuleLoader__.load({
       "ws.settings.section.reviewers": "异构评审组",
       "ws.settings.section.routing": "路由与升级",
       "ws.settings.title": "项目设置",
+      "ws.state.more": "继续加载",
+      "ws.state.partial": "已加载 {shown} / {total} 个节点，继续加载",
       "ws.step": "▶ Step",
       "ws.step.cycleBusy": "上一轮循环仍在进行，请稍后再试。",
       "ws.step.dismiss": "关闭",
@@ -2869,6 +2871,8 @@ window.__ModuleLoader__.load({
       "ws.settings.section.reviewers": "Heterogeneous reviewers",
       "ws.settings.section.routing": "Routing & escalation",
       "ws.settings.title": "Project settings",
+      "ws.state.more": "Load more",
+      "ws.state.partial": "Loaded {shown} / {total} nodes — continue loading",
       "ws.step": "▶ Step",
       "ws.step.cycleBusy": "A cycle is still running; try again shortly.",
       "ws.step.dismiss": "Dismiss",
@@ -3781,6 +3785,17 @@ window.__ModuleLoader__.load({
       };
     }
 
+    function utf8BytesOf(value) {
+      try {
+        const text = JSON.stringify(value) ?? '';
+        if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(text).length;
+        if (typeof Buffer !== 'undefined') return Buffer.byteLength(text, 'utf8');
+        return text.length;
+      } catch {
+        return 0;
+      }
+    }
+
     /** Typed Host calls; query strings are always URL-encoded. */
     const api = {
       health(signal, t) {
@@ -3802,20 +3817,44 @@ window.__ModuleLoader__.load({
         if (typeof limit === 'number' && Number.isFinite(limit)) path += '&limit=' + encodeURIComponent(String(limit));
         return requestJson(path, { signal }, t);
       },
-      async fetchStateAll(projectId, revision, signal, t) {
+      async fetchStateAll(projectId, revision, signal, t, options = {}) {
         const first = await this.fetchState(projectId, revision, signal, t, null, 1000);
         if (first === null || typeof first !== 'object' || first.unchanged === true || !first.nextCursor) return first;
+        const maxBytes = Number.isFinite(options.maxBytes) ? Math.max(0, Number(options.maxBytes)) : 5 * 1024 * 1024;
+        const maxPages = Number.isFinite(options.maxPages) ? Math.max(1, Math.trunc(options.maxPages)) : 20;
         const nodes = Array.isArray(first.nodes) ? first.nodes.slice() : [];
         const edges = Array.isArray(first.edges) ? first.edges.slice() : [];
         let cursor = first.nextCursor;
         let pages = 1;
-        while (cursor && pages < 20) {
+        let loadedBytes = utf8BytesOf(first);
+        let truncation = null;
+        const totalNodes = Number(first?._truncated?.nodes?.total) || nodes.length;
+        while (cursor && pages < maxPages) {
           const page = await this.fetchState(projectId, null, signal, t, cursor, 1000);
           if (page === null || typeof page !== 'object' || page.unchanged === true) break;
+          const pageBytes = utf8BytesOf(page);
+          if (loadedBytes + pageBytes > maxBytes) {
+            truncation = {
+              reason: 'byteBudget',
+              bytes: { loaded: loadedBytes, max: maxBytes, nextPage: pageBytes },
+              nodes: { shown: nodes.length, total: totalNodes },
+              cursor,
+            };
+            break;
+          }
           if (Array.isArray(page.nodes)) nodes.push(...page.nodes);
           if (Array.isArray(page.edges)) edges.push(...page.edges);
+          loadedBytes += pageBytes;
           cursor = page.nextCursor ?? null;
           pages += 1;
+        }
+        if (cursor && truncation === null) {
+          truncation = {
+            reason: pages >= maxPages ? 'pageLimit' : 'more',
+            bytes: { loaded: loadedBytes, max: maxBytes, nextPage: null },
+            nodes: { shown: nodes.length, total: totalNodes },
+            cursor,
+          };
         }
         const seen = new Set();
         const uniqueEdges = edges.filter((edge) => {
@@ -3824,7 +3863,7 @@ window.__ModuleLoader__.load({
           seen.add(key);
           return true;
         });
-        return { ...first, nodes, edges: uniqueEdges, nextCursor: null, _truncated: null };
+        return { ...first, nodes, edges: uniqueEdges, nextCursor: cursor, _truncated: truncation };
       },
       fetchFacts(projectId, signal, t) {
         return requestJson(ROUTES.facts + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
@@ -5419,7 +5458,9 @@ window.__ModuleLoader__.load({
     function normalizeState(data) {
       const record = asObject(data);
       const project = asObject(record?.project);
-      const nodes = asArray(record?.nodes).filter((node) => node !== null && typeof node === 'object');
+      const nodes = asArray(record?.nodes)
+        .filter((node) => node !== null && typeof node === 'object')
+        .map((node) => record?.lean === true ? { ...node, lean: true } : node);
       const known = {};
       for (const node of nodes) {
         const id = nodeIdOf(node);
@@ -5452,16 +5493,26 @@ window.__ModuleLoader__.load({
       const auto = rawAuto !== null && typeof rawAuto === 'object' ? rawAuto : null;
       const rawCluster = record?.cluster;
       const cluster = rawCluster !== null && typeof rawCluster === 'object' ? rawCluster : null;
+      const seenEdges = new Set();
+      const uniqueEdges = edges.filter((edge) => {
+        const key = `${edge.from}->${edge.to}`;
+        if (seenEdges.has(key)) return false;
+        seenEdges.add(key);
+        return true;
+      });
       return {
         project,
         nodes,
-        edges,
+        edges: uniqueEdges,
         resources,
         worktreeRoot: firstString(record?.worktreeRoot, projectWorktreeRoot(project)),
         revision: finiteNumber(record?.revision),
         auto,
         cluster,
         pendingProposals: Math.max(0, Math.round(numberOr(record?.pendingProposals, 0))),
+        lean: record?.lean === true,
+        nextCursor: typeof record?.nextCursor === 'string' && record.nextCursor ? record.nextCursor : null,
+        truncated: record?._truncated && typeof record._truncated === 'object' ? record._truncated : null,
       };
     }
     // #endregion
@@ -5694,6 +5745,9 @@ window.__ModuleLoader__.load({
         auto: null,
         cluster: null,
         pendingProposals: 0,
+        nextCursor: null,
+        truncated: null,
+        loadingMore: false,
         error: null,
       });
       const [events, setEvents] = React.useState([]);
@@ -5727,6 +5781,9 @@ window.__ModuleLoader__.load({
           auto: null,
           cluster: null,
           pendingProposals: 0,
+          nextCursor: null,
+          truncated: null,
+          loadingMore: false,
           error: null,
         });
         setEvents([]);
@@ -5829,6 +5886,9 @@ window.__ModuleLoader__.load({
                 auto: normalized.auto,
                 pendingProposals: normalized.pendingProposals,
                 cluster: normalized.cluster,
+                nextCursor: normalized.nextCursor,
+                truncated: normalized.truncated,
+                loadingMore: false,
                 error: null,
               });
             }
@@ -5952,6 +6012,45 @@ window.__ModuleLoader__.load({
         const run = refreshRef.current;
         if (run) run();
       }, []);
+      /**
+       * Append one more `/state` page when the initial 5 MB budget stopped the
+       * bounded fetch. The Host keeps `nextCursor` instead of silently loading
+       * the whole DAG; the workspace banner exposes this explicitly.
+       */
+      const loadMore = React.useCallback(async () => {
+        const current = snapshotRef.current;
+        if (current === null || typeof current !== 'object' || !current.nextCursor || current.loadingMore) return;
+        const cursor = current.nextCursor;
+        setSnapshot((previous) => ({ ...previous, loadingMore: true }));
+        try {
+          const page = await api.fetchState(projectId, null, undefined, t, cursor, 1000);
+          if (page === null || typeof page !== 'object' || page.unchanged === true) {
+            setSnapshot((previous) => ({ ...previous, loadingMore: false }));
+            return;
+          }
+          const merged = normalizeState({
+            ...page,
+            nodes: [...(Array.isArray(current.nodes) ? current.nodes : []), ...(Array.isArray(page.nodes) ? page.nodes : [])],
+            edges: [...(Array.isArray(current.edges) ? current.edges : []), ...(Array.isArray(page.edges) ? page.edges : [])],
+          });
+          const total = Number(page?._truncated?.nodes?.total) || merged.nodes.length;
+          const truncated = page?._truncated && typeof page._truncated === 'object'
+            ? { ...page._truncated, nodes: { shown: merged.nodes.length, total } }
+            : null;
+          setSnapshot((previous) => previous.nextCursor === cursor
+            ? {
+                ...previous,
+                nodes: merged.nodes,
+                edges: merged.edges,
+                nextCursor: merged.nextCursor,
+                truncated,
+                loadingMore: false,
+              }
+            : { ...previous, loadingMore: false });
+        } catch (error) {
+          setSnapshot((previous) => ({ ...previous, loadingMore: false, error: describeError(error, t) }));
+        }
+      }, [projectId, t]);
       /** Apply an auto-mode command result (status object, or `{auto}`/`{revision}`). */
       const applyAutoResult = React.useCallback((data) => {
         const payload = asObject(data);
@@ -6004,7 +6103,7 @@ window.__ModuleLoader__.load({
         refresh();
       }, [refresh]);
 
-      return { snapshot, events, offline, refresh, retry, reload, applyAutoResult, applyCommandResult };
+      return { snapshot, events, offline, refresh, retry, reload, loadMore, applyAutoResult, applyCommandResult };
     }
 
     /** Wall-clock ticker (1s) for running-node countdowns; only active while needed. */
@@ -8914,7 +9013,7 @@ window.__ModuleLoader__.load({
     }
 
     function WorkspaceScreen({ projectId, initialNodeId, onBack, openNativeSession, openNativeFiles, retainCopilotSession, SessionProvider, renderFactorySlot, onOpenTrajectory, t }) {
-      const { snapshot, events, offline, retry, reload, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t);
+      const { snapshot, events, offline, retry, reload, loadMore, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t);
       const [selectedId, setSelectedId] = React.useState(null);
       const [continueNodeId, setContinueNodeId] = React.useState(null);
       const [busyKey, setBusyKey] = React.useState('');
@@ -9104,7 +9203,7 @@ window.__ModuleLoader__.load({
         if (selectedId === null) return undefined;
         const summary = selectedNode;
         if (summary === null) return undefined;
-        const needsFull = summary.promptComplete === false || summary.reportAvailable === true;
+        const needsFull = summary.lean === true || summary.promptComplete === false || summary.reportAvailable === true;
         if (!needsFull) {
           setFullNode(summary);
           return undefined;
@@ -9743,6 +9842,22 @@ window.__ModuleLoader__.load({
           t,
         }),
         offline !== null ? h(PollBanner, { offline, onRetry: retry, t }) : null,
+        snapshot?.nextCursor
+          ? h(
+              'div',
+              { className: 'rl-banner', role: 'status' },
+              h('span', { className: 'rl-banner-dot', 'aria-hidden': true }),
+              h('span', { className: 'rl-banner-text' }, t('ws.state.partial', {
+                shown: nodes.length,
+                total: Number(snapshot.truncated?.nodes?.total) || nodes.length,
+              })),
+              h(LabButton, {
+                label: snapshot.loadingMore ? t('ws.loading') : t('ws.state.more'),
+                variant: 'ghost',
+                onClick: () => { void loadMore(); },
+              }),
+            )
+          : null,
         actionError !== ''
           ? h(
               'div',
