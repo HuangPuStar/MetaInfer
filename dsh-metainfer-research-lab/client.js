@@ -4851,6 +4851,51 @@ window.__ModuleLoader__.load({
       if (typeof globalThis === 'undefined') return null;
       return globalThis.history ?? (globalThis.window && globalThis.window.history) ?? null;
     }
+    /** Last in-Lab route, used when the shell drops the query during a login redirect. */
+    const LAB_ROUTE_STORAGE_KEY = 'metainfer:last-route';
+    function readPersistedLabRoute() {
+      try {
+        if (typeof localStorage === 'undefined' || localStorage === null) return null;
+        const raw = localStorage.getItem(LAB_ROUTE_STORAGE_KEY);
+        if (typeof raw !== 'string' || raw === '') return null;
+        const record = JSON.parse(raw);
+        if (record === null || typeof record !== 'object' || Array.isArray(record)) return null;
+        const projectId = firstString(record.projectId);
+        if (projectId === '') return null;
+        return {
+          projectId,
+          nodeId: firstString(record.nodeId),
+          tab: normalizeLabTab(record.tab),
+        };
+      } catch (error) {
+        return null;
+      }
+    }
+    function persistLabRoute() {
+      try {
+        if (typeof localStorage === 'undefined' || localStorage === null) return false;
+        const projectId = firstString(labNavigation.projectId);
+        if (projectId === '') {
+          localStorage.removeItem(LAB_ROUTE_STORAGE_KEY);
+          return true;
+        }
+        localStorage.setItem(LAB_ROUTE_STORAGE_KEY, JSON.stringify({
+          projectId,
+          tab: normalizeLabTab(labNavigation.tab),
+          nodeId: firstString(labNavigation.nodeId),
+        }));
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+    function clearPersistedLabRoute() {
+      try {
+        if (typeof localStorage !== 'undefined' && localStorage !== null) localStorage.removeItem(LAB_ROUTE_STORAGE_KEY);
+      } catch (error) {
+        // A disabled storage backend simply means no cross-refresh fallback.
+      }
+    }
     /** Read the deep-link contract `?project=<id>&tab=<tab>&node=<id>`. */
     function readLabLocation() {
       const location = labWebLocation();
@@ -4880,10 +4925,14 @@ window.__ModuleLoader__.load({
     function syncLabUrl({ replace = false } = {}) {
       const location = labWebLocation();
       const history = labWebHistory();
+      const projectId = firstString(labNavigation.projectId);
+      // Persist before touching History so a shell without the API still
+      // recovers the route after a refresh.
+      if (projectId === '') clearPersistedLabRoute();
+      else persistLabRoute();
       if (location === null || history === null) return;
       try {
         const url = new URL(location.href);
-        const projectId = firstString(labNavigation.projectId);
         if (projectId === '') {
           url.searchParams.delete('project');
           url.searchParams.delete('tab');
@@ -4911,8 +4960,17 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * The URL wins at boot. When the login redirect has already stripped the
+     * query, fall back to the last route persisted by the Lab itself.
+     */
+    function readBootLabRoute() {
+      const fromUrl = readLabLocation();
+      if (fromUrl.projectId !== '') return fromUrl;
+      return readPersistedLabRoute() ?? fromUrl;
+    }
     /** Module-scope navigation memory: survives the Lab panel unmounting for native sessions. */
-    const initialLabLocation = readLabLocation();
+    const initialLabLocation = readBootLabRoute();
     const labNavigation = {
       projectId: initialLabLocation.projectId,
       nodeId: initialLabLocation.nodeId,
@@ -4937,7 +4995,7 @@ window.__ModuleLoader__.load({
     }
     function rememberLabProject(projectId) {
       const id = firstString(projectId);
-      if (id === '') return;
+      if (id === '') { clearPersistedLabRoute(); return; }
       if (labNavigation.projectId !== id) {
         labNavigation.nodeId = '';
         labNavigation.tab = 'dag';
@@ -4949,11 +5007,13 @@ window.__ModuleLoader__.load({
       rememberLabProject(projectId);
       labNavigation.nodeId = firstString(nodeId);
       if (labNavigation.nodeId !== before) syncLabUrl({ replace: true });
+      else persistLabRoute();
     }
     function rememberLabTab(projectId, tab) {
       rememberLabProject(projectId);
       labNavigation.tab = normalizeLabTab(tab);
       syncLabUrl({ replace: false });
+      persistLabRoute();
     }
     function markNativeReturnTarget(projectId, nodeId) {
       rememberLabProject(projectId);
@@ -4973,6 +5033,27 @@ window.__ModuleLoader__.load({
     }
     function restoreLabNavigation() {
       return { projectId: labNavigation.projectId, nodeId: labNavigation.nodeId };
+    }
+    /**
+     * Boot recovery for the main slot: read the URL, then the persisted route.
+     * Returns true when a route exists; `selectPanel` is optional so the page
+     * can call this after mounting without reaching into the layout service.
+     */
+    function restoreBootLabRoute(selectPanel) {
+      const route = readBootLabRoute();
+      labNavigation.projectId = route.projectId;
+      labNavigation.nodeId = route.nodeId;
+      labNavigation.tab = route.tab;
+      if (route.projectId === '') return false;
+      persistLabRoute();
+      if (typeof selectPanel === 'function') {
+        try {
+          selectPanel(PANEL_ID);
+        } catch (error) {
+          return false;
+        }
+      }
+      return true;
     }
 
     /** Build the native opener bound to the plugin client context (sessions + uiWorkspace). */
@@ -18536,12 +18617,25 @@ window.__ModuleLoader__.load({
       const [activeProjectId, setActiveProjectId] = React.useState(() => labNavigation.projectId || null);
       const [activeTab, setActiveTab] = React.useState(() => labNavigation.tab);
       const [deepLinkNodeId, setDeepLinkNodeId] = React.useState(() => labNavigation.nodeId);
-      const [trajectoryOpen, setTrajectoryOpen] = React.useState(false);
-      const [trajectoryProject, setTrajectoryProject] = React.useState(null);
       React.useEffect(() => {
         if (labNavigation.returnTarget === true && activeProjectId === labNavigation.projectId) clearNativeReturnTarget();
       }, []); // eslint-disable-line react-hooks/exhaustive-deps
       React.useEffect(() => {
+        // A panel can mount after the shell booted (or after a login redirect
+        // stripped the query): read the route again here, not only at module
+        // init, and put the recovered project/tab/node back in the URL.
+        const boot = readBootLabRoute();
+        if (boot.projectId !== '' && (boot.projectId !== labNavigation.projectId
+          || boot.tab !== labNavigation.tab
+          || boot.nodeId !== labNavigation.nodeId
+          || activeProjectId !== boot.projectId)) {
+          labNavigation.projectId = boot.projectId;
+          labNavigation.tab = boot.tab;
+          labNavigation.nodeId = boot.nodeId;
+          setActiveProjectId(boot.projectId);
+          setActiveTab(boot.tab);
+          setDeepLinkNodeId(boot.nodeId);
+        }
         // Normalise a native-return project into the URL without adding a
         // history entry the user cannot explain.
         syncLabUrl({ replace: true });
@@ -18550,6 +18644,8 @@ window.__ModuleLoader__.load({
           labNavigation.projectId = next.projectId;
           labNavigation.nodeId = next.nodeId;
           labNavigation.tab = next.tab;
+          if (next.projectId === '') clearPersistedLabRoute();
+          else persistLabRoute();
           setActiveProjectId(next.projectId === '' ? null : next.projectId);
           setActiveTab(next.tab);
           setDeepLinkNodeId(next.nodeId);
@@ -18785,6 +18881,23 @@ window.__ModuleLoader__.load({
             return null;
           }
         };
+        // Boot recovery happens even when no Lab page is mounted yet: without
+        // selecting the main panel the shell stays on its default home view.
+        const bootRoute = readBootLabRoute();
+        if (bootRoute.projectId !== '' && ctx.layout !== null && ctx.layout !== undefined
+          && typeof ctx.layout.selectPanel === 'function') {
+          let bootAttempts = 0;
+          const selectBootPanel = () => {
+            bootAttempts += 1;
+            try {
+              ctx.layout.selectPanel(PANEL_ID);
+            } catch (error) {
+              if (bootAttempts < 20 && typeof setTimeout === 'function') setTimeout(selectBootPanel, 50);
+            }
+          };
+          if (typeof setTimeout === 'function') setTimeout(selectBootPanel, 0);
+          else selectBootPanel();
+        }
         const returnToLab = () => {
           clearNativeReturnTarget();
           try {
@@ -18885,6 +18998,13 @@ window.__ModuleLoader__.load({
         ReviewCurationPanel,
         ObservabilityDrawer,
         OperatorCredentialBanner,
+      };
+      exported.__testing = {
+        LAB_ROUTE_STORAGE_KEY,
+        readBootLabRoute,
+        restoreBootLabRoute,
+        persistLabRoute,
+        clearPersistedLabRoute,
       };
     }
     return exported;
