@@ -29,7 +29,8 @@ import {
 import { currentCause } from './trace.js';
 import { actorKeyOf, bindActorKeyProject, ensureActorKey, isIssuedActorKey } from './actors.js';
 
-const ACTOR_KINDS = new Set(['human', 'expert', 'dispatcher', 'mcp', 'system', 'legacy']);
+/** Actor kinds accepted by the single writer. Chief is a hierarchy actor. */
+export const ACTOR_KINDS = new Set(['human', 'expert', 'dispatcher', 'mcp', 'system', 'chief', 'legacy']);
 const IDEMPOTENCY_LIMIT = 10_000;
 
 function normalizeActor(actor) {

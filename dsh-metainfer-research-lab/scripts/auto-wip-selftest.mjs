@@ -515,6 +515,40 @@ await test('Round 41: a quota_backoff pause resumes automatically at resumeAt', 
   kernel.dispose();
 });
 
+await test('Round 44: a cycle-level commit failure is exposed before the errors pause', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const projectId = 'p-commit-error';
+  await store.saveProject({
+    id: projectId, name: projectId, mode: 'auto', repo: {}, revision: 0, counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 2, maxNodes: 100, resourcePools: {}, auto: { maxCycles: 10, idleCycleLimit: 99 } },
+  });
+  const kernel = createKernel({ store });
+  kernel.load(projectId);
+  const failure = Object.assign(new Error('unknown actor kind chief'), { code: 'invalid_commit', retryable: false });
+  let steps = 0;
+  const auto = createAutoController({
+    store, kernel, cluster: null,
+    dispatchOnce: async () => ({ started: 0, skipped: [] }),
+    orchestrator: { step: async () => { steps += 1; throw failure; } },
+    intervalMs: 60_000,
+  });
+  auto.start(projectId);
+  for (let index = 0; index < 50 && steps < 1; index += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  await auto.tick();
+  await auto.tick();
+  const status = auto.statusOf(projectId);
+  const persisted = store.getProject(projectId)?.autoState;
+  assert.equal(status.pauseReason, 'errors');
+  assert.equal(status.errorStreak, 3);
+  assert.equal(status.lastLeadError, null, 'a commit-layer failure is not a lead-run failure');
+  assert.equal(status.lastCommitError?.code, 'invalid_commit');
+  assert.match(status.lastCommitError?.message ?? '', /unknown actor kind chief/);
+  assert.match(status.lastPlanSkip ?? '', /invalid_commit/);
+  assert.equal(persisted?.lastCommitError?.code, 'invalid_commit', 'the diagnostic must survive the errors pause');
+  auto.dispose();
+  kernel.dispose();
+});
+
 await test('Round 43: a deferred child does not hide the completed parent from the planner', async () => {
   const store = await openStore(storeContext(memoryDomain()));
   const projectId = 'p-deferred-parent';

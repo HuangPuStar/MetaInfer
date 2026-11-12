@@ -9,7 +9,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 
-export const ACTOR_KINDS = Object.freeze(['expert', 'dispatcher', 'worker', 'controller', 'curator', 'arbiter', 'postmortem', 'legacy']);
+export const ACTOR_KINDS = Object.freeze([
+  'human', 'expert', 'dispatcher', 'mcp', 'system', 'chief',
+  'worker', 'controller', 'curator', 'arbiter', 'postmortem', 'legacy',
+]);
 
 const LABEL_PART = /^[A-Za-z0-9._-]+$/;
 

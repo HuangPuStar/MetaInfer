@@ -1605,6 +1605,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const autoStatus = auto?.statusOf?.(projectId) ?? null;
     const pauseReason = autoStatus?.status === 'paused' ? (autoStatus.pauseReason || 'unknown') : null;
     const blockedBy = Array.isArray(autoStatus?.blockedBy) ? autoStatus.blockedBy : [];
+    const lastCommitError = autoStatus?.lastCommitError ?? null;
     const openDisputes = (Array.isArray(project.disputes) ? project.disputes : [])
       .map((record) => effectiveDispute(record, now))
       .filter((record) => record.status === 'pending');
@@ -1642,6 +1643,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       starving,
       pauseReason,
       blockedBy,
+      lastCommitError,
       triggers: escalation,
       triggerCodes: [...TRIGGER_CODES],
       thresholdTriggers: thresholds,

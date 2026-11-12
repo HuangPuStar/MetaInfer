@@ -7,6 +7,9 @@
 import { readFileSync } from 'node:fs';
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
+import { ACTOR_KINDS as EXECUTOR_ACTOR_KINDS } from '../host/kernel/executor.js';
+import { ACTOR_KINDS as TRACE_ACTOR_KINDS } from '../host/kernel/trace.js';
+import { ACTOR_KIND } from '../host/kernel/policy.js';
 import { createLabService, slimStateNode } from '../host/lab-service.js';
 import { createOrchestrator, roleTimeoutMs, advisorPrompt } from '../host/orchestrator.js';
 import { registerAgentTool } from '../host/agent-tool.js';
@@ -45,6 +48,18 @@ const activeKey = candidateStructureKey(
   [{ id: 'p', status: 'completed' }, { id: 'd', parentId: 'p', status: 'planned', priority: { class: 'p2' } }],
 );
 check('Round 43: a deferred child changes the candidate structure key so an old successor block expires', deferredKey !== activeKey, JSON.stringify({ deferredKey, activeKey }));
+
+// Round 44: the chief is a real commit actor. The failure was a literal
+// `{ kind: 'chief' }` reaching the executor while only the production cycle
+// knew that kind existed. Keep the enums, policy mirror and source literals in
+// one check so a future actor cannot be added only at the call site.
+const orchestratorSource = readFileSync(new URL('../host/orchestrator.js', import.meta.url), 'utf8');
+const actorKindLiterals = [...orchestratorSource.matchAll(/\b(?:actor|resolvedBy|resolvedByActor|cancelledBy)\b[^\n]*?\bkind:\s*['"]([^'"]+)['"]/g)].map((match) => match[1]);
+const allKindLiterals = [...orchestratorSource.matchAll(/\bkind:\s*['"]([^'"]+)['"]/g)].map((match) => match[1]);
+const nonActorKindLiterals = new Set(['proposal', 'child_votes', 'merge']);
+check('Round 44: every actor kind literal in orchestrator.js is accepted by the executor', actorKindLiterals.length > 0 && actorKindLiterals.every((kind) => EXECUTOR_ACTOR_KINDS.has(kind)), JSON.stringify(actorKindLiterals));
+check('Round 44: every kind literal in orchestrator.js is a declared actor or known non-actor kind', allKindLiterals.every((kind) => EXECUTOR_ACTOR_KINDS.has(kind) || nonActorKindLiterals.has(kind)), JSON.stringify({ allKindLiterals: [...new Set(allKindLiterals)], missing: [...new Set(allKindLiterals)].filter((kind) => !EXECUTOR_ACTOR_KINDS.has(kind) && !nonActorKindLiterals.has(kind)) }));
+check('Round 44: executor, policy and trace actor enums carry chief without drifting', EXECUTOR_ACTOR_KINDS.has('chief') && TRACE_ACTOR_KINDS.includes('chief') && Object.values(ACTOR_KIND).every((kind) => EXECUTOR_ACTOR_KINDS.has(kind)) && [...EXECUTOR_ACTOR_KINDS].every((kind) => TRACE_ACTOR_KINDS.includes(kind)), JSON.stringify({ executor: [...EXECUTOR_ACTOR_KINDS], policy: Object.values(ACTOR_KIND), trace: TRACE_ACTOR_KINDS }));
 
 const descriptors = listExpertDescriptors();
 const chief = descriptors.filter((descriptor) => descriptor.level === 'chief');
@@ -471,6 +486,7 @@ const productionPresets = [];
 const leadPromptCaptures = [];
 const branchPromptCaptures = [];
 const chiefPromptCaptures = [];
+const chiefPendingCaptures = [];
 const prodCtx = {
   effect: () => {}, get: () => null, logger: { info() {}, warn() {} },
   agents: { get: () => null, resume: async () => { throw new Error('none'); }, create: async () => ({ agent: {} }) },
@@ -539,6 +555,10 @@ const prodCtx = {
       };
       const reports = JSON.parse(section('Branch reports') ?? '[]');
       const candidateSection = JSON.parse(section('Pending branch-report candidates') ?? '[]');
+      const pendingSection = section('Pending node');
+      let pendingNode = null;
+      try { pendingNode = pendingSection ? JSON.parse(pendingSection) : null; } catch { pendingNode = null; }
+      if (preset === 'lab-chief') chiefPendingCaptures.push({ projectId: captureProjectId, pending: pendingNode });
       const candidates = Array.isArray(candidateSection) ? candidateSection : (candidateSection.candidates ?? []);
       const leadParent = reports[0]?.branchId ?? 'parent';
       const promptProjectId = captureProjectId;
@@ -578,7 +598,14 @@ const prodCtx = {
                 : [{ parentId: leadParent, title: 'child', prompt: 'do child work', rationale: 'r', timeboxMinutes: 5, ...(resourceProbe ? { needs: ['gpu'] } : {}) }],
             }
           : preset === 'lab-chief'
-            ? { decision: 'keep', reasonCode: 'low_confidence', verifiedEvidence: [], evidenceChain: [] }
+            ? (captureProjectId === 'prod-p' && pendingNode
+              ? {
+                  decision: 'keep',
+                  reasonCode: 'low_confidence',
+                  verifiedEvidence: [{ nodeId: pendingNode.id, field: 'title', quote: pendingNode.title }],
+                  evidenceChain: [{ nodeId: pendingNode.id, field: 'title', quote: pendingNode.title }],
+                }
+              : { decision: 'keep', reasonCode: 'low_confidence', verifiedEvidence: [], evidenceChain: [] })
             : { analysis: 'x', proposals: [] };
       return { result: Promise.resolve({ stopReason: 'completed', structured }), dispose: async () => {} };
     },
@@ -641,10 +668,12 @@ check('Round 40: the chief prompt lists every allowed evidence field and the exa
   JSON.stringify({ prompt: chiefPromptText.slice(0, 2200), allowed: EVIDENCE_FIELDS }));
 
 check('B11/B14/C8: production cycle builds L0 reports and materializes one L1 p2 child', stepped.created.length === 1 && produced?.reviewLevel === 'lead' && produced?.priority?.class === 'p2' && prodCycle?.hierarchy?.l0Trigger === 'branch_event' && prodCycle?.hierarchy?.branchCount >= 1, JSON.stringify({ stepped, produced: produced && { id: produced.id, createdBy: produced.createdBy, reviewLevel: produced.reviewLevel, priority: produced.priority, pending: produced.pendingHighReview }, hierarchy: prodCycle?.hierarchy }));
-check('B14: the escalated L1 child gets a 10-minute window; an unescalated child would not', produced?.pendingHighReview?.deadlineAt - produced?.pendingHighReview?.openedAt === 10 * 60_000 && prodProject?.reviewEscalations?.length === 1, JSON.stringify({ pending: produced?.pendingHighReview, escalations: prodProject?.reviewEscalations }));
+const prodChiefPending = chiefPendingCaptures.filter((row) => row.projectId === prodId).at(-1)?.pending ?? null;
+check('B14: the escalated L1 child gets a 10-minute window; an unescalated child would not', prodChiefPending?.pendingHighReview?.deadlineAt - prodChiefPending?.pendingHighReview?.openedAt === 10 * 60_000 && prodProject?.reviewEscalations?.length === 1, JSON.stringify({ pending: prodChiefPending?.pendingHighReview, escalations: prodProject?.reviewEscalations }));
 check('C8: the same production child creation records exactly one weighted vote', prodProject?.childVotes?.length === 1 && prodProject.childVotes[0].weight === 1 && prodProject.childVotes[0].nodeId === produced?.id, JSON.stringify(prodProject?.childVotes));
-const prodResolved = await service.resolveHighReview(prodId, produced.id, { action: 'keep', reasonCode: 'low_confidence', verifiedEvidence: [{ nodeId: produced.id, field: 'title', quote: 'child' }], evidenceChain: [{ nodeId: produced.id, field: 'title', quote: 'child' }] }, chiefExec);
-check('B14: the chief can ratify the production child inside the window', prodResolved.ok === true && prodResolved.node.ratifiedBy === 'lab-chief' && prodResolved.node.pendingHighReview === null, JSON.stringify(prodResolved));
+const prodResolved = store.getNode(prodId, produced.id);
+const prodChiefEvent = store.listEvents(prodId, 0).find((event) => event.type === 'node/high_review_resolved' && event.data?.resolvedByActor?.kind === 'chief');
+check('Round 44/B14: the production chief decision commits as actor kind chief and ratifies the child', prodResolved?.highReview?.status === 'kept' && prodResolved?.ratifiedBy === 'lab-chief' && prodResolved?.pendingHighReview == null && prodResolved?.highReview?.resolvedBy?.kind === 'chief' && prodResolved?.highReview?.resolvedByRef === 'expert:lab-chief' && Boolean(prodChiefEvent) && !(prodCycle?.errors ?? []).some((entry) => /invalid_commit|unknown actor kind/.test(String(entry))), JSON.stringify({ node: prodResolved && { status: prodResolved.status, highReview: prodResolved.highReview, ratifiedBy: prodResolved.ratifiedBy, pending: prodResolved.pendingHighReview }, event: prodChiefEvent ?? null, errors: prodCycle?.errors }));
 
 const presetsBeforeSecondStep = productionPresets.length;
 await prodOrch.step(prodId, 'hierarchy-probe-2');

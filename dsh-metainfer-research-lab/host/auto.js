@@ -232,6 +232,9 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
         errorStreak: Number.isFinite(persisted.errorStreak) ? persisted.errorStreak : 0,
         lastCycleAt: Number.isFinite(persisted.lastCycleAt) ? persisted.lastCycleAt : 0,
         lastPlanSkip: persisted.lastPlanSkip ?? null,
+        lastCommitError: persisted.lastCommitError && typeof persisted.lastCommitError === 'object'
+          ? persisted.lastCommitError
+          : null,
         lastPauseAt: Number.isFinite(persisted.lastPauseAt) ? persisted.lastPauseAt : null,
         pauseCounts: persisted.pauseCounts && typeof persisted.pauseCounts === 'object' ? { ...persisted.pauseCounts } : {},
         blockedBy: Array.isArray(persisted.blockedBy) ? persisted.blockedBy : [],
@@ -282,6 +285,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       errorStreak: state.errorStreak,
       lastCycleAt: state.lastCycleAt,
       lastPlanSkip: state.lastPlanSkip,
+      lastCommitError: state.lastCommitError ?? null,
       lastPauseAt: state.lastPauseAt ?? null,
       pauseCounts: { ...state.pauseCounts },
       blockedBy: Array.isArray(state.blockedBy) ? state.blockedBy : [],
@@ -331,6 +335,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
           errorStreak: state.errorStreak,
           lastCycleAt: state.lastCycleAt,
           lastPlanSkip: state.lastPlanSkip,
+          lastCommitError: state.lastCommitError ?? null,
           lastPauseAt: state.lastPauseAt ?? null,
           pauseCounts: { ...state.pauseCounts },
           blockedBy: Array.isArray(state.blockedBy) ? state.blockedBy : [],
@@ -390,6 +395,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     state.lastCycleAt = 0;
     state.pauseCounts = {};
     state.blockedBy = [];
+    state.lastCommitError = null;
     state.leadFailureStreak = 0;
     state.leadBackoffUntil = 0;
     state.lastLeadFailureAt = null;
@@ -431,6 +437,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     state.status = 'running';
     state.pauseReason = null;
     state.blockedBy = [];
+    state.lastCommitError = null;
     // A manual resume is an explicit "try again", so it must clear the failure
     // streak: the breaker pauses at errorStreak >= 3 and would otherwise re-pause
     // on the very next tick, making auto_resume look like a no-op.
@@ -722,6 +729,17 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     } catch (error) {
       planner.endPlanning({});
       if (error instanceof LabError && error.code === 'cycle_busy') return undefined;
+      const message = error instanceof Error ? error.message : String(error);
+      const code = typeof error?.code === 'string' ? error.code : null;
+      state.lastCommitError = {
+        code,
+        message,
+        at: Date.now(),
+        cycle: state.cycles + 1,
+        trigger: trigger.trigger ? 'low_water' : 'auto',
+        retryable: error?.retryable === true,
+      };
+      state.lastPlanSkip = `cycle failed before completion: ${code ? `${code}: ` : ''}${message}`;
       state.errorStreak += 1;
       if (state.errorStreak >= 3) await pause(projectId, 'errors');
       return undefined;

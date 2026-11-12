@@ -317,6 +317,7 @@ export function computeProjectMetrics({
       driverStatus: auto?.status ?? null,
       pauseReason: auto?.pauseReason ?? null,
       blockedBy: Array.isArray(auto?.blockedBy) ? auto.blockedBy : [],
+      lastCommitError: auto?.lastCommitError ?? null,
       idleStreak: auto?.idleStreak ?? 0,
       errorStreak: auto?.errorStreak ?? 0,
       throttledStreak: auto?.throttledStreak ?? 0,

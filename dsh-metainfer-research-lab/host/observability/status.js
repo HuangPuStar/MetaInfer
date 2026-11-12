@@ -157,6 +157,7 @@ export function buildStatusFacts({ project, nodes = [], auto = null, cluster = n
           status: auto.status,
           pauseReason: auto.pauseReason ?? null,
           blockedBy: Array.isArray(auto.blockedBy) ? auto.blockedBy : [],
+          lastCommitError: auto.lastCommitError ?? null,
           cycles: auto.cycles ?? 0,
           idleStreak: auto.idleStreak ?? 0,
           errorStreak: auto.errorStreak ?? 0,

@@ -257,6 +257,7 @@ export const ACTOR_KIND = Object.freeze({
   DISPATCHER: 'dispatcher',
   MCP: 'mcp',
   SYSTEM: 'system',
+  CHIEF: 'chief',
   LEGACY: 'legacy',
 });
 
