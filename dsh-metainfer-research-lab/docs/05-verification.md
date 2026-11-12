@@ -868,3 +868,51 @@ npm test
 
 `npm test` 当前 **1178** 个 `ok`、0 FAIL、退出码 0；其中追加了页签、专家编辑、override 回溯、阶段 3 页面与失败聚类 smoke。
 当前改动在浏览器刷新后生效（client 不走 dev watcher）。
+
+## V14：启动恢复深链与旧入口清理
+
+### 深链语义修正
+
+- 插件 `apply` 在 boot 时读 `?project`，自动 `layout.selectPanel('metainfer-research-lab')`；
+  main slot 页面 mount 时再读一次，覆盖“独立 panel 稍后才挂载”的时机。
+- URL 参数缺失时回退 `localStorage['metainfer:last-route']`；URL 参数存在时 URL 优先。
+- 任何页签/节点变化写回 last-route；用户点“返回项目列表”时清除，避免下次自动跳回。
+- DSH 登录 303 的 query 丢失在 core（`dsh-client-connection` 的 `authorizeIndex`）中发生；
+  本次没有修改全局安装的 core，插件用 last-route 兜底。首次访问且无 last-route 时，
+  仍需由 DSH core 或入口链接保留 `project/tab/node`。
+
+验证：
+
+```bash
+node scripts/deep-link-boot-selftest.mjs
+node scripts/workspace-tabs-selftest.mjs
+```
+
+### 旧入口清理
+
+- 顶栏只保留 7 个动作：手动/自动、AutoStatusChip、ExpertChip、项目对话、项目菜单、回放、Step。
+- 删除 `📊`、`◫ 仪表盘`、`运行记录`、`⚙`、`轨迹与技能` 顶栏按钮；Dashboard 只以页签内嵌形态存在，
+  设置只以页面形态存在；专家库只保留专家页。
+- 集群状态入口移入项目菜单；轨迹按钮移到“会话记录”的会话/运行行。
+- 删除 `ExpertLibraryPanel` 和 `SettingsQuickLinksModal` 死组件及其专用 i18n/CSS。
+
+验证：
+
+```bash
+node scripts/topbar-actions-selftest.mjs
+node scripts/project-pages-selftest.mjs
+node scripts/client-smoke.mjs
+node scripts/locale-selftest.mjs
+npm test
+```
+
+### 顶栏压紧（1680 / 1280 实测）
+
+Playwright 打在 `http://10.16.1.89:3080`，已知项目 `schema-lite 增量演练 v2`：
+
+| 视口 | `.rl-topbar` | `[role="tablist"]` | `.rl-canvas` top | 横向溢出 | 7 tabs |
+|---|---:|---:|---:|---|---|
+| 1680×1050 | 42px | 30px | 72px | 无 | 全部可见 |
+| 1280×800 | 42px | 30px | 72px | 无 | 全部可见 |
+
+顶栏控件无截断：`scrollWidth === clientWidth`（两档都为 1400/1400、1000/1000），7 个 `topbar-action-*` 均可见；原来的 93px 换行顶栏 + 38px 页签行已消除。回归守卫：`node scripts/chrome-compact-selftest.mjs`。

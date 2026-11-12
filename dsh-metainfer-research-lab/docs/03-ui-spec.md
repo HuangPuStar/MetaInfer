@@ -52,7 +52,7 @@ window.__ModuleLoader__.load({
 
 ```
 MetaInfer Research Lab（main 面板）
-├── 顶栏：项目切换 / 仓库信息 / 模式开关 / Step / 自动挡控制 / 资源 / 快捷入口
+├── 顶栏：项目 / 仓库 / 资源 chips / 手动·自动 · AutoStatusChip · ExpertChip · 项目对话 · ⋯ 项目菜单 · 回放 · Step
 ├── 状态横幅（按需）：自动挡暂停原因、容量告警、存储错误
 ├── 项目页签（URL: ?project=<id>&tab=<tab>&node=<id>）
 │   ├── DAG：左栏任务列表 / 中央画布 / 右栏检查器 / 活动日志
@@ -63,7 +63,7 @@ MetaInfer Research Lab（main 面板）
 │   ├── 会话记录：Copilot 会话、节点执行记录、周期 / 专家运行
 │   └── 审计·争议：假设账本、高审决策链、争议
 ├── 抽屉：节点对话 / 事件 / Git 历史
-└── 模态：新建项目向导、快捷入口、添加后继、运行详情、确认框
+└── 模态：新建项目向导、添加后继、运行详情、确认框
 ```
 
 ### 2.1 页签契约
@@ -71,17 +71,19 @@ MetaInfer Research Lab（main 面板）
 | 项 | 契约 |
 |---|---|
 | 默认页 | `dag`；默认页不带 `tab` 参数 |
-| 深链 | `?project=<id>&tab=<tab>&node=<id>`，刷新和浏览器前进/后退都恢复同一页签与节点 |
+| 深链 | 面板内导航写 `?project=<id>&tab=<tab>&node=<id>`；面板内前进/后退恢复页签与节点 |
+| 启动恢复 | 插件 boot 时读 URL，并自动选中 Lab main panel；页面 mount 后再读一次，覆盖独立 panel 挂载时机 |
+| 刷新兜底 | 最后路由写入 `localStorage['metainfer:last-route']`；URL 参数缺失（例如登录 303）时恢复；用户回到项目列表即清除 |
 | 懒挂载 | 页签内容只在首次访问时挂载（`mountedTabs`），不是用 CSS 隐藏；切页签不重新请求 `/state` |
 | 可访问性 | `role="tablist"` / `role="tab"` / `role="tabpanel"`；←/→/Home/End 切页；可见焦点 |
-| 设置入口 | 顶栏齿轮只打开“快捷入口”模态；真正的配置在 `设置` 页 |
+| 设置入口 | 顶栏不设设置按钮；配置只在 `设置` 页。专家目录也只在 `专家` 页 |
 | 专家入口 | 专家管理升级为顶级 `专家` 页；设置页不再重复专家目录 |
 | 预算 | DAG 首屏仍受 `MAX_RENDERED_NODES` 窗口化与 5 MiB 状态预算约束；其余页签按需请求 |
 
 ### 2.2 页面职责
 
-- **设置**：项目配置（advisor / auto / 资源池 / reviewers / modelOptions / prompts / placement）、模型、以及迁移阶段 2/3 开关。推进阶段前必须显式勾选 S14 parity；一次只前进一步，事件为 `project/migration_advanced`。模态只保留快捷链接。
-- **会话记录**：`/copilot` 会话 + `/runs` 运行台账 + 节点 `attempts`；支持按节点过滤；会话可以打开原生 chat/trajectory。
+- **设置**：项目配置（advisor / auto / 资源池 / reviewers / modelOptions / prompts / placement）、模型、以及迁移阶段 2/3 开关。推进阶段前必须显式勾选 S14 parity；一次只前进一步，事件为 `project/migration_advanced`。设置只有页面形态，不再有弹窗或专家库副本。
+- **会话记录**：`/copilot` 会话 + `/runs` 运行台账 + 节点 `attempts`；支持按节点过滤；会话可打开原生 chat 或“在 DSH 中打开轨迹”。默认每个区块最多渲染 10 条，`显示更多` 每次 +10，避免大项目一次铺开。
 - **审计·争议**：从 `ledger/open|confirm|rule_out` 事件投影假设账本；高审链读取 `node/high_review_resolved` 的 `resolvedBy` / `rationale`，并展示待裁决节点；争议复用 `DisputeTablePanel`；每行可跳回 DAG 节点。
 - **可观测性**：失败聚类按 `errorCode` / `causeId` 聚合，另含失败时间线与 Observer 的停滞归因。
 
@@ -178,7 +180,9 @@ MetaInfer Research Lab（main 面板）
 | 中 | 自动挡控制（仅自动档） | 运行中：`cycle n/max · 时长` + `停止`；暂停：`原因` + `继续` + `切回手动`；`waiting`：`等待人工确认 N` + 停止 |
 | 右 | 资源 chips | 每个资源池 `gpu 1/2`；超发不可能（Host 校验），耗尽时 chip 变 warn 色 |
 | 右 | 节点计数 | `节点 8/60`，接近上限变 warn 色 |
-| 右 | 刷新 / 快捷入口 | 手动刷新状态；齿轮只打开页签快捷入口，配置在“设置”页 |
+| 右 | 七个动作 | 手动/自动 · AutoStatusChip · ExpertChip(专家组) · 项目对话 · ⋯ 项目菜单 · 回放 · Step；不再有独立的可观测性/Dashboard/运行记录/设置/轨迹按钮 |
+
+**尺寸预算**：顶栏固定两行，不再随控件增加换行。第一行（`.rl-topbar`）42px，第二行（`.rl-topbar-tabs`，含 7 个页签与右侧“项目对话/回放”）30px；画布顶边因此在 72px，而非旧版 131px。控制项统一 24px 高、chip 20px、间距 4–6px；分支 chip 在 1720px 以下收起，完整名称/分支/资源仍放在项目名 tooltip。自动状态、节点预算、运行数合并为一个可点击状态簇，点击进入设置页查看预算。仅窄屏才压缩，不靠隐藏主操作来换空间。
 
 **Step 的语义提示**（hover tooltip）：「专家组评审一次（可能新增节点）+ 调度器决策一次（可能启动节点）」。
 Step 完成后在活动日志插入一条 `cycle` 摘要，并在顶栏短暂显示 `+2 节点 / +1 启动`。
@@ -519,7 +523,7 @@ dsh-metainfer-research-lab/
 - **Step/运行记录**：手动 Step（spinner + 摘要）、运行/循环面板（2s 轮询、详情 JSON、rejected、lens/panelSize/usage）、活动日志运行链接。
 - **确认档**：proposed 卡片/候选组、检查器批准/拒绝（confirm 对话框）、父节点审批前不封存。
 - **自动挡**：手动/自动切换 + budget 确认模态；running/paused/waiting 芯片（暂停原因本地化、继续/停止、预算 tokens）。
-- **设置**：acceptMode、提案/待确认上限、auto 预算（含 maxTokens）、默认/最大时限、并发与资源池、角色模型、reviewers 编辑器、prompts。
+- **设置**：acceptMode、提案/待确认上限、auto 预算（含 maxTokens）、默认/最大时限、并发与资源池、角色模型、reviewers 编辑器、prompts；只在设置页，顶栏不再有设置入口。
 - **失败/运维**：失败节点 ↻ 重试；项目删除（worktree 清理复选框）；GC postmortem 面板与 gc 运行详情。
 - **V2 merge**：创建合并节点模态（完成节点多选 2–4）、merge 徽标/多父副标题、运行中 merge 检查器（冲突文件、父基线、lastReport、✓ 完成合并）、
   running merge 的对话 composer。
