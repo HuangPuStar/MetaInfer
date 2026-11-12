@@ -100,6 +100,12 @@ const BRANCH_NODE_LIMIT = 15;
 const LAYER_COMPRESSION = 3;
 const MAX_DEPTH = 3;
 
+// A compression ratio alone is not an absolute bound: with a 1/3 rule the
+// chief context grows with the DAG. Keep the model-facing layers bounded even
+// when the tree is very large, and make the omitted sample explicit.
+export const LEAD_CONTEXT_MAX_BYTES = 64 * 1024;
+export const CHIEF_CONTEXT_MAX_BYTES = 8 * 1024;
+export const HIERARCHY_SAMPLE_POLICY = 'health_desc,escalate_desc,ruledOut_desc,branchId_asc';
 
 function text(value, max = 500) {
   return typeof value === 'string' ? value.slice(0, max) : '';
@@ -240,18 +246,42 @@ export function buildBranchReport({ branchId, nodes = [], inputNodes = null, buc
   return report;
 }
 
-/** Compress a layer to at least 3x; returns the compact summary and ratio. */
-export function compressLayer(rows, { maxBytes = null } = {}) {
+function layerRowId(row) {
+  return row?.branchId ?? row?.teamId ?? row?.id ?? null;
+}
+
+function layerRowScore(row) {
+  const health = row?.health === 'dead' ? 3 : row?.health === 'watch' ? 2 : row?.health === 'healthy' ? 1 : 0;
+  const reasonCount = Array.isArray(row?.reasonCodes) ? row.reasonCodes.length : 0;
+  const ruledOut = Array.isArray(row?.ruledOut) ? row.ruledOut.length : Number(row?.ruledOut) || 0;
+  const candidates = Array.isArray(row?.candidates) ? row.candidates.length : Number(row?.candidates) || 0;
+  const verified = Array.isArray(row?.verified) ? row.verified.length : Number(row?.verified) || 0;
+  // Deterministic concern ordering: dead/escalating branches first, then more
+  // ruled-out evidence and more live candidates. The id is the final tie-break.
+  return (health * 1_000_000)
+    + (row?.escalate === true ? 100_000 : 0)
+    + (reasonCount * 10_000)
+    + (ruledOut * 1_000)
+    + (candidates * 10)
+    + verified;
+}
+
+/** Compress a layer to at least 3x; returns the compact summary, ratio and omitted sample. */
+export function compressLayer(rows, { maxBytes = null, policy = HIERARCHY_SAMPLE_POLICY } = {}) {
   const inputBytes = jsonBytes(rows);
   const limit = maxBytes ?? Math.max(1, Math.floor(inputBytes / LAYER_COMPRESSION));
+  const ranked = (Array.isArray(rows) ? rows : [])
+    .map((row, index) => ({ row, index, score: layerRowScore(row) }))
+    .sort((a, b) => (b.score - a.score)
+      || String(layerRowId(a.row) ?? '').localeCompare(String(layerRowId(b.row) ?? ''))
+      || (a.index - b.index));
   const summary = [];
-  // Incremental JSON accounting: the old `jsonBytes([...summary, compact])`
-  // copied and serialized the growing prefix for every row, making the layer
-  // compressor O(n²) even after branch bucketing became O(n).
+  // Incremental JSON accounting: serializing the growing prefix for every row
+  // would make this layer O(n²) even though branch bucketing is O(n).
   let summaryBytes = 2;
-  for (const row of rows) {
+  for (const { row } of ranked) {
     const compact = {
-      id: row.branchId ?? row.teamId ?? row.id ?? null,
+      id: layerRowId(row),
       health: row.health ?? null,
       escalate: row.escalate === true,
       reasonCodes: Array.isArray(row.reasonCodes) ? row.reasonCodes.slice(0, 6) : [],
@@ -265,14 +295,26 @@ export function compressLayer(rows, { maxBytes = null } = {}) {
     summary.push(compact);
     summaryBytes = nextBytes;
   }
-  if (summary.length === 0 && rows.length > 0) {
-    summary.push({ id: rows[0]?.branchId ?? rows[0]?.teamId ?? rows[0]?.id ?? null });
+  if (summary.length === 0 && ranked.length > 0) {
+    summary.push({ id: layerRowId(ranked[0].row) });
   }
   if (jsonBytes(summary) > limit && summary.length > 0) {
     summary.splice(0, summary.length, { id: summary[0]?.id ?? null });
   }
+  const omitted = {
+    totalBranches: ranked.length,
+    includedBranches: summary.length,
+    policy,
+  };
   const outputBytes = jsonBytes(summary);
-  return { rows: summary, inputBytes, outputBytes, ratio: outputBytes > 0 ? Number((inputBytes / outputBytes).toFixed(3)) : null };
+  return {
+    rows: summary,
+    inputBytes,
+    outputBytes,
+    ratio: outputBytes > 0 ? Number((inputBytes / outputBytes).toFixed(3)) : null,
+    omitted,
+    maxBytes: limit,
+  };
 }
 
 export function groupCount(activeBranches) {
@@ -373,11 +415,11 @@ export function buildHierarchyReview({ project, nodes = [], now = Date.now() }) 
   const grouped = groupCount(activeBranchIds.length);
   const branchBytes = jsonBytes(reports);
   const presentBytes = jsonBytes(present);
-  const leadLimit = Math.max(1, Math.floor(branchBytes / LAYER_COMPRESSION));
+  const leadLimit = Math.max(1, Math.min(Math.floor(branchBytes / LAYER_COMPRESSION), LEAD_CONTEXT_MAX_BYTES));
   const leadCompressed = compressLayer(reports, { maxBytes: leadLimit });
   const leadRows = leadCompressed.rows;
   const leadBytes = jsonBytes(leadRows);
-  const chiefLimit = Math.max(1, Math.floor(leadBytes / LAYER_COMPRESSION));
+  const chiefLimit = Math.max(1, Math.min(Math.floor(leadBytes / LAYER_COMPRESSION), CHIEF_CONTEXT_MAX_BYTES));
   const chiefCompressed = compressLayer(leadRows, { maxBytes: chiefLimit });
   const chiefRows = chiefCompressed.rows;
   const chiefBytes = jsonBytes(chiefRows);
@@ -393,10 +435,25 @@ export function buildHierarchyReview({ project, nodes = [], now = Date.now() }) 
     branchIds: ids,
     reports: ids.map((branchId) => leadRowsById.get(String(branchId))).filter(Boolean),
   }));
+  const branchOmitted = {
+    totalBranches: branchIds.length,
+    includedBranches: reports.length,
+    policy: 'all_branch_reports',
+  };
+  const omitted = {
+    // Flattened lead-layer aliases keep the summary easy to inspect; the
+    // per-layer objects below differentiate branch/lead/chief.
+    totalBranches: leadCompressed.omitted.totalBranches,
+    includedBranches: leadCompressed.omitted.includedBranches,
+    policy: leadCompressed.omitted.policy,
+    branch: branchOmitted,
+    lead: leadCompressed.omitted,
+    chief: chiefCompressed.omitted,
+  };
   const layers = [
-    { level: 'branch', bytes: branchBytes, rows: reports },
-    { level: 'lead', bytes: leadBytes, rows: leadRows },
-    { level: 'chief', bytes: chiefBytes, rows: chiefRows },
+    { level: 'branch', bytes: branchBytes, rows: reports, omitted: branchOmitted },
+    { level: 'lead', bytes: leadBytes, rows: leadRows, omitted: leadCompressed.omitted },
+    { level: 'chief', bytes: chiefBytes, rows: chiefRows, omitted: chiefCompressed.omitted },
   ];
   const chief = chiefPolicy(project);
   const escalationRows = evaluateEscalationTriggers({ nodes: present, project, knownHypotheses: project?.knownHypotheses ?? [], now });
@@ -435,6 +492,7 @@ export function buildHierarchyReview({ project, nodes = [], now = Date.now() }) 
     groupedTeams: grouped,
     chief,
     layers,
+    omitted,
     compression: {
       perLayer: [
         {
@@ -442,21 +500,31 @@ export function buildHierarchyReview({ project, nodes = [], now = Date.now() }) 
           inputBytes: presentBytes,
           outputBytes: branchBytes,
           ratio: branchBytes > 0 ? Number((presentBytes / branchBytes).toFixed(3)) : null,
+          // A one-node branch cannot carry 3x because BranchReport has mandatory
+          // evidence/health fields. Mark that explicitly instead of skipping the
+          // layer silently; validateHierarchyReview still enforces the 3x rule for
+          // every branch whose raw slice is large enough.
           smallBranch: presentBytes < BRANCH_SMALL_INPUT_BYTES && presentBytes < branchBytes * LAYER_COMPRESSION,
+          omitted: branchOmitted,
         },
         {
           level: 'lead',
           inputBytes: branchBytes,
           outputBytes: leadBytes,
           ratio: leadBytes > 0 ? Number((branchBytes / leadBytes).toFixed(3)) : null,
+          maxBytes: leadLimit,
+          omitted: leadCompressed.omitted,
         },
         {
           level: 'chief',
           inputBytes: leadBytes,
           outputBytes: chiefBytes,
           ratio: chiefBytes > 0 ? Number((leadBytes / chiefBytes).toFixed(3)) : null,
+          maxBytes: chiefLimit,
+          omitted: chiefCompressed.omitted,
         },
       ],
+      omitted: { lead: leadCompressed.omitted, chief: chiefCompressed.omitted },
     },
     coverage: {
       completed,

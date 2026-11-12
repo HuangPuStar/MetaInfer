@@ -14,7 +14,7 @@ import { registerHttpRoutes } from '../host/http.js';
 import { createOperatorAuthority } from '../host/operator-token.js';
 import { listExpertDescriptors, getExpertDescriptor } from '../host/experts/registry.js';
 import {
-  EVIDENCE_FIELDS, HIERARCHY_DESCRIPTORS, HIGH_REVIEW_WINDOW_MS, BRANCH_REPORT_SCHEMA, buildBranchReport, buildHierarchyReview,
+  EVIDENCE_FIELDS, HIERARCHY_DESCRIPTORS, HIGH_REVIEW_WINDOW_MS, BRANCH_REPORT_SCHEMA, LEAD_CONTEXT_MAX_BYTES, CHIEF_CONTEXT_MAX_BYTES, buildBranchReport, buildHierarchyReview,
   buildBranchCandidateQueue, candidateNoProposalReason, candidateSkipReason,
   chiefActivationMetrics, chiefPolicy, childVoteWeight, escalationQuota, escalationRate, filterVisibleExperts, groupCount,
   validateChiefDecision, validateEvidencePointers, validateHierarchyReview,
@@ -149,8 +149,8 @@ check('Q8: a branch layer below 3x is rejected instead of skipped', validateHier
 check('Q8: a chief layer below 3x is rejected', validateHierarchyReview(broken, nodes).some((error) => error.includes('chief compression')), JSON.stringify(validateHierarchyReview(broken, nodes)));
 check('Q8: a chief decision needs verified raw evidence', validateChiefDecision({ action: 'keep', verifiedEvidence: [], evidenceChain: [{ nodeId: 'b4', field: 'report.summary', quote: 'evidence' }] }, nodes).some((error) => error.includes('verifiedEvidence')) && validateChiefDecision({ action: 'keep', verifiedEvidence: [{ nodeId: 'b4', field: 'report.summary', quote: 'verified summary' }], evidenceChain: [{ nodeId: 'b4', field: 'report.summary', quote: 'verified summary' }] }, nodes).length === 0, JSON.stringify(validateChiefDecision({ action: 'keep', verifiedEvidence: [], evidenceChain: [] }, nodes)));
 
-// Round 42: a 10k-star is a real O(n) build probe. It is generated in memory
-// and measured with performance.now(); no provider/store is involved.
+// Round 42: a 10k-star is a real absolute-limit and O(n) build probe. It is
+// generated in memory and measured with performance.now(); no provider/store.
 const scaleNodes = [];
 for (let index = 0; index < 10_000; index += 1) {
   const status = index < 7_000 ? 'completed' : (index < 9_000 ? 'planned' : 'failed');
@@ -170,10 +170,23 @@ for (let index = 0; index < 10_000; index += 1) {
 const scaleStart = performance.now();
 const scaleReview = buildHierarchyReview({ project: { config: { migration: { phase: 2 } } }, nodes: scaleNodes, now: Date.now() });
 const scaleMs = performance.now() - scaleStart;
+const scaleLayers = scaleReview.compression.perLayer;
+const scaleLeadBytes = scaleLayers.find((layer) => layer.level === 'lead')?.outputBytes ?? 0;
+const scaleChiefBytes = scaleLayers.find((layer) => layer.level === 'chief')?.outputBytes ?? 0;
 const scaleTeamRowsOwned = scaleReview.teams.every((team) => team.reports.every((row) => team.branchIds.includes(String(row.id))));
 check('Round 42: 10k-node hierarchy builds in <1000ms with O(n) buckets',
-  scaleReview.branchCount === 10_000 && scaleMs < 1000 && scaleTeamRowsOwned,
+  scaleReview.branchCount === 10_000 && scaleMs < 1000 && scaleReview.teams.length === Math.ceil(scaleReview.activeBranchCount / 2),
   JSON.stringify({ branchCount: scaleReview.branchCount, buildMs: Number(scaleMs.toFixed(1)), teams: scaleReview.teams.length }));
+check('Round 42: lead/chief context has absolute byte caps and explicit omitted samples',
+  scaleLeadBytes <= LEAD_CONTEXT_MAX_BYTES
+  && scaleChiefBytes <= CHIEF_CONTEXT_MAX_BYTES
+  && scaleLayers.filter((layer) => layer.level !== 'branch').every((layer) => layer.ratio >= 3)
+  && scaleReview.omitted.lead.totalBranches === 10_000
+  && scaleReview.omitted.lead.includedBranches < scaleReview.omitted.lead.totalBranches
+  && scaleReview.omitted.chief.includedBranches < scaleReview.omitted.chief.totalBranches
+  && scaleReview.omitted.lead.policy.includes('health')
+  && scaleTeamRowsOwned,
+  JSON.stringify({ lead: scaleLeadBytes, chief: scaleChiefBytes, cap: [LEAD_CONTEXT_MAX_BYTES, CHIEF_CONTEXT_MAX_BYTES], omitted: scaleReview.omitted, layers: scaleLayers }));
 
 // Round 33 candidate identity is structural: editing prose must not make the
 // same candidate look new, and exhaustion must have a named reason.
