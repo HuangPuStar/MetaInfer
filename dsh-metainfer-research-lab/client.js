@@ -765,8 +765,8 @@ window.__ModuleLoader__.load({
       'ws.settings.acceptMode.hint': '人工确认模式下新提案先进入待确认队列，不阻塞已建立节点的执行。',
       'ws.settings.maxProposalsPerPass': '每轮最多提案数',
       'ws.settings.maxPendingProposals': '待确认提案上限',
-      'ws.settings.advisorTimeoutSeconds': '专家组超时（秒）',
-      'ws.settings.advisorTimeoutSeconds.hint': '单次 advisor/reviewer 运行的最长等待时间；默认 180 秒（原为硬编码 3 分钟）。',
+      'ws.settings.advisorTimeoutSeconds': '专家组/调度器超时（秒）',
+      'ws.settings.advisorTimeoutSeconds.hint': '单次 advisor/scheduler/reviewer 运行的最长等待时间；默认 1800 秒（30 分钟），范围 30–18000 秒。',
       'ws.settings.maxCycles': '最大 cycle 数',
       'ws.settings.maxWallClockMinutes': '最长运行时间（分钟）',
       'ws.settings.idleCycleLimit': '空转熔断（连续无进展轮数）',
@@ -2093,8 +2093,8 @@ window.__ModuleLoader__.load({
       'ws.settings.acceptMode.hint': 'In human-approval mode new proposals wait in the pending queue without blocking established nodes.',
       'ws.settings.maxProposalsPerPass': 'Max proposals per pass',
       'ws.settings.maxPendingProposals': 'Max pending proposals',
-      'ws.settings.advisorTimeoutSeconds': 'Advisor timeout (seconds)',
-      'ws.settings.advisorTimeoutSeconds.hint': 'Maximum wait for one advisor/reviewer run; default 180 s (previously hard-coded at 3 minutes).',
+      'ws.settings.advisorTimeoutSeconds': 'Advisor / scheduler timeout (seconds)',
+      'ws.settings.advisorTimeoutSeconds.hint': 'Maximum wait for one advisor/scheduler/reviewer run; default 1800 s (30 minutes), range 30–18000 s.',
       'ws.settings.maxCycles': 'Max cycles',
       'ws.settings.maxWallClockMinutes': 'Max wall clock (minutes)',
       'ws.settings.idleCycleLimit': 'Idle fuse (consecutive no-progress cycles)',
@@ -13274,7 +13274,7 @@ window.__ModuleLoader__.load({
         acceptMode: advisor.acceptMode === 'confirm' ? 'confirm' : 'auto',
         maxProposalsPerPass: String(numberOr(advisor.maxProposalsPerPass, 3)),
         maxPendingProposals: String(numberOr(advisor.maxPendingProposals, 20)),
-        advisorTimeoutSeconds: String(numberOr(advisor.timeoutSeconds, 180)),
+        advisorTimeoutSeconds: String(numberOr(advisor.timeoutSeconds, 1800)),
         maxCycles: String(numberOr(auto.maxCycles, 50)),
         maxWallClockMinutes: String(Math.round(numberOr(auto.maxWallClockMs, 6 * 3600000) / 60000)),
         idleCycleLimit: String(numberOr(auto.idleCycleLimit, 3)),
@@ -13330,7 +13330,7 @@ window.__ModuleLoader__.load({
       advisor.acceptMode = draft.acceptMode === 'confirm' ? 'confirm' : 'auto';
       advisor.maxProposalsPerPass = parseInteger(draft.maxProposalsPerPass, 3);
       advisor.maxPendingProposals = parseInteger(draft.maxPendingProposals, 20);
-      advisor.timeoutSeconds = Math.max(30, Math.min(1800, parseInteger(draft.advisorTimeoutSeconds, 180)));
+      advisor.timeoutSeconds = Math.max(30, Math.min(18000, parseInteger(draft.advisorTimeoutSeconds, 1800)));
       auto.maxCycles = parseInteger(draft.maxCycles, 50);
       auto.maxWallClockMs = Math.max(1, parseInteger(draft.maxWallClockMinutes, 360)) * 60000;
       auto.idleCycleLimit = parseInteger(draft.idleCycleLimit, 3);
@@ -13718,7 +13718,7 @@ window.__ModuleLoader__.load({
                 h(LabInput, {
                   type: 'number',
                   min: 30,
-                  max: 1800,
+                  max: 18000,
                   value: draft.advisorTimeoutSeconds,
                   ariaLabel: t('ws.settings.advisorTimeoutSeconds'),
                   onChange: (event) => setField('advisorTimeoutSeconds', event.target.value),

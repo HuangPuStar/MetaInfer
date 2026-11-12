@@ -349,7 +349,7 @@ function normalizeConfig(raw, base = undefined) {
       ancestorDepth: previous.advisor?.ancestorDepth ?? 2,
       acceptMode: previous.advisor?.acceptMode ?? 'auto',
       maxPendingProposals: previous.advisor?.maxPendingProposals ?? 20,
-      timeoutSeconds: previous.advisor?.timeoutSeconds ?? 180,
+      timeoutSeconds: previous.advisor?.timeoutSeconds ?? 1800,
       reviewers: previous.advisor?.reviewers ?? [],
     };
     if (input.advisor.maxProposalsPerPass !== undefined) {
@@ -369,7 +369,7 @@ function normalizeConfig(raw, base = undefined) {
       advisor.maxPendingProposals = integer(input.advisor.maxPendingProposals, 'config.advisor.maxPendingProposals', advisor.maxPendingProposals, 1, 200);
     }
     if (input.advisor.timeoutSeconds !== undefined) {
-      advisor.timeoutSeconds = integer(input.advisor.timeoutSeconds, 'config.advisor.timeoutSeconds', advisor.timeoutSeconds, 30, 1800);
+      advisor.timeoutSeconds = integer(input.advisor.timeoutSeconds, 'config.advisor.timeoutSeconds', advisor.timeoutSeconds, 30, 18000);
     }
     if (input.advisor.reviewers !== undefined) {
       if (!Array.isArray(input.advisor.reviewers)) {
@@ -433,7 +433,7 @@ function normalizeConfig(raw, base = undefined) {
   }
 
   // Ensure every project has the full default shape even when created before M4.
-  config.advisor = config.advisor ?? { maxProposalsPerPass: 3, ancestorDepth: 2, acceptMode: 'auto', maxPendingProposals: 20, timeoutSeconds: 180, reviewers: [] };
+  config.advisor = config.advisor ?? { maxProposalsPerPass: 3, ancestorDepth: 2, acceptMode: 'auto', maxPendingProposals: 20, timeoutSeconds: 1800, reviewers: [] };
   config.auto = config.auto ?? { maxCycles: 50, maxWallClockMs: 6 * 60 * 60 * 1000, idleCycleLimit: 3, debounceMs: 1500, cooldownMs: 5000, maxTokens: 0, maxCostUsd: 0 };
   config.modelOptions = config.modelOptions ?? [];
   config.routing = config.routing ?? { advisorMaySelectModels: false, autoUpgrade: false, maxAttempts: 2 };
