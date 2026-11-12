@@ -19,11 +19,12 @@ import { createReviewClaimBoard } from './dispatch/review-claims.js';
 import { createLedgerReader } from './context/ledger.js';
 import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
 import { baselineFor, normalizeExpected } from './kernel/prediction.js';
-import { BRANCH_REPORT_SCHEMA, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
+import { BRANCH_REPORT_SCHEMA, EVIDENCE_FIELDS, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
 import { MAX_CONSUMPTIONS, buildBranchCandidateQueue, candidateSkipReason, candidateStats, candidateStructureKey, replacementChainForNode } from './experts/candidates.js';
 import { assertModelSchema } from './schema-check.js';
 import { classifyRoleFailure, formatRoleFailure } from './role-errors.js';
 import { highReviewResolution } from './high-review.js';
+import { capacityOf } from './kernel/capacity.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 // 5.3.8: O1 measured advisor p90 at the old 180 s ceiling; the default budget
@@ -275,7 +276,56 @@ function roleTimeoutSource(project, role) {
   return configuredAdvisorSeconds(project) !== null ? 'config.advisor.timeoutSeconds' : 'role-default';
 }
 
-function branchPrompt(project, event, report) {
+const RESOURCE_OMIT_ADVICE = 'omit needs to use the default pool';
+
+function resourceAvailabilityLabel(project) {
+  const keys = Object.keys(project?.config?.resourcePools ?? {});
+  return keys.length > 0 ? keys.join(', ') : 'none';
+}
+
+/** Live resource facts for a role prompt (same arithmetic as status_facts). */
+function resourceFacts(project, nodes = [], cluster = null) {
+  const capacity = capacityOf(project, nodes, cluster);
+  return {
+    pools: project?.config?.resourcePools ?? {},
+    free: capacity.free ?? {},
+    held: capacity.held ?? {},
+    maxRunningNodes: project?.config?.maxRunningNodes ?? 4,
+    runningCount: capacity.runningCount ?? 0,
+  };
+}
+
+/**
+ * Round 40: L0/L1/advisor must know which resource keys exist before they can
+ * propose `needs`. A missing section made a CPU-only project look like it had a
+ * `gpu` pool, and every proposal was then rejected as `unknown resource`.
+ */
+function resourcePromptSection(project, facts = null) {
+  const source = facts && typeof facts === 'object' ? facts : resourceFacts(project);
+  const pools = source.pools && typeof source.pools === 'object' ? source.pools : (project?.config?.resourcePools ?? {});
+  const free = source.free && typeof source.free === 'object' ? source.free : {};
+  const held = source.held && typeof source.held === 'object' ? source.held : {};
+  const keys = [...new Set([...Object.keys(pools), ...Object.keys(free)])];
+  const available = keys.filter((key) => Number(free[key] ?? 0) > 0);
+  const maxRunningNodes = Number.isFinite(Number(source.maxRunningNodes)) ? Number(source.maxRunningNodes) : 4;
+  const runningCount = Number.isFinite(Number(source.runningCount)) ? Number(source.runningCount) : 0;
+  const poolRows = keys.length > 0
+    ? keys.map((key) => {
+        const total = Number.isFinite(Number(pools[key])) ? Number(pools[key]) : null;
+        return `${key}: total=${total === null ? 'unknown' : total}, free=${Number(free[key] ?? 0)}, held=${Number(held[key] ?? 0)}`;
+      }).join('; ')
+    : 'none';
+  return [
+    '# Resource capability',
+    `Configured resource keys: ${keys.length > 0 ? keys.join(', ') : 'none'}`,
+    `Available now (free > 0): ${available.length > 0 ? available.join(', ') : 'none'}`,
+    `Pools: ${poolRows}`,
+    `maxRunningNodes: ${maxRunningNodes} (running=${runningCount}, free slots=${Math.max(0, maxRunningNodes - runningCount)})`,
+    `needs rule: use only a configured key, or machines 1..8; an unlisted key is rejected as unknown resource. Amounts must fit the pool. If no key is available, ${RESOURCE_OMIT_ADVICE}.`,
+  ].join('\n');
+}
+
+function branchPrompt(project, event, report, resources = null) {
   return [
     'You are the L0 branch reviewer. Compress exactly one branch subtree into a BranchReport.',
     'Do not create nodes, do not edit the ledger, and do not review other branches.',
@@ -283,6 +333,8 @@ function branchPrompt(project, event, report) {
     'Every evidence pointer must cite a real nodeId, a whitelisted field and a quote from that field.',
     `Budget: at most ${ROLE_BUDGETS.branch.maxQueries} read calls; finish within ${roleTimeoutMs(project, 'branch') / 1000} seconds.`,
     timeboxLimitLine(project, 'branch'),
+    'Evidence fields must be exact literals from this list: ' + EVIDENCE_FIELDS.join(', ') + '.',
+    resourcePromptSection(project, resources),
     '',
     '# Branch event',
     JSON.stringify(event),
@@ -427,6 +479,7 @@ function compactBranchReport(run) {
 
 function leadPromptParts(project, review, branchRuns, pendingCandidates = [], options = {}) {
   const previousLeadFeedback = options.previousLeadFeedback ?? null;
+  const resourceText = resourcePromptSection(project, options.resources ?? null);
   const selection = selectLeadCandidates(project, pendingCandidates);
   const candidates = selection.selected.map(leadCandidateRow);
   const reports = (Array.isArray(branchRuns) ? branchRuns : []).map(compactBranchReport);
@@ -456,6 +509,7 @@ function leadPromptParts(project, review, branchRuns, pendingCandidates = [], op
     'For every pending candidate you do not implement, return a candidateDecisions entry: candidateId, decision (blocked_by_failed_source, needs_human_scope_decision, duplicate_of_consumed, low_confidence_only, deferred_by_pass_limit, not_selected_by_lead, implemented), and a one-line reason.',
     'A retry/replace/decouple candidate whose sourceStatus is failed may be proposed under sourceParentId with the same scope and needs; the Host allows that one replacement even though the failed child exists.',
     timeboxLimitLine(project, 'lead'),
+    resourceText,
     'Escalate an exception instead of silently guessing; the chief is invisible to peers.',
     `Budget: at most ${ROLE_BUDGETS.lead.maxQueries} read calls; finish within ${roleTimeoutMs(project, 'lead') / 1000} seconds.`,
     '',
@@ -560,6 +614,8 @@ function rejectionReasonCode(result, candidate) {
   if (result?.code === 'max_proposals') return 'deferred_by_pass_limit';
   if (result?.code === 'replacement_chain_exhausted') return 'replacement_chain_exhausted';
   if (result?.code === 'invalid_timebox') return 'invalid_timebox';
+  if (result?.code === 'resource_not_available') return 'resource_not_available';
+  if (result?.code === 'invalid_needs') return 'invalid_needs';
   if (result?.code === 'parent_already_has_successor') {
     return candidate?.sourceStatus === 'failed' || candidate?.sourceStatus === 'cancelled'
       ? 'blocked_by_failed_source'
@@ -797,6 +853,8 @@ function chiefPrompt(project, node, review) {
   return [
     'You are the L2 chief. Decide one routed exception. You may keep, defer or withdraw the node.',
     'A keep requires at least one verified raw-data pointer and a non-empty evidence chain.',
+    'Each verifiedEvidence item must be {nodeId, field, quote}. Allowed field values (exact): ' + EVIDENCE_FIELDS.join(', ') + '.',
+    'field must be one of those exact literals, not a description; a missing or unknown field is rejected with the allowed list. quote must be text present in that field.',
     'For defer/withdraw, include a rationale. If an automatic rule selected the action, name it in ruleName and explain why withdraw is required instead of defer.',
     'Do not create nodes or run the experiment; the lead already materialized the optimistic p2 child.',
     `Budget: at most ${ROLE_BUDGETS.chief.maxQueries} read calls; finish within ${roleTimeoutMs(project, 'chief') / 1000} seconds.`,
@@ -842,6 +900,8 @@ function advisorPrompt(project, snapshot, lens) {
     '   It is only honored when the project enables advisor model selection and the Host allowlist accepts it.',
     '11. Optional: set executionProfile (or taskType mapped by config.execution.taskTypes) to select a',
     '    local execution runtime such as a Codex profile. The Host rejects unknown profiles.',
+    '',
+    resourcePromptSection(project, snapshot?.resources ?? null),
     '',
     '# Snapshot',
     // Compact JSON: the snapshot is dominated by candidateParents and pretty-printing
@@ -1268,7 +1328,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
   }
 
   function normalizeNeeds(raw, project) {
-    if (raw === undefined || raw === null) return { needs: {}, error: null };
+    if (raw === undefined || raw === null) return { needs: {}, code: null, error: null };
     // Two callers exist: advisor structured output sends [{key, amount}] while
     // the agent tool / project config use the compact {gpu: 4} form. Accept
     // both here so a user-facing `successor` call cannot fail on a shape the
@@ -1279,24 +1339,44 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     } else if (typeof raw === 'object') {
       entries = Object.entries(raw).map(([key, amount]) => ({ key, amount }));
     } else {
-      return { needs: {}, error: 'needs must be an object {gpu: 4} or an array of {key, amount}' };
+      return { needs: {}, code: 'invalid_needs', error: 'needs must be an object {gpu: 4} or an array of {key, amount}' };
     }
+    const pools = project.config.resourcePools ?? {};
+    const availableLabel = resourceAvailabilityLabel(project);
     const needs = {};
     for (const item of entries) {
-      const key = typeof item?.key === 'string' ? item.key.trim() : '';
-      const amount = Number(item?.amount);
-      if (!key) return { needs: {}, error: 'needs[].key is required' };
-      if (!Number.isInteger(amount) || amount < 0) return { needs: {}, error: `needs[${key}] must be a non-negative integer` };
+      // Round 40: accept the compact string shorthand (needs: ["gpu"]) as a
+      // request for one unit. The unknown-key error must not degrade to
+      // "needs[].key is required" for the shape a model actually sends.
+      const key = typeof item === 'string'
+        ? item.trim()
+        : (typeof item?.key === 'string' ? item.key.trim() : '');
+      const amount = typeof item === 'string' ? 1 : Number(item?.amount);
+      if (!key) return { needs: {}, code: 'invalid_needs', error: 'needs[].key is required' };
+      if (!Number.isInteger(amount) || amount < 0) return { needs: {}, code: 'invalid_needs', error: `needs[${key}] must be a non-negative integer` };
       if (key === 'machines') {
-        if (amount < 1 || amount > 8) return { needs: {}, error: 'needs[machines] must be 1..8' };
+        if (amount < 1 || amount > 8) return { needs: {}, code: 'invalid_needs', error: 'needs[machines] must be 1..8' };
         needs.machines = amount;
         continue;
       }
-      if (!(key in (project.config.resourcePools ?? {}))) return { needs: {}, error: `unknown resource: ${key}` };
-      if (amount > (project.config.resourcePools[key] ?? 0)) return { needs: {}, error: `needs ${key}=${amount} exceeds pool` };
+      if (!(key in pools)) {
+        return {
+          needs: {},
+          code: 'resource_not_available',
+          error: `unknown resource: ${key} (available: ${availableLabel}; ${RESOURCE_OMIT_ADVICE})`,
+        };
+      }
+      const total = Number(pools[key] ?? 0);
+      if (amount > total) {
+        return {
+          needs: {},
+          code: 'resource_not_available',
+          error: `needs ${key}=${amount} exceeds pool ${key}=${total} (available: ${availableLabel}; ${RESOURCE_OMIT_ADVICE})`,
+        };
+      }
       needs[key] = (needs[key] ?? 0) + amount;
     }
-    return { needs, error: null };
+    return { needs, code: null, error: null };
   }
 
   function checkProposal(project, proposal, nodes, candidate = null) {
@@ -1362,8 +1442,8 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     if (isBlank(title)) return { ok: false, reason: 'title is required' };
     if (prompt.length < 10 || prompt.length > 8000) return { ok: false, reason: 'prompt must be 10..8000 characters' };
     const rawNeeds = proposal?.needs === undefined || proposal?.needs === null ? source?.needs : proposal.needs;
-    const { needs, error } = normalizeNeeds(rawNeeds, project);
-    if (error) return { ok: false, reason: error };
+    const { needs, code: needsCode, error } = normalizeNeeds(rawNeeds, project);
+    if (error) return { ok: false, code: needsCode, reason: error };
     const bounds = nodeTimeboxBounds(project);
     const sourceTimeboxMinutes = source?.timeboxMs ? Math.ceil(source.timeboxMs / 60_000) : null;
     const requestedTimebox = proposal?.timeboxMinutes;
@@ -2174,7 +2254,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           project,
           'branch',
           cycle,
-          branchPrompt(project, branchEvents, report),
+          branchPrompt(project, branchEvents, report, resourceFacts(project, store.listNodes(projectId), cluster)),
           BRANCH_REPORT_SCHEMA,
           { branchId, events: branchEvents, report },
           { lens: branchId, timeoutMs: roleTimeoutMs(project, 'branch'), maxQueries: ROLE_BUDGETS.branch.maxQueries },
@@ -2250,7 +2330,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       { ...review, escalations: cycle.hierarchy.escalations },
       branchRuns,
       queue.pending,
-      { previousLeadFeedback },
+      { previousLeadFeedback, resources: resourceFacts(project, store.listNodes(projectId), cluster) },
     );
     cycle.leadInputBytes = leadParts.stats.inputBytes;
     cycle.leadInputStats = leadParts.stats;
@@ -2575,8 +2655,8 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       const prompt = typeof input?.prompt === 'string' ? input.prompt.trim() : '';
       if (isBlank(title)) throw new LabError('bad_request', 'title is required', 400);
       if (prompt.length < 10 || prompt.length > 8000) throw new LabError('bad_request', 'prompt must be 10..8000 characters', 400);
-      const { needs, error } = normalizeNeeds(input?.needs, project);
-      if (error) throw new LabError('bad_request', error, 400);
+      const { needs, code: needsCode, error } = normalizeNeeds(input?.needs, project);
+      if (error) throw new LabError(needsCode ?? 'bad_request', error, 400);
       const bounds = nodeTimeboxBounds(project);
       const timeboxMinutes = input?.timeboxMinutes === undefined || input?.timeboxMinutes === null
         ? bounds.default

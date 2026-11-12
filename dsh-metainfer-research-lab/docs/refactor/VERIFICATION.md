@@ -8390,3 +8390,126 @@ the same way through a session and asserts `human:s-human`.
 | `plugin-smoke` | 6/6 process checks |
 
 Live `prj-e1cbb8e1`/`n-0010` was not mutated; Host 3080 was not restarted.
+
+## 66. Round 40 — capability before proposals, schema before error
+
+### 66.1 Live evidence
+
+```text
+state.auto.lastPlanSkip:
+lead made 2 proposal(s) but created 0; first rejection: unknown resource: gpu
+
+cycle.previousLeadFeedback.firstRejection:
+{"parentId":"n-0019","candidateId":"cand:n-0003:branch:candidate:13bm17k:1",
+ "title":"合并 commit 钉扎：新增 tests/test_merged_commit_pin.py...",
+ "reason":"unknown resource: gpu","code":null}
+```
+
+The project has `resourcePools: {}`. The lead had no capability list, so it
+wrote `needs` for a pool that did not exist; both proposals were rejected and
+auto paused on noProgress. A later manual step showed the lead could avoid the
+error once it had read the empty pools — the missing piece was the initial
+context.
+
+The same cycle's chief error was:
+
+```text
+chief[n-0021]: evidence[0].field undefined is not whitelisted; ...;
+evidence[5].field "successCriteria + prompt constraints" is not whitelisted
+```
+
+The errors identified the problem but not the allowed values, and `undefined`
+was rendered as if it were a legitimate field name.
+
+### 66.2 Resource capability in role context
+
+`resourcePromptSection` uses the same `capacityOf` arithmetic as status facts
+and is injected into:
+
+| Role | Source |
+|---|---|
+| lead | `resourceFacts(project, store.listNodes(projectId), cluster)` |
+| branch | same live facts at branch activation |
+| advisor | `snapshot.resources` (pools/free/held/maxRunningNodes/runningCount) |
+
+Shape (empty project):
+
+```text
+# Resource capability
+Configured resource keys: none
+Available now (free > 0): none
+Pools: none
+maxRunningNodes: 1 (running=0, free slots=1)
+needs rule: use only a configured key, or machines 1..8; an unlisted key is
+rejected as unknown resource. Amounts must fit the pool. If no key is
+available, omit needs to use the default pool.
+```
+
+A configured pool renders `gpu: total=1, free=1, held=0`, so the model sees
+both the key and current pressure. `machines` is explicitly the 1..8
+concurrency key rather than a pool.
+
+### 66.3 Rejection is machine-readable and actionable
+
+```text
+unknown resource: gpu (available: none; omit needs to use the default pool)
+code: resource_not_available
+```
+
+The code travels through `checkProposal` -> `applied.rejected` ->
+`cycle.lead.rejected` -> `previousLeadFeedback.firstRejection.code`, and the
+successor API raises `resource_not_available`. An over-pool request uses the
+same code and names the available keys and the pool total.
+
+### 66.4 Evidence contract
+
+Allowed values are the single `EVIDENCE_FIELDS` list:
+
+```text
+title, prompt, status, report.summary, report.metrics, report.hypothesis,
+review.verdict, git.headCommit
+```
+
+The chief prompt now says every pointer is `{nodeId, field, quote}`, prints
+those exact literals, and states that a missing or unknown field is rejected.
+The branch prompt carries the same list because it validates the same pointers.
+
+Errors:
+
+```text
+evidence[0] missing field
+  (allowed: title, prompt, ...; add "field" with one of these exact values)
+
+evidence[0].field "successCriteria + prompt constraints" is not whitelisted
+  (allowed: title, prompt, ...; use one of these exact values)
+```
+
+No `undefined` is interpolated as a field name.
+
+### 66.5 Regression
+
+```text
+ok Round 40: evidence missing a field names the index and lists allowed values
+ok Round 40: an unknown evidence field reports the allowed list and an actionable fix
+ok Round 40: the chief prompt lists every allowed evidence field and the exact-literal rule
+ok Round 40: an empty-pool project puts the resource capability list in the lead, branch and advisor prompts
+ok Round 40: an unknown resource is rejected with available: none and a machine-checkable code
+ok Round 40: the next lead activation receives the resource rejection code and available list
+```
+
+The resource probe is a real `prodOrch.step` on a project with
+`resourcePools: {}` and a completed parent. Its fake lead writes
+`needs: ["gpu"]` (compact shorthand, one unit); the Host rejects it, and a second completed
+branch event triggers the next lead activation with the previous rejection in
+context.
+
+### 66.6 Gates
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1076 `ok`, 0 FAIL |
+| `hierarchy-selftest` | all checks passed (Round 40 probes) |
+| `plugin-smoke` | 6/6 |
+| Host 3080 | not restarted |
+
+Live `prj-e1cbb8e1` was not mutated.

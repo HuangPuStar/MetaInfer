@@ -1,5 +1,47 @@
 # v2 发布说明（草稿）
 
+## Round 40 — resource capability and an evidence schema the model can satisfy
+
+- **Live evidence (resources):** `state.auto.lastPlanSkip` said
+  `lead made 2 proposal(s) but created 0; first rejection: unknown resource: gpu`;
+  `cycle.previousLeadFeedback.firstRejection` carried the same reason with
+  `code: null`. The project has `resourcePools: {}` (CPU-only), but the lead
+  wrote `needs: {"machines":1}` / `gpu` without being told which keys exist.
+  After one manual step, its own analysis said “本项目资源池为空”, and the next
+  pass succeeded — proof that feedback existed but the capability list did not.
+- **Prompt capability:** lead, branch and advisor prompts now include a
+  `# Resource capability` section built from the live project config plus
+  capacity (`pools`, `free`, `held`, `maxRunningNodes`, running/free slots):
+  configured keys, keys with free capacity, per-pool totals/held/free, and the
+  rule that an unlisted key is rejected as `unknown resource`; with no pool the
+  instruction is to omit `needs` and use the default pool. `machines` remains
+  the separate 1..8 concurrency key.
+- **Actionable rejection:** `normalizeNeeds` returns structured
+  `code: 'resource_not_available'` for an unknown or over-pool key. The reason is
+  `unknown resource: gpu (available: none; omit needs to use the default pool)`
+  (or a non-empty key list). `checkProposal` propagates the code into
+  `applied.rejected`, candidate decisions and `previousLeadFeedback.firstRejection`;
+  the successor API raises `resource_not_available` instead of `bad_request`.
+- **Live evidence (evidence):** the chief emitted
+  `evidence[0].field undefined is not whitelisted` for every pointer without a
+  `field`, and `"successCriteria + prompt constraints" is not whitelisted` for a
+  prose description. The model was never shown the allowed values.
+- **Evidence contract:** `validateEvidencePointers` now distinguishes a missing
+  `field` (`evidence[0] missing field`) from an unknown value, and both errors
+  include the exact allowed list and the instruction to use one of those
+  literals. The chief prompt (and the branch prompt) prints
+  `Allowed field values (exact): title, prompt, status, report.summary,
+  report.metrics, report.hypothesis, review.verdict, git.headCommit` and asks
+  for `{nodeId, field, quote}` pointers.
+- **Regression:** an empty-pool project with a lead proposal `needs: ["gpu"]`
+  (the compact shorthand is accepted as one unit) asserts the lead/branch/advisor
+  prompt text,
+  the `available: none` reason and `code='resource_not_available'`, and the next
+  lead activation's feedback. Evidence probes assert
+  `evidence[0] missing field` and the allowed list for an unknown field.
+- **Tests:** `npm test` EXIT 0, 1076 `ok`, 0 FAIL; hierarchy round-40 probes;
+  plugin-smoke 6/6.
+
 ## Round 39 — a withdrawn node keeps the decision that removed it
 
 - **Live evidence:** `n-0010` was created by `lab-lead` at

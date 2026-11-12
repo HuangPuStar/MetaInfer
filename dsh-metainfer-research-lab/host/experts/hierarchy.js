@@ -154,8 +154,13 @@ export function validateEvidencePointers(evidence, nodes, { requireQuote = false
       return;
     }
     const field = pointer.field;
+    const allowed = EVIDENCE_FIELDS.join(', ');
+    if (field === undefined || field === null || field === '') {
+      errors.push(`evidence[${index}] missing field (allowed: ${allowed}; add "field" with one of these exact values)`);
+      return;
+    }
     if (!EVIDENCE_FIELDS.includes(field)) {
-      errors.push(`evidence[${index}].field ${JSON.stringify(field)} is not whitelisted`);
+      errors.push(`evidence[${index}].field ${JSON.stringify(field)} is not whitelisted (allowed: ${allowed}; use one of these exact values)`);
       return;
     }
     const node = byId.get(nodeId);

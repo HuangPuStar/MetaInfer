@@ -8,13 +8,13 @@ import { readFileSync } from 'node:fs';
 import { openStore } from '../host/store.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { createLabService, slimStateNode } from '../host/lab-service.js';
-import { createOrchestrator, roleTimeoutMs } from '../host/orchestrator.js';
+import { createOrchestrator, roleTimeoutMs, advisorPrompt } from '../host/orchestrator.js';
 import { registerAgentTool } from '../host/agent-tool.js';
 import { registerHttpRoutes } from '../host/http.js';
 import { createOperatorAuthority } from '../host/operator-token.js';
 import { listExpertDescriptors, getExpertDescriptor } from '../host/experts/registry.js';
 import {
-  HIERARCHY_DESCRIPTORS, HIGH_REVIEW_WINDOW_MS, BRANCH_REPORT_SCHEMA, buildBranchReport, buildHierarchyReview,
+  EVIDENCE_FIELDS, HIERARCHY_DESCRIPTORS, HIGH_REVIEW_WINDOW_MS, BRANCH_REPORT_SCHEMA, buildBranchReport, buildHierarchyReview,
   buildBranchCandidateQueue, candidateNoProposalReason, candidateSkipReason,
   chiefActivationMetrics, chiefPolicy, childVoteWeight, escalationQuota, escalationRate, filterVisibleExperts, groupCount,
   validateChiefDecision, validateEvidencePointers, validateHierarchyReview,
@@ -324,6 +324,19 @@ check('Round 39: a human withdrawal stays human-attributed and is distinct from 
   && humanNode?.cancelReason?.resolvedBy !== policyNode?.cancelReason?.resolvedBy,
   JSON.stringify({ result: humanWithdraw, event: humanEvent, node: humanNode }));
 
+// Round 40: evidence failures must tell the model what to send, not just that
+// its answer was wrong. The live chief wrote a prose description instead of a
+// field and received an error that listed an undefined value.
+const evidenceNode = { id: 'evidence-node', title: 'evidence title', prompt: 'evidence prompt' };
+const missingFieldErrors = validateEvidencePointers([{ nodeId: 'evidence-node' }], [evidenceNode]);
+const arbitraryFieldErrors = validateEvidencePointers([{ nodeId: 'evidence-node', field: 'successCriteria + prompt constraints' }], [evidenceNode]);
+check('Round 40: evidence missing a field names the index and lists allowed values',
+  missingFieldErrors.some((error) => error.includes('evidence[0] missing field') && error.includes('allowed:') && error.includes('title') && error.includes('report.summary')),
+  JSON.stringify({ missingFieldErrors, allowed: EVIDENCE_FIELDS }));
+check('Round 40: an unknown evidence field reports the allowed list and an actionable fix',
+  arbitraryFieldErrors.some((error) => error.includes('is not whitelisted') && error.includes('allowed:') && error.includes('title') && /use one of these exact values/.test(error)),
+  JSON.stringify({ arbitraryFieldErrors, allowed: EVIDENCE_FIELDS }));
+
 // C8: child creation votes are deduped, quota-limited and one-per-expert/node.
 const voteProject = { config: { experts: { votesPerHour: 2 } }, childVotes: [] };
 const child = { id: 'new-child', title: 'new child', prompt: 'new child prompt', promptHash: 'h-new' };
@@ -395,6 +408,7 @@ await store.saveNode(prodId, {
 const productionPresets = [];
 const leadPromptCaptures = [];
 const branchPromptCaptures = [];
+const chiefPromptCaptures = [];
 const prodCtx = {
   effect: () => {}, get: () => null, logger: { info() {}, warn() {} },
   agents: { get: () => null, resume: async () => { throw new Error('none'); }, create: async () => ({ agent: {} }) },
@@ -429,6 +443,7 @@ const prodCtx = {
       const timeboxBranchId = firstBranchEvent?.branchId ?? firstBranchEvent?.nodeId ?? branchId;
       if (preset === 'lab-lead') leadPromptCaptures.push({ projectId: captureProjectId, prompt: promptText });
       if (preset === 'lab-branch') branchPromptCaptures.push({ projectId: captureProjectId, branchId, prompt: promptText });
+      if (preset === 'lab-chief') chiefPromptCaptures.push({ projectId: captureProjectId, nodeId: /^# Pending node\n/.test(promptText) ? (() => { try { return JSON.parse(promptText.split('# Pending node\n')[1].split('\n\n# ')[0]).id; } catch { return null; } })() : null, prompt: promptText });
       if (preset === 'lab-lead' && captureProjectId === 'round38-stream-p') {
         return { result: Promise.reject(new Error('stream disconnected before completion')), dispose: async () => {} };
       }
@@ -466,6 +481,7 @@ const prodCtx = {
       const leadParent = reports[0]?.branchId ?? 'parent';
       const promptProjectId = captureProjectId;
       const noProposalProbe = promptProjectId === 'round35-noreply-p';
+      const resourceProbe = promptProjectId === 'round40-resource-p';
       const structured = preset === 'lab-branch'
         ? { branchId: (timeboxProbe || round38Probe) ? timeboxBranchId : branchId, health: 'watch', verified: [], ruledOut: [], candidates: (timeboxProbe || round38Probe) ? [{ nodeId: timeboxBranchId, kind: 'optimization', title: 'timebox candidate' }] : [], escalate: true, reasonCodes: ['low_confidence'], evidence: [{ nodeId: (timeboxProbe || round38Probe) ? timeboxBranchId : branchId, field: 'report.summary', quote: 'done' }] }
         : preset === 'lab-lead'
@@ -495,8 +511,9 @@ const prodCtx = {
                     rationale: 'r',
                     timeboxMinutes: timeboxProbe ? 10 : 5,
                     candidateId: candidate.candidateId,
+                    ...(resourceProbe ? { needs: ['gpu'] } : {}),
                   }))
-                : [{ parentId: leadParent, title: 'child', prompt: 'do child work', rationale: 'r', timeboxMinutes: 5 }],
+                : [{ parentId: leadParent, title: 'child', prompt: 'do child work', rationale: 'r', timeboxMinutes: 5, ...(resourceProbe ? { needs: ['gpu'] } : {}) }],
             }
           : preset === 'lab-chief'
             ? { decision: 'keep', reasonCode: 'low_confidence', verifiedEvidence: [], evidenceChain: [] }
@@ -554,6 +571,13 @@ const branchProductionRun = prodRuns.find((run) => run.role === 'branch');
 const leadProductionRun = prodRuns.find((run) => run.role === 'lead');
 const chiefProductionRun = prodRuns.find((run) => run.role === 'chief');
 check('B11: production L0/L1/L2 are real activations, not labels', productionPresets.includes('lab-branch') && productionPresets.includes('lab-lead') && productionPresets.includes('lab-chief') && branchProductionRun?.budget?.maxQueries === 2 && branchProductionRun?.timeoutMs === 60_000 && leadProductionRun?.budget?.maxQueries === 4 && leadProductionRun?.timeoutMs === 60_000 && chiefProductionRun?.budget?.maxQueries === 8 && chiefProductionRun?.timeoutMs === 180_000, JSON.stringify({ productionPresets, budgets: prodRuns.map((run) => ({ role: run.role, budget: run.budget, timeoutMs: run.timeoutMs })) }));
+const chiefPromptText = chiefPromptCaptures.filter((row) => row.projectId === prodId).at(-1)?.prompt ?? '';
+check('Round 40: the chief prompt lists every allowed evidence field and the exact-literal rule',
+  EVIDENCE_FIELDS.every((field) => chiefPromptText.includes(field))
+  && chiefPromptText.includes('Allowed field values (exact):')
+  && /missing or unknown field is rejected/.test(chiefPromptText),
+  JSON.stringify({ prompt: chiefPromptText.slice(0, 2200), allowed: EVIDENCE_FIELDS }));
+
 check('B11/B14/C8: production cycle builds L0 reports and materializes one L1 p2 child', stepped.created.length === 1 && produced?.reviewLevel === 'lead' && produced?.priority?.class === 'p2' && prodCycle?.hierarchy?.l0Trigger === 'branch_event' && prodCycle?.hierarchy?.branchCount >= 1, JSON.stringify({ stepped, produced: produced && { id: produced.id, createdBy: produced.createdBy, reviewLevel: produced.reviewLevel, priority: produced.priority, pending: produced.pendingHighReview }, hierarchy: prodCycle?.hierarchy }));
 check('B14: the escalated L1 child gets a 10-minute window; an unescalated child would not', produced?.pendingHighReview?.deadlineAt - produced?.pendingHighReview?.openedAt === 10 * 60_000 && prodProject?.reviewEscalations?.length === 1, JSON.stringify({ pending: produced?.pendingHighReview, escalations: prodProject?.reviewEscalations }));
 check('C8: the same production child creation records exactly one weighted vote', prodProject?.childVotes?.length === 1 && prodProject.childVotes[0].weight === 1 && prodProject.childVotes[0].nodeId === produced?.id, JSON.stringify(prodProject?.childVotes));
@@ -987,6 +1011,73 @@ const budgetOrch = createOrchestrator({ ctx: budgetCtx, store, git: { async comm
 await budgetOrch.step(budgetId, 'budget-probe');
 const budgetBranch = store.listRuns(budgetId).find((run) => run.role === 'branch');
 check('B11: the L0 query budget is executed, not just recorded', budgetBranch?.status === 'failed' && budgetBranch?.errorCode === 'query_budget_exceeded' && String(budgetBranch?.error ?? '').includes('budget 2') && budgetBranch?.usage?.toolCalls === 3, JSON.stringify(budgetBranch && { status: budgetBranch.status, error: budgetBranch.error, usage: budgetBranch.usage, budget: budgetBranch.budget }));
+
+// Round 40: a CPU-only project must advertise "no pools" before the lead
+// writes needs. The first proposal is rejected with a machine-checkable code;
+// the second activation receives the same actionable text as previous feedback.
+const resourceProjectId = 'round40-resource-p';
+await store.saveProject({
+  id: resourceProjectId, name: 'resource-probe', brief: 'empty pool probe', revision: 0,
+  counters: { eventSeq: 0, nextNodeSeq: 1, nodes: 1 },
+  config: {
+    maxRunningNodes: 1, resourcePools: {}, maxNodes: 10, expertsMode: 'hierarchy', migration: { phase: 2 },
+    advisor: { maxProposalsPerPass: 1, maxProposalsPerReviewer: 1, ancestorDepth: 1, acceptMode: 'confirm', maxPendingProposals: 5, timeoutSeconds: 60, reviewers: [] },
+    auto: { maxCycles: 1 },
+  },
+  repo: { path: process.cwd(), worktreeRoot: '/tmp/hierarchy-resource-wt', baseBranch: 'main', baseCommit: 'base' },
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(resourceProjectId);
+await kernel.executor.commit(resourceProjectId, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{ op: 'node.create', node: { id: 'parent', title: 'parent', prompt: 'do parent', status: 'completed', confidence: 0.4, git: { headCommit: 'abc' }, report: { summary: 'parent done', confidence: 0.4 }, createdBy: 'seed', timestamps: { createdAt: 1, completedAt: 2 } } }],
+});
+const resourcePromptBefore = leadPromptCaptures.filter((row) => row.projectId === resourceProjectId).length;
+const resourceStep = await prodOrch.step(resourceProjectId, 'round40-resource-probe');
+const resourceCycle = store.listCycles(resourceProjectId, 1)[0];
+const resourcePrompt = leadPromptCaptures.filter((row) => row.projectId === resourceProjectId)[resourcePromptBefore]?.prompt ?? '';
+const resourceBranchPrompt = branchPromptCaptures.filter((row) => row.projectId === resourceProjectId).at(-1)?.prompt ?? '';
+const resourceAdvisorPrompt = advisorPrompt(
+  { id: 'resource-advisor-probe', config: { resourcePools: {} } },
+  { resources: { pools: {}, free: {}, held: {}, maxRunningNodes: 2, runningCount: 0 } },
+  null,
+);
+const resourceRejection = resourceCycle?.lead?.rejected?.[0] ?? null;
+check('Round 40: an empty-pool project puts the resource capability list in the lead, branch and advisor prompts',
+  resourcePrompt.includes('# Resource capability')
+  && resourcePrompt.includes('Configured resource keys: none')
+  && resourcePrompt.includes('Available now (free > 0): none')
+  && /maxRunningNodes: 1/.test(resourcePrompt)
+  && /unlisted key is rejected as unknown resource/.test(resourcePrompt)
+  && /omit needs to use the default pool/.test(resourcePrompt)
+  && resourceBranchPrompt.includes('# Resource capability')
+  && resourceBranchPrompt.includes('Configured resource keys: none')
+  && resourceAdvisorPrompt.includes('# Resource capability')
+  && resourceAdvisorPrompt.includes('Configured resource keys: none'),
+  JSON.stringify({ prompt: resourcePrompt.slice(0, 1800), branchPrompt: resourceBranchPrompt.slice(0, 1200), advisorPrompt: resourceAdvisorPrompt.slice(0, 1200), step: resourceStep, errors: resourceCycle?.errors }));
+check('Round 40: an unknown resource is rejected with available: none and a machine-checkable code',
+  resourceStep.created.length === 0
+  && resourceRejection?.code === 'resource_not_available'
+  && /unknown resource: gpu/.test(resourceRejection?.reason ?? '')
+  && /available: none/.test(resourceRejection?.reason ?? '')
+  && /omit needs to use the default pool/.test(resourceRejection?.reason ?? ''),
+  JSON.stringify({ rejection: resourceRejection, skip: resourceCycle?.lead?.skipReason, errors: resourceCycle?.errors }));
+
+await kernel.executor.commit(resourceProjectId, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{ op: 'node.create', node: { id: 'parent2', title: 'parent2', prompt: 'do parent2', status: 'completed', confidence: 0.4, git: { headCommit: 'def' }, report: { summary: 'parent2 done', confidence: 0.4 }, createdBy: 'seed', timestamps: { createdAt: 3, completedAt: 4 } } }],
+});
+const resourceSecondBefore = leadPromptCaptures.filter((row) => row.projectId === resourceProjectId).length;
+await prodOrch.step(resourceProjectId, 'round40-resource-probe-2');
+const resourceSecondCycle = store.listCycles(resourceProjectId, 1)[0];
+const resourceSecondPrompt = leadPromptCaptures.filter((row) => row.projectId === resourceProjectId)[resourceSecondBefore]?.prompt ?? '';
+const resourceFeedback = resourceSecondCycle?.previousLeadFeedback?.firstRejection ?? null;
+check('Round 40: the next lead activation receives the resource rejection code and available list',
+  resourceFeedback?.code === 'resource_not_available'
+  && /available: none/.test(resourceFeedback?.reason ?? '')
+  && resourceSecondPrompt.includes('# Resource capability')
+  && resourceSecondPrompt.includes('Configured resource keys: none'),
+  JSON.stringify({ feedback: resourceFeedback, prompt: resourceSecondPrompt.slice(0, 1200), errors: resourceSecondCycle?.errors, skipped: resourceSecondCycle?.skipped, leadRunId: resourceSecondCycle?.leadRunId, cycle: resourceSecondCycle && { id: resourceSecondCycle.id, lead: resourceSecondCycle.lead } }));
 
 const prodMetrics = await service.metricsFor(prodId);
 check('5.4/C2: production metrics expose coverage, compression, chief ratio and escalation rate', prodMetrics.review?.levels?.join(',') === 'branch,lead,chief' && prodMetrics.review.coverage?.completed >= 1 && prodMetrics.review.compression?.length === 3 && prodMetrics.review.chief?.count === 1 && typeof prodMetrics.review.escalationRate?.ratio === 'number', JSON.stringify(prodMetrics.review));
