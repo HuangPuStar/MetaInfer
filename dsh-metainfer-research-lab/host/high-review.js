@@ -116,6 +116,34 @@ export function highReviewResolution(input = {}) {
   };
 }
 
+const PLACEHOLDER_RATIONALE = /\b(?:placeholder|probe|test|todo|tbd|dummy|lorem ipsum|n\/a)\b/i;
+
+/**
+ * Human high-review decisions need an explicit, real rationale. The provenance
+ * resolver otherwise fills in a generic sentence, which made a probe decision
+ * look like a deliberate human audit record. Automated high-review decisions
+ * must use `system:<policy>` (or an expert/chief actor); they are exempt.
+ *
+ * @param {object} input
+ * @param {object} actor
+ * @returns {{code: string, message: string, resolvedBy: string}|null}
+ */
+export function validateHighReviewRationale(input = {}, actor = {}) {
+  const resolvedBy = resolvedByRef(actor, null);
+  if (!resolvedBy.startsWith('human:')) return null;
+  const rationale = typeof input?.rationale === 'string' ? input.rationale.trim() : '';
+  const reason = typeof input?.reason === 'string' ? input.reason.trim() : '';
+  const text = rationale || reason;
+  if (text && !PLACEHOLDER_RATIONALE.test(text)) return null;
+  return {
+    code: 'rationale_required',
+    resolvedBy,
+    message: text
+      ? 'human high-review decisions require a non-placeholder rationale; automated or test decisions must use a system:<policy> actor'
+      : 'human high-review decisions require a non-empty rationale; automated or test decisions must use a system:<policy> actor',
+  };
+}
+
 /** A compact string for tool output/UI; the object remains authoritative. */
 export function formatCancelReason(reason) {
   if (!reason || typeof reason !== 'object') return typeof reason === 'string' ? reason : '';

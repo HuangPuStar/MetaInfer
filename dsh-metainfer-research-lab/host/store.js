@@ -420,6 +420,14 @@ export async function openStore(ctx, config = {}) {
     return (indexFor(projectId).children.get(nodeId)?.size ?? 0) > 0;
   }
 
+  /** Direct children, O(number of children), without scanning the project. */
+  function childrenOf(projectId, nodeId) {
+    const entry = indexFor(projectId);
+    const ids = entry.children.get(nodeId);
+    if (!ids || ids.size === 0) return [];
+    return [...ids].map((id) => entry.nodes.get(id)).filter(Boolean);
+  }
+
   /** Subscribe to every node write, including legacy writers outside the kernel. */
   function subscribeNodes(listener) {
     if (typeof listener !== 'function') throw new TypeError('subscribeNodes: listener must be a function');
@@ -793,6 +801,7 @@ export async function openStore(ctx, config = {}) {
     countNodes,
     countArchived,
     hasChildren,
+    childrenOf,
     saveNode,
     subscribeNodes,
     deleteNode,

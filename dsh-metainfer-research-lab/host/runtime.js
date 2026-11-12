@@ -23,6 +23,7 @@ import { DEFAULT_MERGE_PROMPT, DEFAULT_WORKER_PREFIX, WORKER_RULES } from './pro
 import { applyPredictionToNode } from './kernel/prediction.js';
 import { failureCode, failureDiagnostic, failureMessage } from './failure.js';
 import { assertModelSchema } from './schema-check.js';
+import { isNonBlockingSuccessor } from './kernel/runnable.js';
 
 /** JSON schema accepted by DSH's structured-output tool (supported subset only). */
 export const NODE_REPORT_SCHEMA = {
@@ -429,13 +430,8 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       throw new LabError('node_not_escalatable', `node ${nodeId} is ${node.status}`, 409);
     }
     if (node.status === 'completed') {
-      const hasChildren = store
-        .listNodes(projectId)
-        .some((candidate) => {
-          if (candidate.status === 'proposed') return false;
-          const ids = Array.isArray(candidate.parentIds) ? candidate.parentIds : [candidate.parentId];
-          return ids.includes(nodeId);
-        });
+      const hasChildren = store.childrenOf(projectId, nodeId)
+        .some((candidate) => candidate.status !== 'proposed' && !isNonBlockingSuccessor(candidate));
       if (hasChildren) throw new LabError('node_sealed', 'cannot re-run a sealed node; fork a new successor instead', 409);
     }
     if (!['failed', 'completed', 'cancelled'].includes(node.status)) {
@@ -1862,13 +1858,8 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       if (!allowed) {
         throw new LabError('node_not_continuable', `node ${nodeId} is ${node.status}, expected completed`, 409);
       }
-      const hasChildren = store
-        .listNodes(projectId)
-        .some((candidate) => {
-          if (candidate.status === 'proposed') return false;
-          const ids = Array.isArray(candidate.parentIds) ? candidate.parentIds : [candidate.parentId];
-          return ids.includes(nodeId);
-        });
+      const hasChildren = store.childrenOf(projectId, nodeId)
+        .some((candidate) => candidate.status !== 'proposed' && !isNonBlockingSuccessor(candidate));
       if (hasChildren) throw new LabError('node_sealed', 'node already has successors and is sealed', 409);
       if (!isLiveMerge) {
         ensureCapacity(project, node);

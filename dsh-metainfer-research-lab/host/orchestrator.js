@@ -25,6 +25,7 @@ import { assertModelSchema } from './schema-check.js';
 import { classifyRoleFailure, formatRoleFailure } from './role-errors.js';
 import { highReviewResolution } from './high-review.js';
 import { capacityOf } from './kernel/capacity.js';
+import { isNonBlockingSuccessor } from './kernel/runnable.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 // 5.3.8: O1 measured advisor p90 at the old 180 s ceiling; the default budget
@@ -1416,7 +1417,12 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     // lead overrides them.
     const replacingFailedSource = Boolean(sourceFailed && parentsOf(source).includes(parentId));
     const children = nodes.filter((node) => node.id !== parentId && parentsOf(node).includes(parentId));
-    const blockingChildren = children.filter((node) => node.status !== 'proposed');
+    // A deferred child means "not this time", and a cancelled child is gone.
+    // Neither may make a completed parent look terminal: otherwise the parent
+    // cannot get a replacement successor and the deferred child never runs,
+    // deadlocking the branch (high-review defer -> parent_already_has_successor
+    // rejection -> noProgress).
+    const blockingChildren = children.filter((node) => node.status !== 'proposed' && !isNonBlockingSuccessor(node));
     let replacementTarget = null;
     if (replacingFailedSource) {
       // Round 36: a failed replacement is not a live successor. Walk the
@@ -1426,7 +1432,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       const chain = replacementChainForNode(nodes, source.id);
       const chainIds = new Set(chain.map((node) => node.id));
       const chainLabel = chain.map((node) => node.id).join(' -> ');
-      const liveReplacement = chain.find((node) => node.id !== source.id && node.status !== 'failed' && node.status !== 'cancelled');
+      const liveReplacement = chain.find((node) => node.id !== source.id && node.status !== 'failed' && node.status !== 'cancelled' && !isNonBlockingSuccessor(node));
       if (liveReplacement) {
         return {
           ok: false,
@@ -1441,7 +1447,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           reason: `replacement chain for ${chain[0]?.id ?? source.id} exhausted after 3 attempts (${chainLabel}); no further attempt`,
         };
       }
-      const liveChild = blockingChildren.find((node) => node.id !== source.id && !chainIds.has(node.id) && node.status !== 'failed' && node.status !== 'cancelled');
+      const liveChild = blockingChildren.find((node) => node.id !== source.id && !chainIds.has(node.id) && node.status !== 'failed' && node.status !== 'cancelled' && !isNonBlockingSuccessor(node));
       if (liveChild) {
         return {
           ok: false,
@@ -1479,7 +1485,9 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       };
     }
     const hash = promptHash(prompt);
-    if (!replacingFailedSource && nodes.some((node) => node.parentId === parentId && promptHash(node.prompt) === hash)) {
+    if (!replacingFailedSource && nodes.some((node) => node.parentId === parentId
+      && !isNonBlockingSuccessor(node)
+      && promptHash(node.prompt) === hash)) {
       return { ok: false, reason: 'duplicate proposal (same parent and prompt hash)' };
     }
     if (nodes.length >= (project.config.maxNodes ?? 60)) return { ok: false, reason: 'maxNodes reached' };

@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import {
   RUNNABLE_BLOCK,
   isDeferredNode,
+  isNonBlockingSuccessor,
   isRunnableNode,
   runnableBlockReason,
   runnableNodes,
@@ -53,6 +54,13 @@ test('a deferred node is planned but never runnable', () => {
   assert.equal(runnableBlockReason(deferred, NOW), RUNNABLE_BLOCK.DEFERRED);
   assert.equal(isDeferredNode(deferred), true);
   assert.deepEqual(runnableNodes([deferred], NOW), []);
+});
+
+test('deferred and cancelled children are not blocking successors', () => {
+  assert.equal(isNonBlockingSuccessor(node('d', { priority: { class: 'deferred' } })), true);
+  assert.equal(isNonBlockingSuccessor(node('c', { status: 'cancelled' })), true);
+  assert.equal(isNonBlockingSuccessor(node('p', { priority: { class: 'p2' } })), false);
+  assert.equal(isNonBlockingSuccessor(node('r', { status: 'running' })), false);
 });
 
 test('a claimed node is blocked until the claim is released', () => {

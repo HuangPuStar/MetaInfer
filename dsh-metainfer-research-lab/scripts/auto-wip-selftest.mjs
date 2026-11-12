@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { openStore } from '../host/store.js';
-import { createAutoController, leadRetryBackoffMs, maxPlannedInFlightOf } from '../host/auto.js';
+import { createAutoController, deferredDeadlockBlockers, leadRetryBackoffMs, maxPlannedInFlightOf } from '../host/auto.js';
 import { createKernel } from '../host/kernel/instance.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
@@ -513,6 +513,109 @@ await test('Round 41: a quota_backoff pause resumes automatically at resumeAt', 
   assert.equal(status.cycles, 4);
   auto.dispose();
   kernel.dispose();
+});
+
+await test('Round 43: a deferred child does not hide the completed parent from the planner', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const projectId = 'p-deferred-parent';
+  await store.saveProject({
+    id: projectId, name: projectId, mode: 'manual', repo: {}, revision: 0,
+    counters: { eventSeq: 0 },
+    config: {
+      maxRunningNodes: 2, maxNodes: 100, resourcePools: {},
+      planning: { minRemainingMs: 3_600_000, planLatencyMs: 1_000, safetyFactor: 0.1, debounceMs: 0, minGapMs: 0 },
+    },
+  });
+  await store.saveNode(projectId, {
+    ...node('live-runner'), status: 'running', timestamps: { createdAt: 1, startedAt: 1 },
+  });
+  await store.saveNode(projectId, {
+    ...node('parent'), status: 'completed', git: { headCommit: 'parent-head' }, review: null,
+    report: { summary: 'parent done' }, timestamps: { createdAt: 1, completedAt: 2 },
+  });
+  await store.saveNode(projectId, {
+    ...node('deferred-child', 'deferred'), parentId: 'parent',
+    highReview: { status: 'deferred', decision: 'defer', resolvedAt: Date.now() - 42 * 60_000, reasonCode: 'high_review_defer' },
+    timestamps: { createdAt: 2 },
+  });
+  let steps = 0;
+  const kernel = createKernel({ store });
+  const auto = createAutoController({
+    store, kernel, cluster: null,
+    dispatchOnce: async () => ({ started: 0, skipped: [] }),
+    orchestrator: {
+      step: async () => {
+        steps += 1;
+        return { created: [], started: [], errors: [], skipped: [] };
+      },
+    },
+    intervalMs: 60_000,
+  });
+  auto.start(projectId);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const status = auto.statusOf(projectId);
+  auto.dispose();
+  kernel.dispose();
+  assert.equal(steps, 1, 'the completed parent must remain actionable despite its deferred child');
+  assert.equal(status.pauseReason, null, `the planner pass, not a deadlock, owns the next decision: ${status.pauseReason}`);
+});
+
+await test('Round 43: a branch blocked only by a deferred child pauses as deadlock with blockedBy', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const projectId = 'p-deferred-deadlock';
+  await store.saveProject({
+    id: projectId, name: projectId, mode: 'manual', repo: {}, revision: 0,
+    counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 2, maxNodes: 100, maxDeferred: 20, resourcePools: {}, auto: { idleCycleLimit: 1 } },
+  });
+  await store.saveNode(projectId, {
+    ...node('parent'), status: 'completed', git: { headCommit: 'parent-head' }, review: null,
+    report: { summary: 'parent done' }, timestamps: { createdAt: 1, completedAt: 2 },
+  });
+  const deferredAt = Date.now() - 42 * 60_000 - 10_000;
+  await store.saveNode(projectId, {
+    ...node('deferred-child', 'deferred'), parentId: 'parent',
+    priority: { class: 'deferred', by: 'lab-chief', at: deferredAt, reason: 'high-review veto: defer (high_review_defer)' },
+    highReview: {
+      status: 'deferred', decision: 'defer', resolvedAt: deferredAt, reasonCode: 'high_review_defer',
+      resolvedBy: { kind: 'human', id: 'session-probe' }, resolvedByRef: 'human:session-probe',
+    },
+    timestamps: { createdAt: deferredAt },
+  });
+  const rows = deferredDeadlockBlockers(store.listNodes(projectId), Date.now());
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].parentId, 'parent');
+  assert.deepEqual(rows[0].deferredChildIds, ['deferred-child']);
+  assert.equal(rows[0].reasonCode, 'high_review_defer');
+  assert.match(rows[0].message, /parent parent blocked by deferred child deferred-child/);
+  let steps = 0;
+  const kernel = createKernel({ store });
+  const auto = createAutoController({
+    store, kernel, cluster: null,
+    dispatchOnce: async () => ({ started: 0, skipped: [] }),
+    orchestrator: {
+      step: async () => {
+        steps += 1;
+        return { created: [], started: [], errors: [], skipped: [] };
+      },
+    },
+    intervalMs: 60_000,
+  });
+  auto.start(projectId);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const status = auto.statusOf(projectId);
+  auto.dispose();
+  kernel.dispose();
+  assert.equal(steps, 1);
+  assert.equal(status.pauseReason, 'deadlock', JSON.stringify(status));
+  assert.equal(status.pauseCounts.deadlock, 1);
+  assert.equal(status.blockedBy.length, 1);
+  assert.equal(status.blockedBy[0].parentId, 'parent');
+  assert.equal(status.blockedBy[0].childId, 'deferred-child');
+  assert.match(status.lastPlanSkip, /parent parent blocked by deferred child deferred-child \(deferred 42m ago; no other successor\)/);
+  const persisted = store.getProject(projectId)?.autoState;
+  assert.equal(persisted?.pauseReason, 'deadlock');
+  assert.equal(persisted?.blockedBy?.[0]?.childId, 'deferred-child');
 });
 
 process.stdout.write(`${checks - failed}/${checks} auto WIP checks passed\n`);

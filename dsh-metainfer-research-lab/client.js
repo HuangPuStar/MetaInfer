@@ -4193,7 +4193,11 @@ window.__ModuleLoader__.load({
       return asArray(asObject(node).followUps).filter((entry) => entry !== null && typeof entry === 'object');
     }
     function nodeSealedOf(node) {
-      if (asObject(node).sealed === true) return true;
+      // The Host derives `sealed` from live successors. It must win even when
+      // false: a node sealed earlier by a child that was later deferred or
+      // cancelled is reopenable, and sealedAt/tag are historical.
+      const derived = asObject(node).sealed;
+      if (typeof derived === 'boolean') return derived;
       if (finiteNumber(nodeTimestampsOf(node).sealedAt) !== null) return true;
       return nodeTagOf(node) !== '';
     }

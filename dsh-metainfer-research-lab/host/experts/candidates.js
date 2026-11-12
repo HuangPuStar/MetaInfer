@@ -1,3 +1,5 @@
+import { isNonBlockingSuccessor } from '../kernel/runnable.js';
+
 /**
  * Round 33: durable branch-report candidate queue.
  *
@@ -114,8 +116,23 @@ export function candidateStructureKey(candidate, nodes) {
   const parentId = nodeParentId(source);
   const parent = list.find((node) => node.id === parentId) ?? null;
   const chain = source ? replacementChainForNode(list, source.id) : [];
+  // Deferred/cancelled siblings do not block succession, so they must not
+  // keep an old `parent_already_has_successor` block alive after the blocker is
+  // deferred. Omitting them changes the structural key and expires that block.
   const siblings = parentId
-    ? list.filter((node) => nodeParentId(node) === parentId).map((node) => `${node.id}:${node.status}:${node.replacesNodeId ?? ''}`).sort()
+    ? list
+      .filter((node) => nodeParentId(node) === parentId && !isNonBlockingSuccessor(node))
+      .map((node) => `${node.id}:${node.status}:${node.replacesNodeId ?? ''}`)
+      .sort()
+    : [];
+  // A `parent_already_has_successor` block is about the *source's* children,
+  // not its siblings. Include the non-blocking-filtered successor set so an old
+  // block expires the moment the sole child is deferred or cancelled.
+  const successors = source
+    ? list
+      .filter((node) => nodeParentId(node) === source.id && !isNonBlockingSuccessor(node))
+      .map((node) => `${node.id}:${node.status}:${node.replacesNodeId ?? ''}`)
+      .sort()
     : [];
   return JSON.stringify({
     candidateId: candidate?.candidateId ?? null,
@@ -126,6 +143,7 @@ export function candidateStructureKey(candidate, nodes) {
     parentStatus: parent?.status ?? null,
     chain: chain.map((node) => `${node.id}:${node.status}:${node.replacesNodeId ?? ''}`),
     siblings,
+    successors,
   });
 }
 
@@ -250,7 +268,16 @@ export function buildBranchCandidateQueue({ project = {}, runs = [], nodes = [],
         ? project.candidateBlocks[candidateId] ?? null
         : null;
       const structureKey = block ? candidateStructureKey({ candidateId, ...normalized }, nodes) : null;
-      const blocked = Boolean(!consumedRow && block && (!block.structureKey || block.structureKey === structureKey));
+      const sourceNode = normalized.sourceNodeId ? nodeById.get(normalized.sourceNodeId) ?? null : null;
+      const hasBlockingSuccessors = sourceNode
+        ? (Array.isArray(nodes) ? nodes : []).some((node) => nodeParentId(node) === sourceNode.id && !isNonBlockingSuccessor(node))
+        : false;
+      // Even a legacy block without a structureKey must not survive after the
+      // only successor was deferred/cancelled: that is exactly the deadlock.
+      const obsoleteParentSuccessorBlock = block?.code === 'parent_already_has_successor'
+        && Boolean(sourceNode)
+        && !hasBlockingSuccessors;
+      const blocked = Boolean(!consumedRow && block && !obsoleteParentSuccessorBlock && (!block.structureKey || block.structureKey === structureKey));
       candidatesById.set(candidateId, {
         candidateId,
         ...normalized,

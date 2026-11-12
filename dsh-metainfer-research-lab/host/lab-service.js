@@ -26,13 +26,13 @@ import { queryDag, dagGet, mapDag, walkDag, createDiffCache } from './context/da
 import { createExplorationBudget } from './context/limits.js';
 import { createLedgerReader } from './context/ledger.js';
 import { normalizePriority } from './kernel/priority.js';
-import { runnableQueue, runnableSince } from './kernel/runnable.js';
+import { isNonBlockingSuccessor, runnableQueue, runnableSince } from './kernel/runnable.js';
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
 import { PRIORITY_CLASSES, classBudgetOf } from './dispatch/reservation.js';
 import { DISPUTE_CLASS_MAP, DISPUTE_DEFAULT_ACTION, createDisputeRecord, disputeActorVerdict, disputeAuthorityVerdict, effectiveDispute, expireDisputeRecord, reopenDisputeRecord, resolveDisputeRecord } from './kernel/disputes.js';
 import { DEFAULT_ROTATION_DAYS, rotationPlan } from './experts/rotation.js';
 import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
-import { highReviewResolution } from './high-review.js';
+import { highReviewResolution, validateHighReviewRationale } from './high-review.js';
 import { actorKeyOf, hasActorIdentity, isIssuedActorKey, publicView, sameActor } from './kernel/actors.js';
 import { ESCALATION_REASON_CODES, INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, detectIntentConflicts, intentBasis, intentId, intentMutation } from './kernel/intent.js';
 import { ACTION_VERIFICATION, IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
@@ -863,7 +863,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const projected = options.full === true ? rawNodes : rawNodes.map((node) => stateNode(node, { lean }));
     const parentIds = new Set();
     for (const node of allRaw) {
-      if (node.status === 'proposed') continue;
+      if (node.status === 'proposed' || isNonBlockingSuccessor(node)) continue;
       const ids = Array.isArray(node.parentIds) && node.parentIds.length > 0
         ? node.parentIds
         : (node.parentId ? [node.parentId] : []);
@@ -953,7 +953,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     requireProject(projectId);
     const node = store.getNode(projectId, nodeId);
     if (!node) throw new LabError('node_not_found', `unknown node: ${nodeId}`, 404);
-    const hasChildren = store.hasChildren(projectId, node.id);
+    const hasChildren = store.childrenOf(projectId, node.id)
+      .some((candidate) => candidate.id !== node.id && !isNonBlockingSuccessor(candidate));
     return publicView({ ok: true, node, sealed: hasChildren, isLeaf: !hasChildren });
   }
 
@@ -1603,6 +1604,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       .filter((row) => row.waitingMs >= starveMs);
     const autoStatus = auto?.statusOf?.(projectId) ?? null;
     const pauseReason = autoStatus?.status === 'paused' ? (autoStatus.pauseReason || 'unknown') : null;
+    const blockedBy = Array.isArray(autoStatus?.blockedBy) ? autoStatus.blockedBy : [];
     const openDisputes = (Array.isArray(project.disputes) ? project.disputes : [])
       .map((record) => effectiveDispute(record, now))
       .filter((record) => record.status === 'pending');
@@ -1639,6 +1641,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       stalled,
       starving,
       pauseReason,
+      blockedBy,
       triggers: escalation,
       triggerCodes: [...TRIGGER_CODES],
       thresholdTriggers: thresholds,
@@ -5385,6 +5388,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (!['defer', 'withdraw', 'keep'].includes(action)) {
       return rejection('bad_request', 'action must be defer, withdraw or keep');
     }
+    const rationaleError = validateHighReviewRationale(input, actor);
+    if (rationaleError) return rejection(rationaleError.code, rationaleError.message, { resolvedBy: rationaleError.resolvedBy });
     const decision = {
       action,
       reasonCode: typeof input?.reasonCode === 'string' ? input.reasonCode : null,

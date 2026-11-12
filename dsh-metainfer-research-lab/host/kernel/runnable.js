@@ -42,6 +42,27 @@ export function runnableBlockReason(node, now = Date.now()) {
   return null;
 }
 
+/**
+ * Whether this child should be ignored by "parent already has a successor"
+ * decisions. Defer means "not this time", never "this branch is over"; a
+ * cancelled child is gone as well. A deferred child must therefore not make a
+ * completed parent look terminal, otherwise the parent can neither advance nor
+ * replace the deferred child.
+ *
+ * Priority is checked even when the status is not `planned`: high-review sets
+ * the class on a planned node, and tests/fixtures may also seed a terminal node
+ * with the class. This helper is intentionally independent of `deferUntil`:
+ * a scheduled defer is still a deferred child for structural succession.
+ *
+ * @param {object} node
+ * @returns {boolean}
+ */
+export function isNonBlockingSuccessor(node) {
+  if (!node || node.archivedAt) return true;
+  if (node.status === 'cancelled') return true;
+  return normalizePriority(node.priority).class === 'deferred';
+}
+
 /** @returns {boolean} whether the node may be dispatched right now. */
 export function isRunnableNode(node, now = Date.now()) {
   return runnableBlockReason(node, now) === null;

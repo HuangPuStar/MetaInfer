@@ -4,7 +4,7 @@
  * human-confirmation mode (waiting proposals never block running nodes).
  */
 import { LabError } from './git-engine.js';
-import { isDeferredNode, runnableQueue, runnableSummary } from './kernel/runnable.js';
+import { isDeferredNode, isNonBlockingSuccessor, runnableQueue, runnableSummary } from './kernel/runnable.js';
 import { createLowWaterPlanner, planningConfigOf } from './dispatch/low-water.js';
 import { anyFits, capacityOf } from './kernel/capacity.js';
 
@@ -32,6 +32,80 @@ function leadFailureRetryable(errorText) {
 
 export const QUOTA_BACKOFF_THRESHOLD_MS = 10 * 60_000;
 const THROTTLE_RETRY_FALLBACK_MS = 60_000;
+const MAX_DEADLOCK_BLOCKERS = 20;
+
+function parentsOfNode(node) {
+  if (!node) return [];
+  if (Array.isArray(node.parentIds) && node.parentIds.length > 0) return node.parentIds;
+  return node.parentId ? [node.parentId] : [];
+}
+
+function deferredAtOf(node) {
+  return Number(node?.highReview?.resolvedAt)
+    || Number(node?.priority?.at)
+    || Number(node?.timestamps?.createdAt)
+    || 0;
+}
+
+function durationText(ms) {
+  const minutes = Math.max(0, Math.floor(Number(ms) / 60_000));
+  if (minutes < 1) return 'less than 1m';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+/**
+ * Find completed parents whose only remaining successor is a deferred child.
+ * Such a branch can neither advance (the guard used to count the deferred child)
+ * nor run the deferred child (dispatch correctly skips it). This is the data
+ * behind `pauseReason=deadlock`; it is also intentionally useful after the
+ * guard fix, because it tells an operator which branch needs a new proposal.
+ *
+ * @param {object[]} nodes
+ * @param {number} [now]
+ */
+export function deferredDeadlockBlockers(nodes, now = Date.now()) {
+  const list = (Array.isArray(nodes) ? nodes : []).filter((node) => node && !node.archivedAt);
+  const childrenByParent = new Map();
+  for (const node of list) {
+    for (const parentId of parentsOfNode(node)) {
+      if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, []);
+      childrenByParent.get(parentId).push(node);
+    }
+  }
+  const rows = [];
+  for (const parent of list) {
+    if (parent.status !== 'completed') continue;
+    const children = childrenByParent.get(parent.id) ?? [];
+    if (children.length === 0) continue;
+    // A live/planned/reviewable sibling means the branch is not structurally
+    // deadlocked; only deferred and cancelled children are ignored here.
+    if (children.some((child) => child.id !== parent.id && !isNonBlockingSuccessor(child))) continue;
+    const deferred = children
+      .filter((child) => child.id !== parent.id && child.status !== 'cancelled' && !child.archivedAt && isNonBlockingSuccessor(child))
+      .sort((a, b) => deferredAtOf(a) - deferredAtOf(b) || String(a.id).localeCompare(String(b.id)));
+    if (deferred.length === 0) continue;
+    const oldest = deferred[0];
+    const at = deferredAtOf(oldest);
+    const ageMs = at > 0 ? Math.max(0, now - at) : null;
+    const deferredChildIds = deferred.map((child) => child.id);
+    const message = `parent ${parent.id} blocked by deferred child ${deferredChildIds.join(', ')} (deferred ${ageMs === null ? 'unknown time' : `${durationText(ageMs)} ago`}; no other successor)`;
+    rows.push({
+      parentId: parent.id,
+      childId: oldest.id,
+      deferredChildId: oldest.id,
+      deferredChildIds,
+      deferredAt: at || null,
+      deferredBy: oldest.highReview?.resolvedByRef ?? oldest.priority?.by ?? null,
+      reasonCode: oldest.highReview?.reasonCode ?? (oldest.priority?.class === 'deferred' ? 'deferred_priority' : 'high_review_defer'),
+      ageMs,
+      message,
+    });
+  }
+  return rows;
+}
 
 function quotaResetText(quota, now = Date.now()) {
   if (!Number.isFinite(Number(quota?.resetsAt))) return '';
@@ -160,6 +234,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
         lastPlanSkip: persisted.lastPlanSkip ?? null,
         lastPauseAt: Number.isFinite(persisted.lastPauseAt) ? persisted.lastPauseAt : null,
         pauseCounts: persisted.pauseCounts && typeof persisted.pauseCounts === 'object' ? { ...persisted.pauseCounts } : {},
+        blockedBy: Array.isArray(persisted.blockedBy) ? persisted.blockedBy : [],
         leadFailureStreak: Number.isFinite(persisted.leadFailureStreak) ? persisted.leadFailureStreak : 0,
         leadBackoffUntil: Number.isFinite(persisted.leadBackoffUntil) ? persisted.leadBackoffUntil : 0,
         lastLeadFailureAt: Number.isFinite(persisted.lastLeadFailureAt) ? persisted.lastLeadFailureAt : null,
@@ -209,6 +284,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       lastPlanSkip: state.lastPlanSkip,
       lastPauseAt: state.lastPauseAt ?? null,
       pauseCounts: { ...state.pauseCounts },
+      blockedBy: Array.isArray(state.blockedBy) ? state.blockedBy : [],
       lastDispatch: state.lastDispatch ?? null,
       dispatchStarted: state.dispatchStarted ?? 0,
       leadFailureStreak: state.leadFailureStreak ?? 0,
@@ -257,6 +333,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
           lastPlanSkip: state.lastPlanSkip,
           lastPauseAt: state.lastPauseAt ?? null,
           pauseCounts: { ...state.pauseCounts },
+          blockedBy: Array.isArray(state.blockedBy) ? state.blockedBy : [],
           leadFailureStreak: state.leadFailureStreak ?? 0,
           leadBackoffUntil: state.leadBackoffUntil ?? 0,
           lastLeadFailureAt: state.lastLeadFailureAt ?? null,
@@ -276,15 +353,20 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     if (result.ok !== true) throw new LabError(result.code ?? 'commit_failed', result.message ?? 'auto event commit failed', 500);
   }
 
-  async function pause(projectId, reason) {
+  async function pause(projectId, reason, detail = null) {
     const state = stateOf(projectId);
     if (state.status === 'paused' && state.pauseReason === reason) return;
     state.status = 'paused';
     state.pauseReason = reason;
     state.pauseCounts[reason] = (state.pauseCounts[reason] ?? 0) + 1;
     state.lastPauseAt = Date.now();
+    state.blockedBy = Array.isArray(detail?.blockedBy) ? detail.blockedBy.slice(0, MAX_DEADLOCK_BLOCKERS) : [];
+    if (reason === 'deadlock' && detail?.message) state.lastPlanSkip = detail.message;
     const project = store.getProject(projectId);
-    if (project) await saveEvent(project, 'auto/paused', { reason });
+    if (project) await saveEvent(project, 'auto/paused', {
+      reason,
+      ...(state.blockedBy.length > 0 ? { blockedBy: state.blockedBy } : {}),
+    });
   }
 
   async function waiting(projectId, reason) {
@@ -307,6 +389,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     state.errorStreak = 0;
     state.lastCycleAt = 0;
     state.pauseCounts = {};
+    state.blockedBy = [];
     state.leadFailureStreak = 0;
     state.leadBackoffUntil = 0;
     state.lastLeadFailureAt = null;
@@ -347,6 +430,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     if (state.status === 'off') return start(projectId);
     state.status = 'running';
     state.pauseReason = null;
+    state.blockedBy = [];
     // A manual resume is an explicit "try again", so it must clear the failure
     // streak: the breaker pauses at errorStreak >= 3 and would otherwise re-pause
     // on the very next tick, making auto_resume look like a no-op.
@@ -381,7 +465,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
   function actionableLeaves(project, nodes) {
     const children = new Set();
     for (const node of nodes) {
-      if (node.status === 'proposed') continue;
+      if (node.status === 'proposed' || isNonBlockingSuccessor(node)) continue;
       const ids = Array.isArray(node.parentIds) && node.parentIds.length > 0
         ? node.parentIds
         : (node.parentId ? [node.parentId] : []);
@@ -617,7 +701,22 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       if (Date.now() - (state.startedAt ?? Date.now()) >= (auto.maxWallClockMs ?? 6 * 60 * 60 * 1000)) {
         return pause(projectId, 'maxWallClock');
       }
-      if (state.idleStreak >= (auto.idleCycleLimit ?? 3)) return pause(projectId, 'noProgress');
+      if (state.idleStreak >= (auto.idleCycleLimit ?? 3)) {
+        const atPause = store.listNodes(projectId);
+        const activeWork = atPause.some((node) => node.status === 'running' || node.status === 'proposed')
+          || runnableQueue(atPause, Date.now()).length > 0;
+        const blockers = activeWork ? [] : deferredDeadlockBlockers(atPause, Date.now());
+        if (blockers.length > 0) {
+          const shown = blockers.slice(0, MAX_DEADLOCK_BLOCKERS);
+          return pause(projectId, 'deadlock', {
+            blockedBy: shown,
+            message: blockers.length > shown.length
+              ? `${shown[0].message}; +${blockers.length - shown.length} more blocked parent(s)`
+              : shown[0].message,
+          });
+        }
+        return pause(projectId, 'noProgress');
+      }
       if (state.errorStreak >= 3) return pause(projectId, 'errors');
       return undefined;
     } catch (error) {

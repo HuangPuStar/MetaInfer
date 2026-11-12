@@ -11,6 +11,7 @@ import { createLabService, slimStateNode } from '../host/lab-service.js';
 import { createOrchestrator, roleTimeoutMs, advisorPrompt } from '../host/orchestrator.js';
 import { registerAgentTool } from '../host/agent-tool.js';
 import { registerHttpRoutes } from '../host/http.js';
+import { candidateStructureKey } from '../host/experts/candidates.js';
 import { createOperatorAuthority } from '../host/operator-token.js';
 import { listExpertDescriptors, getExpertDescriptor } from '../host/experts/registry.js';
 import {
@@ -31,6 +32,19 @@ function check(name, condition, detail = '') {
   if (condition) console.log(`ok   ${name}`);
   else { failed += 1; console.log(`FAIL ${name}${detail ? ` — ${detail}` : ''}`); }
 }
+
+// Round 43: an old parent_already_has_successor block must expire when its
+// only blocking sibling becomes deferred; otherwise the structural block keeps
+// the branch dead even after the guard itself is fixed.
+const deferredKey = candidateStructureKey(
+  { candidateId: 'cand-expire', branchId: 'p', sourceNodeId: 'p' },
+  [{ id: 'p', status: 'completed' }, { id: 'd', parentId: 'p', status: 'planned', priority: { class: 'deferred' } }],
+);
+const activeKey = candidateStructureKey(
+  { candidateId: 'cand-expire', branchId: 'p', sourceNodeId: 'p' },
+  [{ id: 'p', status: 'completed' }, { id: 'd', parentId: 'p', status: 'planned', priority: { class: 'p2' } }],
+);
+check('Round 43: a deferred child changes the candidate structure key so an old successor block expires', deferredKey !== activeKey, JSON.stringify({ deferredKey, activeKey }));
 
 const descriptors = listExpertDescriptors();
 const chief = descriptors.filter((descriptor) => descriptor.level === 'chief');
@@ -362,6 +376,15 @@ check('Round 39: a human withdrawal stays human-attributed and is distinct from 
   && humanNode?.cancelledBy?.kind === 'human'
   && humanNode?.cancelReason?.resolvedBy !== policyNode?.cancelReason?.resolvedBy,
   JSON.stringify({ result: humanWithdraw, event: humanEvent, node: humanNode }));
+await savePending('placeholder-rationale-node', Date.now());
+const placeholder = await service.resolveHighReview(projectId, 'placeholder-rationale-node', { action: 'defer', reasonCode: 'low_confidence', rationale: 'placeholder — probe' }, humanExec);
+check('Round 43: a human high-review decision with placeholder rationale is rejected', placeholder.ok === false && placeholder.error?.code === 'rationale_required' && store.getNode(projectId, 'placeholder-rationale-node')?.pendingHighReview != null, JSON.stringify(placeholder));
+await savePending('empty-rationale-node', Date.now());
+const emptyRationale = await service.resolveHighReview(projectId, 'empty-rationale-node', { action: 'defer', reasonCode: 'low_confidence', rationale: '   ' }, humanExec);
+check('Round 43: a human high-review decision without rationale is rejected', emptyRationale.ok === false && emptyRationale.error?.code === 'rationale_required', JSON.stringify(emptyRationale));
+await savePending('system-rationale-node', Date.now());
+const systemRationale = await service.resolveHighReview(projectId, 'system-rationale-node', { action: 'defer', reasonCode: 'low_confidence', rationale: 'placeholder — internal policy probe' }, { kind: 'system', id: 'probe-policy' });
+check('Round 43: a system-policy decision can use an internal rationale without borrowing human identity', systemRationale.ok === true && systemRationale.node?.highReview?.resolvedByRef === 'system:probe-policy', JSON.stringify(systemRationale));
 
 // Round 40: evidence failures must tell the model what to send, not just that
 // its answer was wrong. The live chief wrote a prose description instead of a
@@ -1224,6 +1247,35 @@ for (let index = 0; index < 8; index += 1) capacitySessions.push(service.openRes
 const overCapacity = service.openResidentSession(projectId, { expertId: 'lab-advisor' }, humanExec);
 for (const session of capacitySessions) if (session.ok) service.closeResidentSession(projectId, session.sessionId);
 check('B16: the resident session map is bounded by a global concurrency cap', capacitySessions.every((session) => session.ok === true) && overCapacity.ok === false && overCapacity.error?.code === 'resident_capacity', JSON.stringify({ cap: overCapacity }));
+
+// Round 43: a deferred child must not make its completed parent terminal. The
+// lead must still be able to create a successor on the parent's branch.
+const deferParentId = 'successor-defer-p';
+await store.saveProject({
+  id: deferParentId, name: 'successor-defer', brief: 'deferred child must not block', revision: 0,
+  counters: { eventSeq: 0, nextNodeSeq: 3, nodes: 2 },
+  config: {
+    maxRunningNodes: 1, resourcePools: {}, maxNodes: 10,
+    expertsMode: 'hierarchy', migration: { phase: 2 },
+    advisor: { maxProposalsPerPass: 1, maxProposalsPerReviewer: 1, ancestorDepth: 1, acceptMode: 'confirm', maxPendingProposals: 5, timeoutSeconds: 60, reviewers: [] },
+    auto: { maxCycles: 1 },
+  },
+  repo: { path: process.cwd(), worktreeRoot: '/tmp/hierarchy-defer-wt', baseBranch: 'main', baseCommit: 'base' },
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(deferParentId);
+await kernel.executor.commit(deferParentId, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [
+    { op: 'node.create', node: { id: 'defer-parent', title: 'defer parent', prompt: 'do defer parent work', status: 'completed', git: { headCommit: 'defer-head' }, report: { summary: 'defer parent done', confidence: 0.8 }, createdBy: 'seed', timestamps: { createdAt: 1, completedAt: 2 } } },
+    { op: 'node.create', node: { id: 'deferred-child', title: 'deferred child', prompt: 'do child work', status: 'planned', parentId: 'defer-parent', priority: { class: 'deferred', by: 'lab-chief', reason: 'high-review veto: defer (high_review_defer)' }, highReview: { status: 'deferred', decision: 'defer', reasonCode: 'high_review_defer' }, createdBy: 'lab-lead', timestamps: { createdAt: 3 } } },
+  ],
+});
+const deferParentView = service.getNode(deferParentId, 'defer-parent');
+check('Round 43: a deferred child also leaves the parent unsealed on the read surface', deferParentView.sealed === false && deferParentView.isLeaf === true, JSON.stringify(deferParentView));
+const deferStep = await prodOrch.step(deferParentId, 'deferred-successor-probe');
+const deferChild = store.listNodes(deferParentId).find((node) => node.parentId === 'defer-parent' && node.id !== 'deferred-child');
+check('Round 43: a deferred child does not block a new successor on its completed parent', deferStep.created.length === 1 && deferChild?.parentId === 'defer-parent' && deferChild?.id === deferStep.created[0], JSON.stringify({ step: deferStep, nodes: store.listNodes(deferParentId).map((node) => ({ id: node.id, parentId: node.parentId, priority: node.priority })) }));
 
 if (failed > 0) {
   console.error(`hierarchy-selftest: ${failed} failed`);

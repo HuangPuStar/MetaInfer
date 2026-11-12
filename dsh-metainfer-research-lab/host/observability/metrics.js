@@ -312,9 +312,11 @@ export function computeProjectMetrics({
     stalls: {
       pauses: auto?.pauseCounts ?? {},
       noProgress: auto?.pauseCounts?.noProgress ?? 0,
+      deadlock: auto?.pauseCounts?.deadlock ?? 0,
       errors: auto?.pauseCounts?.errors ?? 0,
       driverStatus: auto?.status ?? null,
       pauseReason: auto?.pauseReason ?? null,
+      blockedBy: Array.isArray(auto?.blockedBy) ? auto.blockedBy : [],
       idleStreak: auto?.idleStreak ?? 0,
       errorStreak: auto?.errorStreak ?? 0,
       throttledStreak: auto?.throttledStreak ?? 0,
