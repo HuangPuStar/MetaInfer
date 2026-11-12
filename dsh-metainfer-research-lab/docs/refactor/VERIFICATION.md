@@ -8067,3 +8067,108 @@ auto.lastPlanSkip="all branch-report candidates structurally blocked: ... n-0002
 | `stage5-selftest` | all checks passed (unchanged Round 35 gates) |
 
 Live `prj-421b80bf` was read, not mutated; Host 3080 was not restarted.
+
+## 63. Round 37 — timebox prompt bounds and next-round rejection feedback
+
+### 63.1 Live shape
+
+`prj-e1cbb8e1` was read with:
+
+```json
+{
+  "nodeTimeoutMinutes": 1,
+  "maxNodeTimeoutMinutes": 2
+}
+```
+
+Lead `run-520f85d8` returned:
+
+```text
+proposal 0: timeboxMinutes=10
+proposal 1: timeboxMinutes=15
+proposal 2: timeboxMinutes=15
+```
+
+Cycle `cyc-31e33941` rejected all three with
+`timeboxMinutes must be 1..2`, so `created=[]` and the old `lastPlanSkip` had no
+received values.
+
+### 63.2 Resolved bounds
+
+`nodeTimeboxBounds(project)` in `host/orchestrator.js` returns:
+
+| project config | bounds |
+|---|---|
+| `{}` | `{min:1, max:240, default:10}` |
+| `{nodeTimeoutMinutes:30}` | `{min:1, max:240, default:30}` |
+| `{nodeTimeoutMinutes:1, maxNodeTimeoutMinutes:2}` | `{min:1, max:2, default:1}` |
+
+Lead prompt line for the live shape:
+
+```text
+Timebox limit: timeboxMinutes must be an integer in 1..2 (this project's
+default node budget is 1 minute); proposals outside this range are rejected.
+```
+
+Branch prompt line:
+
+```text
+Timebox limit: timeboxMinutes must be an integer in 1..2 (this project's
+default node budget is 1 minute); if a candidate suggests a node timebox,
+it must stay within this range.
+```
+
+### 63.3 Actionable rejection
+
+`checkProposal` now returns code `invalid_timebox` and:
+
+```text
+timeboxMinutes must be 1..2 (got 10)
+```
+
+The same `(got N)` suffix is used by `createSuccessor` and `createMergeNode`;
+the initial-node API error at `host/lab-service.js` also prints `got`.
+
+### 63.4 Next-round input
+
+`mostRecentLeadFeedback(store.listCycles(projectId, 20), cycle.id)` selects the
+most recent previous cycle with `lead.rejected`, compacts it, and
+`runHierarchyPass` stores it as `cycle.previousLeadFeedback` before calling
+`leadPromptParts(...)`.
+
+The next lead prompt contains:
+
+```text
+# Previous lead rejection feedback
+{"cycleId":"...","proposalCount":1,"rejectedCount":1,
+ "firstRejection":{"parentId":"n-0003","title":"child for optimization parent",
+ "reason":"timeboxMinutes must be 1..2 (got 10)","code":"invalid_timebox"},
+ "rejected":[...]}
+```
+
+`cycle.leadInputStats.previousRejectionCount` is `1` in the regression.
+
+### 63.5 Regression output
+
+With a production orchestrator and a fake lead whose proposals always carry
+`timeboxMinutes: 10`:
+
+```text
+ok Round 37: a 10-minute proposal is rejected with the received value and the 1..2 range
+ok Round 37: the lead and branch prompts carry the resolved timebox range and project default
+ok Round 37: the next lead input carries the previous rejection and its count
+```
+
+The first check also asserts `cycle.candidates.skipReason` contains
+`timeboxMinutes must be 1..2 (got 10)`, so the auto-facing reason is actionable.
+
+### 63.6 Gates
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1063 `ok`, 0 FAIL |
+| `stage5-selftest` | all checks passed (bounds defaults + configured 1..2) |
+| `hierarchy-selftest` | all checks passed (Round 37 regression) |
+| `plugin-smoke` | 6/6 process checks |
+
+Live `prj-e1cbb8e1` was not mutated; Host 3080 was not restarted.

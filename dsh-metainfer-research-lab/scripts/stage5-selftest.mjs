@@ -12,7 +12,7 @@ import { createIntent } from '../host/kernel/intent.js';
 import { DISPUTE_CLASS_MAP, DISPUTE_TIMEOUT_MS } from '../host/kernel/disputes.js';
 import { applyPredictionToNode, evaluateExpected, normalizeExpected } from '../host/kernel/prediction.js';
 import { rotationPlan } from '../host/experts/rotation.js';
-import { advisorTimeoutMs, DEFAULT_ADVISOR_TIMEOUT_SECONDS, roleTimeoutMs, ROLE_TIMEOUT_DEFAULTS, leadPromptParts } from '../host/orchestrator.js';
+import { advisorTimeoutMs, DEFAULT_ADVISOR_TIMEOUT_SECONDS, nodeTimeboxBounds, roleTimeoutMs, ROLE_TIMEOUT_DEFAULTS, leadPromptParts } from '../host/orchestrator.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -98,6 +98,13 @@ check('5.3.8: the advisor budget defaults above the measured 180 s p90 and stays
   && advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 5 } } }) === 30_000
   && advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 99_999 } } }) === 1_800_000,
   JSON.stringify({ default: advisorTimeoutMs({}), low: advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 5 } } }), high: advisorTimeoutMs({ config: { advisor: { timeoutSeconds: 99_999 } } }) }));
+
+check('Round 37: node timebox bounds resolve from project config with documented defaults',
+  JSON.stringify(nodeTimeboxBounds({})) === JSON.stringify({ min: 1, max: 240, default: 10 })
+  && JSON.stringify(nodeTimeboxBounds({ config: { nodeTimeoutMinutes: 1, maxNodeTimeoutMinutes: 2 } })) === JSON.stringify({ min: 1, max: 2, default: 1 })
+  && JSON.stringify(nodeTimeboxBounds({ config: { nodeTimeoutMinutes: 30 } })) === JSON.stringify({ min: 1, max: 240, default: 30 })
+  && JSON.stringify(nodeTimeboxBounds({ config: { nodeTimeoutMinutes: 300, maxNodeTimeoutMinutes: 2 } })) === JSON.stringify({ min: 1, max: 2, default: 2 }),
+  JSON.stringify({ defaults: nodeTimeboxBounds({}), liveShape: nodeTimeboxBounds({ config: { nodeTimeoutMinutes: 1, maxNodeTimeoutMinutes: 2 } }) }));
 
 check('Round 35: branch/lead/advisor resolve a configured 300 s budget; an unconfigured project keeps role defaults',
   ROLE_TIMEOUT_DEFAULTS.branch === 60_000

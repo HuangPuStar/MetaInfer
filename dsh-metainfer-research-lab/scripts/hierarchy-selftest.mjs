@@ -330,6 +330,8 @@ await store.saveNode(prodId, {
   timestamps: { createdAt: 1 },
 });
 const productionPresets = [];
+const leadPromptCaptures = [];
+const branchPromptCaptures = [];
 const prodCtx = {
   effect: () => {}, get: () => null, logger: { info() {}, warn() {} },
   agents: { get: () => null, resume: async () => { throw new Error('none'); }, create: async () => ({ agent: {} }) },
@@ -349,6 +351,20 @@ const prodCtx = {
       assertModelSchema(spec.request.outputSchema, preset.replace('lab-', ''));
       const promptText = spec.request.prompt?.[0]?.text ?? '';
       const branchId = /^mirl-branch-(.+?)\//.exec(spec.request.label ?? '')?.[1] ?? 'parent';
+      const captureProjectId = /^Project: (.+)$/m.exec(promptText)?.[1]?.trim() ?? '';
+      const timeboxProbe = captureProjectId === 'round37-timebox-p';
+      const branchEventSection = (() => {
+        const marker = '# Branch event\n';
+        const start = promptText.indexOf(marker);
+        if (start < 0) return {};
+        const rest = promptText.slice(start + marker.length);
+        const end = rest.search(/\n\n# /);
+        try { return JSON.parse(end < 0 ? rest : rest.slice(0, end).trim()); } catch { return {}; }
+      })();
+      const firstBranchEvent = Array.isArray(branchEventSection) ? branchEventSection[0] : branchEventSection;
+      const timeboxBranchId = firstBranchEvent?.branchId ?? firstBranchEvent?.nodeId ?? branchId;
+      if (preset === 'lab-lead') leadPromptCaptures.push({ projectId: captureProjectId, prompt: promptText });
+      if (preset === 'lab-branch') branchPromptCaptures.push({ projectId: captureProjectId, branchId, prompt: promptText });
       const section = (title) => {
         const marker = `# ${title}\n`;
         const start = promptText.indexOf(marker);
@@ -361,10 +377,10 @@ const prodCtx = {
       const candidateSection = JSON.parse(section('Pending branch-report candidates') ?? '[]');
       const candidates = Array.isArray(candidateSection) ? candidateSection : (candidateSection.candidates ?? []);
       const leadParent = reports[0]?.branchId ?? 'parent';
-      const promptProjectId = /^Project: (.+)$/m.exec(promptText)?.[1]?.trim() ?? '';
+      const promptProjectId = captureProjectId;
       const noProposalProbe = promptProjectId === 'round35-noreply-p';
       const structured = preset === 'lab-branch'
-        ? { branchId, health: 'watch', verified: [], ruledOut: [], candidates: [], escalate: true, reasonCodes: ['low_confidence'], evidence: [{ nodeId: branchId, field: 'report.summary', quote: 'done' }] }
+        ? { branchId: timeboxProbe ? timeboxBranchId : branchId, health: 'watch', verified: [], ruledOut: [], candidates: timeboxProbe ? [{ nodeId: timeboxBranchId, kind: 'optimization', title: 'timebox candidate' }] : [], escalate: true, reasonCodes: ['low_confidence'], evidence: [{ nodeId: timeboxProbe ? timeboxBranchId : branchId, field: 'report.summary', quote: 'done' }] }
         : preset === 'lab-lead'
           ? {
               analysis: noProposalProbe ? 'I considered every candidate and intentionally made no proposal.' : 'lead',
@@ -390,7 +406,7 @@ const prodCtx = {
                     title: `child for ${candidate.kind} ${candidate.sourceNodeId ?? candidate.branchId}`,
                     prompt: `do child work for ${candidate.sourceNodeId ?? candidate.branchId} ${candidate.kind} ${candidate.candidateId}`,
                     rationale: 'r',
-                    timeboxMinutes: 5,
+                    timeboxMinutes: timeboxProbe ? 10 : 5,
                     candidateId: candidate.candidateId,
                   }))
                 : [{ parentId: leadParent, title: 'child', prompt: 'do child work', rationale: 'r', timeboxMinutes: 5 }],
@@ -688,6 +704,44 @@ const round36PresetsBefore = productionPresets.length;
 const round36Step3 = await prodOrch.step(round36Id, 'round36-chain-probe-3');
 const round36Cycle3 = store.listCycles(round36Id, 1)[0];
 check('Round 36: a fully blocked queue runs no lead and names the blocked chain', round36Step3.created.length === 0 && round36Cycle3?.leadRunId == null && productionPresets.slice(round36PresetsBefore).includes('lab-lead') === false && round36Cycle3?.candidates?.blocked === 1 && /all branch-report candidates structurally blocked/.test(round36Cycle3?.candidates?.skipReason ?? '') && /n-0002 -> n-0003 -> n-0004/.test(round36Cycle3?.candidates?.skipReason ?? ''), JSON.stringify({ presets: productionPresets.slice(round36PresetsBefore), created: round36Step3.created, candidates: round36Cycle3?.candidates, skipped: round36Cycle3?.skipped, errors: round36Cycle3?.errors }));
+
+// Round 37: the lead must know the project's timebox bounds and must see its
+// own rejected proposal on the next activation. n-0003 is a completed leaf with
+// a live branch event; the fake lead always answers timeboxMinutes=10, while
+// this project allows 1..2.
+const round37Id = 'round37-timebox-p';
+await store.saveProject({
+  id: round37Id, name: 'round37-timebox', brief: 'learn the host timebox limit', revision: 0,
+  counters: { eventSeq: 0, nextNodeSeq: 4, nodes: 1 },
+  config: {
+    maxRunningNodes: 2, maxNodes: 20, resourcePools: {}, maxDeferred: 20,
+    nodeTimeoutMinutes: 1, maxNodeTimeoutMinutes: 2,
+    expertsMode: 'hierarchy', migration: { phase: 2 },
+    advisor: { maxProposalsPerPass: 3, maxProposalsPerReviewer: 3, ancestorDepth: 1, acceptMode: 'auto', maxPendingProposals: 20, maxLeadCandidates: 8, timeoutSeconds: 300, reviewers: [] },
+    auto: { maxCycles: 1 },
+  },
+  branchReviews: [],
+  repo: { path: process.cwd(), worktreeRoot: '/tmp/hierarchy-round37-wt', baseBranch: 'main', baseCommit: 'base' },
+  createdAt: 0, updatedAt: 0,
+});
+kernel.load(round37Id);
+await kernel.executor.commit(round37Id, {
+  actor: { kind: 'human', id: 'test' },
+  mutations: [{ op: 'node.create', node: round36Node('n-0003', 'completed', null) }],
+});
+const round37PromptsBefore = leadPromptCaptures.filter((row) => row.projectId === round37Id).length;
+const round37BranchBefore = branchPromptCaptures.filter((row) => row.projectId === round37Id).length;
+const round37Step1 = await prodOrch.step(round37Id, 'round37-timebox-probe-1');
+const round37Cycle1 = store.listCycles(round37Id, 1)[0];
+const round37LeadPrompt1 = leadPromptCaptures.filter((row) => row.projectId === round37Id)[round37PromptsBefore]?.prompt ?? '';
+const round37BranchPrompt1 = branchPromptCaptures.filter((row) => row.projectId === round37Id)[round37BranchBefore]?.prompt ?? '';
+const round37Rejection = round37Cycle1?.lead?.rejected?.[0];
+check('Round 37: a 10-minute proposal is rejected with the received value and the 1..2 range', round37Step1.created.length === 0 && /timeboxMinutes must be 1\.\.2 \(got 10\)/.test(round37Rejection?.reason ?? '') && round37Cycle1?.lead?.proposals?.[0]?.status === 'rejected' && /timeboxMinutes must be 1\.\.2 \(got 10\)/.test(round37Cycle1?.candidates?.skipReason ?? ''), JSON.stringify({ created: round37Step1.created, rejected: round37Cycle1?.lead?.rejected, proposals: round37Cycle1?.lead?.proposals, candidates: round37Cycle1?.candidates, errors: round37Cycle1?.errors }));
+check('Round 37: the lead and branch prompts carry the resolved timebox range and project default', /\b1\.\.2\b/.test(round37LeadPrompt1) && /timeboxMinutes must be an integer/.test(round37LeadPrompt1) && /default node budget is 1 minute/.test(round37LeadPrompt1) && /\b1\.\.2\b/.test(round37BranchPrompt1) && /candidate suggests a node timebox/.test(round37BranchPrompt1), JSON.stringify({ leadPrompt: round37LeadPrompt1.slice(0, 3000), branchPrompt: round37BranchPrompt1.slice(0, 2000) }));
+const round37Step2 = await prodOrch.step(round37Id, 'round37-timebox-probe-2');
+const round37Cycle2 = store.listCycles(round37Id, 1)[0];
+const round37LeadPrompt2 = leadPromptCaptures.filter((row) => row.projectId === round37Id)[round37PromptsBefore + 1]?.prompt ?? '';
+check('Round 37: the next lead input carries the previous rejection and its count', round37Step2.created.length === 0 && /# Previous lead rejection feedback/.test(round37LeadPrompt2) && /timeboxMinutes must be 1\.\.2 \(got 10\)/.test(round37LeadPrompt2) && /"rejectedCount":1/.test(round37LeadPrompt2) && round37Cycle2?.leadInputStats?.previousRejectionCount === 1, JSON.stringify({ created: round37Step2.created, feedback: round37Cycle2?.previousLeadFeedback, stats: round37Cycle2?.leadInputStats, errors: round37Cycle2?.errors, prompt: round37LeadPrompt2.slice(-4000) }));
 
 // Round 34b: the lead intentionally returns zero proposals for ten pending
 // candidates. The cycle must keep the lead's answer and a named per-candidate

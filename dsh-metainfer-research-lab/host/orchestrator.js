@@ -28,6 +28,47 @@ const ROLE_RUN_TIMEOUT_MS = 180_000;
 // now leaves headroom instead of cutting the tail off. Projects can still pin
 // `config.advisor.timeoutSeconds` within 30..1800 s.
 export const DEFAULT_ADVISOR_TIMEOUT_SECONDS = 240;
+export const NODE_TIMEOUT_DEFAULTS = Object.freeze({ nodeTimeoutMinutes: 10, maxNodeTimeoutMinutes: 240 });
+const NODE_TIMEOUT_MIN_MINUTES = 1;
+const NODE_TIMEOUT_MAX_MINUTES = 1440;
+
+/**
+ * Round 37: the same bounds used by checkProposal and the API validators, so a
+ * lead prompt cannot advertise a range the Host will not enforce.
+ */
+export function nodeTimeboxBounds(project) {
+  const rawMax = Number(project?.config?.maxNodeTimeoutMinutes);
+  const maxNodeTimeoutMinutes = Number.isFinite(rawMax)
+    ? Math.max(NODE_TIMEOUT_MIN_MINUTES, Math.min(NODE_TIMEOUT_MAX_MINUTES, Math.round(rawMax)))
+    : NODE_TIMEOUT_DEFAULTS.maxNodeTimeoutMinutes;
+  const rawDefault = Number(project?.config?.nodeTimeoutMinutes);
+  const nodeTimeoutMinutes = Number.isFinite(rawDefault)
+    ? Math.max(NODE_TIMEOUT_MIN_MINUTES, Math.min(maxNodeTimeoutMinutes, Math.round(rawDefault)))
+    : Math.min(maxNodeTimeoutMinutes, NODE_TIMEOUT_DEFAULTS.nodeTimeoutMinutes);
+  return { min: NODE_TIMEOUT_MIN_MINUTES, max: maxNodeTimeoutMinutes, default: nodeTimeoutMinutes };
+}
+
+function timeboxLimitLine(project, role = 'lead') {
+  const bounds = nodeTimeboxBounds(project);
+  const minutes = bounds.default === 1 ? 'minute' : 'minutes';
+  const scope = role === 'branch'
+    ? 'if a candidate suggests a node timebox, it must stay within this range'
+    : role === 'advisor'
+      ? 'proposal timeboxes outside this range are rejected'
+      : 'proposals outside this range are rejected';
+  return `Timebox limit: timeboxMinutes must be an integer in ${bounds.min}..${bounds.max} (this project's default node budget is ${bounds.default} ${minutes}); ${scope}.`;
+}
+
+function formatReceivedValue(value) {
+  if (typeof value === 'string') return JSON.stringify(value).slice(0, 80);
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null) return String(value);
+  if (value === undefined) return 'undefined';
+  try {
+    return JSON.stringify(value).slice(0, 80);
+  } catch {
+    return String(value).slice(0, 80);
+  }
+}
 
 /**
  * Read the platform-published expert-skill overlay.  The MetaInfer trajectory
@@ -236,6 +277,7 @@ function branchPrompt(project, event, report) {
     'Return the BranchReport through structured_output: branchId, health, verified, ruledOut, candidates, escalate, evidence.',
     'Every evidence pointer must cite a real nodeId, a whitelisted field and a quote from that field.',
     `Budget: at most ${ROLE_BUDGETS.branch.maxQueries} read calls; finish within ${roleTimeoutMs(project, 'branch') / 1000} seconds.`,
+    timeboxLimitLine(project, 'branch'),
     '',
     '# Branch event',
     JSON.stringify(event),
@@ -378,7 +420,8 @@ function compactBranchReport(run) {
   };
 }
 
-function leadPromptParts(project, review, branchRuns, pendingCandidates = []) {
+function leadPromptParts(project, review, branchRuns, pendingCandidates = [], options = {}) {
+  const previousLeadFeedback = options.previousLeadFeedback ?? null;
   const selection = selectLeadCandidates(project, pendingCandidates);
   const candidates = selection.selected.map(leadCandidateRow);
   const reports = (Array.isArray(branchRuns) ? branchRuns : []).map(compactBranchReport);
@@ -407,8 +450,11 @@ function leadPromptParts(project, review, branchRuns, pendingCandidates = []) {
     'A candidate is consumed only when the Host creates its node; repeating the same candidate without creating a node is useless.',
     'For every pending candidate you do not implement, return a candidateDecisions entry: candidateId, decision (blocked_by_failed_source, needs_human_scope_decision, duplicate_of_consumed, low_confidence_only, deferred_by_pass_limit, not_selected_by_lead, implemented), and a one-line reason.',
     'A retry/replace/decouple candidate whose sourceStatus is failed may be proposed under sourceParentId with the same scope and needs; the Host allows that one replacement even though the failed child exists.',
+    timeboxLimitLine(project, 'lead'),
     'Escalate an exception instead of silently guessing; the chief is invisible to peers.',
     `Budget: at most ${ROLE_BUDGETS.lead.maxQueries} read calls; finish within ${roleTimeoutMs(project, 'lead') / 1000} seconds.`,
+    '',
+    ...(previousLeadFeedback ? ['', '# Previous lead rejection feedback', JSON.stringify(previousLeadFeedback)] : []),
     '',
     '# Branch reports',
     JSON.stringify(reports),
@@ -445,12 +491,13 @@ function leadPromptParts(project, review, branchRuns, pendingCandidates = []) {
       candidateOmitted: selection.omitted,
       dedupedConsumedKinds: selection.dedupedConsumed.length,
       branchReportCount: reports.length,
+      previousRejectionCount: previousLeadFeedback?.rejectedCount ?? 0,
     },
   };
 }
 
-function leadPrompt(project, review, branchRuns, pendingCandidates = []) {
-  return leadPromptParts(project, review, branchRuns, pendingCandidates).text;
+function leadPrompt(project, review, branchRuns, pendingCandidates = [], options = {}) {
+  return leadPromptParts(project, review, branchRuns, pendingCandidates, options).text;
 }
 
 
@@ -507,6 +554,7 @@ function rejectionReasonCode(result, candidate) {
   if (result?.code === 'candidate_not_pending') return 'duplicate_of_consumed';
   if (result?.code === 'max_proposals') return 'deferred_by_pass_limit';
   if (result?.code === 'replacement_chain_exhausted') return 'replacement_chain_exhausted';
+  if (result?.code === 'invalid_timebox') return 'invalid_timebox';
   if (result?.code === 'parent_already_has_successor') {
     return candidate?.sourceStatus === 'failed' || candidate?.sourceStatus === 'cancelled'
       ? 'blocked_by_failed_source'
@@ -634,6 +682,51 @@ function leadStallReason({ proposalCount, applied, decisions, pendingCount }) {
     : `lead made ${proposalCount} proposal(s) but created 0; ${summary || 'no candidate decisions'}`;
 }
 
+/**
+ * Round 37: a rejected proposal must be visible to the next lead activation.
+ * The cycle trace keeps the rejection; this compacts the most recent one into a
+ * small prompt section (count + first reason, with up to three examples).
+ */
+function mostRecentLeadFeedback(cycles, currentCycleId) {
+  for (const cycle of Array.isArray(cycles) ? cycles : []) {
+    if (!cycle || cycle.id === currentCycleId) continue;
+    const lead = cycle.lead;
+    if (!lead) continue;
+    const rejected = Array.isArray(lead.rejected) ? lead.rejected : [];
+    const proposalRejections = (Array.isArray(lead.proposals) ? lead.proposals : [])
+      .filter((proposal) => proposal?.status === 'rejected' && proposal?.rejection);
+    const rows = rejected.length > 0 ? rejected : proposalRejections.map((proposal) => ({
+      parentId: proposal.parentId,
+      title: proposal.title,
+      candidateId: proposal.candidateId,
+      reason: proposal.rejection,
+      code: null,
+    }));
+    if (rows.length === 0) continue;
+    const first = rows[0];
+    return {
+      cycleId: cycle.id,
+      proposalCount: Number(lead.proposalCount ?? lead.considered ?? 0),
+      rejectedCount: rows.length,
+      firstRejection: {
+        parentId: first.parentId ?? null,
+        candidateId: first.candidateId ?? null,
+        title: boundedText(first.title, 300),
+        reason: boundedText(first.reason, 1000),
+        code: first.code ?? null,
+      },
+      rejected: rows.slice(0, 3).map((row) => ({
+        parentId: row.parentId ?? null,
+        candidateId: row.candidateId ?? null,
+        title: boundedText(row.title, 200),
+        reason: boundedText(row.reason, 500),
+        code: row.code ?? null,
+      })),
+    };
+  }
+  return null;
+}
+
 /** Persist the lead's actual answer next to the Host's per-candidate decisions. */
 function buildLeadTrace({ leadRun, applied, decisions, skipReason, input = null }) {
   const output = leadRun?.record?.output ?? null;
@@ -727,6 +820,7 @@ function advisorPrompt(project, snapshot, lens) {
     '3. Each proposal prompt must be self-contained: a fresh agent with only the project brief, the',
     '   parent worktree and ancestor summaries must be able to execute it.',
     '4. needs is an array of {key, amount}; keys must be in resources.pools and within the pool size.',
+    `4b. ${timeboxLimitLine(project, 'advisor')}`,
     '5. Never re-propose a hypothesis in ledger.ruledOut, and build on ledger.confirmed. If the ledger is',
     '   empty, that is a signal to explore, not a licence to repeat the obvious. Record new hypotheses with',
     '   the ledger_update tool so later passes do not relitigate them.',
@@ -1187,13 +1281,18 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     const rawNeeds = proposal?.needs === undefined || proposal?.needs === null ? source?.needs : proposal.needs;
     const { needs, error } = normalizeNeeds(rawNeeds, project);
     if (error) return { ok: false, reason: error };
-    const maxMinutes = project.config.maxNodeTimeoutMinutes ?? 240;
+    const bounds = nodeTimeboxBounds(project);
     const sourceTimeboxMinutes = source?.timeboxMs ? Math.ceil(source.timeboxMs / 60_000) : null;
-    const timeboxMinutes = Number.isInteger(proposal.timeboxMinutes)
-      ? proposal.timeboxMinutes
-      : (sourceTimeboxMinutes ?? project.config.nodeTimeoutMinutes);
-    if (!Number.isInteger(timeboxMinutes) || timeboxMinutes < 1 || timeboxMinutes > maxMinutes) {
-      return { ok: false, reason: `timeboxMinutes must be 1..${maxMinutes}` };
+    const requestedTimebox = proposal?.timeboxMinutes;
+    const timeboxMinutes = requestedTimebox === undefined || requestedTimebox === null
+      ? (sourceTimeboxMinutes ?? bounds.default)
+      : requestedTimebox;
+    if (!Number.isInteger(timeboxMinutes) || timeboxMinutes < bounds.min || timeboxMinutes > bounds.max) {
+      return {
+        ok: false,
+        code: 'invalid_timebox',
+        reason: `timeboxMinutes must be ${bounds.min}..${bounds.max} (got ${formatReceivedValue(timeboxMinutes)})`,
+      };
     }
     const hash = promptHash(prompt);
     if (!replacingFailedSource && nodes.some((node) => node.parentId === parentId && promptHash(node.prompt) === hash)) {
@@ -2037,7 +2136,15 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     // only role allowed to create nodes; applyAdvisorOutput is the same Host
     // validator/materializer used by the old advisor path.
     project = requireProject(projectId);
-    const leadParts = leadPromptParts(project, { ...review, escalations: cycle.hierarchy.escalations }, branchRuns, queue.pending);
+    const previousLeadFeedback = mostRecentLeadFeedback(store.listCycles(projectId, 20), cycle.id);
+    cycle.previousLeadFeedback = previousLeadFeedback;
+    const leadParts = leadPromptParts(
+      project,
+      { ...review, escalations: cycle.hierarchy.escalations },
+      branchRuns,
+      queue.pending,
+      { previousLeadFeedback },
+    );
     cycle.leadInputBytes = leadParts.stats.inputBytes;
     cycle.leadInputStats = leadParts.stats;
     const leadRun = await runRole(
@@ -2354,12 +2461,12 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       if (prompt.length < 10 || prompt.length > 8000) throw new LabError('bad_request', 'prompt must be 10..8000 characters', 400);
       const { needs, error } = normalizeNeeds(input?.needs, project);
       if (error) throw new LabError('bad_request', error, 400);
-      const maxMinutes = project.config.maxNodeTimeoutMinutes ?? 240;
-      const timeboxMinutes = Number.isInteger(input?.timeboxMinutes)
-        ? input.timeboxMinutes
-        : project.config.nodeTimeoutMinutes;
-      if (!Number.isInteger(timeboxMinutes) || timeboxMinutes < 1 || timeboxMinutes > maxMinutes) {
-        throw new LabError('bad_request', `timeboxMinutes must be 1..${maxMinutes}`, 400);
+      const bounds = nodeTimeboxBounds(project);
+      const timeboxMinutes = input?.timeboxMinutes === undefined || input?.timeboxMinutes === null
+        ? bounds.default
+        : input.timeboxMinutes;
+      if (!Number.isInteger(timeboxMinutes) || timeboxMinutes < bounds.min || timeboxMinutes > bounds.max) {
+        throw new LabError('bad_request', `timeboxMinutes must be ${bounds.min}..${bounds.max} (got ${formatReceivedValue(timeboxMinutes)})`, 400);
       }
       const nodes = store.listNodes(projectId);
       if (nodes.length >= (project.config.maxNodes ?? 60)) {
@@ -2482,12 +2589,12 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         : `Merge: ${parents.map((parent) => parent.title).join(' ⊕ ')}`;
       const title = clampNodeTitle(rawTitle);
       if (isBlank(title)) throw new LabError('bad_request', 'title is required', 400);
-      const maxMinutes = project.config.maxNodeTimeoutMinutes ?? 240;
-      const timeboxMinutes = Number.isInteger(input?.timeboxMinutes)
-        ? input.timeboxMinutes
-        : project.config.nodeTimeoutMinutes;
-      if (!Number.isInteger(timeboxMinutes) || timeboxMinutes < 1 || timeboxMinutes > maxMinutes) {
-        throw new LabError('bad_request', `timeboxMinutes must be 1..${maxMinutes}`, 400);
+      const bounds = nodeTimeboxBounds(project);
+      const timeboxMinutes = input?.timeboxMinutes === undefined || input?.timeboxMinutes === null
+        ? bounds.default
+        : input.timeboxMinutes;
+      if (!Number.isInteger(timeboxMinutes) || timeboxMinutes < bounds.min || timeboxMinutes > bounds.max) {
+        throw new LabError('bad_request', `timeboxMinutes must be ${bounds.min}..${bounds.max} (got ${formatReceivedValue(timeboxMinutes)})`, 400);
       }
       // Freeze each parent at its committed HEAD first.
       for (const parent of parents) {

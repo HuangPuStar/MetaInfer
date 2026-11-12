@@ -710,7 +710,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           ? config.nodeTimeoutMinutes
           : spec.timeboxMinutes;
         if (!Number.isInteger(timeboxMinutes) || timeboxMinutes < 1 || timeboxMinutes > maxMinutes) {
-          throw new LabError('bad_request', `${label}.timeboxMinutes must be 1..${maxMinutes}`, 400);
+          throw new LabError('bad_request', `${label}.timeboxMinutes must be 1..${maxMinutes} (got ${JSON.stringify(timeboxMinutes)})`, 400);
         }
         rootSpecs.push({ title, prompt, needs, timeboxMinutes });
       });

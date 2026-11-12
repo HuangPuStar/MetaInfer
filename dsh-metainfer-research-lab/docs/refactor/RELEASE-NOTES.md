@@ -1,5 +1,56 @@
 # v2 发布说明（草稿）
 
+## Round 37 — lead prompts carry the timebox range and the previous rejection
+
+- **Live proof:** project `prj-e1cbb8e1` has `nodeTimeoutMinutes: 1` and
+  `maxNodeTimeoutMinutes: 2`, but lead `run-520f85d8` proposed
+  `timeboxMinutes: 10` (two proposals) and `15` (one proposal). Cycle
+  `cyc-31e33941` rejected all three with the old text
+  `timeboxMinutes must be 1..2`, so the graph never grew. The lead had no way
+  to know the bound: the prompt contained no timebox rule.
+- **Prompt bounds:** `nodeTimeboxBounds(project)` resolves the same 1..max
+  range used by `checkProposal`, with documented defaults (node 10 minutes,
+  max 240 minutes; the 1-minute project resolves to `{min:1,max:2,default:1}`).
+  Lead and branch prompts now say:
+
+  ```text
+  Timebox limit: timeboxMinutes must be an integer in 1..2 (this project's
+  default node budget is 1 minute); proposals outside this range are rejected.
+  ```
+
+  Branch candidates that suggest a timebox receive the same range. The legacy
+  advisor prompt also carries the limit.
+- **Actionable rejection:** `checkProposal` now reports the received value:
+  `timeboxMinutes must be 1..2 (got 10)`. API successor/merge validation uses
+  the same message, and `invalid_timebox` is a named candidate decision.
+- **Next-round feedback:** the cycle trace already stores the lead's rejected
+  proposals. `mostRecentLeadFeedback` compacts the most recent rejection cycle
+  into `cycle.previousLeadFeedback`, and the next lead prompt includes:
+
+  ```text
+  # Previous lead rejection feedback
+  {"cycleId":"...","proposalCount":3,"rejectedCount":3,
+   "firstRejection":{"title":"...","reason":"timeboxMinutes must be 1..2 (got 10)",...},
+   "rejected":[... up to 3 ...]}
+  ```
+
+  `cycle.leadInputStats.previousRejectionCount` and
+  `cycle.previousLeadFeedback` make this auditable. This is generic: no project
+  id is referenced by the code.
+- **Regression:** a synthetic project with the live budget (`1`/`2`) and a fake
+  lead always returning `timeboxMinutes: 10` proves:
+  1. the proposal is rejected with `(got 10)`, and `cycle.candidates.skipReason`
+     carries it;
+  2. the next lead prompt contains `# Previous lead rejection feedback`,
+     `rejectedCount:1` and the same `got 10` reason;
+  3. both lead and branch prompts contain the resolved `1..2` range and the
+     `default node budget is 1 minute` sentence.
+- **Tests:** `npm test` EXIT 0, 1063 `ok`, 0 FAIL; `stage5-selftest` verifies
+  the bounds defaults; `hierarchy-selftest` has the Round 37 regression;
+  `plugin-smoke` 6/6.
+- **Boundary:** live project was read only; Host 3080 was not restarted. The
+  next reloaded Host will prompt the lead with the project's actual budget.
+
 ## Round 36 — a failed replacement is retryable, with a capped chain and structural blocks
 
 - **Live blocker:** cycle `cyc-fdd1bcaa` returned two proposals and both were
