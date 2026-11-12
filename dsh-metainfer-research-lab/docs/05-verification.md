@@ -829,3 +829,42 @@ toolResultPruner: true }`）。`isolate` 不可省——preset registry 的 `lea
 - 顶部“启动”“自动挡/手动挡”“查看轨迹”和底部上一步/下一步/重新演示可交互；
 - 轨迹面板展示 prompt、tool call、commit、report 的模拟内容；
 - 所有数据均为模拟，不修改真实项目。
+
+## V13 增补：项目工作台七页签、专家顶级页与设置/会话/审计
+
+### 交付
+
+- 项目页签：`DAG / 可观测性 / 专家 / Dashboard / 设置 / 会话记录 / 审计·争议`；
+  深链 `?project=<id>&tab=<tab>&node=<id>`，刷新与浏览器前进/后退保持页签和节点。
+- 页签懒挂载（`mountedTabs`），不是 `display:none`；切页签不重新请求 `/state`；
+  DAG 首屏继续使用 `MAX_RENDERED_NODES` 窗口化与 5 MiB 预算。
+- `role="tablist" / "tab" / "tabpanel"`，←/→/Home/End 切页，焦点可见。
+- 专家升级为顶级页：roster（`catalog/active/draining/retired`）、provider/model/lens、
+  proposals/completed、预算用量、最近决策、hire/drain/fire/临时邀请 TTL、项目级 override 编辑
+  （diff + 校验 + 保存）、`mayExecute` 只读、`expert/updated` 回溯与 rollback、空白页“下一步”提示。
+- 设置从模态迁到页面：项目配置、auto/budget、模型、placement，以及迁移阶段 2/3 开关；
+  模态只保留快捷入口。阶段推进要求显式 parity 勾选，命令为 `migration.advance`。
+- 会话记录：Copilot 会话、节点 `attempts`、周期/专家 runs；按节点过滤；打开原生 chat/trajectory。
+- 审计·争议：`ledger/open|confirm|rule_out` 投影的假设账本、高审决策链（`resolvedBy` / `rationale`）、
+  待裁决节点、争议表；每行可跳回节点。
+- 可观测性新增失败聚类：按 `errorCode` / `causeId` 聚合，另含失败时间线与停滞归因。
+
+### 验证命令
+
+```bash
+cd dsh-metainfer-research-lab
+npm run locale:sync
+node --check client.js
+node --check scripts/project-pages-selftest.mjs
+node scripts/locale-selftest.mjs
+node scripts/client-constants-selftest.mjs
+node scripts/workspace-tabs-selftest.mjs
+node scripts/project-pages-selftest.mjs
+node scripts/expert-editor-selftest.mjs
+node scripts/expert-overrides-selftest.mjs
+node scripts/ui-selftest.mjs
+npm test
+```
+
+`npm test` 当前 **1178** 个 `ok`、0 FAIL、退出码 0；其中追加了页签、专家编辑、override 回溯、阶段 3 页面与失败聚类 smoke。
+当前改动在浏览器刷新后生效（client 不走 dev watcher）。

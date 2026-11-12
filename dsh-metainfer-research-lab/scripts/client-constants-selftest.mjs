@@ -143,3 +143,23 @@ for (const token of [
 }
 assert.ok(source.includes("t('ws.experts.edit.readonly')"), 'mayExecute must be explained as read-only');
 process.stdout.write('ok   expert management exposes edit, validation, diff and rollback\n');
+
+// Phase-3 pages guard: settings/migration, sessions and audit are real pages,
+// not placeholders, and the migration control keeps its parity gate.
+for (const token of [
+  'function SettingsTab(',
+  'function SessionsTab(',
+  'function AuditTab(',
+  'settings-migration',
+  'sessions-tab',
+  'audit-tab',
+  "type: 'migration.advance'",
+  'ledgerEntriesOf',
+  "t('ws.sessions.title')",
+  "t('ws.audit.title')",
+]) {
+  assert.ok(source.includes(token), `phase-3 pages are missing ${token}`);
+}
+assert.ok(source.includes("t('ws.settings.migration.parity')"), 'migration must require an explicit parity acknowledgement');
+assert.ok(!source.includes('ProjectTabPlaceholder'), 'no project tab may remain a placeholder');
+process.stdout.write('ok   settings, sessions and audit pages replace every tab placeholder\n');

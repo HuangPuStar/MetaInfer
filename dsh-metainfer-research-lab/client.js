@@ -45,6 +45,7 @@ window.__ModuleLoader__.load({
       facts: 'api/metainfer-research-lab/status',
       metrics: 'api/metainfer-research-lab/metrics',
       experts: 'api/metainfer-research-lab/experts',
+      copilot: 'api/metainfer-research-lab/copilot',
       intents: 'api/metainfer-research-lab/intents',
       disputes: 'api/metainfer-research-lab/disputes',
       disputeClasses: 'api/metainfer-research-lab/disputes/classes',
@@ -685,6 +686,24 @@ window.__ModuleLoader__.load({
       "ws.attempts.stopReason": "终止：{reason}",
       "ws.attempts.title": "尝试记录",
       "ws.attempts.tokens": "Tokens",
+      "ws.audit.disputes": "争议",
+      "ws.audit.highReview.deadline": "截止 {at}",
+      "ws.audit.highReview.empty": "还没有高审记录；高审触发后会出现在这里。",
+      "ws.audit.highReview.hint": "包括待裁决与已裁决记录；resolvedBy 与 rationale 直接来自高审事件。",
+      "ws.audit.highReview.pending": "待裁决",
+      "ws.audit.highReview.title": "高审决策链",
+      "ws.audit.hint": "账本假设、高审决策链与争议集中在这里；每条记录都可跳回对应节点。",
+      "ws.audit.ledger.confirmed": "已确认",
+      "ws.audit.ledger.counts": "开放 {open} · 确认 {confirmed} · 排除 {ruledOut}",
+      "ws.audit.ledger.empty": "还没有假设；专家提出假设后会自动进入账本。",
+      "ws.audit.ledger.hint": "由 ledger/open、confirm、rule_out 事件投影；只展示最近 2000 条事件。",
+      "ws.audit.ledger.none": "暂无记录",
+      "ws.audit.ledger.open": "开放",
+      "ws.audit.ledger.ruledOut": "已排除",
+      "ws.audit.ledger.title": "假设账本",
+      "ws.audit.openNode": "打开节点",
+      "ws.audit.refresh": "刷新",
+      "ws.audit.title": "审计 · 争议",
       "ws.auto.budget.cycles": "最大 cycle 数：{count}",
       "ws.auto.budget.idle": "空转熔断：连续 {count} 轮无进展",
       "ws.auto.budget.nodes": "节点上限：{count}",
@@ -1318,10 +1337,20 @@ window.__ModuleLoader__.load({
       "ws.nodeCount": "节点 {count}/{max}",
       "ws.obs.close": "关闭可观测性",
       "ws.obs.endpoints": "真实端点：/state /status /metrics /events /explain /intents /experts",
+      "ws.obs.failures.count": "{count} 次",
+      "ws.obs.failures.elapsed": "已停滞 {seconds}s",
+      "ws.obs.failures.empty": "当前没有失败运行；失败的 run 会按 errorCode / causeId 聚合。",
+      "ws.obs.failures.noCause": "未标注原因",
+      "ws.obs.failures.stalls": "停滞归因",
+      "ws.obs.failures.stallsEmpty": "没有停滞的运行节点。",
+      "ws.obs.failures.timeline": "失败时间线",
+      "ws.obs.failures.timelineEmpty": "最近一页事件里没有失败记录。",
+      "ws.obs.failures.title": "失败聚类与停滞归因",
       "ws.obs.readonly": "只读 Host 视图",
       "ws.obs.tab.claims": "主张与证据",
       "ws.obs.tab.disputes": "争议",
       "ws.obs.tab.experts": "专家库",
+      "ws.obs.tab.failures": "失败聚类",
       "ws.obs.tab.observer": "观察器",
       "ws.obs.tab.queue": "调度与队列",
       "ws.obs.tab.retrospective": "复盘",
@@ -1446,6 +1475,25 @@ window.__ModuleLoader__.load({
       "ws.sealed": "已封存",
       "ws.sealed.readonly": "该节点已封存，对话只读。",
       "ws.sealed.successorHint": "在已封存基线上添加后继（从当前 HEAD 分叉）。",
+      "ws.sessions.allNodes": "全部节点",
+      "ws.sessions.attempt": "第 {index} 次尝试",
+      "ws.sessions.copilot": "Copilot 会话",
+      "ws.sessions.copilotEmpty": "还没有 Copilot 会话；从 DAG 顶部打开 Copilot 并创建会话后，这里会出现记录。",
+      "ws.sessions.copilotHint": "项目内创建的 Copilot 会话，可直接进入原生对话。",
+      "ws.sessions.cycleRuns": "周期 / 专家运行",
+      "ws.sessions.cycleRunsEmpty": "还没有运行记录；执行一次 Step 后会出现。",
+      "ws.sessions.cycleRunsHint": "来自运行台账，按时间倒序展示。",
+      "ws.sessions.hint": "按项目查看 Copilot 会话、节点执行记录与周期运行；可打开原生会话继续对话。",
+      "ws.sessions.nodeFilter": "按节点筛选",
+      "ws.sessions.nodeRun": "节点运行",
+      "ws.sessions.nodeRuns": "节点执行记录",
+      "ws.sessions.nodeRunsEmpty": "还没有节点执行记录；启动节点后会出现尝试记录。",
+      "ws.sessions.nodeRunsHint": "展示节点的尝试、会话与错误；选择上方节点可只看一个节点。",
+      "ws.sessions.open": "打开",
+      "ws.sessions.partial": "部分数据加载失败",
+      "ws.sessions.refresh": "刷新",
+      "ws.sessions.title": "会话记录",
+      "ws.sessions.untitled": "未命名",
       "ws.settings.acceptMode": "新提案接入模式",
       "ws.settings.acceptMode.auto": "自动采纳",
       "ws.settings.acceptMode.confirm": "人工确认",
@@ -1480,6 +1528,30 @@ window.__ModuleLoader__.load({
       "ws.settings.maxRunningNodes": "并发节点上限",
       "ws.settings.maxTokens": "自动挡 token 预算（0 = 关闭）",
       "ws.settings.maxWallClockMinutes": "最长运行时间（分钟）",
+      "ws.settings.migration.advance": "推进阶段",
+      "ws.settings.migration.advanced": "已推进到阶段 {phase}",
+      "ws.settings.migration.advancing": "推进中…",
+      "ws.settings.migration.contest": "竞答模式",
+      "ws.settings.migration.contest.consensus": "共识",
+      "ws.settings.migration.contest.shadow": "影子",
+      "ws.settings.migration.current": "当前阶段 {phase}",
+      "ws.settings.migration.dispatch": "调度策略",
+      "ws.settings.migration.dispatch.deterministic": "确定性",
+      "ws.settings.migration.dispatch.legacy-llm": "旧版 LLM",
+      "ws.settings.migration.dispatch.shadow-deterministic": "影子（确定性）",
+      "ws.settings.migration.error": "迁移推进失败",
+      "ws.settings.migration.experts.hierarchy": "层级（hierarchy）",
+      "ws.settings.migration.experts.resident": "常驻（resident）",
+      "ws.settings.migration.expertsMode": "专家模式",
+      "ws.settings.migration.hint": "阶段 2/3 需要显式确认 S14 对照通过；每次只能前进一步，切换会写入审计事件。",
+      "ws.settings.migration.max": "已到阶段 3；如需回退请使用运维接口。",
+      "ws.settings.migration.parity": "我已确认 S14 对照（parity）通过",
+      "ws.settings.migration.parityHint": "该确认会作为迁移事件记录；未勾选时不能推进到阶段 2/3。",
+      "ws.settings.migration.phase.1": "阶段 1",
+      "ws.settings.migration.phase.2": "阶段 2",
+      "ws.settings.migration.phase.3": "阶段 3",
+      "ws.settings.migration.target": "目标阶段",
+      "ws.settings.migration.title": "迁移阶段",
       "ws.settings.model.advisor": "advisor",
       "ws.settings.model.model": "model",
       "ws.settings.model.provider": "provider",
@@ -1498,6 +1570,7 @@ window.__ModuleLoader__.load({
       "ws.settings.models.hint": "留空使用 profile 默认模型；同时填写 provider 与 model 才生效。",
       "ws.settings.nodeTimeoutMinutes": "默认执行时限（分钟）",
       "ws.settings.open": "项目设置",
+      "ws.settings.pageHint": "项目配置、预算与模型、迁移开关都在这里集中管理；保存后立即生效。",
       "ws.settings.placement.catalog": "可用标签与 GPU 型号",
       "ws.settings.placement.catalogEmpty": "当前 fleet 没有可用标签或 GPU 型号；配置 Fleet 后策略才会生效。",
       "ws.settings.placement.clear": "清除策略",
@@ -1549,6 +1622,8 @@ window.__ModuleLoader__.load({
       "ws.settings.prompts.schedulerHint": "这段提示词只决定本项目哪些 planned 节点先开始；GPU 能否启动由集群协调器决定，节点可能排队等待整卡。",
       "ws.settings.prompts.workerEmpty": "默认：无额外 worker 前缀",
       "ws.settings.prompts.workerPrefix": "worker 前缀",
+      "ws.settings.quickHint": "设置、专家、审计等已拆分为独立页签；这里只提供跳转。",
+      "ws.settings.quickTitle": "快捷入口",
       "ws.settings.reset": "重置",
       "ws.settings.reviewer.add": "＋ 添加评审",
       "ws.settings.reviewer.effort": "推理强度",
@@ -2159,6 +2234,24 @@ window.__ModuleLoader__.load({
       "ws.attempts.stopReason": "Stop: {reason}",
       "ws.attempts.title": "Attempt history",
       "ws.attempts.tokens": "Tokens",
+      "ws.audit.disputes": "Disputes",
+      "ws.audit.highReview.deadline": "Due {at}",
+      "ws.audit.highReview.empty": "No high-review records yet. They appear when a review is triggered.",
+      "ws.audit.highReview.hint": "Pending and resolved reviews. resolvedBy and rationale come straight from the high-review events.",
+      "ws.audit.highReview.pending": "Pending",
+      "ws.audit.highReview.title": "High-review decision chain",
+      "ws.audit.hint": "Ledger hypotheses, the high-review decision chain and disputes in one place. Every record can jump back to its node.",
+      "ws.audit.ledger.confirmed": "Confirmed",
+      "ws.audit.ledger.counts": "Open {open} · Confirmed {confirmed} · Ruled out {ruledOut}",
+      "ws.audit.ledger.empty": "No hypotheses yet. They appear here once an expert opens one.",
+      "ws.audit.ledger.hint": "Projected from ledger/open, confirm and rule_out events. Only the latest 2000 events are shown.",
+      "ws.audit.ledger.none": "No records",
+      "ws.audit.ledger.open": "Open",
+      "ws.audit.ledger.ruledOut": "Ruled out",
+      "ws.audit.ledger.title": "Hypothesis ledger",
+      "ws.audit.openNode": "Open node",
+      "ws.audit.refresh": "Refresh",
+      "ws.audit.title": "Audit · disputes",
       "ws.auto.budget.cycles": "Max cycles: {count}",
       "ws.auto.budget.idle": "Idle fuse: {count} consecutive cycles without progress",
       "ws.auto.budget.nodes": "Max nodes: {count}",
@@ -2792,10 +2885,20 @@ window.__ModuleLoader__.load({
       "ws.nodeCount": "Nodes {count}/{max}",
       "ws.obs.close": "Close observability",
       "ws.obs.endpoints": "real endpoints: /state /status /metrics /events /explain /intents /experts",
+      "ws.obs.failures.count": "{count}×",
+      "ws.obs.failures.elapsed": "stalled {seconds}s",
+      "ws.obs.failures.empty": "No failed runs. Failures are grouped by errorCode / causeId.",
+      "ws.obs.failures.noCause": "unattributed",
+      "ws.obs.failures.stalls": "Stall attribution",
+      "ws.obs.failures.stallsEmpty": "No stalled running node.",
+      "ws.obs.failures.timeline": "Failure timeline",
+      "ws.obs.failures.timelineEmpty": "No failures in the latest event page.",
+      "ws.obs.failures.title": "Failure clusters and stall attribution",
       "ws.obs.readonly": "Read-only Host views",
       "ws.obs.tab.claims": "Claims & evidence",
       "ws.obs.tab.disputes": "Disputes",
       "ws.obs.tab.experts": "Expert library",
+      "ws.obs.tab.failures": "Failure clusters",
       "ws.obs.tab.observer": "Observer",
       "ws.obs.tab.queue": "Dispatch & queue",
       "ws.obs.tab.retrospective": "Retrospective",
@@ -2920,6 +3023,25 @@ window.__ModuleLoader__.load({
       "ws.sealed": "Sealed",
       "ws.sealed.readonly": "This node is sealed; the conversation is read-only.",
       "ws.sealed.successorHint": "Add a successor on the sealed baseline (forks from the current HEAD).",
+      "ws.sessions.allNodes": "All nodes",
+      "ws.sessions.attempt": "Attempt {index}",
+      "ws.sessions.copilot": "Copilot sessions",
+      "ws.sessions.copilotEmpty": "No Copilot sessions yet. Open Copilot from the DAG top bar and create one; it will appear here.",
+      "ws.sessions.copilotHint": "Copilot sessions created in this project. Open one in the native chat.",
+      "ws.sessions.cycleRuns": "Cycle / expert runs",
+      "ws.sessions.cycleRunsEmpty": "No runs yet. Run one Step and refresh.",
+      "ws.sessions.cycleRunsHint": "From the run ledger, newest first.",
+      "ws.sessions.hint": "Copilot conversations, node execution records and cycle runs for this project. Open a native session to continue.",
+      "ws.sessions.nodeFilter": "Filter by node",
+      "ws.sessions.nodeRun": "Node run",
+      "ws.sessions.nodeRuns": "Node execution records",
+      "ws.sessions.nodeRunsEmpty": "No node execution records yet. Start a node to create attempt records.",
+      "ws.sessions.nodeRunsHint": "Attempts, sessions and errors for nodes. Pick a node above to narrow the list.",
+      "ws.sessions.open": "Open",
+      "ws.sessions.partial": "Some data failed to load",
+      "ws.sessions.refresh": "Refresh",
+      "ws.sessions.title": "Sessions",
+      "ws.sessions.untitled": "Untitled",
       "ws.settings.acceptMode": "New-proposal intake",
       "ws.settings.acceptMode.auto": "Auto-adopt",
       "ws.settings.acceptMode.confirm": "Human approval",
@@ -2954,6 +3076,30 @@ window.__ModuleLoader__.load({
       "ws.settings.maxRunningNodes": "Max concurrent nodes",
       "ws.settings.maxTokens": "Auto-mode token budget (0 = off)",
       "ws.settings.maxWallClockMinutes": "Max wall clock (minutes)",
+      "ws.settings.migration.advance": "Advance phase",
+      "ws.settings.migration.advanced": "Advanced to phase {phase}",
+      "ws.settings.migration.advancing": "Advancing…",
+      "ws.settings.migration.contest": "Contest mode",
+      "ws.settings.migration.contest.consensus": "Consensus",
+      "ws.settings.migration.contest.shadow": "Shadow",
+      "ws.settings.migration.current": "Current phase {phase}",
+      "ws.settings.migration.dispatch": "Dispatch strategy",
+      "ws.settings.migration.dispatch.deterministic": "Deterministic",
+      "ws.settings.migration.dispatch.legacy-llm": "Legacy LLM",
+      "ws.settings.migration.dispatch.shadow-deterministic": "Shadow (deterministic)",
+      "ws.settings.migration.error": "Migration advance failed",
+      "ws.settings.migration.experts.hierarchy": "Hierarchy",
+      "ws.settings.migration.experts.resident": "Resident",
+      "ws.settings.migration.expertsMode": "Expert mode",
+      "ws.settings.migration.hint": "Phases 2 and 3 require an explicit S14 parity acknowledgement. Advance one step at a time; each switch is audited.",
+      "ws.settings.migration.max": "Phase 3 is active. Use the operator API for a rollback.",
+      "ws.settings.migration.parity": "I confirm S14 parity has passed",
+      "ws.settings.migration.parityHint": "This acknowledgement is recorded in the migration event. Phase 2/3 stays disabled until it is checked.",
+      "ws.settings.migration.phase.1": "Phase 1",
+      "ws.settings.migration.phase.2": "Phase 2",
+      "ws.settings.migration.phase.3": "Phase 3",
+      "ws.settings.migration.target": "Target phase",
+      "ws.settings.migration.title": "Migration phase",
       "ws.settings.model.advisor": "advisor",
       "ws.settings.model.model": "model",
       "ws.settings.model.provider": "provider",
@@ -2972,6 +3118,7 @@ window.__ModuleLoader__.load({
       "ws.settings.models.hint": "Leave blank to use the profile default; both provider and model are required to take effect.",
       "ws.settings.nodeTimeoutMinutes": "Default node timebox (minutes)",
       "ws.settings.open": "Project settings",
+      "ws.settings.pageHint": "Project configuration, budgets, models and migration switches live here; changes apply on save.",
       "ws.settings.placement.catalog": "Available labels and GPU models",
       "ws.settings.placement.catalogEmpty": "No fleet labels or GPU models yet; the policy takes effect after the fleet is configured.",
       "ws.settings.placement.clear": "Clear policy",
@@ -3023,6 +3170,8 @@ window.__ModuleLoader__.load({
       "ws.settings.prompts.schedulerHint": "This prompt only decides which planned nodes of this project start next; GPU admission is decided by the cluster coordinator and nodes may queue for a whole GPU.",
       "ws.settings.prompts.workerEmpty": "Default: no extra worker prefix",
       "ws.settings.prompts.workerPrefix": "worker prefix",
+      "ws.settings.quickHint": "Settings, experts, audit and the rest live in their own tabs. This dialog only navigates.",
+      "ws.settings.quickTitle": "Quick links",
       "ws.settings.reset": "Reset",
       "ws.settings.reviewer.add": "Add reviewer",
       "ws.settings.reviewer.effort": "reasoning effort",
@@ -3356,6 +3505,24 @@ window.__ModuleLoader__.load({
       '.rl-expert-diff-arrow { color: var(--dsw-alias-label-tertiary); }',
       '.rl-expert-diff-after { color: var(--dsw-alias-brand-primary); overflow-wrap: anywhere; }',
       '.rl-form-actions { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }',
+      '.rl-quick-links { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }',
+      '.rl-settings-tab { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; gap: 12px; overflow: auto; padding: 16px 18px 24px; }',
+      '.rl-settings-page { display: flex; flex: 0 0 auto; flex-direction: column; }',
+      '.rl-settings-panel { display: flex; flex-direction: column; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); overflow: hidden; }',
+      '.rl-settings-head { display: flex; flex-direction: column; gap: 3px; padding: 14px 16px 10px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); }',
+      '.rl-settings-body { display: flex; flex-direction: column; gap: 14px; padding: 14px 16px; }',
+      '.rl-settings-foot { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; padding: 10px 16px; border-top: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-migration-panel { margin: 0; padding: 14px 16px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-sessions-page, .rl-audit-page { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; gap: 12px; overflow: auto; padding: 16px 18px 24px; }',
+      '.rl-sessions-section { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-session-list, .rl-session-table, .rl-audit-table, .rl-audit-ledger { display: flex; flex-direction: column; gap: 2px; }',
+      '.rl-session-row { display: grid; grid-template-columns: minmax(120px, 0.9fr) minmax(0, 1.4fr) minmax(110px, 0.5fr) auto; gap: 8px; align-items: center; padding: 6px 2px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); font-size: 11.5px; }',
+      '.rl-session-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+      '.rl-session-run-row { display: grid; grid-template-columns: 100px minmax(0, 1fr) 86px 82px minmax(100px, 0.9fr) minmax(100px, 1fr) auto; gap: 7px; align-items: center; padding: 5px 2px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); font-size: 11px; }',
+      '.rl-audit-row { display: grid; grid-template-columns: 110px minmax(0, 1.6fr) 100px minmax(0, 1fr) minmax(80px, 0.6fr) auto; gap: 8px; align-items: center; padding: 6px 2px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); font-size: 11.5px; }',
+      '.rl-audit-hypothesis { overflow-wrap: anywhere; min-width: 0; }',
+      '.rl-audit-ledger-group { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }',
+      '.rl-audit-ledger .rl-audit-row { grid-template-columns: 110px minmax(0, 1.6fr) 100px minmax(0, 1fr) 110px; }',
       '.rl-dash-embedded { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; }',
       '.rl-dash-window-embedded { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; }',
       '.rl-workspace-grid { display: grid; grid-template-columns: clamp(180px, 18vw, 240px) minmax(0, 1fr) clamp(260px, 26vw, 340px); flex: 1 1 auto; min-width: 0; min-height: 0; }',
@@ -4236,6 +4403,9 @@ window.__ModuleLoader__.load({
       fetchExperts(projectId, signal, t) {
         return requestJson(ROUTES.experts + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
       },
+      fetchCopilot(projectId, signal, t) {
+        return requestJson(ROUTES.copilot + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
+      },
       fetchIntents(projectId, signal, t, limit = 100, kind = null) {
         let path = ROUTES.intents + '?projectId=' + encodeURIComponent(projectId) + '&limit=' + encodeURIComponent(String(limit));
         if (typeof kind === 'string' && kind) path += '&kind=' + encodeURIComponent(kind);
@@ -4287,14 +4457,17 @@ window.__ModuleLoader__.load({
       fetchChanges(projectId, revision, signal, t) {
         return requestJson('api/metainfer-research-lab/changes?projectId=' + encodeURIComponent(projectId) + '&revision=' + encodeURIComponent(String(revision)), { signal }, t);
       },
-      fetchEvents(projectId, after, signal, t) {
+      fetchEvents(projectId, after, signal, t, limit) {
         const cursor = typeof after === 'number' && Number.isFinite(after) ? after : 0;
         // `cursor` is the first unseen seq. Send one before it so a Host that
         // treats `after` as exclusive cannot skip an event; the hook filters
         // duplicates, so an inclusive Host is safe too.
         const afterParam = cursor > 0 ? cursor - 1 : 0;
+        const limitParam = Number.isFinite(Number(limit)) && Number(limit) > 0
+          ? '&limit=' + encodeURIComponent(String(Math.trunc(Number(limit))))
+          : '';
         return requestJson(
-          ROUTES.events + '?projectId=' + encodeURIComponent(projectId) + '&after=' + encodeURIComponent(String(afterParam)),
+          ROUTES.events + '?projectId=' + encodeURIComponent(projectId) + '&after=' + encodeURIComponent(String(afterParam)) + limitParam,
           { signal },
           t,
         );
@@ -9543,13 +9716,278 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** Stage-one placeholder for a view that is migrated in a later commit. */
-    function ProjectTabPlaceholder({ tab, t }) {
+    /** Copilot conversations plus the node execution records behind them. */
+    function SessionsTab({ projectId, nodes, onOpenSession, t }) {
+      const [snapshot, setSnapshot] = React.useState({ loading: true, copilot: [], runs: [], error: '', partial: false });
+      const [nodeFilter, setNodeFilter] = React.useState('');
+      const load = React.useCallback(async (signal) => {
+        setSnapshot((previous) => ({ ...previous, loading: true, error: '', partial: false }));
+        const [copilotResult, runsResult] = await Promise.allSettled([
+          api.fetchCopilot(projectId, signal, t),
+          api.fetchRuns(projectId, signal, t),
+        ]);
+        if (signal?.aborted) return;
+        const failures = [];
+        if (copilotResult.status === 'rejected' && !isAbortError(copilotResult.reason)) failures.push(describeError(copilotResult.reason, t));
+        if (runsResult.status === 'rejected' && !isAbortError(runsResult.reason)) failures.push(describeError(runsResult.reason, t));
+        const copilot = copilotResult.status === 'fulfilled' ? asArray(asObject(copilotResult.value).sessions) : [];
+        const runs = runsResult.status === 'fulfilled' ? asArray(asObject(runsResult.value).runs) : [];
+        setSnapshot({
+          loading: false,
+          copilot,
+          runs,
+          error: failures.length > 0 ? failures[0] : '',
+          partial: failures.length > 0 && (copilot.length > 0 || runs.length > 0),
+        });
+      }, [projectId, t]);
+      React.useEffect(() => {
+        const controller = new AbortController();
+        void load(controller.signal);
+        return () => controller.abort();
+      }, [load]);
+
+      const nodeOptions = [{ value: '', label: t('ws.sessions.allNodes') }].concat(
+        asArray(nodes).map((node) => ({ value: nodeIdOf(node), label: nodeIdOf(node) + ' · ' + (firstString(node?.title) || t('ws.sessions.untitled')) })),
+      );
+      const matchingNode = (node) => nodeFilter === '' || nodeIdOf(node) === nodeFilter;
+      const selectedNode = nodeFilter === '' ? null : asArray(nodes).find((node) => nodeIdOf(node) === nodeFilter) ?? null;
+      const nodeRows = [];
+      for (const node of asArray(nodes)) {
+        if (!matchingNode(node)) continue;
+        const id = nodeIdOf(node);
+        const attempts = asArray(node?.attempts);
+        if (attempts.length > 0) {
+          attempts.forEach((attempt, index) => {
+            nodeRows.push({
+              key: id + ':' + String(index),
+              nodeId: id,
+              title: firstString(node?.title),
+              label: t('ws.sessions.attempt', { index: numberOr(attempt?.attempt, index + 1) }),
+              status: firstString(attempt?.status, node?.status),
+              sessionId: attemptSessionIdOf(attempt),
+              runId: firstString(attempt?.runId),
+              startedAt: attempt?.startedAt ?? null,
+              endedAt: attempt?.endedAt ?? null,
+              error: firstString(asObject(attempt?.error).message),
+            });
+          });
+          continue;
+        }
+        if (nodeFilter === '' && !node?.executionRun && node?.status !== 'running' && node?.status !== 'failed') continue;
+        const execution = asObject(node?.executionRun);
+        nodeRows.push({
+          key: id,
+          nodeId: id,
+          title: firstString(node?.title),
+          label: t('ws.sessions.nodeRun'),
+          status: firstString(node?.status),
+          sessionId: nodeSessionIdOf(node),
+          runId: firstString(execution?.runId, node?.runId),
+          startedAt: node?.timestamps?.startedAt ?? null,
+          endedAt: node?.timestamps?.completedAt ?? null,
+          error: firstString(asObject(node?.error).message),
+        });
+      }
+      const visibleRuns = asArray(snapshot.runs).filter((run) => nodeFilter === '' || firstString(run?.nodeId, run?.inputSnapshot?.nodeId) === nodeFilter);
+      const visibleSessions = asArray(snapshot.copilot);
+
       return h(
-        'div',
-        { className: 'rl-tab-empty', 'data-testid': 'project-tab-placeholder' },
-        h('h2', { className: 'rl-tab-empty-title' }, t(PROJECT_TAB_LABEL_KEYS[tab])),
-        h('p', { className: 'rl-hint' }, t('ws.tabs.migrating')),
+        'section',
+        { className: 'rl-sessions-page', 'data-testid': 'sessions-tab' },
+        h('header', { className: 'rl-experts-head' },
+          h('div', null,
+            h('h2', { className: 'rl-page-title' }, t('ws.sessions.title')),
+            h('p', { className: 'rl-page-subtitle' }, t('ws.sessions.hint'))),
+          h('div', { className: 'rl-experts-stats' },
+            h('label', { className: 'rl-expert-ttl' }, t('ws.sessions.nodeFilter'),
+              h(LabSelect, {
+                value: nodeFilter,
+                ariaLabel: t('ws.sessions.nodeFilter'),
+                options: nodeOptions,
+                onChange: (event) => setNodeFilter(event?.target.value ?? ''),
+              })),
+            h(LabButton, { label: snapshot.loading ? t('common.loading') : t('ws.sessions.refresh'), variant: 'ghost', disabled: snapshot.loading, onClick: () => void load(undefined) }))),
+        snapshot.error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, snapshot.error + (snapshot.partial ? ' · ' + t('ws.sessions.partial') : '')) : null,
+        h('section', { className: 'rl-sessions-section' },
+          h('h3', { className: 'rl-settings-section-title' }, t('ws.sessions.copilot')),
+          h('p', { className: 'rl-hint' }, t('ws.sessions.copilotHint')),
+          visibleSessions.length === 0
+            ? h('p', { className: 'rl-hint' }, t('ws.sessions.copilotEmpty'))
+            : h('div', { className: 'rl-session-list' }, visibleSessions.map((session) => h('div', { key: firstString(session?.id), className: 'rl-session-row' },
+                h('span', { className: 'rl-mono' }, firstString(session?.id)),
+                h('span', { className: 'rl-session-title' }, firstString(session?.title) || t('ws.sessions.untitled')),
+                h('span', { className: 'rl-hint' }, formatDateTime(session?.updatedAt, t)),
+                h(LabButton, {
+                  label: t('ws.sessions.open'),
+                  variant: 'ghost',
+                  disabled: firstString(session?.id) === '' || typeof onOpenSession !== 'function',
+                  onClick: () => onOpenSession(firstString(session?.id), 'chat', ''),
+                }))))),
+        h('section', { className: 'rl-sessions-section' },
+          h('h3', { className: 'rl-settings-section-title' }, t('ws.sessions.nodeRuns')),
+          h('p', { className: 'rl-hint' }, selectedNode === null ? t('ws.sessions.nodeRunsHint') : (firstString(selectedNode?.title) || nodeIdOf(selectedNode))),
+          nodeRows.length === 0
+            ? h('p', { className: 'rl-hint' }, t('ws.sessions.nodeRunsEmpty'))
+            : h('div', { className: 'rl-session-table' }, nodeRows.slice(0, 200).map((row) => h('div', { key: row.key, className: 'rl-session-run-row' },
+                h('span', { className: 'rl-mono' }, row.nodeId),
+                h('span', null, row.title),
+                h('span', { className: 'rl-mono' }, row.label),
+                h('span', { className: 'rl-chip' }, row.status || '—'),
+                h('span', { className: 'rl-hint' }, row.sessionId || row.runId || '—'),
+                h('span', { className: 'rl-hint' }, row.error || formatDateTime(row.startedAt, t)),
+                firstString(row.sessionId) !== '' && typeof onOpenSession === 'function'
+                  ? h(LabButton, { label: t('ws.sessions.open'), variant: 'ghost', onClick: () => onOpenSession(row.sessionId, 'trajectory', row.nodeId) })
+                  : null)))),
+        h('section', { className: 'rl-sessions-section' },
+          h('h3', { className: 'rl-settings-section-title' }, t('ws.sessions.cycleRuns')),
+          h('p', { className: 'rl-hint' }, t('ws.sessions.cycleRunsHint')),
+          visibleRuns.length === 0
+            ? h('p', { className: 'rl-hint' }, t('ws.sessions.cycleRunsEmpty'))
+            : h('div', { className: 'rl-session-table' }, visibleRuns.slice(0, 100).map((run) => h('div', { key: firstString(run?.id), className: 'rl-session-run-row' },
+                h('span', { className: 'rl-mono' }, firstString(run?.id)),
+                h('span', { className: 'rl-mono' }, firstString(run?.role)),
+                h('span', { className: 'rl-chip' }, firstString(run?.status)),
+                h('span', { className: 'rl-hint' }, firstString(run?.sessionId) || '—'),
+                h('span', { className: 'rl-hint' }, formatDateTime(run?.startedAt, t)),
+                firstString(run?.sessionId) !== '' && typeof onOpenSession === 'function'
+                  ? h(LabButton, { label: t('ws.sessions.open'), variant: 'ghost', onClick: () => onOpenSession(firstString(run.sessionId), 'trajectory', '') })
+                  : null)))),
+      );
+    }
+
+    /** Project the event-sourced hypothesis ledger for the audit page. */
+    function ledgerEntriesOf(events) {
+      const state = new Map();
+      for (const event of asArray(events)) {
+        const data = asObject(event?.data);
+        const id = firstString(data?.id);
+        if (id === '') continue;
+        const at = event?.at ?? event?.timestamps?.at ?? null;
+        if (event?.type === 'ledger/open' && !state.has(id)) {
+          state.set(id, {
+            id,
+            hypothesis: firstString(data?.hypothesis, data?.text),
+            state: 'open',
+            nodeId: firstString(data?.nodeId),
+            expertId: firstString(data?.expertId),
+            evidence: asArray(data?.evidence),
+            createdAt: at,
+            updatedAt: at,
+          });
+          continue;
+        }
+        const entry = state.get(id);
+        if (!entry) continue;
+        if (event?.type === 'ledger/confirm') {
+          entry.state = 'confirmed';
+          entry.updatedAt = at;
+          entry.note = firstString(data?.note);
+          entry.evidence = entry.evidence.concat(asArray(data?.evidence));
+        } else if (event?.type === 'ledger/rule_out') {
+          entry.state = 'ruled_out';
+          entry.updatedAt = at;
+          entry.reason = firstString(data?.reason);
+          entry.evidence = entry.evidence.concat(asArray(data?.evidence));
+        }
+      }
+      const rows = [...state.values()].sort((a, b) => numberOr(b.updatedAt, 0) - numberOr(a.updatedAt, 0));
+      return {
+        open: rows.filter((row) => row.state === 'open'),
+        confirmed: rows.filter((row) => row.state === 'confirmed'),
+        ruledOut: rows.filter((row) => row.state === 'ruled_out'),
+      };
+    }
+
+    /** Ledger hypotheses, high-review decision chain and disputes in one tab. */
+    function AuditTab({ projectId, nodes, onOpenNode, t }) {
+      const [snapshot, setSnapshot] = React.useState({ loading: true, events: [], error: '' });
+      const load = React.useCallback(async (signal) => {
+        setSnapshot((previous) => ({ ...previous, loading: true, error: '' }));
+        try {
+          const data = await api.fetchEvents(projectId, 0, signal, t, 2000);
+          if (signal?.aborted) return;
+          setSnapshot({ loading: false, events: asArray(asObject(data).events), error: '' });
+        } catch (reason) {
+          if (!signal?.aborted && !isAbortError(reason)) setSnapshot({ loading: false, events: [], error: describeError(reason, t) });
+        }
+      }, [projectId, t]);
+      React.useEffect(() => {
+        const controller = new AbortController();
+        void load(controller.signal);
+        return () => controller.abort();
+      }, [load]);
+
+      const events = asArray(snapshot.events).slice(-2000);
+      const ledger = ledgerEntriesOf(events);
+      const resolved = events
+        .filter((event) => event?.type === 'node/high_review_resolved')
+        .slice(-100)
+        .reverse()
+        .map((event) => ({
+          seq: event.seq,
+          nodeId: firstString(event.nodeId, event.data?.nodeId),
+          decision: firstString(event.data?.decision),
+          resolvedBy: firstString(asObject(event.data?.resolvedBy).id, event.data?.resolvedBy, asObject(event.data?.resolvedByActor).id, event.data?.resolvedByRef),
+          rationale: firstString(event.data?.rationale),
+          reasonCode: firstString(event.data?.reasonCode),
+          rule: firstString(event.data?.rule),
+        }));
+      const pending = asArray(nodes)
+        .filter((node) => node?.pendingHighReview)
+        .map((node) => ({ nodeId: nodeIdOf(node), title: firstString(node?.title), deadlineAt: node.pendingHighReview?.deadlineAt ?? null }));
+      const groups = [
+        { id: 'open', label: t('ws.audit.ledger.open'), rows: ledger.open },
+        { id: 'confirmed', label: t('ws.audit.ledger.confirmed'), rows: ledger.confirmed },
+        { id: 'ruled_out', label: t('ws.audit.ledger.ruledOut'), rows: ledger.ruledOut },
+      ];
+      return h(
+        'section',
+        { className: 'rl-audit-page', 'data-testid': 'audit-tab' },
+        h('header', { className: 'rl-experts-head' },
+          h('div', null,
+            h('h2', { className: 'rl-page-title' }, t('ws.audit.title')),
+            h('p', { className: 'rl-page-subtitle' }, t('ws.audit.hint'))),
+          h('div', { className: 'rl-experts-stats' },
+            h('span', { className: 'rl-chip' }, t('ws.audit.ledger.counts', { open: ledger.open.length, confirmed: ledger.confirmed.length, ruledOut: ledger.ruledOut.length })),
+            h(LabButton, { label: snapshot.loading ? t('common.loading') : t('ws.audit.refresh'), variant: 'ghost', disabled: snapshot.loading, onClick: () => void load(undefined) }))),
+        snapshot.error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, snapshot.error) : null,
+        h('section', { className: 'rl-sessions-section' },
+          h('h3', { className: 'rl-settings-section-title' }, t('ws.audit.ledger.title')),
+          h('p', { className: 'rl-hint' }, t('ws.audit.ledger.hint')),
+          ledger.open.length + ledger.confirmed.length + ledger.ruledOut.length === 0
+            ? h('p', { className: 'rl-hint' }, t('ws.audit.ledger.empty'))
+            : h('div', { className: 'rl-audit-ledger' }, groups.map((group) => h('div', { key: group.id, className: 'rl-audit-ledger-group' },
+                h('h4', { className: 'rl-expert-decisions-title' }, group.label + ' · ' + group.rows.length),
+                group.rows.length === 0
+                  ? h('p', { className: 'rl-hint' }, t('ws.audit.ledger.none'))
+                  : group.rows.map((row) => h('div', { key: row.id, className: 'rl-audit-row' },
+                      h('span', { className: 'rl-mono' }, row.id),
+                      h('span', { className: 'rl-audit-hypothesis' }, row.hypothesis || '—'),
+                      row.nodeId !== '' ? h(LabButton, { label: row.nodeId, variant: 'ghost', onClick: () => onOpenNode(row.nodeId) }) : null,
+                      h('span', { className: 'rl-hint' }, row.reason || row.note || ''),
+                      h('span', { className: 'rl-hint' }, formatDateTime(row.updatedAt, t)))))))),
+        h('section', { className: 'rl-sessions-section' },
+          h('h3', { className: 'rl-settings-section-title' }, t('ws.audit.highReview.title')),
+          h('p', { className: 'rl-hint' }, t('ws.audit.highReview.hint')),
+          pending.length === 0 && resolved.length === 0
+            ? h('p', { className: 'rl-hint' }, t('ws.audit.highReview.empty'))
+            : h('div', { className: 'rl-audit-table' },
+                pending.map((row) => h('div', { key: 'pending:' + row.nodeId, className: 'rl-audit-row' },
+                  h('span', { className: 'rl-mono' }, row.nodeId),
+                  h('span', { className: 'rl-chip' }, t('ws.audit.highReview.pending')),
+                  h('span', null, row.title),
+                  h('span', { className: 'rl-hint' }, t('ws.audit.highReview.deadline', { at: formatDateTime(row.deadlineAt, t) })),
+                  h(LabButton, { label: t('ws.audit.openNode'), variant: 'ghost', onClick: () => onOpenNode(row.nodeId) }))),
+                resolved.map((row) => h('div', { key: 'resolved:' + row.seq, className: 'rl-audit-row' },
+                  h('span', { className: 'rl-mono' }, row.nodeId),
+                  h('span', { className: 'rl-chip' }, row.decision),
+                  h('span', { className: 'rl-mono' }, row.resolvedBy || '—'),
+                  h('span', { className: 'rl-audit-hypothesis' }, row.rationale || row.reasonCode || '—'),
+                  h('span', { className: 'rl-hint' }, row.rule || '#' + row.seq),
+                  h(LabButton, { label: t('ws.audit.openNode'), variant: 'ghost', onClick: () => onOpenNode(row.nodeId) }))))),
+        h('section', { className: 'rl-sessions-section' },
+          h('h3', { className: 'rl-settings-section-title' }, t('ws.audit.disputes')),
+          h(DisputeTablePanel, { projectId, t })),
       );
     }
 
@@ -10386,11 +10824,24 @@ window.__ModuleLoader__.load({
               })
             : null),
         h(ProjectTabPanel, { key: 'settings', tab: 'settings', active: activeTab === 'settings' },
-          mountedTabs.has('settings') ? h(ProjectTabPlaceholder, { tab: 'settings', t }) : null),
+          mountedTabs.has('settings')
+            ? h(SettingsTab, {
+                project,
+                projectId,
+                cluster: snapshot?.cluster,
+                catalogProviders: modelProviders,
+                promptDefaults,
+                promptPlaceholders,
+                onSave: saveProjectConfig,
+                onSavePlacementPolicy: savePlacementPolicy,
+                reload,
+                t,
+              })
+            : null),
         h(ProjectTabPanel, { key: 'sessions', tab: 'sessions', active: activeTab === 'sessions' },
-          mountedTabs.has('sessions') ? h(ProjectTabPlaceholder, { tab: 'sessions', t }) : null),
+          mountedTabs.has('sessions') ? h(SessionsTab, { projectId, nodes, onOpenSession: openSessionNative, t }) : null),
         h(ProjectTabPanel, { key: 'audit', tab: 'audit', active: activeTab === 'audit' },
-          mountedTabs.has('audit') ? h(ProjectTabPlaceholder, { tab: 'audit', t }) : null),
+          mountedTabs.has('audit') ? h(AuditTab, { projectId, nodes, onOpenNode: (nodeId) => { setSelectedId(nodeId); noteNode(nodeId); selectTab('dag'); }, t }) : null),
       ];
 
       return h(
@@ -10517,16 +10968,9 @@ window.__ModuleLoader__.load({
             })
           : null,
         settingsOpen
-          ? h(SettingsModal, {
-              project,
-              projectId,
+          ? h(SettingsQuickLinksModal, {
               onClose: closeSettings,
-              onSave: saveProjectConfig,
-              onSavePlacementPolicy: savePlacementPolicy,
-              cluster: snapshot?.cluster,
-              catalogProviders: modelProviders,
-              promptDefaults,
-              promptPlaceholders,
+              onSelectTab: selectTab,
               t,
             })
           : null,
@@ -15001,49 +15445,37 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /** The settings entry point only links to pages; configuration lives in tabs. */
+    function SettingsQuickLinksModal({ onClose, onSelectTab, t }) {
+      const tabs = ['settings', 'experts', 'observability', 'dashboard', 'sessions', 'audit', 'dag'];
+      return h(
+        'div',
+        { className: 'rl-overlay-layer rl-overlay-layer-top' },
+        h(
+          'div',
+          { className: 'rl-modal rl-modal-narrow', role: 'dialog', 'aria-label': t('ws.settings.quickTitle') },
+          h('div', { className: 'rl-modal-head' },
+            h('h2', { className: 'rl-modal-title' }, t('ws.settings.quickTitle')),
+            h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.settings.close'), onClick: onClose })),
+          h('div', { className: 'rl-modal-body' },
+            h('p', { className: 'rl-hint' }, t('ws.settings.quickHint')),
+            h('div', { className: 'rl-quick-links' }, tabs.map((tab) => h(LabButton, {
+              key: tab,
+              label: t('ws.tabs.' + tab),
+              variant: tab === 'settings' ? 'primary' : 'ghost',
+              onClick: () => { onClose(); onSelectTab(tab); },
+            })))),
+          h('div', { className: 'rl-modal-foot' },
+            h(LabButton, { label: t('ws.settings.close'), variant: 'ghost', onClick: onClose })),
+        ),
+      );
+    }
+
     /** Project settings modal (advisor/auto budgets/limits/pools/models/prompts). */
-    function SettingsModal({ project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders, onClose, onSave, onSavePlacementPolicy, t }) {
+    function SettingsModal({ project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders, onClose, onSave, onSavePlacementPolicy, embedded = false, t }) {
       const [draft, setDraft] = React.useState(() => settingsDraftOf(project, promptDefaults));
       const [saving, setSaving] = React.useState(false);
       const [error, setError] = React.useState('');
-      const [expertLibrary, setExpertLibrary] = React.useState({ loading: true, error: '', data: null });
-      const [expertAction, setExpertAction] = React.useState('');
-      const [expertError, setExpertError] = React.useState('');
-      const [expertMessage, setExpertMessage] = React.useState('');
-      const loadExpertLibrary = async () => {
-        setExpertLibrary((previous) => ({ ...previous, loading: true, error: '' }));
-        try {
-          const data = await api.fetchExperts(projectId, undefined, t);
-          setExpertLibrary({ loading: false, error: '', data });
-        } catch (loadError) {
-          if (isAbortError(loadError)) return;
-          setExpertLibrary({ loading: false, error: t('ws.experts.library.error'), data: null });
-        }
-      };
-      const runExpertAction = async (type, expertId) => {
-        if (expertAction !== '') return;
-        setExpertAction(type + ':' + expertId);
-        setExpertError('');
-        setExpertMessage('');
-        try {
-          await api.command({ type, projectId, expertId }, undefined, t);
-          await loadExpertLibrary();
-          setExpertMessage(t(type === 'expert_hire' ? 'ws.experts.hired' : type === 'expert_drain' ? 'ws.experts.draining' : 'ws.experts.fired', { id: expertId }));
-        } catch (actionError) {
-          if (!isAbortError(actionError)) {
-            setExpertError(describeError(actionError, t) || t('ws.experts.actionError'));
-          }
-        } finally {
-          setExpertAction('');
-        }
-      };
-      React.useEffect(() => {
-        let active = true;
-        api.fetchExperts(projectId, undefined, t)
-          .then((data) => { if (active) setExpertLibrary({ loading: false, error: '', data }); })
-          .catch((loadError) => { if (active && !isAbortError(loadError)) setExpertLibrary({ loading: false, error: t('ws.experts.library.error'), data: null }); });
-        return () => { active = false; };
-      }, [projectId]);
       const poolSeqRef = React.useRef(1);
       const reviewerSeqRef = React.useRef(asArray(draft.reviewers).length);
       const initialPlacement = placementPolicyOf(project);
@@ -15227,7 +15659,7 @@ window.__ModuleLoader__.load({
         const result = await onSave(config);
         setSaving(false);
         if (result !== null && result !== undefined && result?.ok === true) {
-          onClose();
+          if (embedded !== true && typeof onClose === 'function') onClose();
         } else {
           setError((result && result?.error) || t('ws.settings.error'));
         }
@@ -15278,19 +15710,23 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { className: 'rl-overlay-layer rl-overlay-layer-top' },
+        { className: embedded ? 'rl-settings-page' : 'rl-overlay-layer rl-overlay-layer-top' },
         h(
           'div',
-          { className: 'rl-modal rl-modal-wide', role: 'dialog', 'aria-label': t('ws.settings.title') },
+          { className: embedded ? 'rl-settings-panel' : 'rl-modal rl-modal-wide', role: embedded ? 'region' : 'dialog', 'aria-label': t('ws.settings.title') },
+          embedded
+            ? h('div', { className: 'rl-settings-head' },
+                h('h2', { className: 'rl-page-title' }, t('ws.settings.title')),
+                h('p', { className: 'rl-page-subtitle' }, t('ws.settings.pageHint')))
+            : h(
+                'div',
+                { className: 'rl-modal-head' },
+                h('h2', { className: 'rl-modal-title' }, t('ws.settings.title')),
+                h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.settings.close'), onClick: onClose }),
+              ),
           h(
             'div',
-            { className: 'rl-modal-head' },
-            h('h2', { className: 'rl-modal-title' }, t('ws.settings.title')),
-            h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.settings.close'), onClick: onClose }),
-          ),
-          h(
-            'div',
-            { className: 'rl-modal-body' },
+            { className: embedded ? 'rl-settings-body' : 'rl-modal-body' },
             h(
               'div',
               { className: 'rl-settings-section' },
@@ -15819,91 +16255,13 @@ window.__ModuleLoader__.load({
                   )
                 : null,
             ),
-            h(
-              'div',
-              { className: 'rl-settings-section' },
-              h(
-                'div',
-                { className: 'rl-section-head' },
-                h('h3', { className: 'rl-settings-section-title' }, t('ws.experts.library')),
-                h(LabButton, {
-                  label: expertLibrary.loading ? t('ws.experts.library.loading') : t('ws.experts.library.refresh'),
-                  variant: 'ghost',
-                  disabled: expertLibrary.loading,
-                  onClick: loadExpertLibrary,
-                }),
-              ),
-              h('p', { className: 'rl-hint' }, t('ws.experts.library.hint')),
-              h('p', { className: 'rl-hint' }, t('ws.experts.drainHint')),
-              expertLibrary.error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, expertLibrary.error) : null,
-              expertError !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, expertError) : null,
-              expertMessage !== '' ? h('p', { className: 'rl-hint' }, expertMessage) : null,
-              expertLibrary.data === null
-                ? h('p', { className: 'rl-hint' }, expertLibrary.loading ? t('ws.experts.library.loading') : t('ws.experts.library.empty'))
-                : asArray(expertLibrary.data.experts).length === 0
-                  ? h('p', { className: 'rl-hint' }, t('ws.experts.library.empty'))
-                  : h(
-                      'div',
-                      { className: 'rl-expert-library' },
-                      asArray(expertLibrary.data.experts).map((expert) =>
-                        h(
-                          'div',
-                          { key: expert?.id, className: 'rl-expert-library-row' },
-                          h(
-                            'div',
-                            { className: 'rl-expert-library-main' },
-                            h('strong', { className: 'rl-expert-library-id' }, expert?.id),
-                            h('p', { className: 'rl-hint' }, expert?.persona),
-                          ),
-                          h(
-                            'div',
-                            { className: 'rl-project-chips' },
-                            asArray(expert?.mayPropose).map((action) => h('span', { key: action, className: 'rl-chip rl-chip-mono' }, action)),
-                            h('span', { className: 'rl-chip' }, t('ws.experts.library.metrics', {
-                              proposals: expert?.metrics?.proposals ?? 0,
-                              completed: expert?.metrics?.completed ?? 0,
-                            })),
-                            h('span', { className: 'rl-chip' }, t('ws.experts.library.noExecute')),
-                            h('span', { className: 'rl-chip rl-chip-lifecycle rl-chip-lifecycle-' + (expert?.lifecycle?.status ?? 'catalog') }, t('ws.experts.lifecycle.' + (expert?.lifecycle?.status ?? 'catalog'))),
-                          ),
-                          h(
-                            'div',
-                            { className: 'rl-expert-lifecycle-actions' },
-                            (expert?.lifecycle?.status ?? 'catalog') === 'catalog' || expert?.lifecycle?.status === 'retired'
-                              ? h(LabButton, {
-                                  label: expertAction === 'expert_hire:' + expert?.id ? '…' : t('ws.experts.hire'),
-                                  variant: 'ghost',
-                                  disabled: expertAction !== '',
-                                  onClick: () => void runExpertAction('expert_hire', expert?.id),
-                                })
-                              : null,
-                            expert?.lifecycle?.status === 'active'
-                              ? h(LabButton, {
-                                  label: expertAction === 'expert_drain:' + expert?.id ? '…' : t('ws.experts.drain'),
-                                  variant: 'ghost',
-                                  disabled: expertAction !== '',
-                                  onClick: () => void runExpertAction('expert_drain', expert?.id),
-                                })
-                              : null,
-                            expert?.lifecycle?.status === 'draining'
-                              ? h(LabButton, {
-                                  label: expertAction === 'expert_fire:' + expert?.id ? '…' : t('ws.experts.fire'),
-                                  variant: 'ghost',
-                                  disabled: expertAction !== '',
-                                  onClick: () => void runExpertAction('expert_fire', expert?.id),
-                                })
-                              : null,
-                          ),
-                        )),
-                    ),
-            ),
             error ? h('p', { className: 'rl-error-text', role: 'alert' }, t('ws.settings.error') + ': ' + error) : null,
           ),
           h(
             'div',
-            { className: 'rl-modal-foot' },
+            { className: embedded ? 'rl-settings-foot' : 'rl-modal-foot' },
             h(LabButton, { label: t('ws.settings.reset'), variant: 'ghost', onClick: reset }),
-            h(LabButton, { label: t('ws.settings.cancel'), variant: 'ghost', onClick: onClose }),
+            embedded ? null : h(LabButton, { label: t('ws.settings.cancel'), variant: 'ghost', onClick: onClose }),
             h(LabButton, {
               label: saving ? t('ws.settings.saving') : t('ws.settings.save'),
               variant: 'primary',
@@ -15912,6 +16270,113 @@ window.__ModuleLoader__.load({
             }),
           ),
         ),
+      );
+    }
+
+
+    /** Migration phase 2/3 controls: explicit S14 parity acknowledgement. */
+    function MigrationPanel({ project, projectId, reload, t }) {
+      const phase = Math.max(1, Math.min(3, Math.trunc(numberOr(asObject(asObject(project).config).migration?.phase, 1))));
+      const config = asObject(asObject(project).config);
+      const [target, setTarget] = React.useState(Math.min(3, phase + 1));
+      const [expertsMode, setExpertsMode] = React.useState(config.expertsMode === 'resident' ? 'resident' : 'hierarchy');
+      const [dispatchStrategy, setDispatchStrategy] = React.useState(['legacy-llm', 'shadow-deterministic', 'deterministic'].includes(config.dispatch?.strategy) ? config.dispatch.strategy : 'shadow-deterministic');
+      const [contestMode, setContestMode] = React.useState(config.contest?.mode === 'consensus' ? 'consensus' : 'shadow');
+      const [parity, setParity] = React.useState(config.migration?.parity?.ok === true);
+      const [busy, setBusy] = React.useState(false);
+      const [error, setError] = React.useState('');
+      const [message, setMessage] = React.useState('');
+      React.useEffect(() => {
+        setTarget(Math.min(3, phase + 1));
+      }, [phase]);
+      const advance = async () => {
+        if (busy || phase >= 3 || target <= phase) return;
+        if (target > 1 && !parity) return;
+        setBusy(true);
+        setError('');
+        setMessage('');
+        try {
+          const payload = {
+            type: 'migration.advance', projectId, phase: target,
+            parity: { ok: true },
+            dispatchStrategy,
+            ...(target >= 2 ? { expertsMode } : {}),
+            ...(target >= 3 ? { contestMode } : {}),
+          };
+          await api.command(payload, undefined, t);
+          setMessage(t('ws.settings.migration.advanced', { phase: target }));
+          reload();
+        } catch (reason) {
+          if (!isAbortError(reason)) setError(describeError(reason, t) || t('ws.settings.migration.error'));
+        } finally {
+          setBusy(false);
+        }
+      };
+      const targetOptions = [phase + 1].filter((value) => value <= 3).map((value) => ({ value: String(value), label: t('ws.settings.migration.phase.' + value) }));
+      return h(
+        'section',
+        { className: 'rl-settings-section rl-migration-panel', 'data-testid': 'settings-migration' },
+        h('div', { className: 'rl-section-head' },
+          h('h3', { className: 'rl-settings-section-title' }, t('ws.settings.migration.title')),
+          h('span', { className: 'rl-chip' }, t('ws.settings.migration.current', { phase }))),
+        h('p', { className: 'rl-hint' }, t('ws.settings.migration.hint')),
+        h('div', { className: 'rl-form-grid' },
+          h(LabField, { label: t('ws.settings.migration.target') },
+            h(LabSelect, {
+              value: String(target),
+              ariaLabel: t('ws.settings.migration.target'),
+              disabled: phase >= 3 || targetOptions.length === 0,
+              options: targetOptions,
+              onChange: (event) => setTarget(Number(event?.target.value)),
+            })),
+          target >= 2 ? h(LabField, { label: t('ws.settings.migration.expertsMode') },
+            h(LabSelect, {
+              value: expertsMode,
+              ariaLabel: t('ws.settings.migration.expertsMode'),
+              options: ['hierarchy', 'resident'].map((value) => ({ value, label: t('ws.settings.migration.experts.' + value) })),
+              onChange: (event) => setExpertsMode(event?.target.value),
+            })) : null,
+          h(LabField, { label: t('ws.settings.migration.dispatch') },
+            h(LabSelect, {
+              value: dispatchStrategy,
+              ariaLabel: t('ws.settings.migration.dispatch'),
+              options: ['legacy-llm', 'shadow-deterministic', 'deterministic'].map((value) => ({ value, label: t('ws.settings.migration.dispatch.' + value) })),
+              onChange: (event) => setDispatchStrategy(event?.target.value),
+            })),
+          target >= 3 ? h(LabField, { label: t('ws.settings.migration.contest') },
+            h(LabSelect, {
+              value: contestMode,
+              ariaLabel: t('ws.settings.migration.contest'),
+              options: ['shadow', 'consensus'].map((value) => ({ value, label: t('ws.settings.migration.contest.' + value) })),
+              onChange: (event) => setContestMode(event?.target.value),
+            })) : null),
+        h('label', { className: 'rl-delete-option' },
+          h('input', { type: 'checkbox', checked: parity, onChange: (event) => setParity(event?.target.checked === true) }),
+          h('span', null, t('ws.settings.migration.parity'))),
+        h('p', { className: 'rl-hint' }, t('ws.settings.migration.parityHint')),
+        h('div', { className: 'rl-form-actions' },
+          h(LabButton, {
+            label: busy ? t('ws.settings.migration.advancing') : t('ws.settings.migration.advance'),
+            variant: 'primary',
+            disabled: busy || phase >= 3 || target <= phase || (target > 1 && !parity),
+            onClick: () => void advance(),
+          })),
+        error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, error) : null,
+        message !== '' ? h('p', { className: 'rl-config-success', role: 'status' }, message) : null,
+        phase >= 3 ? h('p', { className: 'rl-hint' }, t('ws.settings.migration.max')) : null,
+      );
+    }
+
+    /** Settings as a page: the full editor plus the migration phase controls. */
+    function SettingsTab({ project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders, onSave, onSavePlacementPolicy, reload, t }) {
+      return h(
+        'div',
+        { className: 'rl-settings-tab', 'data-testid': 'settings-tab' },
+        h(SettingsModal, {
+          project, projectId, cluster, catalogProviders, promptDefaults, promptPlaceholders,
+          onClose: () => {}, onSave, onSavePlacementPolicy, embedded: true, t,
+        }),
+        h(MigrationPanel, { project, projectId, reload, t }),
       );
     }
 
@@ -17946,11 +18411,85 @@ window.__ModuleLoader__.load({
       );
     }
 
+
+    /** Failure clustering, failure timeline and stall attribution for one project. */
+    function FailureClusterPanel({ projectId, t }) {
+      const [snapshot, setSnapshot] = React.useState({ loading: true, runs: [], events: [], observer: {}, error: '' });
+      React.useEffect(() => {
+        const controller = new AbortController();
+        Promise.allSettled([
+          api.fetchRuns(projectId, controller.signal, t),
+          api.fetchEvents(projectId, 0, controller.signal, t),
+          api.fetchObserver(projectId, controller.signal, t),
+        ]).then((results) => {
+          if (controller.signal.aborted) return;
+          const failed = results.find((row) => row.status === 'rejected');
+          setSnapshot({
+            loading: false,
+            runs: results[0].status === 'fulfilled' ? asArray(asObject(results[0].value).runs) : [],
+            events: results[1].status === 'fulfilled' ? asArray(asObject(results[1].value).events) : [],
+            observer: results[2].status === 'fulfilled' ? asObject(results[2].value) : {},
+            error: failed === undefined || isAbortError(failed.reason) ? '' : describeError(failed.reason, t),
+          });
+        });
+        return () => controller.abort();
+      }, [projectId, t]);
+      if (snapshot.loading) return h('p', { className: 'rl-hint' }, t('common.loading'));
+      const failedRuns = asArray(snapshot.runs).filter((run) => ['failed', 'error', 'timeout', 'aborted'].includes(firstString(run?.status)));
+      const clusters = new Map();
+      for (const run of failedRuns) {
+        const cause = firstString(run?.causeId, run?.errorCode, run?.errorDetail, t('ws.obs.failures.noCause'));
+        const row = clusters.get(cause) ?? { cause, count: 0, roles: new Set(), lastAt: 0, nodeId: '', detail: '' };
+        row.count += 1;
+        if (firstString(run?.role) !== '') row.roles.add(firstString(run.role));
+        row.lastAt = Math.max(row.lastAt, Number(run?.endedAt ?? run?.startedAt ?? 0) || 0);
+        row.nodeId = firstString(row.nodeId, run?.nodeId);
+        row.detail = firstString(row.detail, run?.errorDetail, run?.error);
+        clusters.set(cause, row);
+      }
+      const clusterRows = [...clusters.values()].sort((a, b) => b.count - a.count);
+      const failureEvents = asArray(snapshot.events)
+        .filter((event) => /fail|error|timeout|abort|preempt/i.test(firstString(event?.type)))
+        .slice(-40)
+        .reverse();
+      const stalled = asArray(asObject(snapshot.observer).stalled);
+      return h(
+        'section',
+        { className: 'rl-sessions-section', 'data-testid': 'obs-failures' },
+        h('h3', { className: 'rl-settings-section-title' }, t('ws.obs.failures.title')),
+        snapshot.error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, snapshot.error) : null,
+        clusterRows.length === 0
+          ? h('p', { className: 'rl-hint' }, t('ws.obs.failures.empty'))
+          : h('div', { className: 'rl-session-table' }, clusterRows.map((row) => h('div', { key: row.cause, className: 'rl-log-row' },
+              h('span', { className: 'rl-chip' }, t('ws.obs.failures.count', { count: row.count })),
+              h('span', { className: 'rl-mono' }, row.cause),
+              h('span', null, [...row.roles].join(', ') || '—'),
+              h('span', { className: 'rl-hint' }, row.detail || formatDateTime(row.lastAt, t)),
+              row.nodeId !== '' ? h('span', { className: 'rl-mono' }, row.nodeId) : null))),
+        h('h4', { className: 'rl-expert-decisions-title' }, t('ws.obs.failures.stalls')),
+        stalled.length === 0
+          ? h('p', { className: 'rl-hint' }, t('ws.obs.failures.stallsEmpty'))
+          : stalled.map((row) => h('div', { key: firstString(row?.nodeId) + ':' + firstString(row?.why), className: 'rl-log-row' },
+              h('span', { className: 'rl-mono' }, firstString(row?.nodeId) || '—'),
+              h('span', { className: 'rl-chip' }, firstString(row?.why) || t('ws.obs.failures.noCause')),
+              h('span', { className: 'rl-hint' }, t('ws.obs.failures.elapsed', { seconds: Math.round(numberOr(row?.stalledMs ?? row?.elapsedMs ?? row?.waitingMs, 0) / 1000) })))),
+        h('h4', { className: 'rl-expert-decisions-title' }, t('ws.obs.failures.timeline')),
+        failureEvents.length === 0
+          ? h('p', { className: 'rl-hint' }, t('ws.obs.failures.timelineEmpty'))
+          : failureEvents.map((event) => h('div', { key: String(event?.seq), className: 'rl-log-row' },
+              h('span', { className: 'rl-mono' }, String(event?.seq ?? '')),
+              h('span', { className: 'rl-mono' }, firstString(event?.type) || 'event'),
+              h('span', null, firstString(event?.nodeId) || ''),
+              h('span', { className: 'rl-hint' }, firstString(event?.causeId) || ''))),
+      );
+    }
+
     function ObservabilityDrawer({ projectId, onClose, embedded = false, t }) {
       const [tab, setTab] = React.useState('queue');
       const tabs = [
         { id: 'queue', labelKey: 'ws.obs.tab.queue', render: () => h(DispatchQueuePanel, { projectId, t }) },
         { id: 'observer', labelKey: 'ws.obs.tab.observer', render: () => h(ObserverPanel, { projectId, t }) },
+        { id: 'failures', labelKey: 'ws.obs.tab.failures', render: () => h(FailureClusterPanel, { projectId, t }) },
         { id: 'timeline', labelKey: 'ws.obs.tab.timeline', render: () => h(EventTimelinePanel, { projectId, t }) },
         { id: 'claims', labelKey: 'ws.obs.tab.claims', render: () => h(ClaimEvidencePanel, { projectId, t }) },
         { id: 'disputes', labelKey: 'ws.obs.tab.disputes', render: () => h(DisputeTablePanel, { projectId, t }) },
@@ -18325,6 +18864,10 @@ window.__ModuleLoader__.load({
         ProposalPanel,
         GcPanel,
         SettingsModal,
+        SettingsTab,
+        SettingsQuickLinksModal,
+        SessionsTab,
+        AuditTab,
         FinishMergeDialog,
         PushDialog,
         DeleteProjectDialog,

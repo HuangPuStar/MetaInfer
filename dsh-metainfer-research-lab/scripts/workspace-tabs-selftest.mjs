@@ -143,6 +143,24 @@ check('Back restores the previous tab from the URL',
   && activePanel()?.getAttribute('data-tab') === 'dag',
   JSON.stringify({ beforeBack, href: window.location.href, selected: selectedTab()?.id }));
 
+const stateCallsBeforePages = requests.filter((url) => url.includes('/state')).length;
+for (const [tab, testId] of [['settings', 'settings-tab'], ['sessions', 'sessions-tab'], ['audit', 'audit-tab']]) {
+  await React.act(async () => {
+    host.querySelector('#metainfer-project-tab-' + tab).click();
+    await wait(90);
+  });
+  check('the ' + tab + ' tab is a real lazy page',
+    activePanel()?.getAttribute('data-tab') === tab
+    && host.querySelector('[data-testid="' + testId + '"]') !== null,
+    JSON.stringify({ tab, active: activePanel()?.getAttribute('data-tab') }));
+  check('the ' + tab + ' tab keeps the URL deep-linkable',
+    new URL(window.location.href).searchParams.get('tab') === tab,
+    window.location.href);
+}
+check('settings/sessions/audit never refetch the full state',
+  requests.filter((url) => url.includes('/state')).length === stateCallsBeforePages,
+  JSON.stringify({ before: stateCallsBeforePages, after: requests.filter((url) => url.includes('/state')).length }));
+
 await React.act(async () => root.unmount());
 host.remove();
 if (failures.length > 0) {
