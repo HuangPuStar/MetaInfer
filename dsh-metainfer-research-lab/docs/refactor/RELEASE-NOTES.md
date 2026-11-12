@@ -1,5 +1,119 @@
 # v2 发布说明（草稿）
 
+## Round 39 — a withdrawn node keeps the decision that removed it
+
+- **Live evidence:** `n-0010` was created by `lab-lead` at
+  `1794443891015` and silently withdrawn 53 s later
+  (`1794443943841`). `dag_get` returned `status: cancelled` and
+  `error: ""`; `explain_node` showed
+  `node/high_review_resolved actor=human actorId=session-bf3a...`
+  with `causeId=high-review:n-0010:withdraw`, no `reasonCode`, rationale or
+  rule name. `disputes` and `status_facts.recentFailures` were empty.
+- **Root cause:** `resolveHighReview` accepted a bare internal
+  `{ kind: 'system', id: '...' }` execution descriptor but
+  `actorFromToolExecution` only looked at `exec.agent.session`; with no
+  session it fell back to `actorForSession({})`, which labels an unregistered
+  caller `human`. The decision was then persisted as
+  `resolvedBy: {kind:'human', id: sessionId}` and `cancelReason` was the
+  bare string `high-review veto: withdraw`.
+- **Structured decision:** both `resolveHighReview` (service/tool path) and
+  `applyChiefActivation` (L2 path) now build one `highReviewResolution`:
+  - `decision`
+  - `reasonCode` (always non-empty; defaults to `high_review_<action>`)
+  - `rationale`
+  - `resolvedBy` as `human:<sessionId>`, `expert:<expertId>` or
+    `system:<policyName>`
+  - `resolvedByActor` and, for a policy, `rule: {name, whyWithdraw, whyNotDefer}`
+  The `node/high_review_resolved` event carries the same fields and the full
+  `cancelReason` object.
+- **Node record:** a withdrawn node now has `cancelReason` (object),
+  `cancelReasonText`, `cancelledBy`, `cancelledAt`, and
+  `highReview.resolvedByRef`/`reasonCode`/`rationale`/`rule`. The empty
+  `error` is no longer the only explanation.
+- **Read surfaces:** `dag_get` includes `cancelReason` in its default row and
+  accepts `cancelReasonText`, `cancelledBy`, `cancelledAt`, `highReview`;
+  `explain_node` returns the node fields plus event-level `decision`,
+  `reasonCode`, `rationale`, `resolvedBy`, `rule` and `cancelReason`. The
+  node inspector renders a localised “Cancellation reason” section.
+- **Actor policy:** a bare `{kind:'system'}`/`{kind:'expert'}`/
+  `{kind:'human'}` execution descriptor is now honored instead of being
+  treated as an anonymous human session. Unknown/legacy kinds map to
+  `system:<kind>:<id>`, never `human`. Host high-review policies may resolve
+  with a system actor; the event actor itself is system, not human.
+- **Rule explanation:** when `ruleName`/`rule`/`policy` is supplied (or a
+  system actor has a preset), the event records the rule name. A withdraw
+  records `whyWithdraw` and `whyNotDefer`; the default explains that withdraw
+  removes the node from the runnable DAG while defer only changes priority.
+- **Regression:** a system-policy withdrawal asserts
+  `resolvedBy==='system:candidate_overlap_guard'`, a non-empty `reasonCode`,
+  the named rule, `whyWithdraw`/`whyNotDefer`, and byte-identical
+  `cancelReason` on the event, node and `explain_node`. A human withdrawal
+  asserts `human:s-human`. The two provenance labels cannot be confused.
+- **Tests:** `npm test` EXIT 0, 1070 `ok`, 0 FAIL; hierarchy-selftest includes
+  both Round 39 probes; plugin-smoke 6/6.
+
+## Round 38 — role failures keep their cause, code, and retryability
+
+- **Live proof:** lead `run-15781108` ended in 65.2 s with
+  `stopReason=error`, no tool calls, and only
+  `error: "lead stopped: error (timeoutMs=180000, source=config.advisor.timeoutSeconds)"`.
+  The same cycle had successful lead `run-7939be84` through the same code path.
+  The transport-style failures (`os error 110`, `Reconnecting... stream
+  disconnected`) were being flattened by the subagent seam, so diagnosis
+  required guessing from duration and tool-call count.
+- **Structured failure record:** `runRole` now captures the child
+  `agent/error` event and falls back to the durable `turn/end` error. Failure
+  records keep the readable `error` and add:
+  - `errorCode`
+  - `retryable: boolean`
+  - `errorDetail: { name, message, stack, stopReason, hasPartialOutput,
+    partialOutputChars, ... }`
+  - for stream failures: `disconnectReason`
+  - for JSON parse failures: `parseError` and `rawTail` (last 200 characters)
+  - `partialOutput` (bounded) on the run record itself
+- **Error codes:**
+
+  | Code | Retryable | Meaning |
+  |---|---|---|
+  | `stream_disconnected` | true | transport/stream reset (`os error 110`, `Reconnecting`, ECONNRESET, ...) |
+  | `run_timeout` | true | role wall-clock timeout |
+  | `provider_rate_limited` | true | 429/rate limit/overloaded |
+  | `provider_unavailable` | true | 5xx/upstream unavailable |
+  | `invalid_json` | false | malformed structured output; carries parser message + raw tail |
+  | `invalid_schema` | false | schema/structured-output validation failure |
+  | `permission_denied` | false | auth/permission/EACCES/401/403 |
+  | `query_budget_exceeded` | false | role exceeded its read-call budget |
+  | `model_refused` | false | provider refusal stop reason |
+  | `run_cancelled` | false | cancelled/aborted |
+  | `missing_structured_output` | false | schema-backed run ended without a capture |
+  | `subagent_error` | false | other child/agent failure |
+  | `unknown_role_error` | false | no classified cause |
+
+- **Shared observability:** `cycle.errors[]` uses the same
+  `formatRoleFailure` string that `state.auto.lastLeadError` reads, and
+  `cycle.leadFailure` carries `{runId,error,errorCode,errorDetail,retryable}`.
+  Auto also exposes `lastLeadErrorCode`, `lastLeadErrorDetail`, and
+  `lastLeadRetryable`; run rows include `errorCode`, `errorDetail`,
+  `retryable`, and `partialOutput`. The project status driver exposes the same
+  fields. Failure diagnostics are never added to the lead prompt.
+- **Retry policy:** auto's lead backoff now checks `retryable`. Transient
+  failures keep the 60/120/240 s exponential backoff capped at 300 s;
+  non-retryable failures do not enter retry backoff (the existing error breaker
+  still stops repeated failures). Legacy cycles without a run record infer
+  retryability from the error text.
+- **Regression:** a fake lead activation rejects with
+  `new Error('stream disconnected before completion')`, and another fake
+  returns malformed JSON. The tests assert `stream_disconnected`/retryable
+  true with the original message, and `invalid_json`/retryable false with
+  `parseError` plus a ≤200-character raw tail. A third fixture models the real
+  `stopReason=error + diagnostic + partial output` path. Prompt captures prove
+  none of these details enter the lead input.
+- **Tests:** `npm test` EXIT 0, 1068 `ok`, 0 FAIL;
+  `hierarchy-selftest` includes the three Round 38 probes;
+  `auto-wip-selftest` verifies retryable and non-retryable backoff paths;
+  `plugin-smoke` 6/6.
+- **Boundary:** live `run-15781108` was read only; Host 3080 was not restarted.
+
 ## Round 37 — lead prompts carry the timebox range and the previous rejection
 
 - **Live proof:** project `prj-e1cbb8e1` has `nodeTimeoutMinutes: 1` and

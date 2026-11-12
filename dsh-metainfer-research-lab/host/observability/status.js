@@ -160,6 +160,10 @@ export function buildStatusFacts({ project, nodes = [], auto = null, cluster = n
           idleStreak: auto.idleStreak ?? 0,
           errorStreak: auto.errorStreak ?? 0,
           lastCycleAt: auto.lastCycleAt ?? null,
+          lastLeadError: auto.lastLeadError ?? null,
+          lastLeadErrorCode: auto.lastLeadErrorCode ?? null,
+          lastLeadErrorDetail: auto.lastLeadErrorDetail ?? null,
+          lastLeadRetryable: auto.lastLeadRetryable ?? null,
           planning: auto.planning ?? null,
         }
       : null,

@@ -296,7 +296,26 @@ export function actorForSession(input = {}) {
 export function actorFromToolExecution(exec) {
   const session = exec?.agent?.session;
   const meta = session?.header?.meta ?? session?.meta ?? null;
+  const explicitKind = typeof exec?.kind === 'string' && exec.kind ? exec.kind : null;
+  // Internal Host callers may pass a bare `{ kind, id }` execution descriptor
+  // instead of a DSH agent session. Honor that identity: treating it as a
+  // sessionless human is how an automatic high-review policy was attributed to
+  // a human operator in the audit trail.
+  if (!session && explicitKind) {
+    const sessionId = typeof exec.id === 'string' && exec.id
+      ? exec.id
+      : (typeof exec.sessionId === 'string' && exec.sessionId ? exec.sessionId : explicitKind);
+    return actorForSession({
+      kind: explicitKind,
+      agentPreset: typeof exec.preset === 'string' ? exec.preset : undefined,
+      sessionId,
+      session,
+      actorKey: exec.actorKey,
+      meta: exec.meta,
+    });
+  }
   return actorForSession({
+    ...(explicitKind ? { kind: explicitKind } : {}),
     agentPreset: meta?.agentPreset,
     sessionId: typeof session?.id === 'string' ? session.id : undefined,
     session,

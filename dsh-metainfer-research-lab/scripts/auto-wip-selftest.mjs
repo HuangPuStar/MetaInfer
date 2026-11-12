@@ -268,6 +268,82 @@ await test('a lead timeout is backed off instead of being retried on the next ti
   kernel.dispose();
 });
 
+await test('Round 38: auto backoff follows run.retryable instead of treating every lead failure as transient', async () => {
+  const makeProject = async (projectId) => {
+    const store = await openStore(storeContext(memoryDomain()));
+    await store.saveProject({
+      id: projectId, name: projectId, mode: 'auto', repo: {}, revision: 0, counters: { eventSeq: 0 },
+      config: { maxRunningNodes: 2, maxNodes: 100, resourcePools: {}, expertsMode: 'hierarchy', planning: { minRemainingMs: 3_600_000, planLatencyMs: 1_000, safetyFactor: 0.1, debounceMs: 0, minGapMs: 0 } },
+    });
+    await store.saveNode(projectId, node('b0'));
+    await store.saveNode(projectId, node('b1'));
+    const kernel = createKernel({ store });
+    kernel.load(projectId);
+    return { store, kernel };
+  };
+  const driveFailure = async (projectId, run) => {
+    const { store, kernel } = await makeProject(projectId);
+    await store.saveRun(projectId, run);
+    let steps = 0;
+    const auto = createAutoController({
+      store, kernel, cluster: null,
+      dispatchOnce: async () => ({ started: 0, skipped: [] }),
+      orchestrator: {
+        step: async () => {
+          steps += 1;
+          const error = `lead: ${run.failureSummary}`;
+          return {
+            created: [], started: [], errors: [error],
+            cycle: {
+              id: 'cyc-r38', errors: [error], leadRunId: run.id,
+              leadFailure: { runId: run.id, errorCode: run.errorCode, errorDetail: run.errorDetail, retryable: run.retryable, error: run.error },
+            },
+          };
+        },
+      },
+      intervalMs: 60_000,
+    });
+    auto.start(projectId);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const status = auto.statusOf(projectId);
+    auto.dispose();
+    kernel.dispose();
+    return { status, steps };
+  };
+
+  const streamRun = {
+    id: 'run-r38-stream', projectId: 'p-r38-stream', cycleId: 'cyc-r38', role: 'lead', status: 'failed',
+    error: 'stream disconnected before completion',
+    errorCode: 'stream_disconnected', retryable: true,
+    errorDetail: { name: 'Error', message: 'stream disconnected before completion', disconnectReason: 'stream disconnected before completion' },
+    failureSummary: 'stream disconnected before completion [code=stream_disconnected; retryable=true; detail={"message":"stream disconnected before completion"}]',
+  };
+  const stream = await driveFailure('p-r38-stream', streamRun);
+  assert.equal(stream.steps, 1);
+  assert.equal(stream.status.lastLeadErrorCode, 'stream_disconnected');
+  assert.equal(stream.status.lastLeadRetryable, true);
+  assert.ok(stream.status.leadBackoffUntil > Date.now(), 'a retryable stream failure must back off');
+  assert.match(stream.status.lastLeadError, /stream disconnected before completion/);
+  assert.match(stream.status.lastLeadError, /retryable=true/);
+  assert.equal(stream.status.lastLeadErrorDetail.disconnectReason, 'stream disconnected before completion');
+
+  const jsonRun = {
+    id: 'run-r38-json', projectId: 'p-r38-json', cycleId: 'cyc-r38', role: 'lead', status: 'failed',
+    error: 'lead completed without a valid structured result; parse error: Expected double-quoted property name',
+    errorCode: 'invalid_json', retryable: false,
+    errorDetail: { name: 'Error', message: 'lead completed without a valid structured result', parseError: 'Expected double-quoted property name', rawTail: '{"analysis": "truncated",' },
+    failureSummary: 'lead completed without a valid structured result [code=invalid_json; retryable=false; detail={"parseError":"Expected double-quoted property name"}]',
+  };
+  const badJson = await driveFailure('p-r38-json', jsonRun);
+  assert.equal(badJson.steps, 1);
+  assert.equal(badJson.status.lastLeadErrorCode, 'invalid_json');
+  assert.equal(badJson.status.lastLeadRetryable, false);
+  assert.equal(badJson.status.leadBackoffUntil, 0, 'a non-retryable failure must not enter retry backoff');
+  assert.match(badJson.status.lastPlanSkip, /not retryable \(invalid_json\)/);
+  assert.match(badJson.status.lastLeadError, /retryable=false/);
+  assert.equal(badJson.status.lastLeadErrorDetail.parseError, 'Expected double-quoted property name');
+});
+
 await test('an explicit project cap overrides the derived default', async () => {
   const { steps, status } = await drive('p-pin', 2, { maxPlannedInFlight: 1 });
   assert.equal(steps, 0);

@@ -22,6 +22,8 @@ import { baselineFor, normalizeExpected } from './kernel/prediction.js';
 import { BRANCH_REPORT_SCHEMA, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
 import { MAX_CONSUMPTIONS, buildBranchCandidateQueue, candidateSkipReason, candidateStats, candidateStructureKey, replacementChainForNode } from './experts/candidates.js';
 import { assertModelSchema } from './schema-check.js';
+import { classifyRoleFailure, formatRoleFailure } from './role-errors.js';
+import { highReviewResolution } from './high-review.js';
 
 const ROLE_RUN_TIMEOUT_MS = 180_000;
 // 5.3.8: O1 measured advisor p90 at the old 180 s ceiling; the default budget
@@ -222,6 +224,9 @@ const CHIEF_SCHEMA = {
   properties: {
     decision: { type: 'string', enum: ['defer', 'withdraw', 'keep'] },
     reasonCode: { type: 'string' },
+    rationale: { type: 'string' },
+    ruleName: { type: 'string' },
+    whyNotDefer: { type: 'string' },
     verifiedEvidence: { type: 'array', items: { type: 'object' } },
     evidenceChain: { type: 'array', items: { type: 'object' } },
   },
@@ -737,6 +742,9 @@ function buildLeadTrace({ leadRun, applied, decisions, skipReason, input = null 
     runId: leadRun?.record?.id ?? null,
     status: leadRun?.failure ? 'failed' : (output ? 'completed' : 'no_output'),
     error: leadRun?.record?.error ?? null,
+    errorCode: leadRun?.record?.errorCode ?? null,
+    errorDetail: leadRun?.record?.errorDetail ?? null,
+    retryable: leadRun?.record?.retryable ?? null,
     timeoutMs: leadRun?.record?.timeoutMs ?? null,
     timeoutSource: leadRun?.record?.timeoutSource ?? null,
     analysis: boundedText(output?.analysis, 6000),
@@ -789,6 +797,7 @@ function chiefPrompt(project, node, review) {
   return [
     'You are the L2 chief. Decide one routed exception. You may keep, defer or withdraw the node.',
     'A keep requires at least one verified raw-data pointer and a non-empty evidence chain.',
+    'For defer/withdraw, include a rationale. If an automatic rule selected the action, name it in ruleName and explain why withdraw is required instead of defer.',
     'Do not create nodes or run the experiment; the lead already materialized the optimistic p2 child.',
     `Budget: at most ${ROLE_BUDGETS.chief.maxQueries} read calls; finish within ${roleTimeoutMs(project, 'chief') / 1000} seconds.`,
     '',
@@ -885,6 +894,21 @@ function schedulerPrompt(project, snapshot) {
     '# Snapshot',
     JSON.stringify(snapshot, null, 2),
   ].filter((line, index, lines) => !(line === '' && lines[index - 1] === '')).join('\n');
+}
+
+/** Round 38: recover the durable turn error when the live child event was missed. */
+async function sessionFailure(ctx, sessionId) {
+  try {
+    const snapshot = await ctx.sessionQuery.readSurface(sessionId);
+    const events = Array.isArray(snapshot?.events) ? snapshot.events : [];
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event?.type === 'turn/end' && event.data?.error) return event.data.error;
+    }
+  } catch {
+    // surface unavailable
+  }
+  return null;
 }
 
 async function sessionUsage(ctx, sessionId) {
@@ -1115,6 +1139,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     let activation;
     let result = null;
     let failure = null;
+    let syntheticFailure = false;
+    let childError = null;
+    let childAgent = null;
+    let offChildError = null;
     try {
       activation = await ctx.subagents.startActivation({
         provider: 'spawn',
@@ -1132,6 +1160,20 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         },
       });
       roleActivations.set(sessionId, { activation, projectId: project.id, record });
+      // The subagent seam reports a child-level failure as stopReason=error and
+      // deliberately does not include the original exception on the result.
+      // The child's scoped event is the only place the cause survives.
+      childAgent = ctx.agents?.get?.(sessionId) ?? null;
+      if (childAgent?.ctx?.on) {
+        try {
+          offChildError = childAgent.ctx.on('agent/error', (payload) => {
+            if (payload?.agent && payload.agent !== childAgent) return;
+            childError = payload?.error ?? childError;
+          });
+        } catch {
+          // The activation result remains the primary observation.
+        }
+      }
       result = await Promise.race([
         activation.result,
         new Promise((_, reject) => {
@@ -1144,10 +1186,16 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       ]);
       if (result?.stopReason !== 'completed') {
         failure = new Error(`${role} stopped: ${result?.stopReason} (timeoutMs=${timeoutMs}, source=${timeoutSource})`);
+        syntheticFailure = true;
       }
     } catch (error) {
       failure = error;
     } finally {
+      try {
+        if (typeof offChildError === 'function') offChildError();
+      } catch {
+        // listener already detached
+      }
       roleActivations.delete(sessionId);
       if (activation) {
         try {
@@ -1160,25 +1208,60 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
 
     record.endedAt = Date.now();
     record.usage = await sessionUsage(ctx, sessionId);
+    const rawText = blocksText(result?.output);
+    if (!childError) childError = await sessionFailure(ctx, sessionId);
+    let missingStructured = false;
     if (!failure && maxQueries && Number(record.usage.toolCalls ?? 0) > maxQueries) {
       failure = new LabError('query_budget_exceeded', `${role} used ${record.usage.toolCalls} tool calls, budget ${maxQueries}`, 429);
     }
+    // A schema-backed activation must commit a structured result. Some provider
+    // failures end as `completed` without one; make that observable instead of
+    // silently treating the run as a successful empty answer.
+    if (!failure && result && (result.structured === undefined || result.structured === null)) {
+      missingStructured = true;
+      failure = new Error(`${role} completed without a valid structured result`);
+    }
+    if (!failure && typeof result?.structured === 'string') {
+      try {
+        JSON.parse(result.structured);
+      } catch (error) {
+        failure = error;
+      }
+    }
     if (failure) {
+      const info = classifyRoleFailure({
+        role,
+        failure,
+        childError,
+        result,
+        stopReason: result?.stopReason ?? null,
+        rawText,
+        syntheticFailure,
+        missingStructured,
+        hasStructured: result?.structured !== undefined && result?.structured !== null,
+      });
       record.status = 'failed';
       record.stopReason = 'error';
-      record.error = failure instanceof Error ? failure.message : String(failure);
-      record.errorCode = failure?.code ?? null;
+      record.error = info.error;
+      record.errorCode = info.errorCode;
+      record.errorDetail = info.errorDetail;
+      record.retryable = info.retryable;
+      record.failureSummary = formatRoleFailure(record);
+      record.partialOutput = rawText ? rawText.slice(0, 2000) : null;
     } else {
       record.status = 'completed';
       record.stopReason = 'completed';
       record.output = result?.structured ?? null;
       if (record.output && typeof record.output.analysis === 'string') record.analysis = record.output.analysis;
-      if (!record.output) record.rawText = blocksText(result?.output);
+      if (!record.output) record.rawText = rawText;
     }
     await saveRun(project.id, record, `${role}/finished`, {
       runId: id,
       status: record.status,
       error: record.error ?? null,
+      errorCode: record.errorCode ?? null,
+      retryable: record.retryable ?? null,
+      errorDetail: record.errorDetail ?? null,
       created: record.createdNodeIds?.length ?? 0,
     });
     return { record, failure };
@@ -1954,12 +2037,13 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         ...(node.highReview ?? {}),
         status: 'unreviewed',
         resolvedAt: now,
-        resolvedBy: null,
+        resolvedBy: { kind: 'system', id: 'high-review-sweeper' },
+        resolvedByRef: 'system:high-review-sweeper',
         reasonCode: 'window_timeout',
       };
       const commit = await kernel.executor.commit(projectId, {
         actor: { kind: 'system', id: 'high-review-sweeper' },
-        mutations: [{ op: 'node.put', node: next, eventType: 'node/high_review_unreviewed', eventData: { deadlineAt: node.pendingHighReview.deadlineAt } }],
+        mutations: [{ op: 'node.put', node: next, eventType: 'node/high_review_unreviewed', eventData: { deadlineAt: node.pendingHighReview.deadlineAt, reasonCode: 'window_timeout', resolvedBy: 'system:high-review-sweeper' } }],
         causeId: `high-review:${node.id}:timeout`,
       });
       if (commit.ok === true) resolved.push(node.id);
@@ -1978,30 +2062,53 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     const errors = validateChiefDecision(decision, store.listNodes(projectId));
     if (errors.length > 0) return { ok: false, errors };
     const now = Date.now();
+    const actor = { kind: 'chief', id: 'lab-chief' };
+    const provenance = highReviewResolution({
+      action: decision.action,
+      reasonCode: decision.reasonCode,
+      rationale: output?.rationale,
+      actor,
+      ruleName: output?.ruleName,
+      whyNotDefer: output?.whyNotDefer,
+      at: now,
+    });
     const next = structuredClone(node);
     next.pendingHighReview = null;
     next.highReview = {
       ...(node.highReview ?? {}),
+      decision: decision.action,
       status: decision.action === 'defer' ? 'deferred' : decision.action === 'withdraw' ? 'withdrawn' : 'kept',
       resolvedAt: now,
       resolvedBy: { kind: 'chief', id: 'lab-chief' },
-      reasonCode: decision.reasonCode,
+      resolvedByRef: provenance.resolvedBy,
+      reasonCode: provenance.reasonCode,
+      rationale: provenance.rationale,
+      ...(provenance.rule ? { rule: provenance.rule } : {}),
       evidenceChain: decision.evidenceChain,
     };
-    if (decision.action === 'defer') next.priority = { ...(next.priority ?? {}), class: 'deferred', by: 'lab-chief', reason: 'high-review veto: defer', at: now };
+    if (decision.action === 'defer') next.priority = { ...(next.priority ?? {}), class: 'deferred', by: 'lab-chief', reason: `high-review veto: defer (${provenance.reasonCode})`, at: now };
     if (decision.action === 'withdraw') {
       next.status = 'cancelled';
       next.cancelledAt = now;
-      next.cancelledBy = { kind: 'chief', id: 'lab-chief' };
-      next.cancelReason = 'high-review veto: withdraw';
+      next.cancelledBy = actor;
+      next.cancelReason = provenance.cancelReason;
+      next.cancelReasonText = provenance.cancelReasonText;
     }
     if (decision.action === 'keep') next.ratifiedBy = 'lab-chief';
     await commitMutations(projectId, [{
       op: 'node.put',
       node: next,
       eventType: 'node/high_review_resolved',
-      eventData: { decision: decision.action, reasonCode: decision.reasonCode, by: 'lab-chief' },
-    }], { causeId: `high-review:${node.id}:${decision.action}`, actor: { kind: 'chief', id: 'lab-chief' } });
+      eventData: {
+        decision: decision.action,
+        reasonCode: provenance.reasonCode,
+        rationale: provenance.rationale,
+        resolvedBy: provenance.resolvedBy,
+        resolvedByActor: provenance.resolvedByActor,
+        ...(provenance.rule ? { rule: provenance.rule } : {}),
+        ...(next.cancelReason ? { cancelReason: next.cancelReason } : {}),
+      },
+    }], { causeId: `high-review:${node.id}:${decision.action}`, actor });
     return { ok: true, node: next };
   }
 
@@ -2074,7 +2181,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         );
         cycle.branchRunIds = [...(cycle.branchRunIds ?? []), run.record.id];
         if (run.failure) {
-          cycle.errors.push(`branch[${branchId}]: ${run.record.error}`);
+          cycle.errors.push(`branch[${branchId}]: ${run.record.failureSummary ?? formatRoleFailure(run.record)}`);
           continue;
         }
         branchRuns.push({ branchId, events: branchEvents, output: run.record.output ?? null, report });
@@ -2160,7 +2267,14 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     cycle.leadRunId = leadRun.record.id;
     const pendingBefore = [...queue.pending];
     if (leadRun.failure) {
-      cycle.errors.push(`lead: ${leadRun.record.error}`);
+      cycle.leadFailure = {
+        runId: leadRun.record.id,
+        error: leadRun.record.error,
+        errorCode: leadRun.record.errorCode ?? null,
+        errorDetail: leadRun.record.errorDetail ?? null,
+        retryable: leadRun.record.retryable === true,
+      };
+      cycle.errors.push(`lead: ${leadRun.record.failureSummary ?? formatRoleFailure(leadRun.record)}`);
       const leadDecisions = leadDecisionMap(leadRun.record.output, pendingBefore);
       const decisions = candidateDecisionRows({
         pendingCandidates: pendingBefore,
@@ -2183,13 +2297,15 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       leadRun.record.outcome = {
         status: 'failed',
         error: leadRun.record.error ?? null,
+        errorCode: leadRun.record.errorCode ?? null,
+        retryable: leadRun.record.retryable === true,
         proposalCount: 0,
         created: 0,
         rejected: 0,
         decisionCounts: cycle.lead.decisionCounts,
         skipReason: failedReason,
       };
-      await saveRun(projectId, leadRun.record, 'run/updated', { created: 0, failed: true });
+      await saveRun(projectId, leadRun.record, 'run/updated', { created: 0, failed: true, errorCode: leadRun.record.errorCode ?? null, retryable: leadRun.record.retryable ?? null });
       if (failedReason) {
         recordCandidates(queue, { skipReason: failedReason });
         cycle.skipped.push({ stage: 'advisor', reason: failedReason });
@@ -2257,7 +2373,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       );
       cycle.chiefRunIds.push(chiefRun.record.id);
       if (chiefRun.failure) {
-        cycle.errors.push(`chief[${node.id}]: ${chiefRun.record.error}`);
+        cycle.errors.push(`chief[${node.id}]: ${chiefRun.record.failureSummary ?? formatRoleFailure(chiefRun.record)}`);
         continue;
       }
       const outcome = await applyChiefActivation(projectId, node, chiefRun.record.output);
@@ -2343,7 +2459,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         cycle.advisorRunId = cycle.advisorRunIds[0] ?? null;
         const successful = runs.filter((run) => !run.failure && run.record.output);
         for (const run of runs) {
-          if (run.failure) cycle.errors.push(`advisor${run.record.lens ? `[${run.record.lens}]` : ''}: ${run.record.error}`);
+          if (run.failure) cycle.errors.push(`advisor${run.record.lens ? `[${run.record.lens}]` : ''}: ${run.record.failureSummary ?? formatRoleFailure(run.record)}`);
         }
         if (successful.length > 0) {
           const merged = reviewers.length > 0
@@ -2385,7 +2501,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         );
         cycle.schedulerRunId = record.id;
         if (failure) {
-          cycle.errors.push(`scheduler: ${record.error}`);
+          cycle.errors.push(`scheduler: ${record.failureSummary ?? formatRoleFailure(record)}`);
         } else {
           const applied = await applySchedulerOutput(projectId, cycle, record.output);
           cycle.startedNodeIds.push(...applied.startedNodeIds);
@@ -2734,8 +2850,17 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           record.status = 'failed';
           record.stopReason = 'cancelled';
           record.endedAt = Date.now();
-          record.error = 'cancelled because auto mode was stopped';
-          await saveRun(projectId, record, 'run/cancelled', { status: record.status });
+          const cancelled = classifyRoleFailure({
+            role: record.role ?? 'role',
+            failure: new Error('cancelled because auto mode was stopped'),
+            stopReason: 'cancelled',
+          });
+          record.error = cancelled.error;
+          record.errorCode = cancelled.errorCode;
+          record.errorDetail = cancelled.errorDetail;
+          record.retryable = cancelled.retryable;
+          record.failureSummary = formatRoleFailure(record);
+          await saveRun(projectId, record, 'run/cancelled', { status: record.status, errorCode: record.errorCode, retryable: record.retryable });
         }
       } catch {
         // run record best-effort

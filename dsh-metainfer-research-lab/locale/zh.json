@@ -882,6 +882,7 @@
     "ws.inspector.createdBy": "创建者",
     "ws.inspector.empty": "在画布或左栏选择一个节点。",
     "ws.inspector.error": "保存失败",
+    "ws.inspector.cancelReason": "撤销原因",
     "ws.inspector.errorLabel": "错误",
     "ws.inspector.git": "Git",
     "ws.inspector.headCommit": "最新提交",

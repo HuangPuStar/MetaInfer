@@ -20,8 +20,8 @@ export const DAG_MAP_MAX_BYTES = 6 * 1024;
 export const DAG_WALK_MAX_BYTES = 24 * 1024;
 const DIFF_HISTORY = 16;
 
-const ROW_FIELDS = ['id', 'title', 'status', 'priority', 'parentIds', 'rev', 'needs', 'timestamps', 'git', 'error', 'review', 'attempt', 'lease', 'dispatchHold', 'source'];
-const DEFAULT_SELECT = ['id', 'title', 'status', 'priority', 'parentIds', 'rev'];
+const ROW_FIELDS = ['id', 'title', 'status', 'priority', 'parentIds', 'rev', 'needs', 'timestamps', 'git', 'error', 'review', 'attempt', 'lease', 'dispatchHold', 'source', 'cancelReason', 'cancelReasonText', 'cancelledBy', 'cancelledAt', 'highReview'];
+const DEFAULT_SELECT = ['id', 'title', 'status', 'priority', 'parentIds', 'rev', 'cancelReason'];
 
 function parentsOf(node) {
   if (Array.isArray(node.parentIds) && node.parentIds.length > 0) return node.parentIds;
@@ -54,6 +54,25 @@ export function normalizeSelect(select) {
   return out.includes('id') ? out : ['id', ...out];
 }
 
+function compactCancelReason(reason) {
+  if (reason === undefined || reason === null) return reason;
+  if (typeof reason === 'string') return reason.slice(0, 800);
+  if (typeof reason !== 'object' || Array.isArray(reason)) return reason;
+  return {
+    ...reason,
+    ...(typeof reason.rationale === 'string' ? { rationale: reason.rationale.slice(0, 500) } : {}),
+    ...(reason.rule && typeof reason.rule === 'object'
+      ? {
+          rule: {
+            ...reason.rule,
+            ...(typeof reason.rule.whyWithdraw === 'string' ? { whyWithdraw: reason.rule.whyWithdraw.slice(0, 500) } : {}),
+            ...(typeof reason.rule.whyNotDefer === 'string' ? { whyNotDefer: reason.rule.whyNotDefer.slice(0, 500) } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
 /** Project a node to the selected fields (compact, no undefined keys). */
 export function projectRow(node, select = DEFAULT_SELECT) {
   const row = {};
@@ -61,6 +80,8 @@ export function projectRow(node, select = DEFAULT_SELECT) {
     if (field === 'parentIds') row.parentIds = parentsOf(node);
     else if (field === 'title') row.title = typeof node.title === 'string' ? node.title.slice(0, 300) : '';
     else if (field === 'error') row.error = typeof node.error === 'string' ? node.error.slice(0, 500) : (node.error ?? '');
+    else if (field === 'cancelReason') row.cancelReason = compactCancelReason(node.cancelReason);
+    else if (field === 'cancelReasonText') row.cancelReasonText = typeof node.cancelReasonText === 'string' ? node.cancelReasonText.slice(0, 800) : (node.cancelReasonText ?? null);
     else if (node[field] !== undefined) row[field] = node[field];
   }
   return row;

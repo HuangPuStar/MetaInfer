@@ -882,6 +882,7 @@
     "ws.inspector.createdBy": "Created by",
     "ws.inspector.empty": "Select a node on the canvas or in the task list.",
     "ws.inspector.error": "Save failed",
+    "ws.inspector.cancelReason": "Cancellation reason",
     "ws.inspector.errorLabel": "Error",
     "ws.inspector.git": "Git",
     "ws.inspector.headCommit": "Head commit",

@@ -32,6 +32,7 @@ import { PRIORITY_CLASSES, classBudgetOf } from './dispatch/reservation.js';
 import { DISPUTE_CLASS_MAP, DISPUTE_DEFAULT_ACTION, createDisputeRecord, disputeActorVerdict, disputeAuthorityVerdict, effectiveDispute, expireDisputeRecord, reopenDisputeRecord, resolveDisputeRecord } from './kernel/disputes.js';
 import { DEFAULT_ROTATION_DAYS, rotationPlan } from './experts/rotation.js';
 import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
+import { highReviewResolution } from './high-review.js';
 import { actorKeyOf, hasActorIdentity, isIssuedActorKey, publicView, sameActor } from './kernel/actors.js';
 import { ESCALATION_REASON_CODES, INTENT_KINDS, INTENT_TTL_MS, basisFor, createIntent, detectIntentConflicts, intentBasis, intentId, intentMutation } from './kernel/intent.js';
 import { ACTION_VERIFICATION, IRREVERSIBLE_ACTIONS, citationErrorRate, citationTier, gateClaimAction, verifyClaims } from './kernel/claims.js';
@@ -2213,6 +2214,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       model: run.model ?? null,
       analysis: typeof run.analysis === 'string' ? run.analysis.slice(0, 1600) : null,
       error: run.error ?? null,
+      errorCode: run.errorCode ?? null,
+      errorDetail: run.errorDetail ?? null,
+      retryable: run.retryable ?? null,
+      partialOutput: typeof run.partialOutput === 'string' ? run.partialOutput.slice(0, 1000) : null,
       createdNodeIds: run.createdNodeIds ?? undefined,
       startedNodeIds: run.startedNodeIds ?? undefined,
       output: run.output ? JSON.stringify(run.output).slice(0, 3000) : null,
@@ -5356,8 +5361,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const actor = exec && (exec.kind || exec.agent) ? actorFromToolExecution(exec) : null;
     if (!actor) return rejection('actor_required', 'high-review resolution requires an actor');
     const chief = chiefPolicy(project);
-    if (!(actor.kind === 'human' || actor.id === chief.chiefId || actor.preset === chief.chiefId || actor.kind === 'chief')) {
-      return rejection('forbidden_action', 'only the chief or a human owner may resolve a high review', { chiefId: chief.chiefId });
+    // A Host policy (the duplicate/overlap/high-review guards) resolves with a
+    // system actor. It is an automatic decision, not a human one; the event and
+    // cancelReason therefore carry `system:<policyName>` rather than a session id.
+    if (!(actor.kind === 'human' || actor.kind === 'system' || actor.id === chief.chiefId || actor.preset === chief.chiefId || actor.kind === 'chief')) {
+      return rejection('forbidden_action', 'only the chief, a human owner, or a Host high-review policy may resolve a high review', { chiefId: chief.chiefId });
     }
     const action = input?.action;
     if (!['defer', 'withdraw', 'keep'].includes(action)) {
@@ -5374,29 +5382,57 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       if (errors.length > 0) return rejection('invalid_high_review', errors.join('; '), { errors });
     }
     const now = Date.now();
+    const provenance = highReviewResolution({
+      action,
+      reasonCode: decision.reasonCode,
+      rationale: input?.rationale ?? input?.reason,
+      actor,
+      rule: input?.rule ?? input?.policy,
+      ruleName: input?.ruleName,
+      whyNotDefer: input?.whyNotDefer,
+      at: now,
+    });
     const next = structuredClone(node);
     next.pendingHighReview = null;
     next.highReview = {
       ...(node.highReview ?? {}),
+      decision: action,
       status: action === 'defer' ? 'deferred' : action === 'withdraw' ? 'withdrawn' : 'kept',
       resolvedAt: now,
       resolvedBy: { kind: actor.kind, id: actor.id },
-      reasonCode: decision.reasonCode,
+      resolvedByRef: provenance.resolvedBy,
+      reasonCode: provenance.reasonCode,
+      rationale: provenance.rationale,
+      ...(provenance.rule ? { rule: provenance.rule } : {}),
       evidenceChain: decision.evidenceChain,
     };
     if (action === 'defer') {
-      next.priority = { ...(next.priority ?? {}), class: 'deferred', by: actor.id, reason: 'high-review veto: defer', at: now };
+      next.priority = { ...(next.priority ?? {}), class: 'deferred', by: actor.id, reason: `high-review veto: defer (${provenance.reasonCode})`, at: now };
     }
     if (action === 'withdraw') {
       next.status = 'cancelled';
       next.cancelledAt = now;
       next.cancelledBy = { kind: actor.kind, id: actor.id };
-      next.cancelReason = 'high-review veto: withdraw';
+      next.cancelReason = provenance.cancelReason;
+      next.cancelReasonText = provenance.cancelReasonText;
     }
     if (action === 'keep') next.ratifiedBy = chief.chiefId;
     const commit = await kernel.executor.commit(projectId, {
       actor,
-      mutations: [{ op: 'node.put', node: next, eventType: 'node/high_review_resolved', eventData: { decision: action, reasonCode: decision.reasonCode } }],
+      mutations: [{
+        op: 'node.put',
+        node: next,
+        eventType: 'node/high_review_resolved',
+        eventData: {
+          decision: action,
+          reasonCode: provenance.reasonCode,
+          rationale: provenance.rationale,
+          resolvedBy: provenance.resolvedBy,
+          resolvedByActor: provenance.resolvedByActor,
+          ...(provenance.rule ? { rule: provenance.rule } : {}),
+          ...(next.cancelReason ? { cancelReason: next.cancelReason } : {}),
+        },
+      }],
       causeId: `high-review:${nodeId}:${action}`,
     });
     if (commit.ok !== true) return rejection(commit.code ?? 'internal_error', commit.message ?? 'high review commit failed');
@@ -5415,12 +5451,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         ...(node.highReview ?? {}),
         status: 'unreviewed',
         resolvedAt: now,
-        resolvedBy: null,
+        resolvedBy: { kind: 'system', id: 'high-review-sweeper' },
+        resolvedByRef: 'system:high-review-sweeper',
         reasonCode: 'window_timeout',
       };
       const commit = await kernel.executor.commit(projectId, {
         actor: { kind: 'system', id: 'high-review-sweeper' },
-        mutations: [{ op: 'node.put', node: next, eventType: 'node/high_review_unreviewed', eventData: { deadlineAt: node.pendingHighReview.deadlineAt } }],
+        mutations: [{ op: 'node.put', node: next, eventType: 'node/high_review_unreviewed', eventData: { deadlineAt: node.pendingHighReview.deadlineAt, reasonCode: 'window_timeout', resolvedBy: 'system:high-review-sweeper' } }],
         causeId: `high-review:${node.id}:timeout`,
       });
       if (commit.ok === true) resolved.push(node.id);

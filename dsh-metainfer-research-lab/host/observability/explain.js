@@ -22,6 +22,11 @@ export function summarizeEvent(event) {
   const bits = [];
   if (data.from || data.to) bits.push(`${data.from ?? '?'}->${data.to ?? '?'}`);
   if (data.reason) bits.push(`reason=${String(data.reason).slice(0, 80)}`);
+  if (data.reasonCode) bits.push(`reasonCode=${String(data.reasonCode).slice(0, 120)}`);
+  if (data.decision) bits.push(`decision=${String(data.decision).slice(0, 20)}`);
+  if (data.resolvedBy) bits.push(`resolvedBy=${String(data.resolvedBy).slice(0, 200)}`);
+  if (data.rule?.name) bits.push(`rule=${String(data.rule.name).slice(0, 120)}`);
+  if (data.rationale) bits.push(`rationale=${String(data.rationale).slice(0, 300)}`);
   if (data.code) bits.push(`code=${data.code}`);
   if (data.trigger) bits.push(`trigger=${data.trigger}`);
   if (data.nodeId) bits.push(`node=${data.nodeId}`);
@@ -39,6 +44,13 @@ export function summarizeEvent(event) {
     commitId: event?.commit?.id ?? null,
     basis: event?.basis ?? null,
     detail: bits.join(' '),
+    ...(data.decision !== undefined ? { decision: data.decision } : {}),
+    ...(data.reasonCode !== undefined ? { reasonCode: data.reasonCode } : {}),
+    ...(data.rationale !== undefined ? { rationale: data.rationale } : {}),
+    ...(data.resolvedBy !== undefined ? { resolvedBy: data.resolvedBy } : {}),
+    ...(data.resolvedByActor !== undefined ? { resolvedByActor: data.resolvedByActor } : {}),
+    ...(data.rule !== undefined ? { rule: data.rule } : {}),
+    ...(data.cancelReason !== undefined ? { cancelReason: data.cancelReason } : {}),
   };
 }
 
@@ -135,6 +147,11 @@ export function createExplainer({ store, projection = null, clock = Date.now }) 
         updatedAt: node.timestamps?.updatedAt ?? null,
         priority: node.priority ?? null,
         error: typeof node.error === 'string' ? node.error.slice(0, 500) : (node.error?.message ?? null),
+        cancelReason: node.cancelReason ?? node.cancelReasonText ?? null,
+        cancelReasonText: node.cancelReasonText ?? null,
+        cancelledBy: node.cancelledBy ?? null,
+        cancelledAt: node.cancelledAt ?? null,
+        highReview: node.highReview ?? null,
         dispatchHold: node.dispatchHold ?? null,
         review: node.review ?? null,
         leaseId: node.lease?.leaseId ?? null,

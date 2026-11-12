@@ -222,10 +222,20 @@ test('dag_get returns one hop of context and reports missing ids', () => {
   assert.deepEqual(result.missing, ['nope']);
   assert.ok(result.parents.some((row) => row.id === 'n2'));
   assert.ok(result.children.some((row) => row.id === 'n11'));
+  const cancelled = dagGet({
+    nodes: nodes.map((node) => node.id === 'n5' ? {
+      ...node,
+      status: 'cancelled',
+      cancelReason: { decision: 'withdraw', reasonCode: 'candidate_overlap', resolvedBy: 'system:overlap_guard', rationale: 'duplicate range' },
+    } : node),
+    nodeIds: ['n5'],
+  });
+  assert.equal(cancelled.nodes[0].cancelReason.reasonCode, 'candidate_overlap');
+  assert.equal(cancelled.nodes[0].cancelReason.resolvedBy, 'system:overlap_guard');
   assert.equal(dagGet({ nodes, nodeIds: [] }).code, 'missing_ids');
   assert.equal(dagGet({ nodes, nodeIds: Array.from({ length: 51 }, (_, index) => `n${index}`) }).code, 'too_many_ids');
   assert.deepEqual(normalizeSelect(['title']), ['id', 'title']);
-  assert.deepEqual(normalizeSelect(['nope']), ['id', 'title', 'status', 'priority', 'parentIds', 'rev']);
+  assert.deepEqual(normalizeSelect(['nope']), ['id', 'title', 'status', 'priority', 'parentIds', 'rev', 'cancelReason']);
 });
 
 test('bounded exploration stops with an actionable code on each dimension', () => {

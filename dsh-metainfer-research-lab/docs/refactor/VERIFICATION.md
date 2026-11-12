@@ -8172,3 +8172,221 @@ The first check also asserts `cycle.candidates.skipReason` contains
 | `plugin-smoke` | 6/6 process checks |
 
 Live `prj-e1cbb8e1` was not mutated; Host 3080 was not restarted.
+
+## 64. Round 38 — role failure causes and retryability
+
+### 64.1 Live evidence
+
+```text
+run-15781108  lead  failed  stopReason=error
+error: "lead stopped: error (timeoutMs=180000, source=config.advisor.timeoutSeconds)"
+usage: outputTokens=6198  started 1794443472206  ended 1794443537429  (65.2s)
+```
+
+No tool calls and no child exception were visible. The same cycle's lead
+`run-7939be84` succeeded through the same `runRole` path. The observed
+`os error 110` / `Reconnecting... stream disconnected` family is transport, not
+a schema or permission failure.
+
+### 64.2 Stored shape
+
+```json
+{
+  "status": "failed",
+  "stopReason": "error",
+  "error": "lead stopped: error (...); stream disconnected before completion",
+  "errorCode": "stream_disconnected",
+  "retryable": true,
+  "errorDetail": {
+    "name": "Error",
+    "message": "stream disconnected before completion",
+    "stack": "Error: stream disconnected before completion",
+    "stopReason": "error",
+    "hasPartialOutput": true,
+    "partialOutputChars": 16,
+    "partialOutput": "partial analysis",
+    "disconnectReason": "stream disconnected before completion (os error 110)"
+  },
+  "partialOutput": "partial analysis"
+}
+```
+
+Bad JSON adds:
+
+```json
+{
+  "errorCode": "invalid_json",
+  "retryable": false,
+  "errorDetail": {
+    "parseError": "Expected double-quoted property name in JSON at position 19",
+    "rawTail": "{\"analysis\": \"truncated\",",
+    "hasPartialOutput": true
+  }
+}
+```
+
+`rawTail` is always `rawText.slice(-200)`; `partialOutput` is bounded on the
+run record. `cycle.errors[]` contains the `formatRoleFailure` string, e.g.:
+
+```text
+lead: stream disconnected before completion
+[code=stream_disconnected; retryable=true; detail={...}]
+```
+
+`state.auto.lastLeadError` is that same cycle string. The auto state additionally
+stores `lastLeadErrorCode`, `lastLeadErrorDetail`, and `lastLeadRetryable`;
+run rows and the project status driver expose the same fields.
+
+### 64.3 Retry policy
+
+- `retryable=true`: `leadBackoffUntil = now + leadRetryBackoffMs(streak)`
+  (60/120/240 s, capped at 300 s).
+- `retryable=false`: `leadBackoffUntil = 0`; the existing error-streak breaker
+  handles repeated non-retryable failures. `lastPlanSkip` names the code and
+  says `not retryable`.
+
+Legacy cycles without `leadRunId`/`retryable` infer from the error text.
+
+### 64.4 Regression output
+
+```text
+ok Round 38: a rejected lead activation keeps the underlying stream-disconnect reason and is retryable
+ok Round 38: a stopReason=error result keeps the diagnostic and partial output
+ok Round 38: bad JSON is classified as invalid_json, non-retryable, with parseError and a 200-char raw tail
+ok Round 38: failure diagnostics stay out of the lead prompt input
+ok Round 38: auto backoff follows run.retryable instead of treating every lead failure as transient
+```
+
+The fake stream activation rejects with
+`new Error('stream disconnected before completion')`; the fake JSON activation
+returns `stopReason: 'completed'` with raw text
+`{"analysis": "truncated",` and no structured capture. The third fixture returns
+`stopReason: 'error'` plus the live-style diagnostic and partial output.
+
+### 64.5 Gates
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1068 `ok`, 0 FAIL |
+| `hierarchy-selftest` | all checks passed (Round 38 probes) |
+| `auto-wip-selftest` | 16/16 checks passed (retryable/non-retryable) |
+| `plugin-smoke` | 6/6 process checks |
+
+Live `run-15781108` was not mutated; Host 3080 was not restarted.
+
+## 65. Round 39 — high-review withdrawals keep their decision
+
+### 65.1 Live evidence
+
+```text
+n-0010  createdBy=lab-lead  causeId=create:n-0010
+createdAt=1794443891015  updatedAt=1794443943841  (53 s)
+status=cancelled  error=""
+seq 177 node/high_review_resolved
+  actor=human actorId=session-bf3a8bf5-b943-4f0c-b318-673de55f348e
+  causeId=high-review:n-0010:withdraw
+disputes=[]  status_facts.recentFailures=[]
+```
+
+No reasonCode, rationale, policy name or resolver label existed. That is the
+same failure mode as Round 38: the decision happened, but why it happened was
+not written down.
+
+### 65.2 Root cause and actor provenance
+
+`resolveHighReview` accepted an internal `exec` descriptor, but
+`actorFromToolExecution` only read `exec.agent.session`; a bare
+`{kind:'system', id:'high-review-policy'}` therefore became
+`actorForSession({})`, whose no-preset fallback is `human`. The stored event
+and `highReview.resolvedBy` both said human even though the caller was a
+policy.
+
+The fix honors an explicit bare identity before the session fallback:
+
+```text
+{kind:'system', id:'high-review-policy'} -> system:high-review-policy
+{kind:'expert', id:'lab-chief'}          -> expert:lab-chief
+{kind:'human',  id:'s-human'}            -> human:s-human
+unregistered/legacy kind                 -> system:<kind>:<id>, never human
+```
+
+### 65.3 Stored shape
+
+```json
+{
+  "status": "cancelled",
+  "cancelReason": {
+    "decision": "withdraw",
+    "reasonCode": "candidate_overlap",
+    "rationale": "the candidate duplicates the already-running range",
+    "resolvedBy": "system:candidate_overlap_guard",
+    "resolvedByActor": { "kind": "system", "id": "high-review-policy", "preset": "candidate_overlap_guard" },
+    "rule": {
+      "name": "candidate_overlap_guard",
+      "whyWithdraw": "the candidate duplicates the already-running range",
+      "whyNotDefer": "a duplicate must not remain eligible to run; defer would only lower its priority"
+    },
+    "source": "high_review"
+  },
+  "cancelReasonText": "high-review withdraw; by=system:candidate_overlap_guard; reason=candidate_overlap; rule=candidate_overlap_guard; ...",
+  "cancelledBy": { "kind": "system", "id": "high-review-policy" },
+  "highReview": {
+    "decision": "withdraw",
+    "status": "withdrawn",
+    "resolvedByRef": "system:candidate_overlap_guard",
+    "reasonCode": "candidate_overlap",
+    "rationale": "the candidate duplicates the already-running range",
+    "rule": { "name": "candidate_overlap_guard" }
+  }
+}
+```
+
+The `node/high_review_resolved` event carries the same
+`decision/reasonCode/rationale/resolvedBy/resolvedByActor/rule/cancelReason`.
+`reasonCode` is never empty: the helper falls back to
+`high_review_<action>`.
+
+### 65.4 Rule choice
+
+A withdraw reason object records:
+
+- `rule.name` when supplied as `ruleName`, `rule`, `policy`, or a system
+  actor's preset/id;
+- `rule.whyWithdraw` (defaults to the rationale);
+- `rule.whyNotDefer`, explaining that withdraw removes the node from the
+  runnable DAG while defer only lowers priority.
+
+This is what the live event was missing: even when the action is automatic,
+the policy name and the reason it was a removal (not a defer) are now durable.
+
+### 65.5 Read surfaces
+
+| Surface | Result |
+|---|---|
+| `dag_get n-0010` default row | `cancelReason` included |
+| `dag_get` select | `cancelReason`, `cancelReasonText`, `cancelledBy`, `cancelledAt`, `highReview` |
+| `explain_node` node | full `cancelReason`, `cancelReasonText`, `cancelledBy`, `cancelledAt`, `highReview` |
+| `explain_node` event | `decision`, `reasonCode`, `rationale`, `resolvedBy`, `resolvedByActor`, `rule`, `cancelReason` |
+| UI node inspector | localised “Cancellation reason / 撤销原因” row |
+
+### 65.6 Regression output
+
+```text
+ok Round 39: a policy withdrawal is system-attributed, names its rule, and writes cancelReason to the node
+ok Round 39: a human withdrawal stays human-attributed and is distinct from a policy withdrawal
+```
+
+The policy fixture uses a bare system execution descriptor, so it also pins
+the actor fallback that caused the live mislabel. The human fixture resolves
+the same way through a session and asserts `human:s-human`.
+
+### 65.7 Gates
+
+| Gate | Result |
+|---|---|
+| `npm test` | EXIT 0; 1070 `ok`, 0 FAIL |
+| `hierarchy-selftest` | all checks passed (Round 39 policy/human probes) |
+| `context-selftest` | 13/13 (default `cancelReason` field) |
+| `plugin-smoke` | 6/6 process checks |
+
+Live `prj-e1cbb8e1`/`n-0010` was not mutated; Host 3080 was not restarted.

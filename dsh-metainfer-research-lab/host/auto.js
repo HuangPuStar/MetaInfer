@@ -18,7 +18,16 @@ export function leadRetryBackoffMs(streak) {
 }
 
 function leadFailureInCycle(cycle) {
-  return (Array.isArray(cycle?.errors) ? cycle.errors : []).some((error) => /^lead\b/.test(String(error)));
+  return (Array.isArray(cycle?.errors) ? cycle.errors : []).some((error) => /^lead\b/.test(String(error)))
+    || cycle?.leadFailure != null;
+}
+
+/** Round 38: fallback for persisted/legacy cycles that predate the structured run record. */
+function leadFailureRetryable(errorText) {
+  const text = String(errorText ?? '');
+  if (/retryable=false/.test(text)) return false;
+  if (/retryable=true/.test(text)) return true;
+  return /(stream disconnected|disconnected before completion|os error 110|econnreset|econnrefused|etimedout|socket hang up|timed out|run exceeded|deadline exceeded|rate limit|429|503|504)/i.test(text);
 }
 
 function newNodeCount(nodes) {
@@ -103,6 +112,11 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
         leadBackoffUntil: Number.isFinite(persisted.leadBackoffUntil) ? persisted.leadBackoffUntil : 0,
         lastLeadFailureAt: Number.isFinite(persisted.lastLeadFailureAt) ? persisted.lastLeadFailureAt : null,
         lastLeadError: typeof persisted.lastLeadError === 'string' ? persisted.lastLeadError : null,
+        lastLeadErrorCode: typeof persisted.lastLeadErrorCode === 'string' ? persisted.lastLeadErrorCode : null,
+        lastLeadErrorDetail: persisted.lastLeadErrorDetail && typeof persisted.lastLeadErrorDetail === 'object'
+          ? persisted.lastLeadErrorDetail
+          : null,
+        lastLeadRetryable: typeof persisted.lastLeadRetryable === 'boolean' ? persisted.lastLeadRetryable : null,
       };
       states.set(projectId, state);
     }
@@ -143,6 +157,9 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       leadBackoffUntil: state.leadBackoffUntil ?? 0,
       lastLeadFailureAt: state.lastLeadFailureAt ?? null,
       lastLeadError: state.lastLeadError ?? null,
+      lastLeadErrorCode: state.lastLeadErrorCode ?? null,
+      lastLeadErrorDetail: state.lastLeadErrorDetail ?? null,
+      lastLeadRetryable: state.lastLeadRetryable ?? null,
       tokensUsed: tokensUsed(projectId),
       costUsed: costUsed(projectId),
       limits: {
@@ -180,6 +197,9 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
           leadBackoffUntil: state.leadBackoffUntil ?? 0,
           lastLeadFailureAt: state.lastLeadFailureAt ?? null,
           lastLeadError: state.lastLeadError ?? null,
+          lastLeadErrorCode: state.lastLeadErrorCode ?? null,
+          lastLeadErrorDetail: state.lastLeadErrorDetail ?? null,
+          lastLeadRetryable: state.lastLeadRetryable ?? null,
         } } },
       ],
     });
@@ -221,6 +241,9 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     state.leadBackoffUntil = 0;
     state.lastLeadFailureAt = null;
     state.lastLeadError = null;
+    state.lastLeadErrorCode = null;
+    state.lastLeadErrorDetail = null;
+    state.lastLeadRetryable = null;
     planners.delete(projectId);
     project.mode = 'auto';
     await saveEvent(project, 'auto/started', { at: state.startedAt });
@@ -256,6 +279,9 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     state.leadBackoffUntil = 0;
     state.lastLeadFailureAt = null;
     state.lastLeadError = null;
+    state.lastLeadErrorCode = null;
+    state.lastLeadErrorDetail = null;
+    state.lastLeadRetryable = null;
     if (!state.startedAt) state.startedAt = Date.now();
     return statusOf(projectId);
   }
@@ -419,16 +445,37 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       }
       state.errorStreak = result.errors.length > 0 ? state.errorStreak + 1 : 0;
       if (leadFailureInCycle(result.cycle)) {
+        const failedLeadRun = result.cycle?.leadRunId && typeof store.getRun === 'function'
+          ? store.getRun(projectId, result.cycle.leadRunId)
+          : null;
+        const leadFailure = result.cycle?.leadFailure ?? null;
+        const errorText = result.errors.find((error) => /^lead\b/.test(String(error)))
+          ?? (failedLeadRun?.failureSummary ? `lead: ${failedLeadRun.failureSummary}` : null)
+          ?? 'lead failed';
+        const retryable = leadFailure?.retryable
+          ?? failedLeadRun?.retryable
+          ?? leadFailureRetryable(errorText);
         const streak = (state.leadFailureStreak ?? 0) + 1;
         state.leadFailureStreak = streak;
         state.lastLeadFailureAt = Date.now();
-        state.leadBackoffUntil = state.lastLeadFailureAt + leadRetryBackoffMs(streak);
-        state.lastLeadError = result.errors.find((error) => /^lead\b/.test(String(error))) ?? 'lead failed';
-        state.lastPlanSkip = `lead retry backoff; ${Math.round(leadRetryBackoffMs(streak) / 1000)}s after: ${state.lastLeadError}`;
+        state.lastLeadError = errorText;
+        state.lastLeadErrorCode = leadFailure?.errorCode ?? failedLeadRun?.errorCode ?? null;
+        state.lastLeadErrorDetail = leadFailure?.errorDetail ?? failedLeadRun?.errorDetail ?? null;
+        state.lastLeadRetryable = retryable;
+        if (retryable) {
+          state.leadBackoffUntil = state.lastLeadFailureAt + leadRetryBackoffMs(streak);
+          state.lastPlanSkip = `lead retry backoff; ${Math.round(leadRetryBackoffMs(streak) / 1000)}s after: ${state.lastLeadError}`;
+        } else {
+          state.leadBackoffUntil = 0;
+          state.lastPlanSkip = `lead failure is not retryable (${state.lastLeadErrorCode ?? 'unknown'}); ${state.lastLeadError}`;
+        }
       } else {
         state.leadFailureStreak = 0;
         state.leadBackoffUntil = 0;
         state.lastLeadError = null;
+        state.lastLeadErrorCode = null;
+        state.lastLeadErrorDetail = null;
+        state.lastLeadRetryable = null;
       }
       const fresh = store.getProject(projectId);
       if (!fresh) return undefined;

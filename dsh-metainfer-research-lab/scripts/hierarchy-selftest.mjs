@@ -261,6 +261,69 @@ check('B14: the chief tool surface resolves a pending window', toolResolved.ok =
 const forbidden = await service.resolveHighReview(projectId, 'timeout-node', { action: 'defer' }, humanExec);
 check('B14: only a pending window can be resolved', forbidden.ok === false && forbidden.error?.code === 'no_pending_high_review', JSON.stringify(forbidden));
 
+// Round 39: a high-review withdrawal must carry its reason on the node, not
+// only in a transient event, and the resolver must never fall through to
+// "human" just because an internal policy has no agent preset.
+const policyExec = { kind: 'system', id: 'high-review-policy', preset: 'candidate_overlap_guard' };
+await savePending('policy-withdraw-node', Date.now());
+const policyWithdraw = await service.resolveHighReview(projectId, 'policy-withdraw-node', {
+  action: 'withdraw',
+  reasonCode: 'candidate_overlap',
+  rationale: 'the candidate duplicates the already-running range',
+  ruleName: 'candidate_overlap_guard',
+  whyNotDefer: 'a duplicate must not remain eligible to run; defer would only lower its priority',
+}, policyExec);
+const policyNode = store.getNode(projectId, 'policy-withdraw-node');
+const policyEvent = policyWithdraw.event;
+const policyExplain = service.explainNode(projectId, 'policy-withdraw-node');
+const policyEventSummary = Array.isArray(policyExplain.events)
+  ? policyExplain.events.find((event) => event.type === 'node/high_review_resolved')
+  : null;
+check('Round 39: a policy withdrawal is system-attributed, names its rule, and writes cancelReason to the node',
+  policyWithdraw.ok === true
+  && policyNode?.status === 'cancelled'
+  && policyEvent?.actor?.kind === 'system'
+  && policyEvent?.actor?.id === 'high-review-policy'
+  && policyEvent?.data?.decision === 'withdraw'
+  && policyEvent?.data?.reasonCode === 'candidate_overlap'
+  && policyEvent?.data?.rationale === 'the candidate duplicates the already-running range'
+  && policyEvent?.data?.resolvedBy === 'system:candidate_overlap_guard'
+  && policyEvent?.data?.rule?.name === 'candidate_overlap_guard'
+  && typeof policyEvent?.data?.rule?.whyWithdraw === 'string'
+  && policyEvent?.data?.rule.whyWithdraw.length > 0
+  && typeof policyEvent?.data?.rule?.whyNotDefer === 'string'
+  && policyNode?.cancelReason?.decision === 'withdraw'
+  && policyNode.cancelReason.reasonCode === 'candidate_overlap'
+  && policyNode.cancelReason.resolvedBy === 'system:candidate_overlap_guard'
+  && policyNode.cancelReason.rationale === 'the candidate duplicates the already-running range'
+  && policyNode.cancelReason.rule?.name === 'candidate_overlap_guard'
+  && JSON.stringify(policyEvent?.data?.cancelReason) === JSON.stringify(policyNode.cancelReason)
+  && policyNode?.highReview?.resolvedByRef === 'system:candidate_overlap_guard'
+  && policyNode?.cancelledBy?.kind === 'system'
+  && policyExplain?.node?.cancelReason?.resolvedBy === 'system:candidate_overlap_guard'
+  && policyEventSummary?.resolvedBy === 'system:candidate_overlap_guard',
+  JSON.stringify({ result: policyWithdraw, event: policyEvent, node: policyNode, explain: policyExplain }));
+
+await savePending('human-withdraw-node', Date.now());
+const humanWithdraw = await service.resolveHighReview(projectId, 'human-withdraw-node', {
+  action: 'withdraw',
+  reasonCode: 'human_veto',
+  rationale: 'the owner decided this branch is out of scope',
+}, humanExec);
+const humanNode = store.getNode(projectId, 'human-withdraw-node');
+const humanEvent = humanWithdraw.event;
+check('Round 39: a human withdrawal stays human-attributed and is distinct from a policy withdrawal',
+  humanWithdraw.ok === true
+  && humanNode?.status === 'cancelled'
+  && humanEvent?.actor?.kind === 'human'
+  && humanEvent?.data?.resolvedBy === 'human:s-human'
+  && humanNode?.cancelReason?.resolvedBy === 'human:s-human'
+  && humanNode?.cancelReason?.reasonCode === 'human_veto'
+  && humanNode?.cancelReason?.rationale === 'the owner decided this branch is out of scope'
+  && humanNode?.cancelledBy?.kind === 'human'
+  && humanNode?.cancelReason?.resolvedBy !== policyNode?.cancelReason?.resolvedBy,
+  JSON.stringify({ result: humanWithdraw, event: humanEvent, node: humanNode }));
+
 // C8: child creation votes are deduped, quota-limited and one-per-expert/node.
 const voteProject = { config: { experts: { votesPerHour: 2 } }, childVotes: [] };
 const child = { id: 'new-child', title: 'new child', prompt: 'new child prompt', promptHash: 'h-new' };
@@ -353,6 +416,7 @@ const prodCtx = {
       const branchId = /^mirl-branch-(.+?)\//.exec(spec.request.label ?? '')?.[1] ?? 'parent';
       const captureProjectId = /^Project: (.+)$/m.exec(promptText)?.[1]?.trim() ?? '';
       const timeboxProbe = captureProjectId === 'round37-timebox-p';
+      const round38Probe = captureProjectId === 'round38-stream-p' || captureProjectId === 'round38-json-p' || captureProjectId === 'round38-diagnostic-p';
       const branchEventSection = (() => {
         const marker = '# Branch event\n';
         const start = promptText.indexOf(marker);
@@ -365,6 +429,29 @@ const prodCtx = {
       const timeboxBranchId = firstBranchEvent?.branchId ?? firstBranchEvent?.nodeId ?? branchId;
       if (preset === 'lab-lead') leadPromptCaptures.push({ projectId: captureProjectId, prompt: promptText });
       if (preset === 'lab-branch') branchPromptCaptures.push({ projectId: captureProjectId, branchId, prompt: promptText });
+      if (preset === 'lab-lead' && captureProjectId === 'round38-stream-p') {
+        return { result: Promise.reject(new Error('stream disconnected before completion')), dispose: async () => {} };
+      }
+      if (preset === 'lab-lead' && captureProjectId === 'round38-json-p') {
+        return {
+          result: Promise.resolve({
+            stopReason: 'completed',
+            output: [{ type: 'text', text: '{"analysis": "truncated",' }],
+            structured: undefined,
+          }),
+          dispose: async () => {},
+        };
+      }
+      if (preset === 'lab-lead' && captureProjectId === 'round38-diagnostic-p') {
+        return {
+          result: Promise.resolve({
+            stopReason: 'error',
+            output: [{ type: 'text', text: 'partial analysis' }],
+            diagnostic: 'stream disconnected before completion (os error 110)',
+          }),
+          dispose: async () => {},
+        };
+      }
       const section = (title) => {
         const marker = `# ${title}\n`;
         const start = promptText.indexOf(marker);
@@ -380,7 +467,7 @@ const prodCtx = {
       const promptProjectId = captureProjectId;
       const noProposalProbe = promptProjectId === 'round35-noreply-p';
       const structured = preset === 'lab-branch'
-        ? { branchId: timeboxProbe ? timeboxBranchId : branchId, health: 'watch', verified: [], ruledOut: [], candidates: timeboxProbe ? [{ nodeId: timeboxBranchId, kind: 'optimization', title: 'timebox candidate' }] : [], escalate: true, reasonCodes: ['low_confidence'], evidence: [{ nodeId: timeboxProbe ? timeboxBranchId : branchId, field: 'report.summary', quote: 'done' }] }
+        ? { branchId: (timeboxProbe || round38Probe) ? timeboxBranchId : branchId, health: 'watch', verified: [], ruledOut: [], candidates: (timeboxProbe || round38Probe) ? [{ nodeId: timeboxBranchId, kind: 'optimization', title: 'timebox candidate' }] : [], escalate: true, reasonCodes: ['low_confidence'], evidence: [{ nodeId: (timeboxProbe || round38Probe) ? timeboxBranchId : branchId, field: 'report.summary', quote: 'done' }] }
         : preset === 'lab-lead'
           ? {
               analysis: noProposalProbe ? 'I considered every candidate and intentionally made no proposal.' : 'lead',
@@ -742,6 +829,98 @@ const round37Step2 = await prodOrch.step(round37Id, 'round37-timebox-probe-2');
 const round37Cycle2 = store.listCycles(round37Id, 1)[0];
 const round37LeadPrompt2 = leadPromptCaptures.filter((row) => row.projectId === round37Id)[round37PromptsBefore + 1]?.prompt ?? '';
 check('Round 37: the next lead input carries the previous rejection and its count', round37Step2.created.length === 0 && /# Previous lead rejection feedback/.test(round37LeadPrompt2) && /timeboxMinutes must be 1\.\.2 \(got 10\)/.test(round37LeadPrompt2) && /"rejectedCount":1/.test(round37LeadPrompt2) && round37Cycle2?.leadInputStats?.previousRejectionCount === 1, JSON.stringify({ created: round37Step2.created, feedback: round37Cycle2?.previousLeadFeedback, stats: round37Cycle2?.leadInputStats, errors: round37Cycle2?.errors, prompt: round37LeadPrompt2.slice(-4000) }));
+
+// Round 38: the subagent seam hides local exceptions behind stopReason=error.
+// The Host must classify the original failure, classify bad JSON separately,
+// make retryability explicit, and keep all of it out of the next lead prompt.
+const round38Project = async (id) => {
+  await store.saveProject({
+    id, name: id, brief: 'observe role failures', revision: 0,
+    counters: { eventSeq: 0, nextNodeSeq: 2, nodes: 1 },
+    config: {
+      maxRunningNodes: 2, maxNodes: 20, resourcePools: {}, maxDeferred: 20,
+      expertsMode: 'hierarchy', migration: { phase: 2 },
+      advisor: { maxProposalsPerPass: 3, maxProposalsPerReviewer: 3, ancestorDepth: 1, acceptMode: 'auto', maxPendingProposals: 20, maxLeadCandidates: 8, timeoutSeconds: 300, reviewers: [] },
+      auto: { maxCycles: 1 },
+    },
+    branchReviews: [],
+    repo: { path: process.cwd(), worktreeRoot: `/tmp/hierarchy-${id}-wt`, baseBranch: 'main', baseCommit: 'base' },
+    createdAt: 0, updatedAt: 0,
+  });
+  kernel.load(id);
+  await kernel.executor.commit(id, {
+    actor: { kind: 'human', id: 'test' },
+    mutations: [{ op: 'node.create', node: round36Node('n-0001', 'completed', null) }],
+  });
+};
+const round38StreamId = 'round38-stream-p';
+await round38Project(round38StreamId);
+const round38StreamBefore = leadPromptCaptures.filter((row) => row.projectId === round38StreamId).length;
+const round38StreamStep = await prodOrch.step(round38StreamId, 'round38-stream-probe');
+const round38StreamCycle = store.listCycles(round38StreamId, 1)[0];
+const round38StreamRun = store.getRun(round38StreamId, round38StreamCycle?.leadRunId);
+const round38StreamPrompt = leadPromptCaptures.filter((row) => row.projectId === round38StreamId)[round38StreamBefore]?.prompt ?? '';
+check('Round 38: a rejected lead activation keeps the underlying stream-disconnect reason and is retryable',
+  round38StreamStep.created.length === 0
+  && round38StreamRun?.status === 'failed'
+  && round38StreamRun?.errorCode === 'stream_disconnected'
+  && round38StreamRun?.retryable === true
+  && /stream disconnected before completion/.test(round38StreamRun?.errorDetail?.message ?? '')
+  && /stream disconnected before completion/.test(round38StreamRun?.error ?? '')
+  && round38StreamRun?.errorDetail?.disconnectReason === 'stream disconnected before completion'
+  && /code=stream_disconnected; retryable=true/.test(round38StreamCycle?.errors?.[0] ?? '')
+  && round38StreamCycle?.lead?.errorCode === 'stream_disconnected'
+  && round38StreamCycle?.lead?.retryable === true,
+  JSON.stringify({ step: round38StreamStep, cycleErrors: round38StreamCycle?.errors, run: round38StreamRun, lead: round38StreamCycle?.lead }));
+
+const round38DiagnosticId = 'round38-diagnostic-p';
+await round38Project(round38DiagnosticId);
+const round38DiagnosticStep = await prodOrch.step(round38DiagnosticId, 'round38-diagnostic-probe');
+const round38DiagnosticCycle = store.listCycles(round38DiagnosticId, 1)[0];
+const round38DiagnosticRun = store.getRun(round38DiagnosticId, round38DiagnosticCycle?.leadRunId);
+check('Round 38: a stopReason=error result keeps the diagnostic and partial output',
+  round38DiagnosticStep.created.length === 0
+  && round38DiagnosticRun?.errorCode === 'stream_disconnected'
+  && round38DiagnosticRun?.retryable === true
+  && /stream disconnected before completion/.test(round38DiagnosticRun?.error ?? '')
+  && /os error 110/.test(round38DiagnosticRun?.errorDetail?.disconnectReason ?? '')
+  && round38DiagnosticRun?.errorDetail?.hasPartialOutput === true
+  && round38DiagnosticRun?.partialOutput === 'partial analysis'
+  && round38DiagnosticCycle?.lead?.errorCode === 'stream_disconnected'
+  && round38DiagnosticCycle?.lead?.retryable === true,
+  JSON.stringify({ step: round38DiagnosticStep, cycleErrors: round38DiagnosticCycle?.errors, run: round38DiagnosticRun, lead: round38DiagnosticCycle?.lead }));
+
+const round38JsonId = 'round38-json-p';
+await round38Project(round38JsonId);
+const round38JsonBefore = leadPromptCaptures.filter((row) => row.projectId === round38JsonId).length;
+const round38JsonStep = await prodOrch.step(round38JsonId, 'round38-json-probe');
+const round38JsonCycle = store.listCycles(round38JsonId, 1)[0];
+const round38JsonRun = store.getRun(round38JsonId, round38JsonCycle?.leadRunId);
+const round38JsonPrompt = leadPromptCaptures.filter((row) => row.projectId === round38JsonId)[round38JsonBefore]?.prompt ?? '';
+check('Round 38: bad JSON is classified as invalid_json, non-retryable, with parseError and a 200-char raw tail',
+  round38JsonStep.created.length === 0
+  && round38JsonRun?.status === 'failed'
+  && round38JsonRun?.errorCode === 'invalid_json'
+  && round38JsonRun?.retryable === false
+  && typeof round38JsonRun?.errorDetail?.parseError === 'string'
+  && round38JsonRun.errorDetail.parseError.length > 0
+  && round38JsonRun.errorDetail.rawTail === '{"analysis": "truncated",'
+  && round38JsonRun.errorDetail.rawTail.length <= 200
+  && round38JsonRun.errorDetail.hasPartialOutput === true
+  && /"analysis": "truncated"/.test(round38JsonRun.partialOutput ?? '')
+  && /code=invalid_json; retryable=false/.test(round38JsonCycle?.errors?.[0] ?? '')
+  && round38JsonCycle?.lead?.errorCode === 'invalid_json'
+  && round38JsonCycle?.lead?.retryable === false,
+  JSON.stringify({ step: round38JsonStep, cycleErrors: round38JsonCycle?.errors, run: round38JsonRun, lead: round38JsonCycle?.lead }));
+
+check('Round 38: failure diagnostics stay out of the lead prompt input',
+  round38StreamPrompt.length > 0
+  && round38JsonPrompt.length > 0
+  && !/stream disconnected before completion/.test(round38StreamPrompt)
+  && !/stream_disconnected/.test(round38StreamPrompt)
+  && !/invalid_json/.test(round38JsonPrompt)
+  && !/parseError|rawTail/.test(round38JsonPrompt),
+  JSON.stringify({ stream: round38StreamPrompt.slice(0, 800), json: round38JsonPrompt.slice(0, 800) }));
 
 // Round 34b: the lead intentionally returns zero proposals for ten pending
 // candidates. The cycle must keep the lead's answer and a named per-candidate

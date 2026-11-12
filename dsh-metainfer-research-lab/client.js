@@ -1090,6 +1090,7 @@ window.__ModuleLoader__.load({
       "ws.held": "{key} 占用 {held}",
       "ws.inspector.baseCommit": "基准提交",
       "ws.inspector.branch": "分支",
+      "ws.inspector.cancelReason": "撤销原因",
       "ws.inspector.completedAt": "完成",
       "ws.inspector.createdAt": "创建",
       "ws.inspector.createdBy": "创建者",
@@ -2471,6 +2472,7 @@ window.__ModuleLoader__.load({
       "ws.held": "{key} held {held}",
       "ws.inspector.baseCommit": "Base commit",
       "ws.inspector.branch": "Branch",
+      "ws.inspector.cancelReason": "Cancellation reason",
       "ws.inspector.completedAt": "Completed",
       "ws.inspector.createdAt": "Created",
       "ws.inspector.createdBy": "Created by",
@@ -4093,6 +4095,24 @@ window.__ModuleLoader__.load({
     }
     function nodeErrorOf(node) {
       return asObject(asObject(node).error);
+    }
+    function nodeCancelReasonOf(node) {
+      const reason = asObject(node).cancelReason;
+      return reason !== null && typeof reason === 'object' ? asObject(reason) : null;
+    }
+    function nodeCancelReasonTextOf(node) {
+      const record = asObject(node);
+      const explicit = firstString(record.cancelReasonText);
+      if (explicit !== '') return explicit;
+      const reason = nodeCancelReasonOf(node);
+      if (reason === null) return firstString(record.cancelReason);
+      const bits = [];
+      if (firstString(reason.decision) !== '') bits.push(firstString(reason.decision));
+      if (firstString(reason.reasonCode) !== '') bits.push('reason=' + firstString(reason.reasonCode));
+      if (firstString(reason.resolvedBy) !== '') bits.push('by=' + firstString(reason.resolvedBy));
+      if (firstString(asObject(reason.rule).name) !== '') bits.push('rule=' + firstString(asObject(reason.rule).name));
+      if (firstString(reason.rationale) !== '') bits.push(firstString(reason.rationale));
+      return bits.join(' · ');
     }
     function nodeTimeboxMinutesOf(node, project) {
       const record = asObject(node);
@@ -11326,6 +11346,7 @@ window.__ModuleLoader__.load({
         ? ''
         : (['user', 'advisor', 'seed'].indexOf(createdBy) >= 0 ? t('createdBy.' + createdBy) : createdBy);
       const errorMessage = firstString(nodeErrorOf(node).message);
+      const cancelReasonText = nodeCancelReasonTextOf(node);
       const nodeKeyId = nodeIdOf(node);
       const busy = typeof busyKey === 'string' && busyKey.endsWith(':' + nodeKeyId);
       const countdown = countdownOf(nodeDeadlineOf(node), now);
@@ -11871,6 +11892,15 @@ window.__ModuleLoader__.load({
               { className: 'rl-section' },
               h('h3', { className: 'rl-section-title' }, t('ws.inspector.errorLabel')),
               h('p', { className: 'rl-error-text' }, errorMessage),
+            )
+          : null,
+
+        cancelReasonText
+          ? h(
+              'div',
+              { className: 'rl-section' },
+              h('h3', { className: 'rl-section-title' }, t('ws.inspector.cancelReason')),
+              h('p', { className: 'rl-error-text' }, cancelReasonText),
             )
           : null,
       );
