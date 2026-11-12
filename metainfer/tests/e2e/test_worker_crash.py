@@ -47,6 +47,6 @@ def test_worker_dead_surfaces_and_slot_reaped(tmp_path: Path) -> None:
     assert result.status == "worker_dead", \
         f"expected worker_dead, got {result.status}"
     # Slot must be released (RemoteJob's finally calls release_gpus).
-    claims = scoreboard.list_claims()
+    claims = [c for c in scoreboard.list_claims() if c["status"] == "held"]
     assert all(not (c["node_id"] == "w0" and c["gpu_idx"] == 0) for c in claims), \
         f"slot leaked: {claims}"

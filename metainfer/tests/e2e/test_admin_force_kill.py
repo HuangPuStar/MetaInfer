@@ -50,7 +50,8 @@ def test_force_release_endpoint_frees_slot(tmp_path: Path) -> None:
     assert body["was_held"] is True
 
     # Slot must be gone.
-    claims = scoreboard.list_claims()
+    # list_claims() reports every GPU (free or held); only held rows count.
+    claims = [c for c in scoreboard.list_claims() if c["status"] == "held"]
     assert all(not (c["node_id"] == "w0" and c["gpu_idx"] == 0) for c in claims)
 
     # cancel.marker must be present in the job_dir so the worker sees it.
