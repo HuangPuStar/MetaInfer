@@ -477,6 +477,18 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return git.validateRepo(repoPath);
   }
 
+  async function prepareRepo(repoPath) {
+    return git.validateRepo(repoPath, { prepare: true });
+  }
+
+  async function gitStatus() {
+    return git.gitStatus();
+  }
+
+  async function installGit(options) {
+    return git.installGit({ confirmed: options?.confirmed === true });
+  }
+
   async function createProject(input) {
     const name = text(input?.name, 'name', { required: true, max: 120 });
     const brief = text(input?.brief, 'brief', { required: true, max: 8000 });
@@ -484,9 +496,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (initialPrompt.length < 10) throw new LabError('bad_request', 'initialPrompt must be at least 10 characters');
     const repoPath = text(input?.repoPath, 'repoPath', { required: true, max: 4096 });
 
-    const repo = await git.validateRepo(repoPath);
-    const baseBranch = text(input?.baseBranch, 'baseBranch', { max: 256 }) || repo.defaultBranch;
-    const baseCommit = await git.resolveBranch(repo.repoRoot, baseBranch);
+    const requestedBranch = text(input?.baseBranch, 'baseBranch', { max: 256 });
     const config = normalizeConfig(input?.config);
     const rootExecution = resolveExecutionProfile({ config }, {
       executionProfile: input?.executionProfile,
@@ -499,6 +509,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       rootNeeds = checked.needs;
     }
 
+    const repo = await prepareRepo(repoPath);
+    const baseBranch = requestedBranch || repo.defaultBranch;
+    const baseCommit = await git.resolveBranch(repo.repoRoot, baseBranch);
     const projectId = newProjectId();
     const now = Date.now();
     const worktreeRoot = store.worktreeRootFor(projectId);
@@ -2597,6 +2610,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     health,
     listProjects,
     validateRepo,
+    prepareRepo,
+    gitStatus,
+    installGit,
     createProject,
     getState,
     getEvents,
