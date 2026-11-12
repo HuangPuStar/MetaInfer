@@ -83,6 +83,8 @@ window.__ModuleLoader__.load({
     const MIN_ZOOM = 0.01;
     const MAX_ZOOM = 1.5;
     const FIT_PAD = 48;
+    /** Hard cap on mounted node cards; shown in the canvas window chip. */
+    const MAX_RENDERED_NODES = 300;
 
     /** Status order used by the left rail and by fallback normalization. */
     const STATUS_ORDER = ['proposed', 'planned', 'running', 'completed', 'failed', 'cancelled'];
@@ -10768,7 +10770,7 @@ window.__ModuleLoader__.load({
         viewportSize,
         nodeWidth: NODE_W,
         nodeHeight: NODE_H,
-        maxRendered: 300,
+        maxRendered: MAX_RENDERED_NODES,
         pad: 240,
         idOf: nodeIdOf,
       });
