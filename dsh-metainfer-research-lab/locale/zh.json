@@ -1388,6 +1388,27 @@
     "error.nextStep": "下一步：{nextStep}",
     "ws.operator.missing": "当前页面没有写权限凭据（多半是 Host 重启前打开的旧页面），请刷新页面后重试",
     "ws.operator.nextStep": "请刷新页面，让 Host 重新注入写权限凭据。",
-    "ws.operator.reload": "刷新"
+    "ws.operator.reload": "刷新",
+    "ws.tabs.label": "项目视图",
+    "ws.tabs.dag": "DAG 图",
+    "ws.tabs.observability": "可观测性",
+    "ws.tabs.experts": "专家",
+    "ws.tabs.dashboard": "Dashboard",
+    "ws.tabs.settings": "设置",
+    "ws.tabs.sessions": "会话记录",
+    "ws.tabs.audit": "审计·争议",
+    "ws.tabs.migrating": "该视图将在后续阶段迁移；当前项目数据和 DAG 不受影响。",
+    "ws.obs.title": "可观测性",
+    "ws.obs.close": "关闭可观测性",
+    "ws.obs.readonly": "只读 Host 视图",
+    "ws.obs.endpoints": "真实端点：/state /status /metrics /events /explain /intents /experts",
+    "ws.obs.tab.queue": "调度与队列",
+    "ws.obs.tab.observer": "观察器",
+    "ws.obs.tab.timeline": "事件时间线",
+    "ws.obs.tab.claims": "主张与证据",
+    "ws.obs.tab.experts": "专家库",
+    "ws.obs.tab.disputes": "争议",
+    "ws.obs.tab.retrospective": "复盘",
+    "ws.obs.tab.reviews": "评审与策展"
   }
 }

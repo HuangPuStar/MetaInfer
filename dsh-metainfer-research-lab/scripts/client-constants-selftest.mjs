@@ -108,3 +108,20 @@ assert.ok(source.includes('operatorCredentialIssueOf'), 'actor_required/401/403 
 assert.ok(source.includes('__METAINFER_OPERATOR_ISSUED_AT__'), 'the client must read the injected Host issue time');
 assert.ok(source.includes('OPERATOR_RELOAD_MARK') && source.includes('location.reload'), 'actor_required needs one guarded automatic reload');
 process.stdout.write('ok   operator credential banner, actor_required mapping and reload guard are present\n');
+
+// Project shell guard: all seven views share one URL/deep-link contract and
+// the panels are mounted lazily rather than hidden by CSS.
+for (const token of [
+  "LAB_TAB_IDS = Object.freeze(['dag', 'observability', 'experts', 'dashboard', 'settings', 'sessions', 'audit'])",
+  'PROJECT_TAB_LABEL_KEYS',
+  "role: 'tablist'",
+  "role: 'tabpanel'",
+  'mountedTabs',
+  'readLabLocation',
+  'syncLabUrl',
+  'popstate',
+]) {
+  assert.ok(source.includes(token), `project tab shell is missing ${token}`);
+}
+assert.ok(source.includes("'ws.tabs.experts'"), 'the expert tab must have a localized label key');
+process.stdout.write('ok   project tab shell, deep links and lazy mounting are present\n');

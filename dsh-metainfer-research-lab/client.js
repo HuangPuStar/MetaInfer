@@ -1251,6 +1251,18 @@ window.__ModuleLoader__.load({
       "ws.node.parentPrefix": "来自 ",
       "ws.node.root": "根节点",
       "ws.nodeCount": "节点 {count}/{max}",
+      "ws.obs.close": "关闭可观测性",
+      "ws.obs.endpoints": "真实端点：/state /status /metrics /events /explain /intents /experts",
+      "ws.obs.readonly": "只读 Host 视图",
+      "ws.obs.tab.claims": "主张与证据",
+      "ws.obs.tab.disputes": "争议",
+      "ws.obs.tab.experts": "专家库",
+      "ws.obs.tab.observer": "观察器",
+      "ws.obs.tab.queue": "调度与队列",
+      "ws.obs.tab.retrospective": "复盘",
+      "ws.obs.tab.reviews": "评审与策展",
+      "ws.obs.tab.timeline": "事件时间线",
+      "ws.obs.title": "可观测性",
       "ws.operator.missing": "当前页面没有写权限凭据（多半是 Host 重启前打开的旧页面），请刷新页面后重试",
       "ws.operator.nextStep": "请刷新页面，让 Host 重新注入写权限凭据。",
       "ws.operator.reload": "刷新",
@@ -1531,6 +1543,15 @@ window.__ModuleLoader__.load({
       "ws.successor.required.title": "请填写标题",
       "ws.successor.submit": "创建节点",
       "ws.successor.title": "在 {title} 上添加后继实验",
+      "ws.tabs.audit": "审计·争议",
+      "ws.tabs.dag": "DAG 图",
+      "ws.tabs.dashboard": "Dashboard",
+      "ws.tabs.experts": "专家",
+      "ws.tabs.label": "项目视图",
+      "ws.tabs.migrating": "该视图将在后续阶段迁移；当前项目数据和 DAG 不受影响。",
+      "ws.tabs.observability": "可观测性",
+      "ws.tabs.sessions": "会话记录",
+      "ws.tabs.settings": "设置",
       "ws.termination.gpuFreed": "GPU 已释放",
       "ws.termination.jobs": "终止任务",
       "ws.termination.killedAt": "终止时间",
@@ -2639,6 +2660,18 @@ window.__ModuleLoader__.load({
       "ws.node.parentPrefix": "from ",
       "ws.node.root": "Root node",
       "ws.nodeCount": "Nodes {count}/{max}",
+      "ws.obs.close": "Close observability",
+      "ws.obs.endpoints": "real endpoints: /state /status /metrics /events /explain /intents /experts",
+      "ws.obs.readonly": "Read-only Host views",
+      "ws.obs.tab.claims": "Claims & evidence",
+      "ws.obs.tab.disputes": "Disputes",
+      "ws.obs.tab.experts": "Expert library",
+      "ws.obs.tab.observer": "Observer",
+      "ws.obs.tab.queue": "Dispatch & queue",
+      "ws.obs.tab.retrospective": "Retrospective",
+      "ws.obs.tab.reviews": "Review & curation",
+      "ws.obs.tab.timeline": "Event timeline",
+      "ws.obs.title": "Observability",
       "ws.operator.missing": "This page has no write credential (it was probably opened before a Host restart). Reload the page and try again.",
       "ws.operator.nextStep": "Reload the page so the Host can inject a fresh write credential.",
       "ws.operator.reload": "Reload",
@@ -2919,6 +2952,15 @@ window.__ModuleLoader__.load({
       "ws.successor.required.title": "Enter a title",
       "ws.successor.submit": "Create node",
       "ws.successor.title": "Add a successor experiment on {title}",
+      "ws.tabs.audit": "Audit & disputes",
+      "ws.tabs.dag": "DAG",
+      "ws.tabs.dashboard": "Dashboard",
+      "ws.tabs.experts": "Experts",
+      "ws.tabs.label": "Project views",
+      "ws.tabs.migrating": "This view is being migrated; the project data and DAG are unaffected.",
+      "ws.tabs.observability": "Observability",
+      "ws.tabs.sessions": "Sessions",
+      "ws.tabs.settings": "Settings",
       "ws.termination.gpuFreed": "GPU released",
       "ws.termination.jobs": "Killed jobs",
       "ws.termination.killedAt": "Terminated at",
@@ -3131,6 +3173,21 @@ window.__ModuleLoader__.load({
       '.rl-segment-active { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }',
       '.rl-workspace-main { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }',
       '.rl-workspace-main > .rl-workspace-grid { flex: 1 1 auto; min-width: 0; }',
+      '.rl-project-tabs { box-sizing: border-box; display: flex; align-items: stretch; gap: 2px; flex: none; min-width: 0; overflow-x: auto; overflow-y: hidden; padding: 0 12px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); scrollbar-width: thin; }',
+      '.rl-project-tab { box-sizing: border-box; position: relative; flex: none; margin: 0; padding: 8px 12px 9px; border: 0; border-radius: 0; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12.5px; line-height: 20px; white-space: nowrap; cursor: pointer; }',
+      '.rl-project-tab:hover { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-project-tab-active { color: var(--dsw-alias-label-primary); font-weight: 500; }',
+      '.rl-project-tab-active::after { content: ""; position: absolute; right: 8px; bottom: -0.5px; left: 8px; height: 2px; border-radius: 2px 2px 0 0; background: var(--dsw-alias-brand-primary); }',
+      '.rl-project-tab:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: -3px; border-radius: 6px; }',
+      '.rl-project-panel { box-sizing: border-box; display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; }',
+      '.rl-project-panel[hidden] { display: none; }',
+      '.rl-project-panel > .rl-workspace-grid { flex: 1 1 auto; min-width: 0; min-height: 0; }',
+      '.rl-project-panel > .rl-obs-embedded { flex: 1 1 auto; min-height: 0; }',
+      '.rl-tab-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 720px; margin: 0 auto; padding: 40px 24px; }',
+      '.rl-tab-empty-title { margin: 0; font-size: 18px; font-weight: 500; line-height: 26px; }',
+      '.rl-obs-embedded { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; }',
+      '.rl-dash-embedded { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; }',
+      '.rl-dash-window-embedded { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; }',
       '.rl-workspace-grid { display: grid; grid-template-columns: clamp(180px, 18vw, 240px) minmax(0, 1fr) clamp(260px, 26vw, 340px); flex: 1 1 auto; min-width: 0; min-height: 0; }',
       '.rl-copilot-native-layer { position: fixed; inset: 0; z-index: 60; display: flex; align-items: stretch; justify-content: stretch; padding: 16px; pointer-events: none; }',
       '.rl-copilot-native-backdrop { position: fixed; inset: 0; z-index: 59; background: var(--dsw-alias-bg-mask-2, transparent); pointer-events: auto; }',
@@ -4437,10 +4494,86 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /** The seven first-class project views. The order is the tab order. */
+    const LAB_TAB_IDS = Object.freeze(['dag', 'observability', 'experts', 'dashboard', 'settings', 'sessions', 'audit']);
+    function normalizeLabTab(value) {
+      const id = firstString(value);
+      return LAB_TAB_IDS.includes(id) ? id : 'dag';
+    }
+    function labWebLocation() {
+      if (typeof globalThis === 'undefined') return null;
+      return globalThis.location ?? (globalThis.window && globalThis.window.location) ?? null;
+    }
+    function labWebHistory() {
+      if (typeof globalThis === 'undefined') return null;
+      return globalThis.history ?? (globalThis.window && globalThis.window.history) ?? null;
+    }
+    /** Read the deep-link contract `?project=<id>&tab=<tab>&node=<id>`. */
+    function readLabLocation() {
+      const location = labWebLocation();
+      let search = '';
+      try {
+        search = location !== null && typeof location.search === 'string' ? location.search : '';
+      } catch (error) {
+        search = '';
+      }
+      let params = null;
+      try {
+        params = new URLSearchParams(search);
+      } catch (error) {
+        params = null;
+      }
+      return {
+        projectId: params === null ? '' : firstString(params.get('project')),
+        nodeId: params === null ? '' : firstString(params.get('node')),
+        tab: normalizeLabTab(params === null ? '' : params.get('tab')),
+      };
+    }
+    /**
+     * Reflect the current project/tab/node into the URL. Tab changes are real
+     * history entries so Back returns to the previous view; node selection and
+     * the initial normalisation replace the current entry instead.
+     */
+    function syncLabUrl({ replace = false } = {}) {
+      const location = labWebLocation();
+      const history = labWebHistory();
+      if (location === null || history === null) return;
+      try {
+        const url = new URL(location.href);
+        const projectId = firstString(labNavigation.projectId);
+        if (projectId === '') {
+          url.searchParams.delete('project');
+          url.searchParams.delete('tab');
+          url.searchParams.delete('node');
+        } else {
+          url.searchParams.set('project', projectId);
+          if (labNavigation.tab !== 'dag') url.searchParams.set('tab', labNavigation.tab);
+          else url.searchParams.delete('tab');
+          const nodeId = firstString(labNavigation.nodeId);
+          if (nodeId !== '') url.searchParams.set('node', nodeId);
+          else url.searchParams.delete('node');
+        }
+        const next = url.pathname + url.search + url.hash;
+        const state = {
+          metainfer: {
+            projectId: firstString(labNavigation.projectId),
+            nodeId: firstString(labNavigation.nodeId),
+            tab: labNavigation.tab,
+          },
+        };
+        if (replace === true) history.replaceState(state, '', next);
+        else history.pushState(state, '', next);
+      } catch (error) {
+        // A shell without History API still gets in-memory navigation.
+      }
+    }
+
     /** Module-scope navigation memory: survives the Lab panel unmounting for native sessions. */
+    const initialLabLocation = readLabLocation();
     const labNavigation = {
-      projectId: '',
-      nodeId: '',
+      projectId: initialLabLocation.projectId,
+      nodeId: initialLabLocation.nodeId,
+      tab: initialLabLocation.tab,
       returnTarget: false,
       listeners: new Set(),
     };
@@ -4462,12 +4595,22 @@ window.__ModuleLoader__.load({
     function rememberLabProject(projectId) {
       const id = firstString(projectId);
       if (id === '') return;
-      if (labNavigation.projectId !== id) labNavigation.nodeId = '';
+      if (labNavigation.projectId !== id) {
+        labNavigation.nodeId = '';
+        labNavigation.tab = 'dag';
+      }
       labNavigation.projectId = id;
     }
     function rememberLabNode(projectId, nodeId) {
+      const before = labNavigation.nodeId;
       rememberLabProject(projectId);
       labNavigation.nodeId = firstString(nodeId);
+      if (labNavigation.nodeId !== before) syncLabUrl({ replace: true });
+    }
+    function rememberLabTab(projectId, tab) {
+      rememberLabProject(projectId);
+      labNavigation.tab = normalizeLabTab(tab);
+      syncLabUrl({ replace: false });
     }
     function markNativeReturnTarget(projectId, nodeId) {
       rememberLabProject(projectId);
@@ -8843,7 +8986,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Full-screen translucent dashboard with free-moving widgets and a widget-editing chat. */
-    function DashboardPanel({ projectId, events, onSelectNode, onOpenRun, open, onClose, t }) {
+    function DashboardPanel({ projectId, events, onSelectNode, onOpenRun, open, embedded = false, onClose, t }) {
       const [dashboard, setDashboard] = React.useState(null);
       const [widgets, setWidgets] = React.useState([]);
       const [busy, setBusy] = React.useState('');
@@ -8952,10 +9095,12 @@ window.__ModuleLoader__.load({
       const showFailureAlert = (lastRun?.status === 'error' || lastRun?.status === 'partial') && failureAt !== dismissedFailureAt;
       return h(
         'div',
-        { className: 'rl-dash-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('dashboard.title') },
+        embedded
+          ? { className: 'rl-dash-embedded', role: 'region', 'aria-label': t('dashboard.title') }
+          : { className: 'rl-dash-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('dashboard.title') },
         h(
           'div',
-          { className: 'rl-dash-window' },
+          { className: 'rl-dash-window' + (embedded ? ' rl-dash-window-embedded' : '') },
           h(
             'div',
             { className: 'rl-dash-head' },
@@ -8974,7 +9119,7 @@ window.__ModuleLoader__.load({
                 disabled: busy !== '',
                 onClick: refresh,
               }),
-              h(LabButton, { label: '✕', variant: 'ghost', title: t('dashboard.close'), onClick: onClose }),
+              embedded ? null : h(LabButton, { label: '✕', variant: 'ghost', title: t('dashboard.close'), onClick: onClose }),
             ),
           ),
           showFailureAlert
@@ -9155,7 +9300,90 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function WorkspaceScreen({ projectId, initialNodeId, onBack, openNativeSession, openNativeFiles, retainCopilotSession, SessionProvider, renderFactorySlot, onOpenTrajectory, t }) {
+    const PROJECT_TAB_LABEL_KEYS = Object.freeze({
+      dag: 'ws.tabs.dag',
+      observability: 'ws.tabs.observability',
+      experts: 'ws.tabs.experts',
+      dashboard: 'ws.tabs.dashboard',
+      settings: 'ws.tabs.settings',
+      sessions: 'ws.tabs.sessions',
+      audit: 'ws.tabs.audit',
+    });
+    function projectTabDomId(tab) {
+      return 'metainfer-project-tab-' + tab;
+    }
+    function projectTabPanelDomId(tab) {
+      return 'metainfer-project-panel-' + tab;
+    }
+
+    /** Accessible, URL-backed tab bar for one project. */
+    function ProjectTabBar({ activeTab, onSelect, t }) {
+      const current = normalizeLabTab(activeTab);
+      const onKeyDown = (event) => {
+        const key = event?.key;
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) return;
+        event.preventDefault();
+        const index = LAB_TAB_IDS.indexOf(current);
+        let next = index;
+        if (key === 'Home') next = 0;
+        else if (key === 'End') next = LAB_TAB_IDS.length - 1;
+        else if (key === 'ArrowRight') next = (index + 1) % LAB_TAB_IDS.length;
+        else if (key === 'ArrowLeft') next = (index - 1 + LAB_TAB_IDS.length) % LAB_TAB_IDS.length;
+        const target = LAB_TAB_IDS[next];
+        onSelect(target);
+        const node = typeof document !== 'undefined' ? document.getElementById(projectTabDomId(target)) : null;
+        if (node && typeof node.focus === 'function') node.focus();
+      };
+      return h(
+        'div',
+        { className: 'rl-project-tabs', role: 'tablist', 'aria-label': t('ws.tabs.label') },
+        LAB_TAB_IDS.map((tab) => h(
+          'button',
+          {
+            key: tab,
+            type: 'button',
+            role: 'tab',
+            id: projectTabDomId(tab),
+            className: 'rl-project-tab' + (tab === current ? ' rl-project-tab-active' : ''),
+            'aria-selected': tab === current,
+            'aria-controls': projectTabPanelDomId(tab),
+            tabIndex: tab === current ? 0 : -1,
+            onClick: () => onSelect(tab),
+            onKeyDown,
+          },
+          t(PROJECT_TAB_LABEL_KEYS[tab]),
+        )),
+      );
+    }
+
+    /** A tab panel is rendered only after its tab has been visited. */
+    function ProjectTabPanel({ tab, active, children }) {
+      return h(
+        'div',
+        {
+          className: 'rl-project-panel' + (active ? ' rl-project-panel-active' : ''),
+          role: 'tabpanel',
+          id: projectTabPanelDomId(tab),
+          'aria-labelledby': projectTabDomId(tab),
+          'data-tab': tab,
+          hidden: !active,
+          tabIndex: 0,
+        },
+        children,
+      );
+    }
+
+    /** Stage-one placeholder for a view that is migrated in a later commit. */
+    function ProjectTabPlaceholder({ tab, t }) {
+      return h(
+        'div',
+        { className: 'rl-tab-empty', 'data-testid': 'project-tab-placeholder' },
+        h('h2', { className: 'rl-tab-empty-title' }, t(PROJECT_TAB_LABEL_KEYS[tab])),
+        h('p', { className: 'rl-hint' }, t('ws.tabs.migrating')),
+      );
+    }
+
+    function WorkspaceScreen({ projectId, initialNodeId, tab, onSelectTab, onNodeChange, onBack, openNativeSession, openNativeFiles, retainCopilotSession, SessionProvider, renderFactorySlot, onOpenTrajectory, t }) {
       const { snapshot, events, offline, retry, reload, loadMore, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t);
       const [selectedId, setSelectedId] = React.useState(null);
       const [continueNodeId, setContinueNodeId] = React.useState(null);
@@ -9166,8 +9394,13 @@ window.__ModuleLoader__.load({
       const [successorOpen, setSuccessorOpen] = React.useState(false);
       const [successorNodeId, setSuccessorNodeId] = React.useState(null);
       const [runsOpen, setRunsOpen] = React.useState(false);
-      const [dashboardOpen, setDashboardOpen] = React.useState(false);
-      const [observabilityOpen, setObservabilityOpen] = React.useState(false);
+      const activeTab = normalizeLabTab(tab);
+      const [mountedTabs, setMountedTabs] = React.useState(() => new Set([activeTab]));
+      const selectTab = typeof onSelectTab === 'function' ? onSelectTab : () => {};
+      const noteNode = typeof onNodeChange === 'function' ? onNodeChange : () => {};
+      React.useEffect(() => {
+        setMountedTabs((previous) => previous.has(activeTab) ? previous : new Set([...previous, activeTab]));
+      }, [activeTab]);
       const [replayOpen, setReplayOpen] = React.useState(false);
       const [replayData, setReplayData] = React.useState(null);
       const [replayAt, setReplayAt] = React.useState(0);
@@ -9223,18 +9456,35 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         rememberLabProject(projectId);
-        if (selectedId === null && initialNodeId !== null && initialNodeId !== undefined && initialNodeId !== '') {
+        const wanted = firstString(initialNodeId);
+        if (selectedId === null && wanted !== '') {
           for (const node of nodes) {
-            if (nodeIdOf(node) === initialNodeId) {
-              setSelectedId(initialNodeId);
+            if (nodeIdOf(node) === wanted) {
+              setSelectedId(wanted);
               return;
             }
           }
         }
       }, [projectId, nodes, selectedId, initialNodeId]);
 
+      // A Back/Forward navigation may point at a different node in the same
+      // project; follow it without remounting the workspace.
       React.useEffect(() => {
-        if (selectedId !== null) rememberLabNode(projectId, selectedId);
+        const wanted = firstString(initialNodeId);
+        if (wanted === '' || wanted === selectedId) return;
+        for (const node of nodes) {
+          if (nodeIdOf(node) === wanted) {
+            setSelectedId(wanted);
+            return;
+          }
+        }
+      }, [initialNodeId, nodes, selectedId]);
+
+      React.useEffect(() => {
+        if (selectedId !== null) {
+          rememberLabNode(projectId, selectedId);
+          noteNode(selectedId);
+        }
       }, [projectId, selectedId]);
 
       React.useEffect(() => {
@@ -9941,6 +10191,38 @@ window.__ModuleLoader__.load({
         body = h('div', { className: 'rl-workspace-center' }, h(LabLoading, { label: t('ws.loading') }));
       }
 
+      const tabPanels = [
+        h(ProjectTabPanel, { key: 'dag', tab: 'dag', active: activeTab === 'dag' },
+          mountedTabs.has('dag') ? body : null),
+        h(ProjectTabPanel, { key: 'observability', tab: 'observability', active: activeTab === 'observability' },
+          mountedTabs.has('observability')
+            ? h(ObservabilityDrawer, { projectId, embedded: true, t })
+            : null),
+        h(ProjectTabPanel, { key: 'experts', tab: 'experts', active: activeTab === 'experts' },
+          mountedTabs.has('experts')
+            ? h(ExpertLibraryPanel, { projectId, t })
+            : null),
+        h(ProjectTabPanel, { key: 'dashboard', tab: 'dashboard', active: activeTab === 'dashboard' },
+          mountedTabs.has('dashboard')
+            ? h(DashboardPanel, {
+                projectId,
+                events,
+                onSelectNode: setSelectedId,
+                onOpenRun: openRuns,
+                open: activeTab === 'dashboard',
+                embedded: true,
+                onClose: () => selectTab('dag'),
+                t,
+              })
+            : null),
+        h(ProjectTabPanel, { key: 'settings', tab: 'settings', active: activeTab === 'settings' },
+          mountedTabs.has('settings') ? h(ProjectTabPlaceholder, { tab: 'settings', t }) : null),
+        h(ProjectTabPanel, { key: 'sessions', tab: 'sessions', active: activeTab === 'sessions' },
+          mountedTabs.has('sessions') ? h(ProjectTabPlaceholder, { tab: 'sessions', t }) : null),
+        h(ProjectTabPanel, { key: 'audit', tab: 'audit', active: activeTab === 'audit' },
+          mountedTabs.has('audit') ? h(ProjectTabPlaceholder, { tab: 'audit', t }) : null),
+      ];
+
       return h(
         'section',
         { className: 'rl-workspace', 'data-testid': 'metainfer-research-lab-workspace' },
@@ -9957,10 +10239,9 @@ window.__ModuleLoader__.load({
           autoBusy,
           onStep: runStep,
           onOpenRuns: () => openRuns(null),
-          dashboardOpen,
-          onToggleDashboard: () => setDashboardOpen((value) => !value),
-          observabilityOpen,
-          onToggleObservability: () => setObservabilityOpen((value) => !value),
+          activeTab,
+          onToggleDashboard: () => selectTab('dashboard'),
+          onToggleObservability: () => selectTab('observability'),
           replayOpen,
           onToggleReplay: openReplay,
           onAutoStart: () => setAutoConfirmOpen(true),
@@ -10010,20 +10291,9 @@ window.__ModuleLoader__.load({
             )
           : null,
         stepInfo !== null ? h(StepBanner, { info: stepInfo, onDismiss: () => setStepInfo(null), t }) : null,
+        h(ProjectTabBar, { activeTab, onSelect: selectTab, t }),
         h('div', { className: 'rl-workspace-shell' },
-          observabilityOpen
-            ? h(ObservabilityDrawer, { projectId, onClose: () => setObservabilityOpen(false), t })
-            : null,
-          h(DashboardPanel, {
-            projectId,
-            events,
-            onSelectNode: setSelectedId,
-            onOpenRun: openRuns,
-            open: dashboardOpen,
-            onClose: () => setDashboardOpen(false),
-            t,
-          }),
-          h('div', { className: 'rl-workspace-main' }, body),
+          h('div', { className: 'rl-workspace-main' }, tabPanels),
         ),
         copilotOpen
           ? h(CopilotDrawer, {
@@ -10490,9 +10760,8 @@ window.__ModuleLoader__.load({
       autoBusy,
       onStep,
       onOpenRuns,
-      dashboardOpen,
+      activeTab,
       onToggleDashboard,
-      observabilityOpen,
       onToggleObservability,
       replayOpen,
       onToggleReplay,
@@ -10617,8 +10886,8 @@ window.__ModuleLoader__.load({
           }),
           h(LabButton, {
             label: '📊',
-            variant: observabilityOpen === true ? 'primary' : 'ghost',
-            title: 'Observability',
+            variant: activeTab === 'observability' ? 'primary' : 'ghost',
+            title: t('ws.tabs.observability'),
             onClick: onToggleObservability,
           }),
           h(LabButton, { label: '⚙', variant: 'ghost', title: t('ws.settings.open'), onClick: onOpenSettings }),
@@ -10670,7 +10939,7 @@ window.__ModuleLoader__.load({
           ),
           h(LabButton, {
             label: '◫ ' + t('dashboard.title'),
-            variant: dashboardOpen === true ? 'primary' : 'ghost',
+            variant: activeTab === 'dashboard' ? 'primary' : 'ghost',
             title: t('dashboard.toggle'),
             onClick: onToggleDashboard,
           }),
@@ -17113,36 +17382,39 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function ObservabilityDrawer({ projectId, onClose, t }) {
+    function ObservabilityDrawer({ projectId, onClose, embedded = false, t }) {
       const [tab, setTab] = React.useState('queue');
       const tabs = [
-        { id: 'queue', label: 'Dispatch & queue', render: () => h(DispatchQueuePanel, { projectId, t }) },
-        { id: 'observer', label: 'Observer', render: () => h(ObserverPanel, { projectId, t }) },
-        { id: 'timeline', label: 'Event timeline', render: () => h(EventTimelinePanel, { projectId, t }) },
-        { id: 'claims', label: 'Claims & evidence', render: () => h(ClaimEvidencePanel, { projectId, t }) },
-        { id: 'experts', label: 'Expert library', render: () => h(ExpertLibraryPanel, { projectId, t }) },
-        { id: 'disputes', label: 'Disputes', render: () => h(DisputeTablePanel, { projectId, t }) },
-        { id: 'retrospective', label: 'Retrospective', render: () => h(RetrospectivePanel, { projectId, t }) },
-        { id: 'reviews', label: 'Review & curation', render: () => h(ReviewCurationPanel, { projectId, t }) },
+        { id: 'queue', labelKey: 'ws.obs.tab.queue', render: () => h(DispatchQueuePanel, { projectId, t }) },
+        { id: 'observer', labelKey: 'ws.obs.tab.observer', render: () => h(ObserverPanel, { projectId, t }) },
+        { id: 'timeline', labelKey: 'ws.obs.tab.timeline', render: () => h(EventTimelinePanel, { projectId, t }) },
+        { id: 'claims', labelKey: 'ws.obs.tab.claims', render: () => h(ClaimEvidencePanel, { projectId, t }) },
+        { id: 'experts', labelKey: 'ws.obs.tab.experts', render: () => h(ExpertLibraryPanel, { projectId, t }) },
+        { id: 'disputes', labelKey: 'ws.obs.tab.disputes', render: () => h(DisputeTablePanel, { projectId, t }) },
+        { id: 'retrospective', labelKey: 'ws.obs.tab.retrospective', render: () => h(RetrospectivePanel, { projectId, t }) },
+        { id: 'reviews', labelKey: 'ws.obs.tab.reviews', render: () => h(ReviewCurationPanel, { projectId, t }) },
       ];
       const active = tabs.find((entry) => entry.id === tab) ?? tabs[0];
+      const head = h('div', { className: 'rl-dash-head' },
+        h('span', { className: 'rl-dash-head-title' }, t('ws.obs.title')),
+        h('div', { className: 'rl-dash-head-actions', style: { flexWrap: 'wrap' } },
+          tabs.map((entry) => h(LabButton, {
+            key: entry.id,
+            label: t(entry.labelKey),
+            variant: entry.id === tab ? 'primary' : 'ghost',
+            onClick: () => setTab(entry.id),
+          })),
+          embedded ? null : h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.obs.close'), onClick: onClose })));
       return h(
         'div',
-        { className: 'rl-dash-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Observability' },
-        h('div', { className: 'rl-dash-window', 'data-testid': 'observability-drawer' },
-          h('div', { className: 'rl-dash-head' },
-            h('span', { className: 'rl-dash-head-title' }, 'Observability'),
-            h('div', { className: 'rl-dash-head-actions', style: { flexWrap: 'wrap' } },
-              tabs.map((entry) => h(LabButton, {
-                key: entry.id,
-                label: entry.label,
-                variant: entry.id === tab ? 'primary' : 'ghost',
-                onClick: () => setTab(entry.id),
-              })),
-              h(LabButton, { label: '✕', variant: 'ghost', title: 'Close observability', onClick: onClose }))),
+        embedded
+          ? { className: 'rl-obs-embedded', role: 'region', 'aria-label': t('ws.obs.title') }
+          : { className: 'rl-dash-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('ws.obs.title') },
+        h('div', { className: 'rl-dash-window' + (embedded ? ' rl-dash-window-embedded' : ''), 'data-testid': 'observability-drawer' },
+          head,
           h('div', { className: 'rl-dash-facts' },
-            h('span', { className: 'rl-dash-facts-label' }, 'Read-only Host views'),
-            h('span', { className: 'rl-dash-fact' }, 'real endpoints: /state /status /metrics /events /explain /intents /experts')),
+            h('span', { className: 'rl-dash-facts-label' }, t('ws.obs.readonly')),
+            h('span', { className: 'rl-dash-fact' }, t('ws.obs.endpoints'))),
           h('div', { className: 'rl-dash-grid' },
             h('div', { className: 'rl-dash-canvas' }, active.render()))),
       );
@@ -17160,19 +17432,61 @@ window.__ModuleLoader__.load({
       const SessionProvider = typeof props.SessionProvider === 'function' ? props.SessionProvider : null;
       const renderFactorySlot = typeof props.renderFactorySlot === 'function' ? props.renderFactorySlot : null;
       const [activeProjectId, setActiveProjectId] = React.useState(() => labNavigation.projectId || null);
+      const [activeTab, setActiveTab] = React.useState(() => labNavigation.tab);
+      const [deepLinkNodeId, setDeepLinkNodeId] = React.useState(() => labNavigation.nodeId);
       const [trajectoryOpen, setTrajectoryOpen] = React.useState(false);
       const [trajectoryProject, setTrajectoryProject] = React.useState(null);
-      const initialNodeId = labNavigation.nodeId;
       React.useEffect(() => {
         if (labNavigation.returnTarget === true && activeProjectId === labNavigation.projectId) clearNativeReturnTarget();
       }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      React.useEffect(() => {
+        // Normalise a native-return project into the URL without adding a
+        // history entry the user cannot explain.
+        syncLabUrl({ replace: true });
+        const onPopState = () => {
+          const next = readLabLocation();
+          labNavigation.projectId = next.projectId;
+          labNavigation.nodeId = next.nodeId;
+          labNavigation.tab = next.tab;
+          setActiveProjectId(next.projectId === '' ? null : next.projectId);
+          setActiveTab(next.tab);
+          setDeepLinkNodeId(next.nodeId);
+        };
+        const target = typeof window !== 'undefined' ? window : null;
+        if (target && typeof target.addEventListener === 'function') target.addEventListener('popstate', onPopState);
+        return () => {
+          if (target && typeof target.removeEventListener === 'function') target.removeEventListener('popstate', onPopState);
+        };
+      }, []);
       const openProject = React.useCallback((projectId) => {
         rememberLabProject(projectId);
+        labNavigation.nodeId = '';
+        labNavigation.tab = 'dag';
         setActiveProjectId(typeof projectId === 'string' && projectId.length > 0 ? projectId : null);
+        setActiveTab('dag');
+        setDeepLinkNodeId('');
+        syncLabUrl({ replace: false });
       }, []);
       const backToList = React.useCallback(() => {
+        labNavigation.projectId = '';
+        labNavigation.nodeId = '';
+        labNavigation.tab = 'dag';
         setActiveProjectId(null);
+        setActiveTab('dag');
+        setDeepLinkNodeId('');
+        syncLabUrl({ replace: false });
       }, []);
+      const selectTab = React.useCallback((nextTab) => {
+        if (activeProjectId === null) return;
+        const tabId = normalizeLabTab(nextTab);
+        rememberLabTab(activeProjectId, tabId);
+        setActiveTab(tabId);
+      }, [activeProjectId]);
+      const noteNode = React.useCallback((nodeId) => {
+        const id = firstString(nodeId);
+        setDeepLinkNodeId(id);
+        if (activeProjectId !== null) rememberLabNode(activeProjectId, id);
+      }, [activeProjectId]);
       const openTrajectory = React.useCallback((project) => {
         setTrajectoryProject(project || null);
         setTrajectoryOpen(true);
@@ -17195,7 +17509,10 @@ window.__ModuleLoader__.load({
               : h(WorkspaceScreen, {
                   key: activeProjectId,
                   projectId: activeProjectId,
-                  initialNodeId,
+                  initialNodeId: deepLinkNodeId,
+                  tab: activeTab,
+                  onSelectTab: selectTab,
+                  onNodeChange: noteNode,
                   onBack: backToList,
                   openNativeSession,
                   openNativeFiles,
@@ -17434,6 +17751,9 @@ window.__ModuleLoader__.load({
     if (typeof window !== 'undefined' && window.__METAINFER_TEST__ === true) {
       exported.__components = {
         LandingScreen,
+        MetainferLabPage,
+        ProjectTabBar,
+        ProjectTabPanel,
         WorkspaceScreen,
         ProjectsPanel,
         DashboardPanel,

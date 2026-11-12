@@ -1388,6 +1388,27 @@
     "error.nextStep": "Next step: {nextStep}",
     "ws.operator.missing": "This page has no write credential (it was probably opened before a Host restart). Reload the page and try again.",
     "ws.operator.nextStep": "Reload the page so the Host can inject a fresh write credential.",
-    "ws.operator.reload": "Reload"
+    "ws.operator.reload": "Reload",
+    "ws.tabs.label": "Project views",
+    "ws.tabs.dag": "DAG",
+    "ws.tabs.observability": "Observability",
+    "ws.tabs.experts": "Experts",
+    "ws.tabs.dashboard": "Dashboard",
+    "ws.tabs.settings": "Settings",
+    "ws.tabs.sessions": "Sessions",
+    "ws.tabs.audit": "Audit & disputes",
+    "ws.tabs.migrating": "This view is being migrated; the project data and DAG are unaffected.",
+    "ws.obs.title": "Observability",
+    "ws.obs.close": "Close observability",
+    "ws.obs.readonly": "Read-only Host views",
+    "ws.obs.endpoints": "real endpoints: /state /status /metrics /events /explain /intents /experts",
+    "ws.obs.tab.queue": "Dispatch & queue",
+    "ws.obs.tab.observer": "Observer",
+    "ws.obs.tab.timeline": "Event timeline",
+    "ws.obs.tab.claims": "Claims & evidence",
+    "ws.obs.tab.experts": "Expert library",
+    "ws.obs.tab.disputes": "Disputes",
+    "ws.obs.tab.retrospective": "Retrospective",
+    "ws.obs.tab.reviews": "Review & curation"
   }
 }
