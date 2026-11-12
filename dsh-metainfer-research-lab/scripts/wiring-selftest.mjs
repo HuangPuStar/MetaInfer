@@ -97,6 +97,7 @@ await test('Stage 3-5 surfaces are wired from HTTP through the service and into 
   assert.match(client, /x-metainfer-operator/);
   assert.match(index, /createOperatorAuthority/);
   assert.match(index, /__METAINFER_OPERATOR_TOKEN__/);
+  assert.match(index, /__METAINFER_OPERATOR_ISSUED_AT__/);
   assert.match(index, /webserver\/index-inject/);
 });
 

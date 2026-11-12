@@ -44,6 +44,10 @@ const service = createLabService({
   auto: { statusOf: () => ({ status: 'off', pauseReason: null }) }, cluster: null, clusterAdmin: null,
   operatorAuthority: authority,
 });
+const health = await service.health();
+check('health exposes the operator issue time without the token',
+  health.operatorIssuedAt === authority.issuedAt,
+  JSON.stringify({ health: health.operatorIssuedAt, authority: authority.issuedAt }));
 const raiser = { agent: { session: { id: 'operator-ui-raiser' } } };
 const opened = await service.openDispute(projectId, {
   type: 'resource_quantity',
@@ -118,6 +122,17 @@ class Boundary extends React.Component {
   }
 }
 
+async function mountBanner(t) {
+  const host = window.document.createElement('div');
+  window.document.body.appendChild(host);
+  const root = createRoot(host);
+  await React.act(async () => {
+    root.render(React.createElement(Boundary, null, React.createElement(components.OperatorCredentialBanner, { t })));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  return { host, root };
+}
+
 async function mount() {
   const host = window.document.createElement('div');
   window.document.body.appendChild(host);
@@ -136,10 +151,53 @@ delete globalThis.__METAINFER_OPERATOR_TOKEN__;
   const text = view.host.textContent ?? '';
   check('without an operator token the dispute controls are hidden and explained',
     !text.includes('Keep current') && !text.includes('Apply change')
-    && text.includes('Host-issued operator token'),
+    && text.includes('ws.operator.missing'),
     text.slice(0, 700));
   await React.act(async () => view.root.unmount());
   view.host.remove();
+  const bannerText = (key) => ({
+    'ws.operator.missing': '当前页面没有写权限凭据（多半是 Host 重启前打开的旧页面），请刷新页面后重试',
+    'ws.operator.reload': '刷新',
+  }[key] ?? key);
+  const banner = await mountBanner(bannerText);
+  const bannerBody = banner.host.textContent ?? '';
+  check('the missing-credential banner is persistent, localised and offers Reload',
+    bannerBody.includes('当前页面没有写权限凭据') && bannerBody.includes('刷新')
+    && banner.host.querySelector('[data-testid="operator-credential-banner"]') !== null,
+    bannerBody.slice(0, 700));
+  await React.act(async () => banner.root.unmount());
+  banner.host.remove();
+}
+
+// A stale page (token from an older Host process) reloads exactly once; a
+// second failure keeps the banner instead of looping.
+{
+  const savedLocation = globalThis.location;
+  let reloads = 0;
+  globalThis.location = { reload: () => { reloads += 1; } };
+  globalThis.__METAINFER_OPERATOR_TOKEN__ = authority.token;
+  globalThis.__METAINFER_OPERATOR_ISSUED_AT__ = String(authority.issuedAt - 60);
+  window.sessionStorage.removeItem('metainfer:operator-reload');
+  const stale = await mountBanner((key) => ({
+    'ws.operator.missing': '当前页面没有写权限凭据（多半是 Host 重启前打开的旧页面），请刷新页面后重试',
+    'ws.operator.reload': '刷新',
+  }[key] ?? key));
+  check('a stale page performs exactly one automatic reload',
+    reloads === 1 && (stale.host.textContent ?? '').includes('当前页面没有写权限凭据'),
+    JSON.stringify({ reloads, text: (stale.host.textContent ?? '').slice(0, 500) }));
+  await React.act(async () => stale.root.unmount());
+  stale.host.remove();
+  const retry = await mountBanner((key) => key);
+  check('after the one reload, the failure is a persistent banner rather than a loop',
+    reloads === 1 && retry.host.querySelector('[data-testid="operator-credential-banner"]') !== null
+    && window.sessionStorage.getItem('metainfer:operator-reload') !== null,
+    JSON.stringify({ reloads, text: (retry.host.textContent ?? '').slice(0, 500) }));
+  await React.act(async () => retry.root.unmount());
+  retry.host.remove();
+  window.sessionStorage.removeItem('metainfer:operator-reload');
+  delete globalThis.__METAINFER_OPERATOR_ISSUED_AT__;
+  if (savedLocation === undefined) delete globalThis.location;
+  else globalThis.location = savedLocation;
 }
 
 // Real injected credential => click, real route, real service, resolved row.

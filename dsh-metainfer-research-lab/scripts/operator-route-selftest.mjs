@@ -25,6 +25,10 @@ function check(name, condition, detail = '') {
 
 const PREFIX = '/api/metainfer-research-lab';
 const authority = createOperatorAuthority();
+check('the operator authority exposes the Host-process issue time',
+  Number.isFinite(authority.issuedAt) && authority.issuedAt > 0
+  && authority.verify(authority.token).issuedAt === authority.issuedAt,
+  JSON.stringify({ issuedAt: authority.issuedAt }));
 const calls = [];
 const service = new Proxy({ verifyOperatorToken: (token) => authority.verify(token) }, {
   get(target, property) {
@@ -141,6 +145,17 @@ const bodyNoToken = await request(appeal, { body: bodyActor });
 check('a body actor still does not authenticate /preemption/appeal',
   bodyNoToken.ok === false && bodyNoToken.error?.code === 'actor_required',
   JSON.stringify(bodyNoToken));
+check('operatorRequired carries code, message and nextStep as one actionable envelope',
+  bodyNoToken.error?.code === 'actor_required'
+  && typeof bodyNoToken.error?.message === 'string' && bodyNoToken.error.message.trim() !== ''
+  && typeof bodyNoToken.error?.nextStep === 'string' && /reload/i.test(bodyNoToken.error.nextStep),
+  JSON.stringify(bodyNoToken.error ?? null));
+const commandRoute = ROUTE_POLICY.find((row) => row.method === 'POST' && row.path.endsWith('/commands'));
+const commandNoToken = await request(commandRoute, { body: { type: 'expert_drain', projectId: 'p' } });
+check('the expert_drain command route returns the same actionable credential envelope',
+  commandNoToken.ok === false && commandNoToken.error?.code === 'actor_required'
+  && typeof commandNoToken.error?.nextStep === 'string' && /reload/i.test(commandNoToken.error.nextStep),
+  JSON.stringify(commandNoToken));
 const bodyWithToken = await request(appeal, { token: authority.token, body: bodyActor });
 const appealCall = calls[calls.length - 1];
 check('the accepted /preemption/appeal handler receives only the token actor, never the body actor',

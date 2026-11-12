@@ -19,7 +19,7 @@ function sign(secret, payload) {
 
 /**
  * Mint the operator authority for one Host process.
- * @returns {{token: string, id: string, verify: (candidate: unknown) => {ok: true, id: string, issuedAt: number} | {ok: false, code: string, message: string}}}
+ * @returns {{token: string, id: string, issuedAt: number, verify: (candidate: unknown) => {ok: true, id: string, issuedAt: number} | {ok: false, code: string, message: string}}}
  */
 export function createOperatorAuthority() {
   const secret = randomBytes(32);
@@ -35,6 +35,7 @@ export function createOperatorAuthority() {
   return Object.freeze({
     token,
     id: 'operator',
+    issuedAt,
     verify(candidate) {
       if (typeof candidate !== 'string' || candidate.length === 0) {
         return { ok: false, code: 'operator_required', message: 'the Host-issued operator token is required' };

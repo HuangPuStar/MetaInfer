@@ -72,6 +72,12 @@ window.__ModuleLoader__.load({
     const BACKOFF_MS = [1500, 3000, 5000];
     /** Activity log keeps only the newest entries. */
     const MAX_LOG_EVENTS = 200;
+    /** Host-injected browser credential and its Host-process issue time. */
+    const OPERATOR_TOKEN_GLOBAL = '__METAINFER_OPERATOR_TOKEN__';
+    const OPERATOR_ISSUED_AT_GLOBAL = '__METAINFER_OPERATOR_ISSUED_AT__';
+    /** One automatic recovery attempt per tab; the marker prevents reload loops. */
+    const OPERATOR_RELOAD_MARK = 'metainfer:operator-reload';
+    const OPERATOR_ISSUE_EVENT = 'metainfer:operator-required';
 
     /** DAG canvas geometry (layer = column, one node per row cell). */
     const NODE_W = 208;
@@ -253,6 +259,7 @@ window.__ModuleLoader__.load({
       "dashboard.widgets": "Dashboard widgets",
       "error.http": "请求失败（HTTP {status}）",
       "error.network": "无法连接 Host 服务",
+      "error.nextStep": "下一步：{nextStep}",
       "error.unauthorized": "没有访问权限",
       "error.unknown": "请求失败",
       "guide.arch.advisor": "Advisor / Reviewer",
@@ -1244,6 +1251,9 @@ window.__ModuleLoader__.load({
       "ws.node.parentPrefix": "来自 ",
       "ws.node.root": "根节点",
       "ws.nodeCount": "节点 {count}/{max}",
+      "ws.operator.missing": "当前页面没有写权限凭据（多半是 Host 重启前打开的旧页面），请刷新页面后重试",
+      "ws.operator.nextStep": "请刷新页面，让 Host 重新注入写权限凭据。",
+      "ws.operator.reload": "刷新",
       "ws.poll.nextRetry": "下一次重试约 {seconds}s 后",
       "ws.poll.offline": "连接中断，正在重试…",
       "ws.poll.retry": "立即重试",
@@ -1637,6 +1647,7 @@ window.__ModuleLoader__.load({
       "dashboard.widgets": "Dashboard widgets",
       "error.http": "Request failed (HTTP {status})",
       "error.network": "Could not reach the Host service",
+      "error.nextStep": "Next step: {nextStep}",
       "error.unauthorized": "Not authorised",
       "error.unknown": "Request failed",
       "guide.arch.advisor": "Advisor / Reviewer",
@@ -2628,6 +2639,9 @@ window.__ModuleLoader__.load({
       "ws.node.parentPrefix": "from ",
       "ws.node.root": "Root node",
       "ws.nodeCount": "Nodes {count}/{max}",
+      "ws.operator.missing": "This page has no write credential (it was probably opened before a Host restart). Reload the page and try again.",
+      "ws.operator.nextStep": "Reload the page so the Host can inject a fresh write credential.",
+      "ws.operator.reload": "Reload",
       "ws.poll.nextRetry": "next retry in ~{seconds}s",
       "ws.poll.offline": "Connection lost — retrying…",
       "ws.poll.retry": "Retry now",
@@ -3243,6 +3257,9 @@ window.__ModuleLoader__.load({
       '.rl-banner-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dsw-alias-state-error-primary); }',
       '.rl-banner-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }',
       '.rl-banner-meta { flex: none; color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
+      '.rl-operator-shell { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; overflow: hidden; }',
+      '.rl-operator-main { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }',
+      '.rl-operator-main > * { flex: 1 1 auto; min-height: 0; }',
       '.rl-workspace-center { display: flex; align-items: center; justify-content: center; flex: 1 1 auto; min-height: 0; padding: 24px; }',
       '.rl-center-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 460px; padding: 18px 20px; border: 0.5px solid var(--dsw-alias-border-l1); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); }',
       '.rl-log { display: flex; flex-direction: column; flex: none; max-height: clamp(96px, 18vh, 200px); min-height: 34px; border-top: 0.5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
@@ -3629,11 +3646,12 @@ window.__ModuleLoader__.load({
     // #region Host API client
     /** Error carrying the Host error-envelope code (or a transport code). */
     class LabRequestError extends Error {
-      constructor(code, message, status) {
+      constructor(code, message, status, nextStep) {
         super(typeof message === 'string' && message.length > 0 ? message : code);
         this.name = 'LabRequestError';
         this.code = typeof code === 'string' ? code : 'request_failed';
         this.status = typeof status === 'number' ? status : 0;
+        this.nextStep = typeof nextStep === 'string' && nextStep.trim() !== '' ? nextStep.trim() : '';
       }
     }
 
@@ -3642,8 +3660,119 @@ window.__ModuleLoader__.load({
       return Boolean(error) && (error.name === 'AbortError' || error.code === 'ABORT_ERR');
     }
 
-    /** Turn a thrown value into one localized line. */
+    /** The Host injects this global ahead of the client entry. */
+    function operatorToken() {
+      const token = typeof globalThis === 'undefined' ? '' : globalThis[OPERATOR_TOKEN_GLOBAL];
+      return typeof token === 'string' ? token.trim() : '';
+    }
+
+    /** The Host also injects the process issue time; absent on older Hosts. */
+    function operatorIssuedAt() {
+      const raw = typeof globalThis === 'undefined' ? null : globalThis[OPERATOR_ISSUED_AT_GLOBAL];
+      const value = Number(raw);
+      return Number.isFinite(value) && value > 0 ? value : null;
+    }
+
+    /** True when an error is the browser credential being absent or stale. */
+    function operatorCredentialIssueOf(error) {
+      const code = typeof error?.code === 'string' ? error.code : '';
+      const status = Number(error?.status);
+      return code === 'actor_required'
+        || code === 'operator_required'
+        || code === 'operator_invalid'
+        || code === 'unauthorized'
+        || status === 401
+        || status === 403;
+    }
+
+    function nextStepOf(error) {
+      return typeof error?.nextStep === 'string' && error.nextStep.trim() !== ''
+        ? error.nextStep.trim()
+        : '';
+    }
+
+    function operatorStorage() {
+      try {
+        return globalThis.sessionStorage ?? (globalThis.window && globalThis.window.sessionStorage) ?? null;
+      } catch {
+        return null;
+      }
+    }
+
+    function operatorLocation() {
+      try {
+        return globalThis.location ?? (globalThis.window && globalThis.window.location) ?? null;
+      } catch {
+        return null;
+      }
+    }
+
+    function clearOperatorReloadMark() {
+      const storage = operatorStorage();
+      if (storage === null) return;
+      try { storage.removeItem(OPERATOR_RELOAD_MARK); } catch { /* storage is optional */ }
+    }
+
+    /** Reload once per tab. The marker makes a second failure show the banner. */
+    function operatorReloadOnce() {
+      const storage = operatorStorage();
+      if (storage === null) return false;
+      try {
+        if (storage.getItem(OPERATOR_RELOAD_MARK) !== null) return false;
+        storage.setItem(OPERATOR_RELOAD_MARK, String(Date.now()));
+      } catch {
+        return false;
+      }
+      const location = operatorLocation();
+      if (location === null || typeof location.reload !== 'function') return false;
+      try {
+        location.reload();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    function reloadOperatorPage() {
+      const location = operatorLocation();
+      if (location === null || typeof location.reload !== 'function') return;
+      try { location.reload(); } catch { /* the banner remains visible */ }
+    }
+
+    function emitOperatorCredentialIssue(detail) {
+      const target = globalThis.window && typeof globalThis.window.dispatchEvent === 'function'
+        ? globalThis.window
+        : (typeof globalThis.dispatchEvent === 'function' ? globalThis : null);
+      const Ctor = (globalThis.window && globalThis.window.CustomEvent) || globalThis.CustomEvent;
+      if (target === null || typeof Ctor !== 'function') return;
+      try { target.dispatchEvent(new Ctor(OPERATOR_ISSUE_EVENT, { detail })); } catch { /* banner state is best effort */ }
+    }
+
+    /**
+     * A write was rejected because the page has no fresh Host credential. Show
+     * one actionable banner (never the raw English carrier message) and give the
+     * page exactly one automatic reload to pick up the new Host token.
+     */
+    function noteOperatorCredentialFailure(error = {}) {
+      const detail = {
+        code: typeof error?.code === 'string' ? error.code : 'actor_required',
+        message: typeof error?.message === 'string' ? error.message : '',
+        nextStep: nextStepOf(error),
+        status: Number(error?.status) || 0,
+      };
+      emitOperatorCredentialIssue(detail);
+      operatorReloadOnce();
+    }
+
+    function operatorCredentialMessage(t) {
+      return t('ws.operator.missing') + ' ' + t('ws.operator.nextStep');
+    }
+
+    /** Turn a thrown value into one localized, actionable line. */
     function describeError(error, t) {
+      if (operatorCredentialIssueOf(error)) return operatorCredentialMessage(t);
+      const nextStep = nextStepOf(error);
+      if (nextStep !== '') return t('error.nextStep', { nextStep });
       if (error instanceof LabRequestError) return error.message || t('error.unknown');
       if (error && error.name === 'TypeError') return t('error.network');
       if (error instanceof Error && error.message) return error.message;
@@ -3652,16 +3781,12 @@ window.__ModuleLoader__.load({
 
     /**
      * Fetch one JSON envelope. Host responses are `{ok:true,data}` or
-     * `{ok:false,error:{code,message}}`; a flat `{ok:true,...}` body is tolerated.
+     * `{ok:false,error:{code,message,nextStep}}`; a flat `{ok:true,...}` body
+     * is tolerated.
      * @param path relative route including its query string.
      * @param options `{method, body, signal}`.
      * @param t locale-bound translator.
      */
-    /** The Host injects this global ahead of the client entry. */
-    function operatorToken() {
-      const token = typeof globalThis === 'undefined' ? '' : globalThis.__METAINFER_OPERATOR_TOKEN__;
-      return typeof token === 'string' ? token : '';
-    }
 
     async function requestJson(path, options, t) {
       const settings = options === null || options === undefined ? {} : options;
@@ -3690,10 +3815,15 @@ window.__ModuleLoader__.load({
         ? (payload?.error !== null && typeof payload?.error === 'object' ? payload?.error : {})
         : null;
       if (response?.status === 401 || response?.status === 403) {
+        const code = envelopeError && typeof envelopeError.code === 'string' && envelopeError.code
+          ? envelopeError.code
+          : 'unauthorized';
         const message = envelopeError && typeof envelopeError.message === 'string' && envelopeError.message
           ? envelopeError.message
           : t('error.unauthorized');
-        throw new LabRequestError('unauthorized', message, response?.status);
+        const nextStep = nextStepOf(envelopeError);
+        noteOperatorCredentialFailure({ code, message, nextStep, status: response?.status });
+        throw new LabRequestError(code, message, response?.status, nextStep);
       }
       if (!response?.ok && envelopeError === null) {
         throw new LabRequestError('http_' + response?.status, t('error.http', { status: response?.status }), response?.status);
@@ -3706,8 +3836,13 @@ window.__ModuleLoader__.load({
         const message = typeof envelopeError.message === 'string' && envelopeError.message
           ? envelopeError.message
           : t('error.unknown');
-        throw new LabRequestError(code, message, response?.status);
+        const nextStep = nextStepOf(envelopeError);
+        if (operatorCredentialIssueOf({ code, status: response?.status })) {
+          noteOperatorCredentialFailure({ code, message, nextStep, status: response?.status });
+        }
+        throw new LabRequestError(code, message, response?.status, nextStep);
       }
+      if (init.method === 'POST') clearOperatorReloadMark();
       if (payload?.data !== undefined) return payload?.data;
       const flat = {};
       for (const key of Object.keys(payload)) if (key !== 'ok') flat[key] = payload[key];
@@ -4412,6 +4547,7 @@ window.__ModuleLoader__.load({
       return asArray(configAdvisorOf(project).reviewers).filter((entry) => entry !== null && typeof entry === 'object');
     }
     function projectPushErrorTextOf(error, t) {
+      if (operatorCredentialIssueOf(error)) return describeError(error, t);
       if (error instanceof LabRequestError) {
         if (error.code === 'nothing_to_push') return t('ws.push.nothingToPush');
         if (error.code === 'git_push_failed') return t('ws.push.gitPushFailed');
@@ -4718,6 +4854,7 @@ window.__ModuleLoader__.load({
     }
 
     function placementErrorTextOf(error, t) {
+      if (operatorCredentialIssueOf(error)) return describeError(error, t);
       if (error instanceof LabRequestError) {
         if (error.code === 'bad_request' || error.code === 'cluster_config_invalid') {
           return t('ws.settings.placement.invalid') + ': ' + (error.message || '');
@@ -5090,6 +5227,7 @@ window.__ModuleLoader__.load({
     }
 
     function clusterConfigErrorTextOf(error, t) {
+      if (operatorCredentialIssueOf(error)) return describeError(error, t);
       if (error instanceof LabRequestError) {
         if (error.code === 'cluster_busy') return t('ws.clusterConfig.error.busy');
         if (error.code === 'bad_request' || error.code === 'cluster_config_invalid') {
@@ -5264,6 +5402,7 @@ window.__ModuleLoader__.load({
     }
     /** Localize project.delete failures; unknown errors fall back to the envelope message. */
     function projectDeleteErrorTextOf(error, t) {
+      if (operatorCredentialIssueOf(error)) return describeError(error, t);
       if (error instanceof LabRequestError) {
         if (error.code === 'project_busy') return t('landing.delete.error.project_busy');
         if (error.code === 'project_not_found') return t('landing.delete.error.project_not_found');
@@ -16081,6 +16220,62 @@ window.__ModuleLoader__.load({
       return h('li', { className: 'rl-log-list-item' }, h('div', { className: 'rl-log-row' }, content));
     }
 
+    /**
+     * Persistent top banner for the browser write credential. The page checks at
+     * mount (missing token), compares the injected Host issue time with /health
+     * (stale page after a Host restart), and also listens for the request-layer
+     * actor_required signal. It never shows the raw carrier English.
+     */
+    function OperatorCredentialBanner({ t }) {
+      const [issue, setIssue] = React.useState(() => (operatorToken() === '' ? 'missing' : ''));
+      React.useEffect(() => {
+        const target = globalThis.window && typeof globalThis.window.addEventListener === 'function'
+          ? globalThis.window
+          : null;
+        if (target === null) return undefined;
+        const onIssue = () => setIssue((previous) => (previous === 'missing' ? 'missing' : 'stale'));
+        target.addEventListener(OPERATOR_ISSUE_EVENT, onIssue);
+        return () => target.removeEventListener(OPERATOR_ISSUE_EVENT, onIssue);
+      }, []);
+      React.useEffect(() => {
+        if (operatorToken() === '') return undefined;
+        const injectedAt = operatorIssuedAt();
+        if (injectedAt === null) return undefined;
+        let active = true;
+        Promise.resolve()
+          .then(() => api.health(undefined, t))
+          .then((health) => {
+            if (!active) return;
+            const currentAt = Number(health?.operatorIssuedAt);
+            if (!Number.isFinite(currentAt) || currentAt <= 0) return;
+            if (currentAt === injectedAt) {
+              // This page and the Host are from the same process. Any earlier
+              // reload marker is now spent, so a later Host restart can recover
+              // this tab automatically again.
+              clearOperatorReloadMark();
+              return;
+            }
+            setIssue('stale');
+            noteOperatorCredentialFailure({
+              code: 'actor_required',
+              message: 'the page operator credential belongs to an older Host process',
+              nextStep: 'reload the owner page so the Host can inject the operator token',
+              status: 0,
+            });
+          })
+          .catch(() => { /* a read failure must not replace the page error path */ });
+        return () => { active = false; };
+      }, [t]);
+      if (issue === '') return null;
+      return h(
+        'div',
+        { className: 'rl-banner', role: 'alert', 'data-testid': 'operator-credential-banner', 'data-operator-issue': issue },
+        h('span', { className: 'rl-banner-dot', 'aria-hidden': true }),
+        h('span', { className: 'rl-banner-text' }, t('ws.operator.missing')),
+        h(LabButton, { label: t('ws.operator.reload'), variant: 'primary', onClick: reloadOperatorPage }),
+      );
+    }
+
     /** Inline polling-failure banner with countdown hint and immediate retry. */
     function PollBanner({ offline, onRetry, t }) {
       const info = asObject(offline);
@@ -16697,7 +16892,7 @@ window.__ModuleLoader__.load({
         head,
         snapshot.error !== '' ? h('p', { className: 'rl-hint', role: 'alert' }, snapshot.error) : null,
         !operatorReady
-          ? h('p', { className: 'rl-hint', 'data-testid': 'dispute-operator-unavailable' }, 'Dispute decisions need the Host-issued operator token; reload this page from the Host.')
+          ? h('p', { className: 'rl-hint', 'data-testid': 'dispute-operator-unavailable' }, t('ws.operator.missing'))
           : null,
         failed.classes
           ? h('p', { className: 'rl-hint' }, 'Class map unavailable until /disputes/classes succeeds.')
@@ -16986,31 +17181,36 @@ window.__ModuleLoader__.load({
         setTrajectoryOpen(false);
         setTrajectoryProject(null);
       }, []);
-      if (trajectoryOpen) {
-        return h(
-          MetainferLabErrorBoundary,
-          { t },
-          h(TrajectoryPage, { onClose: closeTrajectory, t, project: trajectoryProject }),
-        );
-      }
+      const page = trajectoryOpen
+        ? h(
+            MetainferLabErrorBoundary,
+            { t },
+            h(TrajectoryPage, { onClose: closeTrajectory, t, project: trajectoryProject }),
+          )
+        : h(
+            MetainferLabErrorBoundary,
+            { t },
+            activeProjectId === null
+              ? h(LandingScreen, { key: 'landing', t, onOpenProject: openProject })
+              : h(WorkspaceScreen, {
+                  key: activeProjectId,
+                  projectId: activeProjectId,
+                  initialNodeId,
+                  onBack: backToList,
+                  openNativeSession,
+                  openNativeFiles,
+                  retainCopilotSession,
+                  SessionProvider,
+                  renderFactorySlot,
+                  onOpenTrajectory: openTrajectory,
+                  t,
+                }),
+          );
       return h(
-        MetainferLabErrorBoundary,
-        { t },
-        activeProjectId === null
-          ? h(LandingScreen, { key: 'landing', t, onOpenProject: openProject })
-          : h(WorkspaceScreen, {
-              key: activeProjectId,
-              projectId: activeProjectId,
-              initialNodeId,
-              onBack: backToList,
-              openNativeSession,
-              openNativeFiles,
-              retainCopilotSession,
-              SessionProvider,
-              renderFactorySlot,
-              onOpenTrajectory: openTrajectory,
-              t,
-            }),
+        'div',
+        { className: 'rl-operator-shell' },
+        h(OperatorCredentialBanner, { t }),
+        h('div', { className: 'rl-operator-main' }, page),
       );
     }
 
@@ -17257,6 +17457,7 @@ window.__ModuleLoader__.load({
         RetrospectivePanel,
         ReviewCurationPanel,
         ObservabilityDrawer,
+        OperatorCredentialBanner,
       };
     }
     return exported;

@@ -99,3 +99,12 @@ assert.ok(
 );
 
 process.stdout.write(`ok   client.js constant references resolve (${used.size} uppercase identifiers)\n`);
+
+// Operator credential UX guard: the banner copy key and the actor_required
+// mapping are part of the user-facing contract, not optional presentation.
+assert.ok(source.includes("t('ws.operator.missing')"), 'operator credential banner must use ws.operator.missing');
+assert.ok(source.includes('actor_required'), 'the client must map the actor_required error code');
+assert.ok(source.includes('operatorCredentialIssueOf'), 'actor_required/401/403 need one shared client mapping');
+assert.ok(source.includes('__METAINFER_OPERATOR_ISSUED_AT__'), 'the client must read the injected Host issue time');
+assert.ok(source.includes('OPERATOR_RELOAD_MARK') && source.includes('location.reload'), 'actor_required needs one guarded automatic reload');
+process.stdout.write('ok   operator credential banner, actor_required mapping and reload guard are present\n');

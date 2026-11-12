@@ -5740,6 +5740,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       storage: 'ready',
       projects: store.listProjects().length,
       writes: typeof store.writeStats === 'function' ? store.writeStats() : null,
+      // Metadata only: lets an open page tell whether its injected token came
+      // from this Host process without sending or exposing the token itself.
+      operatorIssuedAt: Number.isFinite(operatorAuthority?.issuedAt) ? operatorAuthority.issuedAt : null,
     };
   }
 

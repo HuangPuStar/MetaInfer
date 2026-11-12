@@ -230,6 +230,14 @@ export async function apply(ctx, config = {}) {
         name: '__METAINFER_OPERATOR_TOKEN__',
         value: operatorAuthority.token,
       });
+      // The issue time lets an already-open page compare itself with the
+      // current Host process via the read-only /health field. It is metadata,
+      // not a credential, and is only rendered to the owner page.
+      table.push({
+        kind: 'global',
+        name: '__METAINFER_OPERATOR_ISSUED_AT__',
+        value: operatorAuthority.issuedAt,
+      });
     }), 'metainfer-research-lab: operator token injection');
     const trajectoryBackend = await ensureTrajectoryBackend(ctx.logger);
     ctx.effect(

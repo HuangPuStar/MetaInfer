@@ -1384,6 +1384,10 @@
     "dashboard.staleFailed": "Refresh failed",
     "dashboard.degradedWidget": "Data hidden after repeated refresh failures. Last success: {age}.",
     "dashboard.partialAlert": "Dashboard partially refreshed: {error}. The cached top-level view is {age} old and the failed widgets were not updated.",
-    "dashboard.stalePartial": "Partial refresh failed"
+    "dashboard.stalePartial": "Partial refresh failed",
+    "error.nextStep": "Next step: {nextStep}",
+    "ws.operator.missing": "This page has no write credential (it was probably opened before a Host restart). Reload the page and try again.",
+    "ws.operator.nextStep": "Reload the page so the Host can inject a fresh write credential.",
+    "ws.operator.reload": "Reload"
   }
 }

@@ -1384,6 +1384,10 @@
     "dashboard.staleFailed": "刷新失败",
     "dashboard.degradedWidget": "连续刷新失败，已隐藏数字。上次成功：{age}。",
     "dashboard.partialAlert": "仪表盘部分刷新失败：{error}。顶部缓存仍是 {age} 的旧数据，失败 widget 未更新。",
-    "dashboard.stalePartial": "部分刷新失败"
+    "dashboard.stalePartial": "部分刷新失败",
+    "error.nextStep": "下一步：{nextStep}",
+    "ws.operator.missing": "当前页面没有写权限凭据（多半是 Host 重启前打开的旧页面），请刷新页面后重试",
+    "ws.operator.nextStep": "请刷新页面，让 Host 重新注入写权限凭据。",
+    "ws.operator.reload": "刷新"
   }
 }
