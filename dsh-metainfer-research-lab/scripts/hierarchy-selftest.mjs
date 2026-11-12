@@ -149,6 +149,32 @@ check('Q8: a branch layer below 3x is rejected instead of skipped', validateHier
 check('Q8: a chief layer below 3x is rejected', validateHierarchyReview(broken, nodes).some((error) => error.includes('chief compression')), JSON.stringify(validateHierarchyReview(broken, nodes)));
 check('Q8: a chief decision needs verified raw evidence', validateChiefDecision({ action: 'keep', verifiedEvidence: [], evidenceChain: [{ nodeId: 'b4', field: 'report.summary', quote: 'evidence' }] }, nodes).some((error) => error.includes('verifiedEvidence')) && validateChiefDecision({ action: 'keep', verifiedEvidence: [{ nodeId: 'b4', field: 'report.summary', quote: 'verified summary' }], evidenceChain: [{ nodeId: 'b4', field: 'report.summary', quote: 'verified summary' }] }, nodes).length === 0, JSON.stringify(validateChiefDecision({ action: 'keep', verifiedEvidence: [], evidenceChain: [] }, nodes)));
 
+// Round 42: a 10k-star is a real O(n) build probe. It is generated in memory
+// and measured with performance.now(); no provider/store is involved.
+const scaleNodes = [];
+for (let index = 0; index < 10_000; index += 1) {
+  const status = index < 7_000 ? 'completed' : (index < 9_000 ? 'planned' : 'failed');
+  scaleNodes.push({
+    id: `n-${String(index).padStart(5, '0')}`,
+    // The live stress fixture has one branch report per node (its parent id
+    // does not resolve), so this probe must also exercise 10,000 reports.
+    parentId: null,
+    title: `scale node ${index}`,
+    prompt: `scale prompt ${index} ` + 'x'.repeat(180),
+    status,
+    priority: { class: index % 2 === 0 ? 'p2' : 'p3' },
+    report: { summary: `scale report ${index}`, confidence: 0.7 },
+    timestamps: { createdAt: index, updatedAt: index + 1 },
+  });
+}
+const scaleStart = performance.now();
+const scaleReview = buildHierarchyReview({ project: { config: { migration: { phase: 2 } } }, nodes: scaleNodes, now: Date.now() });
+const scaleMs = performance.now() - scaleStart;
+const scaleTeamRowsOwned = scaleReview.teams.every((team) => team.reports.every((row) => team.branchIds.includes(String(row.id))));
+check('Round 42: 10k-node hierarchy builds in <1000ms with O(n) buckets',
+  scaleReview.branchCount === 10_000 && scaleMs < 1000 && scaleTeamRowsOwned,
+  JSON.stringify({ branchCount: scaleReview.branchCount, buildMs: Number(scaleMs.toFixed(1)), teams: scaleReview.teams.length }));
+
 // Round 33 candidate identity is structural: editing prose must not make the
 // same candidate look new, and exhaustion must have a named reason.
 const candidateShapeRun = (id, titleA, titleB) => ({

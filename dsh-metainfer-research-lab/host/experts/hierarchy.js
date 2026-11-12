@@ -100,6 +100,7 @@ const BRANCH_NODE_LIMIT = 15;
 const LAYER_COMPRESSION = 3;
 const MAX_DEPTH = 3;
 
+
 function text(value, max = 500) {
   return typeof value === 'string' ? value.slice(0, max) : '';
 }
@@ -179,8 +180,11 @@ export function validateEvidencePointers(evidence, nodes, { requireQuote = false
 }
 
 /** Compact one branch into a bounded BranchReport (<=15 nodes / <=20 KB). */
-export function buildBranchReport({ branchId, nodes = [], inputNodes = null, now = Date.now() }) {
-  const all = branchNodes(nodes, branchId);
+export function buildBranchReport({ branchId, nodes = [], inputNodes = null, bucketNodes = null, now = Date.now() }) {
+  // `bucketNodes` is the O(n) path used by buildHierarchyReview: the caller has
+  // already assigned each node to this branch once. Keep the old public shape
+  // for direct callers, which still need the branchNodes scan.
+  const all = Array.isArray(bucketNodes) ? bucketNodes : branchNodes(nodes, branchId);
   const source = all.length > 0 ? all : (Array.isArray(inputNodes) ? inputNodes : []);
   const selected = [];
   const compact = [];
@@ -241,6 +245,10 @@ export function compressLayer(rows, { maxBytes = null } = {}) {
   const inputBytes = jsonBytes(rows);
   const limit = maxBytes ?? Math.max(1, Math.floor(inputBytes / LAYER_COMPRESSION));
   const summary = [];
+  // Incremental JSON accounting: the old `jsonBytes([...summary, compact])`
+  // copied and serialized the growing prefix for every row, making the layer
+  // compressor O(n²) even after branch bucketing became O(n).
+  let summaryBytes = 2;
   for (const row of rows) {
     const compact = {
       id: row.branchId ?? row.teamId ?? row.id ?? null,
@@ -251,8 +259,11 @@ export function compressLayer(rows, { maxBytes = null } = {}) {
       verified: Array.isArray(row.verified) ? row.verified.length : 0,
       ruledOut: Array.isArray(row.ruledOut) ? row.ruledOut.length : 0,
     };
-    if (jsonBytes([...summary, compact]) > limit && summary.length > 0) break;
+    const compactBytes = jsonBytes(compact);
+    const nextBytes = summary.length === 0 ? 2 + compactBytes : summaryBytes + 1 + compactBytes;
+    if (nextBytes > limit && summary.length > 0) break;
     summary.push(compact);
+    summaryBytes = nextBytes;
   }
   if (summary.length === 0 && rows.length > 0) {
     summary.push({ id: rows[0]?.branchId ?? rows[0]?.teamId ?? rows[0]?.id ?? null });
@@ -260,7 +271,8 @@ export function compressLayer(rows, { maxBytes = null } = {}) {
   if (jsonBytes(summary) > limit && summary.length > 0) {
     summary.splice(0, summary.length, { id: summary[0]?.id ?? null });
   }
-  return { rows: summary, inputBytes, outputBytes: jsonBytes(summary), ratio: jsonBytes(summary) > 0 ? Number((inputBytes / jsonBytes(summary)).toFixed(3)) : null };
+  const outputBytes = jsonBytes(summary);
+  return { rows: summary, inputBytes, outputBytes, ratio: outputBytes > 0 ? Number((inputBytes / outputBytes).toFixed(3)) : null };
 }
 
 export function groupCount(activeBranches) {
@@ -308,24 +320,79 @@ export function validateChiefDecision(decision, nodes) {
 
 /** One review tree: L0 reports -> L1 team compression -> one L2 arbiter. */
 export function buildHierarchyReview({ project, nodes = [], now = Date.now() }) {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const present = nodes.filter((node) => !node.archivedAt);
+  const byId = new Map((Array.isArray(nodes) ? nodes : []).map((node) => [node.id, node]));
+  const present = (Array.isArray(nodes) ? nodes : []).filter((node) => !node.archivedAt);
   const active = present.filter((node) => ['planned', 'running', 'proposed'].includes(node.status));
-  const branchIds = [...new Set(present.map((node) => branchIdOf(node.id, byId)))].sort();
-  const activeBranchIds = [...new Set(active.map((node) => branchIdOf(node.id, byId)))].sort();
-  const reports = branchIds.map((branchId) => buildBranchReport({ branchId, nodes, now }));
+
+  // One root lookup per node with path compression. buildBranchReport used to
+  // scan all nodes once per branch (O(branches * nodes)); this pass is O(n) and
+  // produces the branch buckets that buildBranchReport consumes directly.
+  const rootCache = new Map();
+  const rootOf = (nodeId) => {
+    if (rootCache.has(nodeId)) return rootCache.get(nodeId);
+    const path = [];
+    const seen = new Set();
+    let current = nodeId;
+    let root;
+    while (typeof current === 'string' && byId.has(current) && !seen.has(current)) {
+      if (rootCache.has(current)) {
+        root = rootCache.get(current);
+        break;
+      }
+      seen.add(current);
+      path.push(current);
+      const parents = parentIdsOf(byId.get(current));
+      if (parents.length === 0) {
+        root = current;
+        break;
+      }
+      current = parents[0];
+    }
+    if (root === undefined) root = seen.size > 0 ? [...seen][0] : nodeId;
+    for (const id of path) rootCache.set(id, root);
+    rootCache.set(nodeId, root);
+    return root;
+  };
+
+  const branchBuckets = new Map();
+  for (const node of present) {
+    const branchId = rootOf(node.id);
+    if (!branchBuckets.has(branchId)) branchBuckets.set(branchId, []);
+    branchBuckets.get(branchId).push(node);
+  }
+  for (const bucket of branchBuckets.values()) {
+    bucket.sort((a, b) => Number(a.timestamps?.createdAt ?? 0) - Number(b.timestamps?.createdAt ?? 0));
+  }
+  const branchIds = [...branchBuckets.keys()].sort();
+  const activeBranchIds = [...new Set(active.map((node) => rootOf(node.id)))].sort();
+  const reports = branchIds.map((branchId) => buildBranchReport({
+    branchId,
+    bucketNodes: branchBuckets.get(branchId) ?? [],
+    now,
+  }));
   const grouped = groupCount(activeBranchIds.length);
   const branchBytes = jsonBytes(reports);
+  const presentBytes = jsonBytes(present);
   const leadLimit = Math.max(1, Math.floor(branchBytes / LAYER_COMPRESSION));
-  const leadRows = compressLayer(reports, { maxBytes: leadLimit }).rows;
+  const leadCompressed = compressLayer(reports, { maxBytes: leadLimit });
+  const leadRows = leadCompressed.rows;
   const leadBytes = jsonBytes(leadRows);
   const chiefLimit = Math.max(1, Math.floor(leadBytes / LAYER_COMPRESSION));
-  const chiefRows = compressLayer(leadRows, { maxBytes: chiefLimit }).rows;
+  const chiefCompressed = compressLayer(leadRows, { maxBytes: chiefLimit });
+  const chiefRows = chiefCompressed.rows;
   const chiefBytes = jsonBytes(chiefRows);
-  const teams = [];
-  for (let index = 0; index < grouped; index += 1) {
-    teams.push({ teamId: `team-${index + 1}`, level: 'lead', branchIds: activeBranchIds.filter((_, reportIndex) => reportIndex % grouped === index), reports: leadRows });
-  }
+
+  // Group branch ids first, then attach only this team's sampled rows. The old
+  // implementation put the entire leadRows array in every team (N copies).
+  const teamBranchIds = Array.from({ length: grouped }, () => []);
+  activeBranchIds.forEach((branchId, index) => teamBranchIds[index % grouped].push(branchId));
+  const leadRowsById = new Map(leadRows.map((row) => [String(row.id), row]));
+  const teams = teamBranchIds.map((ids, index) => ({
+    teamId: `team-${index + 1}`,
+    level: 'lead',
+    branchIds: ids,
+    reports: ids.map((branchId) => leadRowsById.get(String(branchId))).filter(Boolean),
+  }));
   const layers = [
     { level: 'branch', bytes: branchBytes, rows: reports },
     { level: 'lead', bytes: leadBytes, rows: leadRows },
@@ -344,14 +411,14 @@ export function buildHierarchyReview({ project, nodes = [], now = Date.now() }) 
     for (const nodeId of ids) {
       const node = byId.get(nodeId);
       if (!node) continue;
-      const branchId = branchIdOf(node.id, byId);
+      const branchId = rootOf(node.id);
       if (escalations[branchId] && !escalations[branchId].includes(row.code)) escalations[branchId].push(row.code);
     }
   }
   const reviewedEvents = new Set((Array.isArray(project?.branchReviews) ? project.branchReviews : []).map((row) => row?.eventKey).filter(Boolean));
   const branchEvents = present
     .filter((node) => node.status === 'completed' || node.status === 'failed')
-    .map((node) => ({ nodeId: node.id, branchId: branchIdOf(node.id, byId), eventKey: branchEventKey(node), status: node.status }))
+    .map((node) => ({ nodeId: node.id, branchId: rootOf(node.id), eventKey: branchEventKey(node), status: node.status }))
     .filter((event) => !reviewedEvents.has(event.eventKey));
   const completed = present.filter((node) => node.status === 'completed').length;
   const coveredCompleted = reports.reduce((sum, report) => sum + report.verified.length, 0);
@@ -372,17 +439,23 @@ export function buildHierarchyReview({ project, nodes = [], now = Date.now() }) 
       perLayer: [
         {
           level: 'branch',
-          inputBytes: jsonBytes(present),
+          inputBytes: presentBytes,
           outputBytes: branchBytes,
-          ratio: branchBytes > 0 ? Number((jsonBytes(present) / branchBytes).toFixed(3)) : null,
-          // A one-node branch cannot carry 3x because BranchReport has mandatory
-          // evidence/health fields. Mark that explicitly instead of skipping the
-          // layer silently; validateHierarchyReview still enforces the 3x rule for
-          // every branch whose raw slice is large enough.
-          smallBranch: jsonBytes(present) < BRANCH_SMALL_INPUT_BYTES && jsonBytes(present) < branchBytes * LAYER_COMPRESSION,
+          ratio: branchBytes > 0 ? Number((presentBytes / branchBytes).toFixed(3)) : null,
+          smallBranch: presentBytes < BRANCH_SMALL_INPUT_BYTES && presentBytes < branchBytes * LAYER_COMPRESSION,
         },
-        { level: 'lead', inputBytes: branchBytes, outputBytes: leadBytes, ratio: leadBytes > 0 ? Number((branchBytes / leadBytes).toFixed(3)) : null },
-        { level: 'chief', inputBytes: leadBytes, outputBytes: chiefBytes, ratio: chiefBytes > 0 ? Number((leadBytes / chiefBytes).toFixed(3)) : null },
+        {
+          level: 'lead',
+          inputBytes: branchBytes,
+          outputBytes: leadBytes,
+          ratio: leadBytes > 0 ? Number((branchBytes / leadBytes).toFixed(3)) : null,
+        },
+        {
+          level: 'chief',
+          inputBytes: leadBytes,
+          outputBytes: chiefBytes,
+          ratio: chiefBytes > 0 ? Number((leadBytes / chiefBytes).toFixed(3)) : null,
+        },
       ],
     },
     coverage: {
@@ -399,6 +472,7 @@ export function buildHierarchyReview({ project, nodes = [], now = Date.now() }) 
     nodes: present,
   };
 }
+
 
 
 
