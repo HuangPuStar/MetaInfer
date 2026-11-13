@@ -79,8 +79,19 @@ async function drive(projectId, count, config = {}, dispatchResult = { started: 
     intervalMs: 60_000,
   });
   auto.start(projectId);
-  await new Promise((resolve) => setTimeout(resolve, 80));
-  const status = auto.statusOf(projectId);
+  // Poll for the first tick to settle instead of assuming 80ms is enough: the
+  // suite runs sequentially but the whole npm-test chain keeps the CPU busy, and
+  // a fixed sleep made this test flaky.
+  const deadline = Date.now() + 2_000;
+  let status = auto.statusOf(projectId);
+  while (Date.now() < deadline) {
+    status = auto.statusOf(projectId);
+    const settled = status.cycles > 0 || status.lastPlanSkip !== null || status.lastDispatch !== null
+      || status.pauseReason !== null || status.throttledStreak > 0;
+    if (settled) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.ok(status.cycles > 0 || status.lastPlanSkip !== null || status.lastDispatch !== null || status.pauseReason !== null || status.throttledStreak > 0, 'the auto tick never settled within 2s');
   auto.dispose();
   kernel.dispose();
   return { steps, status, store };
