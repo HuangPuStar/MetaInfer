@@ -1,5 +1,0 @@
-schema_version: 1
-sources:
-  - gemm_champion_engineered.hip
-include_dirs: []
-requested_build_options: {}

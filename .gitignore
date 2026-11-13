@@ -1,20 +1,8 @@
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-.eggs/
-build/
-dist/
-.venv/
-venv/
-env/
-
-# MetaInfer runtime artifacts (per-user, per-task)
-.metainfer/
-state/
-iterations/
-
-# Editor / OS
-.vscode/
-.idea/
+node_modules/
+.dshex-run/
+*.log
 .DS_Store
+Thumbs.db
+
+# Test/runtime scratch
+nodes/

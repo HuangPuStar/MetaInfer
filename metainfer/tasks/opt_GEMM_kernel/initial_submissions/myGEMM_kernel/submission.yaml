@@ -1,5 +1,0 @@
-schema_version: 1
-sources:
-  - myGEMM_kernel.hip
-include_dirs: []
-requested_build_options: {}
