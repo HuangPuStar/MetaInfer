@@ -104,10 +104,12 @@ process.stdout.write(`ok   client.js constant references resolve (${used.size} u
 // mapping are part of the user-facing contract, not optional presentation.
 assert.ok(source.includes("t('ws.operator.missing')"), 'operator credential banner must use ws.operator.missing');
 assert.ok(source.includes('actor_required'), 'the client must map the actor_required error code');
-assert.ok(source.includes('operatorCredentialIssueOf'), 'actor_required/401/403 need one shared client mapping');
-assert.ok(source.includes('__METAINFER_OPERATOR_ISSUED_AT__'), 'the client must read the injected Host issue time');
-assert.ok(source.includes('OPERATOR_RELOAD_MARK') && source.includes('location.reload'), 'actor_required needs one guarded automatic reload');
-process.stdout.write('ok   operator credential banner, actor_required mapping and reload guard are present\n');
+assert.ok(source.includes('operatorCredentialIssueOf'), 'credential failures need one precise shared client mapping');
+assert.ok(source.includes('acquireOperatorCredential'), 'protected requests must acquire current credentials');
+assert.ok(source.includes('x-metainfer-bootstrap') && source.includes('no-store'), 'bootstrap requires the explicit marker and uncached transport');
+assert.ok(!source.includes('OPERATOR_RELOAD_MARK'), 'persistent credential failures must not automatically reload the document');
+assert.ok(!source.includes('health.operatorIssuedAt === issuedAt'), 'same-second issue time is not authority identity');
+process.stdout.write('ok   operator credential banner, precise mapping and uncached current-authority bootstrap are present\n');
 
 // Project shell guard: all seven views share one URL/deep-link contract and
 // the panels are mounted lazily rather than hidden by CSS.
