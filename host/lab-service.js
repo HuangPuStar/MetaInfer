@@ -671,6 +671,21 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return git.validateRepo(repoPath);
   }
 
+  /** Validate and, when needed, initialise or clone a repository. */
+  async function prepareRepo(input) {
+    return git.prepareRepo(input);
+  }
+
+  /** Git availability and installer facts for the wizard. */
+  async function gitStatus() {
+    return git.gitInfo();
+  }
+
+  /** Install Git through the platform installer after explicit consent. */
+  async function installGit(input) {
+    return git.installGit(input);
+  }
+
   async function createProject(input) {
     const name = text(input?.name, 'name', { required: true, max: 120 });
     const brief = text(input?.brief, 'brief', { required: true, max: 8000 });
@@ -6318,6 +6333,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     verifyOperatorToken,
     listProjects,
     validateRepo,
+    prepareRepo,
+    gitStatus,
+    installGit,
     createProject,
     getState,
     getNode,

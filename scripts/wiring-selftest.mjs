@@ -96,9 +96,11 @@ await test('Stage 3-5 surfaces are wired from HTTP through the service and into 
   assert.match(http, /x-metainfer-operator/);
   assert.match(client, /x-metainfer-operator/);
   assert.match(index, /createOperatorAuthority/);
-  assert.match(index, /__METAINFER_OPERATOR_TOKEN__/);
-  assert.match(index, /__METAINFER_OPERATOR_ISSUED_AT__/);
-  assert.match(index, /webserver\/index-inject/);
+  assert.match(index, /registerHttpRoutes\(ctx, service, \{ operatorAuthority \}\)/);
+  assert.doesNotMatch(index, /__METAINFER_OPERATOR_TOKEN__|__METAINFER_OPERATOR_ISSUED_AT__|webserver\/index-inject/);
+  assert.match(http, /\/operator\/credential/);
+  assert.match(http, /owner-bootstrap/);
+  assert.match(http, /admission\?\.peer !== connection\.browserPeer/);
 });
 
 await test('the prompt tells the model to call dag_query, so a tool call really returns rows', async () => {

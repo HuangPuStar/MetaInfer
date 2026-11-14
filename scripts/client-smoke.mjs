@@ -151,7 +151,12 @@ if (typeof components.DashboardPanel === 'function') {
   window.document.body.appendChild(host);
   const root = createRoot(host);
   const savedFetch = globalThis.fetch;
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, init = {}) => {
+    if (String(url).includes('/operator/credential')) {
+      assert.equal(new Headers(init.headers).get('x-metainfer-bootstrap'), '1');
+      assert.equal(init.cache, 'no-store');
+      return { ok: true, status: 200, json: async () => ({ ok: true, data: { token: 'smoke-owner-fixture', issuedAt: 1 } }) };
+    }
     if (String(url).includes('/dashboard')) {
       return {
         ok: true,

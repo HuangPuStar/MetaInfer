@@ -29,8 +29,12 @@ window.__ModuleLoader__.load({
       cluster: 'api/metainfer-research-lab/cluster',
       clusterConfig: 'api/metainfer-research-lab/cluster/config',
       health: 'api/metainfer-research-lab/health',
+      operatorCredential: 'api/metainfer-research-lab/operator/credential',
       projects: 'api/metainfer-research-lab/projects',
       repo: 'api/metainfer-research-lab/repo',
+      repoPrepare: 'api/metainfer-research-lab/repo/prepare',
+      git: 'api/metainfer-research-lab/git',
+      gitInstall: 'api/metainfer-research-lab/git/install',
       state: 'api/metainfer-research-lab/state',
       events: 'api/metainfer-research-lab/events',
       replay: 'api/metainfer-research-lab/replay',
@@ -73,12 +77,11 @@ window.__ModuleLoader__.load({
     const BACKOFF_MS = [1500, 3000, 5000];
     /** Activity log keeps only the newest entries. */
     const MAX_LOG_EVENTS = 200;
-    /** Host-injected browser credential and its Host-process issue time. */
+    /** In-memory compatibility globals; authority comes only from bootstrap. */
     const OPERATOR_TOKEN_GLOBAL = '__METAINFER_OPERATOR_TOKEN__';
     const OPERATOR_ISSUED_AT_GLOBAL = '__METAINFER_OPERATOR_ISSUED_AT__';
-    /** One automatic recovery attempt per tab; the marker prevents reload loops. */
-    const OPERATOR_RELOAD_MARK = 'metainfer:operator-reload';
     const OPERATOR_ISSUE_EVENT = 'metainfer:operator-required';
+    const OPERATOR_READY_EVENT = 'metainfer:operator-ready';
 
     /** DAG canvas geometry (layer = column, one node per row cell). */
     const NODE_W = 208;
@@ -620,6 +623,8 @@ window.__ModuleLoader__.load({
       "wizard.creating": "正在创建…",
       "wizard.error": "创建项目失败",
       "wizard.error.noProject": "Host 未返回项目 id",
+      "wizard.git.install": "自动安装 Git",
+      "wizard.git.installing": "正在安装 Git…",
       "wizard.initialPrompt": "根节点提示词",
       "wizard.initialPrompt.placeholder": "描述根节点要执行的第一个实验、约束与要产出的报告。",
       "wizard.intro": "绑定一个 Git 仓库，为根节点写好实验指令。",
@@ -643,18 +648,51 @@ window.__ModuleLoader__.load({
       "wizard.repo.clean": "工作区干净",
       "wizard.repo.commit": "基准提交",
       "wizard.repo.dirty": "工作区有未提交改动",
-      "wizard.repo.error": "仓库校验失败",
-      "wizard.repo.error.bad_path": "路径无效或不可读",
-      "wizard.repo.error.bare": "不支持裸仓库",
+      "wizard.repo.error": "仓库准备失败",
+      "wizard.repo.error.bad_path": "路径无效：请填写本机目录的绝对路径，或 Git 仓库 URL",
+      "wizard.repo.error.bare": "不支持裸仓库（bare repository）",
+      "wizard.repo.error.git_failed": "Git 操作失败",
+      "wizard.repo.error.git_install_failed": "Git 自动安装失败",
+      "wizard.repo.error.git_install_unconfirmed": "自动安装 Git 需要确认",
+      "wizard.repo.error.git_install_unsupported": "当前系统无法自动安装 Git",
+      "wizard.repo.error.git_missing": "未检测到 Git",
       "wizard.repo.error.invalid_repo": "路径不是有效的 Git 仓库",
-      "wizard.repo.error.no_commits": "仓库还没有任何提交，无法创建项目",
-      "wizard.repo.error.not_git": "目录不是 Git 仓库",
+      "wizard.repo.error.no_commits": "仓库没有可用的提交，自动创建初始提交失败",
+      "wizard.repo.error.not_git": "该目录不是 Git 仓库，且自动初始化失败",
+      "wizard.repo.error.remote_cache_invalid": "本地缓存仓库已损坏",
+      "wizard.repo.error.remote_clone_failed": "克隆远程仓库失败",
+      "wizard.repo.error.remote_credentials_unsupported": "仓库 URL 不能包含账号或访问令牌",
+      "wizard.repo.error.remote_invalid": "无法识别的仓库地址",
+      "wizard.repo.error.repo_init_failed": "无法自动初始化仓库或创建初始提交",
+      "wizard.repo.error.repo_not_found": "目录不存在",
+      "wizard.repo.error.repo_parent_unsafe": "所选目录位于另一个 Git 仓库内",
       "wizard.repo.gitDir": "Git 目录",
+      "wizard.repo.hint.bad_path": "Windows 路径示例：D:\\work\\repo；远程仓库示例：https://github.com/owner/repo。",
+      "wizard.repo.hint.bare": "请选择带工作区的普通仓库。",
+      "wizard.repo.hint.git_failed": "请检查仓库权限与 Git 配置后重试。",
+      "wizard.repo.hint.git_install_failed": "请手动安装 Git 后重启 DSH，再重新验证。",
+      "wizard.repo.hint.git_install_unconfirmed": "请点击「自动安装 Git」并确认安装。",
+      "wizard.repo.hint.git_install_unsupported": "请手动安装：Windows 运行 winget install --id Git.Git -e；macOS 运行 brew install git；Linux 用系统包管理器安装。",
+      "wizard.repo.hint.git_missing": "点击下方「自动安装 Git」，或从 git-scm.com 安装后重试。",
+      "wizard.repo.hint.invalid_repo": "请填写本机已存在的目录，或可访问的仓库 URL。",
+      "wizard.repo.hint.no_commits": "请在该仓库完成一次提交后重试。",
+      "wizard.repo.hint.not_git": "请确认目录可写；也可以在该目录手动执行 git init 与首次提交后重试。",
+      "wizard.repo.hint.remote_cache_invalid": "删除提示中的缓存目录后重试。",
+      "wizard.repo.hint.remote_clone_failed": "请检查地址、网络与访问权限；私有仓库需本机 Git 凭据。",
+      "wizard.repo.hint.remote_credentials_unsupported": "请移除 URL 中的账号、密码或令牌，改用本机 Git 凭据管理器或 SSH。",
+      "wizard.repo.hint.remote_invalid": "支持 https://、ssh://、git@host:owner/repo 与 file://；请使用不含查询参数或页面片段的仓库 URL。",
+      "wizard.repo.hint.repo_init_failed": "请检查目录权限，或手动执行 git init 与 git commit 后重试。",
+      "wizard.repo.hint.repo_not_found": "请先创建该目录，或改用已有目录。",
+      "wizard.repo.hint.repo_parent_unsafe": "请选择现有仓库的根目录，或在仓库之外新建目录，以免改动父仓库。",
+      "wizard.repo.prepared.initialCommit": "已创建初始提交",
+      "wizard.repo.prepared.localInit": "已自动初始化并提交",
+      "wizard.repo.prepared.remoteCache": "已复用本地缓存",
+      "wizard.repo.prepared.remoteClone": "已克隆到本地缓存",
       "wizard.repo.root": "仓库根目录",
-      "wizard.repo.valid": "仓库校验通过",
-      "wizard.repoPath": "仓库路径",
-      "wizard.repoPath.placeholder": "/absolute/path/to/git/repo",
-      "wizard.repoPath.required": "请先填写仓库路径",
+      "wizard.repo.valid": "仓库准备完成",
+      "wizard.repoPath": "仓库路径 / URL",
+      "wizard.repoPath.placeholder": "本地目录绝对路径，或 Git URL（https://github.com/owner/repo）",
+      "wizard.repoPath.required": "请先填写仓库路径或 URL",
       "wizard.required.brief": "请填写研究目标 / 假设",
       "wizard.required.name": "请填写项目名称",
       "wizard.required.prompt": "请填写根节点提示词",
@@ -664,7 +702,7 @@ window.__ModuleLoader__.load({
       "wizard.timeouts": "执行时限（分钟）",
       "wizard.timeouts.hint": "时限到达后由 Host 确定性终止；单节点上限 {max} 分钟。",
       "wizard.title": "新建项目",
-      "wizard.validate": "验证仓库",
+      "wizard.validate": "检查并准备",
       "wizard.validating": "正在验证…",
       "ws.action.cancel": "■ 取消",
       "ws.action.cancelling": "正在取消…",
@@ -1398,8 +1436,8 @@ window.__ModuleLoader__.load({
       "ws.obs.tab.reviews": "评审与策展",
       "ws.obs.tab.timeline": "事件时间线",
       "ws.obs.title": "可观测性",
-      "ws.operator.missing": "当前页面没有写权限凭据（多半是 Host 重启前打开的旧页面），请刷新页面后重试",
-      "ws.operator.nextStep": "请刷新页面，让 Host 重新注入写权限凭据。",
+      "ws.operator.missing": "暂时无法获取写权限凭据。只读页面仍可使用。",
+      "ws.operator.nextStep": "请重试获取当前凭据，再明确重做本次操作；此前的操作不会自动重放。",
       "ws.operator.reload": "刷新",
       "ws.poll.nextRetry": "下一次重试约 {seconds}s 后",
       "ws.poll.offline": "连接中断，正在重试…",
@@ -2209,6 +2247,8 @@ window.__ModuleLoader__.load({
       "wizard.creating": "Creating…",
       "wizard.error": "Could not create the project",
       "wizard.error.noProject": "The Host did not return a project id",
+      "wizard.git.install": "Install Git automatically",
+      "wizard.git.installing": "Installing Git…",
       "wizard.initialPrompt": "Root node prompt",
       "wizard.initialPrompt.placeholder": "Describe the first experiment the root node should run, its constraints and the report it must produce.",
       "wizard.intro": "Bind a Git repository and write the root node instruction.",
@@ -2232,18 +2272,51 @@ window.__ModuleLoader__.load({
       "wizard.repo.clean": "Working tree clean",
       "wizard.repo.commit": "Base commit",
       "wizard.repo.dirty": "Working tree has uncommitted changes",
-      "wizard.repo.error": "Repository validation failed",
-      "wizard.repo.error.bad_path": "The path is invalid or unreadable",
+      "wizard.repo.error": "Repository setup failed",
+      "wizard.repo.error.bad_path": "Invalid path: enter an absolute local directory or a Git repository URL",
       "wizard.repo.error.bare": "Bare repositories are not supported",
+      "wizard.repo.error.git_failed": "A Git command failed",
+      "wizard.repo.error.git_install_failed": "Automatic Git installation failed",
+      "wizard.repo.error.git_install_unconfirmed": "Installing Git requires confirmation",
+      "wizard.repo.error.git_install_unsupported": "Automatic Git installation is not supported on this system",
+      "wizard.repo.error.git_missing": "Git was not found",
       "wizard.repo.error.invalid_repo": "The path is not a valid Git repository",
-      "wizard.repo.error.no_commits": "The repository has no commits yet",
-      "wizard.repo.error.not_git": "The directory is not a Git repository",
+      "wizard.repo.error.no_commits": "The repository has no usable commit; creating the initial commit failed",
+      "wizard.repo.error.not_git": "The directory is not a Git repository and automatic initialisation failed",
+      "wizard.repo.error.remote_cache_invalid": "The local cached clone is damaged",
+      "wizard.repo.error.remote_clone_failed": "Could not clone the remote repository",
+      "wizard.repo.error.remote_credentials_unsupported": "Repository URLs must not contain account credentials or access tokens",
+      "wizard.repo.error.remote_invalid": "Unrecognised repository address",
+      "wizard.repo.error.repo_init_failed": "Could not initialise the repository or create the initial commit",
+      "wizard.repo.error.repo_not_found": "The directory does not exist",
+      "wizard.repo.error.repo_parent_unsafe": "The selected directory is inside another Git repository",
       "wizard.repo.gitDir": "Git directory",
+      "wizard.repo.hint.bad_path": "Windows example: D:\\work\\repo; remote example: https://github.com/owner/repo.",
+      "wizard.repo.hint.bare": "Choose a normal repository with a working tree.",
+      "wizard.repo.hint.git_failed": "Check repository permissions and Git configuration, then retry.",
+      "wizard.repo.hint.git_install_failed": "Install Git manually, restart DSH and validate again.",
+      "wizard.repo.hint.git_install_unconfirmed": "Click “Install Git automatically” and confirm the installation.",
+      "wizard.repo.hint.git_install_unsupported": "Install manually: run winget install --id Git.Git -e on Windows, brew install git on macOS, or use the system package manager on Linux.",
+      "wizard.repo.hint.git_missing": "Click “Install Git automatically” below, or install Git from git-scm.com and retry.",
+      "wizard.repo.hint.invalid_repo": "Enter an existing local directory or a reachable repository URL.",
+      "wizard.repo.hint.no_commits": "Create one commit in the repository, then retry.",
+      "wizard.repo.hint.not_git": "Check that the directory is writable, or run git init and a first commit there, then retry.",
+      "wizard.repo.hint.remote_cache_invalid": "Delete the cache directory shown in the message, then retry.",
+      "wizard.repo.hint.remote_clone_failed": "Check the address, network and access rights; private repositories need local Git credentials.",
+      "wizard.repo.hint.remote_credentials_unsupported": "Remove credentials from the URL and use the local Git credential manager or SSH instead.",
+      "wizard.repo.hint.remote_invalid": "Use https://, ssh://, git@host:owner/repo or file://; repository URLs must not include query parameters or fragments.",
+      "wizard.repo.hint.repo_init_failed": "Check directory permissions, or run git init and git commit manually, then retry.",
+      "wizard.repo.hint.repo_not_found": "Create the directory first, or choose an existing one.",
+      "wizard.repo.hint.repo_parent_unsafe": "Choose the existing repository root, or a new directory outside it, to avoid changing the parent repository.",
+      "wizard.repo.prepared.initialCommit": "Initial commit created",
+      "wizard.repo.prepared.localInit": "Initialised and committed automatically",
+      "wizard.repo.prepared.remoteCache": "Reused the local cache",
+      "wizard.repo.prepared.remoteClone": "Cloned into the local cache",
       "wizard.repo.root": "Repository root",
-      "wizard.repo.valid": "Repository validated",
-      "wizard.repoPath": "Repository path",
-      "wizard.repoPath.placeholder": "/absolute/path/to/git/repo",
-      "wizard.repoPath.required": "Enter a repository path first",
+      "wizard.repo.valid": "Repository ready",
+      "wizard.repoPath": "Repository path / URL",
+      "wizard.repoPath.placeholder": "Absolute local directory, or a Git URL (https://github.com/owner/repo)",
+      "wizard.repoPath.required": "Enter a repository path or URL first",
       "wizard.required.brief": "Enter the research goal / hypothesis",
       "wizard.required.name": "Enter a project name",
       "wizard.required.prompt": "Enter the root node prompt",
@@ -2253,7 +2326,7 @@ window.__ModuleLoader__.load({
       "wizard.timeouts": "Time limits (minutes)",
       "wizard.timeouts.hint": "The Host terminates a node deterministically when its timebox expires; per-node cap {max} minutes.",
       "wizard.title": "New project",
-      "wizard.validate": "Validate repository",
+      "wizard.validate": "Check and prepare",
       "wizard.validating": "Validating…",
       "ws.action.cancel": "■ Cancel",
       "ws.action.cancelling": "Cancelling…",
@@ -2987,8 +3060,8 @@ window.__ModuleLoader__.load({
       "ws.obs.tab.reviews": "Review & curation",
       "ws.obs.tab.timeline": "Event timeline",
       "ws.obs.title": "Observability",
-      "ws.operator.missing": "This page has no write credential (it was probably opened before a Host restart). Reload the page and try again.",
-      "ws.operator.nextStep": "Reload the page so the Host can inject a fresh write credential.",
+      "ws.operator.missing": "The write credential is unavailable. Read-only views remain available.",
+      "ws.operator.nextStep": "Retry to obtain the current credential, then repeat your action explicitly. The previous action will not be replayed.",
       "ws.operator.reload": "Reload",
       "ws.poll.nextRetry": "next retry in ~{seconds}s",
       "ws.poll.offline": "Connection lost — retrying…",
@@ -4159,43 +4232,24 @@ window.__ModuleLoader__.load({
       return Boolean(error) && (error.name === 'AbortError' || error.code === 'ABORT_ERR');
     }
 
-    /** The Host injects this global ahead of the client entry. */
+    /** Compatibility state is memory-only and never authorizes a request. */
     function operatorToken() {
       const token = typeof globalThis === 'undefined' ? '' : globalThis[OPERATOR_TOKEN_GLOBAL];
       return typeof token === 'string' ? token.trim() : '';
     }
 
-    /** The Host also injects the process issue time; absent on older Hosts. */
-    function operatorIssuedAt() {
-      const raw = typeof globalThis === 'undefined' ? null : globalThis[OPERATOR_ISSUED_AT_GLOBAL];
-      const value = Number(raw);
-      return Number.isFinite(value) && value > 0 ? value : null;
-    }
+    let operatorCredentialPromise = null;
+    let operatorCredentialReady = false;
 
-    /** True when an error is the browser credential being absent or stale. */
+    /** Only explicit operator errors imply a credential failure, not all 403s. */
     function operatorCredentialIssueOf(error) {
-      const code = typeof error?.code === 'string' ? error.code : '';
-      const status = Number(error?.status);
-      return code === 'actor_required'
-        || code === 'operator_required'
-        || code === 'operator_invalid'
-        || code === 'unauthorized'
-        || status === 401
-        || status === 403;
+      return ['actor_required', 'operator_required', 'operator_invalid', 'operator_unavailable', 'operator_browser_required'].includes(error?.code);
     }
 
     function nextStepOf(error) {
       return typeof error?.nextStep === 'string' && error.nextStep.trim() !== ''
         ? error.nextStep.trim()
         : '';
-    }
-
-    function operatorStorage() {
-      try {
-        return globalThis.sessionStorage ?? (globalThis.window && globalThis.window.sessionStorage) ?? null;
-      } catch {
-        return null;
-      }
     }
 
     function operatorLocation() {
@@ -4206,61 +4260,83 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function clearOperatorReloadMark() {
-      const storage = operatorStorage();
-      if (storage === null) return;
-      try { storage.removeItem(OPERATOR_RELOAD_MARK); } catch { /* storage is optional */ }
-    }
-
-    /** Reload once per tab. The marker makes a second failure show the banner. */
-    function operatorReloadOnce() {
-      const storage = operatorStorage();
-      if (storage === null) return false;
-      try {
-        if (storage.getItem(OPERATOR_RELOAD_MARK) !== null) return false;
-        storage.setItem(OPERATOR_RELOAD_MARK, String(Date.now()));
-      } catch {
-        return false;
-      }
-      const location = operatorLocation();
-      if (location === null || typeof location.reload !== 'function') return false;
-      try {
-        location.reload();
-        return true;
-      } catch {
-        return false;
-      }
-    }
-
+    /** The only reload path is a deliberate user click. */
     function reloadOperatorPage() {
       const location = operatorLocation();
       if (location === null || typeof location.reload !== 'function') return;
       try { location.reload(); } catch { /* the banner remains visible */ }
     }
 
-    function emitOperatorCredentialIssue(detail) {
+    function emitOperatorCredentialEvent(type) {
       const target = globalThis.window && typeof globalThis.window.dispatchEvent === 'function'
         ? globalThis.window
         : (typeof globalThis.dispatchEvent === 'function' ? globalThis : null);
       const Ctor = (globalThis.window && globalThis.window.CustomEvent) || globalThis.CustomEvent;
       if (target === null || typeof Ctor !== 'function') return;
-      try { target.dispatchEvent(new Ctor(OPERATOR_ISSUE_EVENT, { detail })); } catch { /* banner state is best effort */ }
+      try { target.dispatchEvent(new Ctor(type)); } catch { /* UI state is best effort */ }
     }
 
-    /**
-     * A write was rejected because the page has no fresh Host credential. Show
-     * one actionable banner (never the raw English carrier message) and give the
-     * page exactly one automatic reload to pick up the new Host token.
-     */
-    function noteOperatorCredentialFailure(error = {}) {
-      const detail = {
-        code: typeof error?.code === 'string' ? error.code : 'actor_required',
-        message: typeof error?.message === 'string' ? error.message : '',
-        nextStep: nextStepOf(error),
-        status: Number(error?.status) || 0,
-      };
-      emitOperatorCredentialIssue(detail);
-      operatorReloadOnce();
+    function setOperatorCredential(credential) {
+      for (const target of new Set([globalThis, globalThis.window])) {
+        if (!target) continue;
+        if (credential === null) {
+          delete target[OPERATOR_TOKEN_GLOBAL];
+          delete target[OPERATOR_ISSUED_AT_GLOBAL];
+        } else {
+          target[OPERATOR_TOKEN_GLOBAL] = credential.token;
+          target[OPERATOR_ISSUED_AT_GLOBAL] = credential.issuedAt;
+        }
+      }
+    }
+
+    function noteOperatorCredentialFailure() {
+      operatorCredentialReady = false;
+      setOperatorCredential(null);
+      emitOperatorCredentialEvent(OPERATOR_ISSUE_EVENT);
+    }
+
+    /** Share only a pending fetch. Every later protected request revalidates. */
+    function acquireOperatorCredential(t) {
+      if (operatorCredentialPromise !== null) return operatorCredentialPromise;
+      operatorCredentialPromise = Promise.resolve().then(async () => {
+        const response = await fetch(ROUTES.operatorCredential, {
+          method: 'GET',
+          headers: { accept: 'application/json', 'x-metainfer-bootstrap': '1' },
+          cache: 'no-store',
+        });
+        const payload = await response?.json();
+        const credential = payload?.data;
+        if (!response?.ok || payload?.ok !== true || typeof credential?.token !== 'string' || credential.token.trim() === '' || !Number.isFinite(credential.issuedAt)) {
+          throw new LabRequestError('operator_unavailable', operatorCredentialMessage(t), response?.status);
+        }
+        setOperatorCredential(credential);
+        operatorCredentialReady = true;
+        emitOperatorCredentialEvent(OPERATOR_READY_EVENT);
+        return credential.token;
+      }).catch((error) => {
+        noteOperatorCredentialFailure();
+        throw new LabRequestError('operator_unavailable', operatorCredentialMessage(t), Number(error?.status) || 0);
+      }).finally(() => { operatorCredentialPromise = null; });
+      return operatorCredentialPromise;
+    }
+
+    /** Mounted permission controls react immediately, without a parent poll. */
+    function useOperatorCredential(t) {
+      const [ready, setReady] = React.useState(() => operatorCredentialReady && operatorToken() !== '');
+      React.useEffect(() => {
+        const target = globalThis.window;
+        const onReady = () => setReady(true);
+        const onIssue = () => setReady(false);
+        target?.addEventListener(OPERATOR_READY_EVENT, onReady);
+        target?.addEventListener(OPERATOR_ISSUE_EVENT, onIssue);
+        setReady(operatorCredentialReady && operatorToken() !== '');
+        void acquireOperatorCredential(t).catch(() => {});
+        return () => {
+          target?.removeEventListener(OPERATOR_READY_EVENT, onReady);
+          target?.removeEventListener(OPERATOR_ISSUE_EVENT, onIssue);
+        };
+      }, [t]);
+      return ready;
     }
 
     function operatorCredentialMessage(t) {
@@ -4290,7 +4366,7 @@ window.__ModuleLoader__.load({
     async function requestJson(path, options, t) {
       const settings = options === null || options === undefined ? {} : options;
       const init = {
-        method: settings.method === 'POST' ? 'POST' : 'GET',
+        method: typeof settings.method === 'string' ? settings.method.toUpperCase() : 'GET',
         headers: { accept: 'application/json' },
       };
       if (settings.signal) init.signal = settings.signal;
@@ -4298,11 +4374,17 @@ window.__ModuleLoader__.load({
         init.headers['content-type'] = 'application/json';
         init.body = JSON.stringify(settings.body);
       }
-      // HTTP carries no actor in its body. The Host-issued token is the only
-      // browser credential; send it on every request so mutating GETs such as
-      // /dashboard are gated too. Read routes ignore it.
-      const operator = operatorToken();
-      if (operator !== '') init.headers['x-metainfer-operator'] = operator;
+      // Read-only routes remain usable when bootstrap is unavailable. Dashboard
+      // GET can create/update server state, so it is a protected operation too.
+      const protectedRequest = !['GET', 'HEAD', 'OPTIONS'].includes(init.method)
+        || (init.method === 'GET' && path.split('?')[0] === ROUTES.dashboard);
+      if (settings.signal?.aborted) settings.signal.throwIfAborted();
+      if (protectedRequest) {
+        init.headers['x-metainfer-operator'] = await acquireOperatorCredential(t);
+        // One caller cancelling must not cancel the shared bootstrap, but must
+        // never allow that caller's protected operation to proceed afterwards.
+        if (settings.signal?.aborted) settings.signal.throwIfAborted();
+      }
       const response = await fetch(path, init);
       let payload = null;
       try {
@@ -4321,7 +4403,7 @@ window.__ModuleLoader__.load({
           ? envelopeError.message
           : t('error.unauthorized');
         const nextStep = nextStepOf(envelopeError);
-        noteOperatorCredentialFailure({ code, message, nextStep, status: response?.status });
+        if (operatorCredentialIssueOf({ code })) noteOperatorCredentialFailure();
         throw new LabRequestError(code, message, response?.status, nextStep);
       }
       if (!response?.ok && envelopeError === null) {
@@ -4336,12 +4418,9 @@ window.__ModuleLoader__.load({
           ? envelopeError.message
           : t('error.unknown');
         const nextStep = nextStepOf(envelopeError);
-        if (operatorCredentialIssueOf({ code, status: response?.status })) {
-          noteOperatorCredentialFailure({ code, message, nextStep, status: response?.status });
-        }
+        if (operatorCredentialIssueOf({ code })) noteOperatorCredentialFailure();
         throw new LabRequestError(code, message, response?.status, nextStep);
       }
-      if (init.method === 'POST') clearOperatorReloadMark();
       if (payload?.data !== undefined) return payload?.data;
       const flat = {};
       for (const key of Object.keys(payload)) if (key !== 'ok') flat[key] = payload[key];
@@ -4437,6 +4516,17 @@ window.__ModuleLoader__.load({
       },
       inspectRepo(repoPath, signal, t) {
         return requestJson(ROUTES.repo + '?path=' + encodeURIComponent(repoPath), { signal }, t);
+      },
+      /** Validate and prepare in one step: the Host initialises or clones as needed. */
+      prepareRepo(repoPath, signal, t) {
+        return requestJson(ROUTES.repoPrepare, { method: 'POST', body: { repoPath }, signal }, t);
+      },
+      gitStatus(signal, t) {
+        return requestJson(ROUTES.git, { signal }, t);
+      },
+      /** Installing software always needs an explicit confirmation flag. */
+      installGit(signal, t) {
+        return requestJson(ROUTES.gitInstall, { method: 'POST', body: { confirmed: true }, signal }, t);
       },
       listProjects(signal, t) {
         return requestJson(ROUTES.projects, { signal }, t);
@@ -6280,6 +6370,10 @@ window.__ModuleLoader__.load({
         defaultBranch,
         baseCommit: firstString(record?.baseCommit, record?.commit),
         dirty: record?.dirty === true,
+        // `prepared` tells the wizard the Host did some work for this path.
+        prepared: firstString(record?.prepared, 'existing'),
+        initialized: record?.initialized === true,
+        remote: firstString(record?.remote, ''),
       };
     }
 
@@ -7287,13 +7381,29 @@ window.__ModuleLoader__.load({
       return h('span', { className: 'rl-dot rl-dot-' + status, 'aria-hidden': true });
     }
 
+    /** Host repo error codes the wizard renders with a fixed translation. */
+    const REPO_ERROR_CODES = [
+      'invalid_repo', 'not_git', 'bare', 'bad_path', 'no_commits',
+      'repo_not_found', 'repo_init_failed', 'repo_parent_unsafe', 'remote_invalid', 'remote_clone_failed',
+      'remote_credentials_unsupported',
+      'remote_cache_invalid', 'git_missing', 'git_failed',
+      'git_install_unconfirmed', 'git_install_unsupported', 'git_install_failed',
+    ];
+
     /** Map a Host repo error code to a localized wizard message when known. */
     function localizedRepoError(error, t) {
-      const known = ['invalid_repo', 'not_git', 'bare', 'bad_path', 'no_commits'];
-      if (error instanceof LabRequestError && known.indexOf(error.code) >= 0) {
+      if (error instanceof LabRequestError && REPO_ERROR_CODES.indexOf(error.code) >= 0) {
         return t('wizard.repo.error.' + error.code);
       }
       return describeError(error, t);
+    }
+
+    /** One localized remediation line for a known repo error code ('' when absent). */
+    function repoErrorHint(error, t) {
+      if (!(error instanceof LabRequestError)) return '';
+      const key = 'wizard.repo.hint.' + error.code;
+      const text = t(key);
+      return text === key ? '' : text;
     }
     // #endregion
 
@@ -8428,6 +8538,10 @@ window.__ModuleLoader__.load({
       const [repoPhase, setRepoPhase] = React.useState('idle');
       const [repoInfo, setRepoInfo] = React.useState(null);
       const [repoError, setRepoError] = React.useState('');
+      const [repoHint, setRepoHint] = React.useState('');
+      const [repoErrorCode, setRepoErrorCode] = React.useState('');
+      const [repoNeedsCredential, setRepoNeedsCredential] = React.useState(false);
+      const [gitInstallPhase, setGitInstallPhase] = React.useState('idle');
       const [nameTouched, setNameTouched] = React.useState(false);
       const [pools, setPools] = React.useState(() => {
         const initial = formDefaults.resourcePools && typeof formDefaults.resourcePools === 'object'
@@ -8454,6 +8568,8 @@ window.__ModuleLoader__.load({
         if (!path) {
           setRepoPhase('error');
           setRepoError(t('wizard.repoPath.required'));
+          setRepoHint('');
+          setRepoErrorCode('');
           return;
         }
         if (repoAbortRef.current !== null) repoAbortRef.current.abort();
@@ -8461,9 +8577,14 @@ window.__ModuleLoader__.load({
         repoAbortRef.current = controller;
         setRepoPhase('validating');
         setRepoError('');
+        setRepoHint('');
+        setRepoErrorCode('');
+        setRepoNeedsCredential(false);
         setRepoInfo(null);
         try {
-          const payload = await api.inspectRepo(path, controller.signal, t);
+          // One click: the Host initialises a plain directory or clones a URL,
+          // so the wizard never asks the user to run git themselves.
+          const payload = await api.prepareRepo(path, controller.signal, t);
           const info = normalizeRepoInfo(payload);
           if (!info.repoRoot && info.branches.length === 0) {
             throw new LabRequestError('invalid_repo', t('wizard.repo.error.invalid_repo'));
@@ -8486,6 +8607,32 @@ window.__ModuleLoader__.load({
           if (isAbortError(error)) return;
           setRepoPhase('error');
           setRepoError(localizedRepoError(error, t));
+          setRepoHint(repoErrorHint(error, t));
+          setRepoErrorCode(error instanceof LabRequestError ? error.code : '');
+          setRepoNeedsCredential(operatorCredentialIssueOf(error));
+        }
+      };
+
+      const installGit = async () => {
+        if (gitInstallPhase === 'installing') return;
+        setGitInstallPhase('installing');
+        setRepoError('');
+        setRepoHint('');
+        setRepoErrorCode('');
+        try {
+          await api.installGit(undefined, t);
+          setGitInstallPhase('idle');
+          // Git may only become visible after the installer runs: re-probe by
+          // preparing the same path again instead of asking for a second click.
+          await validateRepo();
+        } catch (error) {
+          if (isAbortError(error)) return;
+          setGitInstallPhase('idle');
+          setRepoPhase('error');
+          setRepoError(localizedRepoError(error, t));
+          setRepoHint(repoErrorHint(error, t));
+          setRepoErrorCode(error instanceof LabRequestError ? error.code : '');
+          setRepoNeedsCredential(operatorCredentialIssueOf(error));
         }
       };
 
@@ -8558,13 +8705,15 @@ window.__ModuleLoader__.load({
           onCreated(createdId);
         } catch (error) {
           if (isAbortError(error)) return;
-          setCreateError(describeError(error, t));
+          setCreateError(localizedRepoError(error, t));
           setCreatePhase('idle');
         }
       };
 
       const validating = repoPhase === 'validating';
       const creating = createPhase === 'creating';
+      const installingGit = gitInstallPhase === 'installing';
+      const canInstallGit = repoErrorCode === 'git_missing' || repoErrorCode === 'git_install_failed';
       let branchOptions = [];
       if (repoInfo !== null) {
         const branches = repoInfo.branches.length > 0
@@ -8645,6 +8794,8 @@ window.__ModuleLoader__.load({
                   if (repoPhase !== 'idle') setRepoPhase('idle');
                   if (repoInfo !== null) setRepoInfo(null);
                   if (repoError) setRepoError('');
+                  if (repoHint) setRepoHint('');
+                  if (repoErrorCode) setRepoErrorCode('');
                 },
               }),
               h(LabButton, {
@@ -8657,9 +8808,36 @@ window.__ModuleLoader__.load({
           ),
           repoPhase === 'error'
             ? h(
-                'p',
-                { className: 'rl-error-text', role: 'alert' },
-                t('wizard.repo.error') + ': ' + repoError,
+                'div',
+                { className: 'rl-repo-error' },
+                h(
+                  'p',
+                  { className: 'rl-error-text', role: 'alert' },
+                  t('wizard.repo.error') + ': ' + repoError,
+                ),
+                repoHint ? h('p', { className: 'rl-hint rl-repo-hint' }, repoHint) : null,
+                repoNeedsCredential
+                  ? h(LabButton, {
+                      label: t('common.retry'),
+                      variant: 'primary',
+                      onClick: () => {
+                        void acquireOperatorCredential(t).then(() => {
+                          setRepoNeedsCredential(false);
+                          setRepoPhase('idle');
+                          setRepoError('');
+                          setRepoHint('');
+                        }).catch(() => {});
+                      },
+                    })
+                  : null,
+                canInstallGit
+                  ? h(LabButton, {
+                      label: installingGit ? t('wizard.git.installing') : t('wizard.git.install'),
+                      variant: 'ghost',
+                      disabled: installingGit,
+                      onClick: installGit,
+                    })
+                  : null,
               )
             : null,
           repoInfo !== null
@@ -8672,6 +8850,10 @@ window.__ModuleLoader__.load({
                   h('span', { className: 'rl-chip' }, t('wizard.repo.valid')),
                   h('span', { className: 'rl-chip' }, t('wizard.repo.branches', { count: repoInfo.branches.length })),
                   h('span', { className: 'rl-chip' }, repoInfo.dirty ? t('wizard.repo.dirty') : t('wizard.repo.clean')),
+                  repoInfo.prepared === 'local-init' ? h('span', { className: 'rl-chip' }, t('wizard.repo.prepared.localInit')) : null,
+                  repoInfo.prepared === 'remote-clone' ? h('span', { className: 'rl-chip' }, t('wizard.repo.prepared.remoteClone')) : null,
+                  repoInfo.prepared === 'remote-cache' ? h('span', { className: 'rl-chip' }, t('wizard.repo.prepared.remoteCache')) : null,
+                  repoInfo.initialized ? h('span', { className: 'rl-chip' }, t('wizard.repo.prepared.initialCommit')) : null,
                 ),
                 h(LabInfoRow, { label: t('wizard.repo.root'), value: repoInfo.repoRoot }),
                 repoInfo.gitDir ? h(LabInfoRow, { label: t('wizard.repo.gitDir'), value: repoInfo.gitDir, mono: true }) : null,
@@ -9552,8 +9734,12 @@ window.__ModuleLoader__.load({
           setDashboard(data);
           setWidgets(asArray(data?.widgets));
           setError('');
+          return true;
         } catch (reason) {
           setError(describeError(reason, t));
+          // This GET may mutate server state. A rejected operation must wait
+          // for explicit user recovery, not an automatic polling replay.
+          return false;
         }
       }, [projectId, t]);
       React.useEffect(() => {
@@ -9562,8 +9748,8 @@ window.__ModuleLoader__.load({
         let timer = null;
         const tick = async () => {
           if (cancelled) return;
-          await load();
-          if (!cancelled) timer = setTimeout(tick, 5000);
+          const loaded = await load();
+          if (!cancelled && loaded) timer = setTimeout(tick, 5000);
         };
         void tick();
         return () => { cancelled = true; if (timer !== null) clearTimeout(timer); };
@@ -17310,59 +17496,25 @@ window.__ModuleLoader__.load({
       return h('li', { className: 'rl-log-list-item' }, h('div', { className: 'rl-log-row' }, content));
     }
 
-    /**
-     * Persistent top banner for the browser write credential. The page checks at
-     * mount (missing token), compares the injected Host issue time with /health
-     * (stale page after a Host restart), and also listens for the request-layer
-     * actor_required signal. It never shows the raw carrier English.
-     */
+    /** Persistent, localised credential recovery; never replays an operation. */
     function OperatorCredentialBanner({ t }) {
-      const [issue, setIssue] = React.useState(() => (operatorToken() === '' ? 'missing' : ''));
-      React.useEffect(() => {
-        const target = globalThis.window && typeof globalThis.window.addEventListener === 'function'
-          ? globalThis.window
-          : null;
-        if (target === null) return undefined;
-        const onIssue = () => setIssue((previous) => (previous === 'missing' ? 'missing' : 'stale'));
-        target.addEventListener(OPERATOR_ISSUE_EVENT, onIssue);
-        return () => target.removeEventListener(OPERATOR_ISSUE_EVENT, onIssue);
-      }, []);
-      React.useEffect(() => {
-        if (operatorToken() === '') return undefined;
-        const injectedAt = operatorIssuedAt();
-        if (injectedAt === null) return undefined;
-        let active = true;
-        Promise.resolve()
-          .then(() => api.health(undefined, t))
-          .then((health) => {
-            if (!active) return;
-            const currentAt = Number(health?.operatorIssuedAt);
-            if (!Number.isFinite(currentAt) || currentAt <= 0) return;
-            if (currentAt === injectedAt) {
-              // This page and the Host are from the same process. Any earlier
-              // reload marker is now spent, so a later Host restart can recover
-              // this tab automatically again.
-              clearOperatorReloadMark();
-              return;
-            }
-            setIssue('stale');
-            noteOperatorCredentialFailure({
-              code: 'actor_required',
-              message: 'the page operator credential belongs to an older Host process',
-              nextStep: 'reload the owner page so the Host can inject the operator token',
-              status: 0,
-            });
-          })
-          .catch(() => { /* a read failure must not replace the page error path */ });
-        return () => { active = false; };
-      }, [t]);
-      if (issue === '') return null;
+      const ready = useOperatorCredential(t);
+      const [busy, setBusy] = React.useState(false);
+      const retry = async () => {
+        if (busy) return;
+        setBusy(true);
+        try { await acquireOperatorCredential(t); }
+        catch { /* the localised banner remains; reads stay available */ }
+        finally { setBusy(false); }
+      };
+      if (ready) return null;
       return h(
         'div',
-        { className: 'rl-banner', role: 'alert', 'data-testid': 'operator-credential-banner', 'data-operator-issue': issue },
+        { className: 'rl-banner', role: 'alert', 'data-testid': 'operator-credential-banner' },
         h('span', { className: 'rl-banner-dot', 'aria-hidden': true }),
-        h('span', { className: 'rl-banner-text' }, t('ws.operator.missing')),
-        h(LabButton, { label: t('ws.operator.reload'), variant: 'primary', onClick: reloadOperatorPage }),
+        h('span', { className: 'rl-banner-text' }, operatorCredentialMessage(t)),
+        h(LabButton, { label: busy ? t('common.loading') : t('common.retry'), variant: 'primary', disabled: busy, onClick: retry }),
+        h(LabButton, { label: t('ws.operator.reload'), variant: 'ghost', onClick: reloadOperatorPage }),
       );
     }
 
@@ -18566,9 +18718,10 @@ window.__ModuleLoader__.load({
     }
 
     function DisputeTablePanel({ projectId, t }) {
-      const [snapshot, setSnapshot] = React.useState({ loading: true, rows: [], classes: {}, error: '', busy: '', failed: {} });
+      const operatorReady = useOperatorCredential(t);
+      const [snapshot, setSnapshot] = React.useState({ loading: true, rows: [], classes: {}, error: '', credentialError: false, busy: '', failed: {} });
       const load = React.useCallback(async (signal) => {
-        setSnapshot((previous) => ({ ...previous, loading: previous.rows.length === 0, error: '' }));
+        setSnapshot((previous) => ({ ...previous, loading: previous.rows.length === 0, error: '', credentialError: false }));
         const [rowsResult, classesResult] = await Promise.allSettled([
           api.fetchDisputes(projectId, signal, t),
           api.fetchDisputeClasses(projectId, signal, t),
@@ -18582,6 +18735,7 @@ window.__ModuleLoader__.load({
           rows: rowsResult.status === 'fulfilled' ? asArray(asObject(rowsResult.value).disputes) : previous.rows,
           classes: classesResult.status === 'fulfilled' ? asObject(asObject(classesResult.value).classes) : previous.classes,
           error: rejected.length > 0 ? describeError(rejected[0].reason, t) : '',
+          credentialError: false,
           busy: '',
           failed,
         }));
@@ -18591,9 +18745,16 @@ window.__ModuleLoader__.load({
         void load(controller.signal);
         return () => controller.abort();
       }, [load]);
+      React.useEffect(() => {
+        if (operatorReady && snapshot.credentialError) {
+          setSnapshot((previous) => previous.credentialError
+            ? { ...previous, error: '', credentialError: false }
+            : previous);
+        }
+      }, [operatorReady, snapshot.credentialError]);
       const resolve = async (row, resolution) => {
         if (!row?.id || snapshot.busy) return;
-        setSnapshot((previous) => ({ ...previous, busy: row.id, error: '' }));
+        setSnapshot((previous) => ({ ...previous, busy: row.id, error: '', credentialError: false }));
         try {
           await api.arbitrateDispute(projectId, undefined, t, {
             disputeId: row.id,
@@ -18603,16 +18764,15 @@ window.__ModuleLoader__.load({
           await load(undefined);
           setSnapshot((previous) => ({ ...previous, busy: '' }));
         } catch (reason) {
-          setSnapshot((previous) => ({ ...previous, busy: '', error: describeError(reason, t) }));
+          setSnapshot((previous) => ({ ...previous, busy: '', error: describeError(reason, t), credentialError: operatorCredentialIssueOf(reason) }));
         }
       };
       const resolved = snapshot.rows.filter((row) => row?.status === 'resolved');
       const pending = snapshot.rows.filter((row) => row?.status === 'pending');
       const failed = asObject(snapshot.failed);
-      const operatorReady = operatorToken() !== '';
       const head = h('div', { className: 'rl-card-head' },
         h('h3', { className: 'rl-card-title' }, 'Dispute table'),
-        h('span', { className: 'rl-card-meta' }, snapshot.error !== ''
+        h('span', { className: 'rl-card-meta' }, failed.rows
           ? 'dispute counts unavailable'
           : `${snapshot.rows.length} disputes · ${pending.length} pending · ${resolved.length} resolved`),
         h(LabButton, { label: 'Retry', variant: 'ghost', disabled: snapshot.loading, onClick: () => { const controller = new AbortController(); void load(controller.signal); } }));
@@ -18628,7 +18788,7 @@ window.__ModuleLoader__.load({
         failed.classes
           ? h('p', { className: 'rl-hint' }, 'Class map unavailable until /disputes/classes succeeds.')
           : h('p', { className: 'rl-hint' }, 'Eight classes: ' + Object.keys(snapshot.classes).join(', ') + ' · default action keep_current'),
-        failed.rows || snapshot.error !== ''
+        failed.rows
           ? null
           : snapshot.rows.length === 0
           ? h('p', { className: 'rl-hint' }, 'No appeal or dispute has been opened.')
@@ -19174,6 +19334,8 @@ window.__ModuleLoader__.load({
           'metainfer-research-lab: dictionaries',
         );
         const t = ctx.locale.bind(NS);
+        // Late activation/reapply cannot rely on an old page-injection snapshot.
+        void acquireOperatorCredential(t).catch(() => {});
         const openNativeSession = buildNativeOpener(ctx);
         /** Open a node worktree in DSH's native file sidebar (files + document preview plugins). */
         const openNativeFiles = (sessionId, context) => {
@@ -19303,6 +19465,7 @@ window.__ModuleLoader__.load({
     if (typeof window !== 'undefined' && window.__METAINFER_TEST__ === true) {
       exported.__components = {
         LandingScreen,
+        CreateProjectWizard,
         MetainferLabPage,
         ProjectTabBar,
         ProjectTabPanel,
