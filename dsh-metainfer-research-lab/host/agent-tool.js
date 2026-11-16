@@ -70,6 +70,7 @@ export function registerAgentTool(ctx, service) {
         action: { type: 'string', enum: ACTION_ENUM },
         projectId: { type: 'string' },
         nodeId: { type: 'string' },
+        timeboxMinutes: { type: 'integer', minimum: 1, maximum: 1440, description: 'for update_node: total minutes for the current run, or the next execution when stopped; project limit also applies' },
         text: { type: 'string', description: 'message text for message_node, or natural-language placement policy for compile_placement' },
         afterSeq: { type: 'number', description: 'transcript cursor' },
         config: { type: 'object', additionalProperties: true, description: 'config object: project config for create_project/update_project, cluster config patch for cluster_config_update' },

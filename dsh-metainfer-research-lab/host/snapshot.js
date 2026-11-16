@@ -16,9 +16,49 @@ function truncate(value, limit) {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
+/** Select only current evidence; old structured reports remain historical data. */
+function reportEvidence(node) {
+  let report = node?.report && typeof node.report === 'object' ? node.report : null;
+  let reportText = typeof node?.reportText === 'string' ? node.reportText : '';
+  let updatedAt = node?.reportUpdatedAt ?? null;
+  if (node?.reportSource === 'followUp') {
+    report = null;
+  } else if (!['activation', 'merge'].includes(node?.reportSource)) {
+    // Legacy follow-ups did not clear report or write a source marker. Only use
+    // the last follow-up when its text and head still match, not forever after
+    // any follow-up (a later activation/merge may have produced a fresh report).
+    const last = Array.isArray(node?.followUps) ? node.followUps.at(-1) : null;
+    const laterActivation = last && (
+      Number(node.timestamps?.startedAt ?? 0) > Number(last.at ?? 0)
+      || (node.attempts ?? []).some((attempt) => Number(attempt.startedAt ?? 0) > Number(last.at ?? 0)
+        || Number(attempt.endedAt ?? 0) > Number(last.at ?? 0))
+      || Number(node.merge?.committedAt ?? 0) > Number(last.at ?? 0)
+    );
+    if (last?.assistant && typeof last.assistant === 'string'
+      && last.headCommit && last.headCommit === node.git?.headCommit
+      && (!reportText || last.assistant.trim() === reportText.trim()) && !laterActivation) {
+      report = null;
+      reportText = reportText || last.assistant;
+      updatedAt = last.at ?? null;
+    }
+  }
+  return { report, reportText, updatedAt };
+}
+
+/** Read-only projection shared by snapshots, API views and worker context. */
+export function nodeReportView(node) {
+  const { report, reportText } = reportEvidence(node);
+  return { report, reportText };
+}
+
+/** Identity of the selected evidence, never of an ignored historical report. */
+export function reportVersion(node) {
+  return createHash('sha256').update(JSON.stringify(reportEvidence(node))).digest('hex');
+}
+
 function reportSummary(node) {
-  if (!node.report) return node.reportText ? truncate(node.reportText, MAX_REPORT) : '';
-  const report = node.report;
+  const { report, reportText } = nodeReportView(node);
+  if (!report) return reportText ? truncate(reportText, MAX_REPORT) : '';
   const metrics = Array.isArray(report.metrics)
     ? report.metrics.slice(0, 6).map((metric) => `${metric.name}=${metric.value}${metric.unit ? ` ${metric.unit}` : ''}`).join(', ')
     : '';
@@ -121,6 +161,7 @@ function clusterSummary(cluster, project, running) {
 }
 
 function nodeSummary(node, kind, children) {
+  const { report, reportText } = nodeReportView(node);
   return {
     id: node.id,
     title: node.title,
@@ -128,20 +169,22 @@ function nodeSummary(node, kind, children) {
     status: node.status,
     headCommit: node.git?.headCommit ?? null,
     prompt: truncate(node.prompt, MAX_PROMPT),
-    report: node.report
+    report: report
       ? {
-          summary: truncate(node.report.summary, MAX_REPORT),
-          metrics: (node.report.metrics ?? []).slice(0, 8),
-          success: node.report.success ?? null,
-          next: (node.report.next ?? []).slice(0, 5),
+          summary: truncate(report.summary, MAX_REPORT),
+          metrics: (report.metrics ?? []).slice(0, 8),
+          success: report.success ?? null,
+          next: (report.next ?? []).slice(0, 5),
         }
-      : node.reportText
-        ? { summary: truncate(node.reportText, MAX_REPORT) }
+      : reportText
+        ? { summary: truncate(reportText, MAX_REPORT) }
         : null,
+    reportVersion: reportVersion(node),
     needs: node.needs ?? {},
     timeboxMinutes: Math.round((node.timeboxMs ?? 600_000) / 60_000),
     children: children.get(node.id)?.length ?? 0,
     reviewedHeadCommit: node.review?.reviewedHeadCommit ?? null,
+    reviewedReportVersion: node.review?.reviewedReportVersion ?? null,
   };
 }
 

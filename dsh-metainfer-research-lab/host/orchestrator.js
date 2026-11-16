@@ -673,8 +673,8 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     return node;
   }
 
-  async function applyAdvisorOutput(projectId, cycle, output) {
-    const applied = { createdNodeIds: [], rejected: [] };
+  async function applyAdvisorOutput(projectId, cycle, output, inputSnapshot) {
+    const applied = { createdNodeIds: [], rejected: [], needUserDecision: false };
     if (!output || typeof output !== 'object') {
       applied.rejected.push({ reason: 'advisor run had no structured output' });
       return applied;
@@ -706,11 +706,18 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       }
     }
     await store.withProjectLock(projectId, async () => {
-      // Candidate parents are frozen for this pass: creating the first child seals
-      // the parent, but later proposals from the same advisor answer may still
-      // branch from that same (now frozen) parent commit.
+      // Review exactly the evidence sent to the advisor, not a newer same-head
+      // report that arrived while the role was running. The accepted set stays
+      // fixed while sibling proposals from this same answer seal their parent.
       let project = requireProject(projectId);
-      const candidateIds = new Set(advisorCandidates(store, project).keys());
+      const frozen = new Map(inputSnapshot.candidateParents.map((candidate) => [candidate.id, candidate]));
+      const unchanged = (candidate) => {
+        const original = frozen.get(candidate.id);
+        return original && original.headCommit === candidate.headCommit
+          && original.reportVersion === candidate.reportVersion;
+      };
+      const candidateIds = new Set([...advisorCandidates(store, project).values()]
+        .filter(unchanged).map((candidate) => candidate.id));
       const max = project.config.advisor?.maxProposalsPerPass ?? 3;
       const extra = proposals.slice(max);
       for (const proposal of extra) {
@@ -756,7 +763,8 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
           if (parent) {
             parent.review = {
               reviewedAt: Date.now(),
-              reviewedHeadCommit: parent.git?.headCommit ?? null,
+              reviewedHeadCommit: frozen.get(parent.id).headCommit,
+              reviewedReportVersion: frozen.get(parent.id).reportVersion,
               runId: cycle.advisorRunId,
               decision: 'proposed',
             };
@@ -773,20 +781,26 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       // Mark remaining candidate leaves as reviewed without new nodes.
       const reviewedParents = new Set(proposals.map((proposal) => proposal?.parentId));
       project = requireProject(projectId);
-      const nodes = store.listNodes(projectId);
       const candidates = advisorCandidates(store, project);
       for (const candidate of candidates.values()) {
-        if (candidate.kind !== 'leaf' || reviewedParents.has(candidate.id)) continue;
+        if (candidate.kind !== 'leaf' || reviewedParents.has(candidate.id) || !unchanged(candidate)) continue;
         const node = store.getNode(projectId, candidate.id);
         if (!node) continue;
         node.review = {
           reviewedAt: Date.now(),
-          reviewedHeadCommit: node.git?.headCommit ?? null,
+          reviewedHeadCommit: frozen.get(node.id).headCommit,
+          reviewedReportVersion: frozen.get(node.id).reportVersion,
           runId: cycle.advisorRunId,
           decision: 'none',
         };
         await store.saveNode(projectId, node);
       }
+      // An old answer may ask for a decision, but it cannot pause a newer leaf
+      // that this review never saw (or newer evidence on the same commit).
+      applied.needUserDecision = output.needUserDecision === true
+        && [...advisorCandidates(store, requireProject(projectId)).values()].every((candidate) => candidate.kind !== 'leaf'
+          || (candidate.reviewedHeadCommit === candidate.headCommit
+            && candidate.reviewedReportVersion === candidate.reportVersion));
     });
     return applied;
   }
@@ -841,7 +855,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
         reason: completed.length === 0 ? 'no completed nodes to review' : 'no actionable candidate parents',
       });
     } else {
-      const snapshot = buildAdvisorSnapshot(store, project);
+      const snapshot = structuredClone(buildAdvisorSnapshot(store, project, cluster));
       const reviewers = Array.isArray(project.config.advisor?.reviewers) ? project.config.advisor.reviewers : [];
       try {
         const runs = reviewers.length > 0
@@ -875,7 +889,8 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
           const merged = reviewers.length > 0
             ? mergeAdvisorOutputs(project, successful.map((run) => run.record.output))
             : successful[0].record.output;
-          const applied = await applyAdvisorOutput(projectId, cycle, merged);
+          const applied = await applyAdvisorOutput(projectId, cycle, merged, snapshot);
+          cycle.needUserDecision = applied.needUserDecision;
           cycle.createdNodeIds.push(...applied.createdNodeIds);
           successful.forEach((run, index) => {
             run.record.createdNodeIds = index === 0 ? applied.createdNodeIds : [];
@@ -945,6 +960,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       started: cycle.startedNodeIds,
       skipped: cycle.skipped,
       errors: cycle.errors,
+      needUserDecision: cycle.needUserDecision === true,
     };
   }
 
