@@ -6,3 +6,7 @@ Thumbs.db
 
 # Test/runtime scratch
 nodes/
+
+# Python bytecode (sandbox/ offline suites)
+__pycache__/
+*.pyc

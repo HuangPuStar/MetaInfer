@@ -1,0 +1,1 @@
+{"schemaVersion":1,"profile":"pclab27","catalogSha256":"9a16f2a98196c7b5b51e70589c8f669ee7363ae37ddd584c91b1f46828f0d0e0","poolId":"pclab27-dcu-0-3","serverId":"pclab27-safe-dcu","owner":"metainfer-pclab27","image":"sha256:94a6bd36f4d857c24d240e0d010ce07c922ec47ea711bce179a35bbdc266fc94","mount":{"target":"/data","uuid":"4768d52c-06ef-4f19-9286-c4e352502a52"}}
