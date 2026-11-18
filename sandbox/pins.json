@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "note": "codeSha256 pins mirror host/sandbox-targets.js; config/targets-catalog.json is the Host catalog byte-copy.",
+  "sites": {
+    "pclab19": {
+      "root": "/mnt/newdata/metainfer-opensandbox-19-20261113",
+      "files": {
+        "bridge.py": "5cfed6d84a7e2ddfa071eac6c91965c8e655e23760c6c8110b0ee1e0d9104176",
+        "adapter/dcu_adapter.py": "915841e1218269f855c715dc83164de11a6c0cebf6fbd85eda4e2d14d5e7301f",
+        "adapter/launch.py": "b3f0b0890a3aae9c6ef2e5d95f686ed046811261f92c075482b1d785d38fd55a",
+        "remote-runtime/target_config.py": "f49a43317106ccae7a32cb2844c185105cb7c3a63cec326d098431a3ea4e2612"
+      },
+      "configCatalogSha256": "6eed8c85ae2dc996da80c1683ead77f07f2f60964e975d37d1144b049a60445f"
+    },
+    "pclab27": {
+      "root": "/data/opensandbox-cluster-metainfer-20261111",
+      "files": {
+        "bridge.py": "5cfed6d84a7e2ddfa071eac6c91965c8e655e23760c6c8110b0ee1e0d9104176",
+        "adapter/dcu_adapter.py": "9da017a569141fc10f814187c2abddfea2580dac0c9276b510045dfad464113e",
+        "adapter/launch.py": "3948d127d5b5dac7439279d048eb5f1ef458ed6dee65ef28dc478db0f3122ce8",
+        "remote-runtime/target_config.py": "1f3906a06fea16c81494c9d3ac2ea845a0daf1ed1c35961f289b73ef78b7f8bd"
+      },
+      "configCatalogSha256": "9a16f2a98196c7b5b51e70589c8f669ee7363ae37ddd584c91b1f46828f0d0e0"
+    }
+  }
+}

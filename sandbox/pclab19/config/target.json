@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "profile": "pclab19",
+  "catalogSha256": "6eed8c85ae2dc996da80c1683ead77f07f2f60964e975d37d1144b049a60445f",
+  "poolId": "pclab2-node19-dcu-4-7",
+  "serverId": "pclab19-safe-dcu",
+  "owner": "metainfer-pclab19",
+  "image": "sha256:2ad719884561ec37de050545f81567f76d69d46dc4436a3208786785e138591e",
+  "mount": {
+    "target": "/mnt/newdata",
+    "uuid": "07f1fad3-38d7-49ae-8714-91a437b0d852"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "pclab27": {
+      "sshAlias": "pclab",
+      "remoteRoot": "/data/opensandbox-cluster-metainfer-20261111",
+      "python": "/data/opensandbox-cluster-metainfer-20261111/venv/bin/python",
+      "devices": [
+        {
+          "render": "/dev/dri/renderD128",
+          "bdf": "0000:09:00.0"
+        },
+        {
+          "render": "/dev/dri/renderD129",
+          "bdf": "0000:36:00.0"
+        }
+      ]
+    }
+  }
+}
