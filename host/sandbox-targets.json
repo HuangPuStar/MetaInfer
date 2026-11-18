@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "pclab27": {
+      "sshAlias": "pclab",
+      "remoteRoot": "/data/metainfer-opensandbox-20261111",
+      "python": "/data/opensandbox-cluster-metainfer-20261111/venv/bin/python",
+      "devices": [
+        {
+          "render": "/dev/dri/renderD128",
+          "bdf": "0000:09:00.0"
+        },
+        {
+          "render": "/dev/dri/renderD129",
+          "bdf": "0000:36:00.0"
+        },
+        {
+          "render": "/dev/dri/renderD130",
+          "bdf": "0000:55:00.0"
+        },
+        {
+          "render": "/dev/dri/renderD131",
+          "bdf": "0000:77:00.0"
+        }
+      ]
+    },
+    "pclab19": {
+      "sshAlias": "pclab2",
+      "remoteRoot": "/mnt/newdata/metainfer-opensandbox-19-20261113",
+      "python": "/mnt/newdata/metainfer-opensandbox-19-20261113/venv/bin/python",
+      "devices": [
+        {
+          "render": "/dev/dri/renderD132",
+          "bdf": "0000:85:00.0"
+        },
+        {
+          "render": "/dev/dri/renderD133",
+          "bdf": "0000:b5:00.0"
+        },
+        {
+          "render": "/dev/dri/renderD134",
+          "bdf": "0000:d5:00.0"
+        },
+        {
+          "render": "/dev/dri/renderD135",
+          "bdf": "0000:f5:00.0"
+        }
+      ]
+    }
+  }
+}

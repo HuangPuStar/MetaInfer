@@ -28,7 +28,15 @@ import { createKernel } from './host/kernel/instance.js';
 import { createDispatchOnce } from './host/dispatch/dispatch-once.js';
 import { usageBySourceOf } from './host/kernel/priority.js';
 import { createOperatorAuthority } from './host/operator-token.js';
-import { createLocalPoolBroker, createClusterBroker } from './host/dispatch/brokers.js';
+import { createLocalPoolBroker, createClusterBroker, createSandboxAdmissionBroker } from './host/dispatch/brokers.js';
+import { createHostBudget } from './host/dispatch/host-budget.js';
+import { createHostBudgetWriter } from './host/dispatch/host-budget-writer.js';
+import { createBudgetBroker } from './host/dispatch/budget-broker.js';
+import { createHostAdmission } from './host/dispatch/host-admission.js';
+import { createSandboxBackend } from './host/sandbox-backend.js';
+import { createBindingWriter } from './host/sandbox-binding.js';
+import { createSandboxWorkerPolicy, SANDBOX_PRESET } from './host/sandbox-worker.js';
+import { createSandboxRuntime } from './host/sandbox-runtime.js';
 import { assertModelSchemas } from './host/model-schemas.js';
 import { assertRolePresets } from './host/role-presets.js';
 
@@ -74,10 +82,9 @@ export async function apply(ctx, config = {}) {
   // Fail plugin boot, not the L1 lead stage, when a model-facing schema uses
   // a keyword the provider's structured-output subset rejects.
   assertModelSchemas();
-  // Preset ids are executable references too. Resolve every role preset now,
-  // while the bundle's preset rows are registered, instead of discovering an
-  // unknown id after L0 has already failed.
-  await assertRolePresets(ctx.agentPresets);
+  // Registry settlement can await this Host's Loader. Never resolve inside
+  // our own activation; validate executable references on admitted starts.
+  let activationComplete = false;
   const cfg = config && Object.keys(config).length ? config : readCtxConfig(ctx);
   const store = await openStore(ctx, config);
   // Fail loud when the v2 domain has never been migrated and a v1 domain with
@@ -120,35 +127,61 @@ export async function apply(ctx, config = {}) {
   let gcRunner = null;
   // One long-lived broker map per project: leases must survive across ticks.
   const brokerMaps = new Map();
-  function brokersFor(projectId) {
-    let map = brokerMaps.get(projectId);
-    if (map) return map;
-    map = new Map();
-    map.set('local-pool', createLocalPoolBroker({
-      limits: () => {
-        const project = store.getProject(projectId);
-        return {
-          maxRunningNodes: project?.config?.maxRunningNodes ?? Infinity,
-          resourcePools: project?.config?.resourcePools ?? {},
-        };
-      },
-    }));
-    if (cluster?.enabled === true) map.set('cluster', createClusterBroker({ cluster }));
-    brokerMaps.set(projectId, map);
-    return map;
+  const readNode = (projectId, nodeId) => {
+    const node = store.getNode(projectId, nodeId); return node ? structuredClone(node) : null;
+  };
+  const commitBinding = createBindingWriter({ store, kernel });
+  const sandboxBackend = createSandboxBackend({ ctx, readNode, commitBinding });
+  const sandboxPolicy = createSandboxWorkerPolicy({ ctx, backend: sandboxBackend, commitBinding,
+    readOwner: (sessionId) => {
+      const owners = store.listProjects().flatMap(project => store.listNodes(project.id)
+        .filter(node => node.sessionId === sessionId && node.execution?.sandboxProfile)
+        .map(node => ({ project: structuredClone(project), node: structuredClone(node) })));
+      return owners.length === 1 ? owners[0] : null;
+    } });
+  ctx.effect(() => () => sandboxPolicy.dispose(), 'metainfer-research-lab: sandbox tool boundary');
+  const hostBudget = createHostBudget({ readNode,
+    readProject: projectId => structuredClone(store.getProject(projectId)),
+    readNodes: projectId => structuredClone(store.listNodes(projectId)),
+    commitReservation: createHostBudgetWriter({ store, kernel }) });
+  const brokerInitializations = new Map();
+  async function brokersFor(projectId) {
+    if (brokerMaps.has(projectId)) return brokerMaps.get(projectId);
+    if (brokerInitializations.has(projectId)) return brokerInitializations.get(projectId);
+    const building = (async () => {
+      const limits = () => ({ maxRunningNodes: store.getProject(projectId)?.config?.maxRunningNodes ?? Infinity,
+        resourcePools: store.getProject(projectId)?.config?.resourcePools ?? {} });
+      const raw = [createLocalPoolBroker({ limits }), createSandboxAdmissionBroker({ readNode, limits })];
+      if (cluster?.enabled === true) raw.push(createClusterBroker({ cluster }));
+      const map = new Map(raw.map(broker => [broker.id, createBudgetBroker({ raw: broker, budget: hostBudget, readNode })]));
+      // Cold uncertainty remains in the durable budget. Never recreate an external lease.
+      for (const node of store.listNodes(projectId)) {
+        const lease = node.admission;
+        if (lease?.broker === 'sandbox-admission' && node.hostBudgetReservation) {
+          try { await map.get(lease.broker).adopt(lease); }
+          catch { ctx.logger?.warn?.(`sandbox admission remains held for ${projectId}/${node.id}`); }
+        }
+      }
+      brokerMaps.set(projectId, map); return map;
+    })();
+    brokerInitializations.set(projectId, building);
+    try { return await building; } finally { brokerInitializations.delete(projectId); }
   }
+  const hostAdmission = createHostAdmission({ store, kernel, budget: hostBudget, brokersFor,
+    start: (projectId, nodeId, options) => runtime.start(projectId, nodeId, options) });
 
-  function dispatchOnce(projectId, options = {}) {
+  async function dispatchOnce(projectId, options = {}) {
     const project = store.getProject(projectId);
     if (!project) return Promise.resolve({ started: 0, startedNodeIds: [], skipped: [{ status: 'project_not_found' }], durationMs: 0 });
     kernel.load(projectId);
-    const brokers = brokersFor(projectId);
-    for (const broker of brokers.values()) broker.releaseOrphans?.(store.listNodes(projectId));
+    const brokers = await brokersFor(projectId);
+    for (const broker of brokers.values()) await broker.releaseOrphans?.(store.listNodes(projectId));
     const dispatcher = createDispatchOnce({
       projectId,
       executor: kernel.executor,
       projection: kernel.projection,
       brokers,
+      brokerIdFor: request => hostAdmission.brokerIdFor(request, brokers),
       launcher: {
         start: (pid, nodeId, opts) => runtime.start(pid, nodeId, opts),
         preempt: (pid, nodeId, opts) => runtime.preempt(pid, nodeId, opts),
@@ -173,18 +206,42 @@ export async function apply(ctx, config = {}) {
     ? service.dispatchOnce(projectId, { ...options, includeStatus: false })
     : dispatchOnce(projectId, options));
 
-  const runtime = createRuntime({
+  const runtimeCore = createRuntime({
     ctx,
     store,
     git,
     onTerminated: (projectId, nodeId, termination) => {
+      const node = readNode(projectId, nodeId);
+      if (node?.execution?.sandboxProfile || node?.sandbox?.backend === 'opensandbox') {
+        // A container result must never launch a Host-shell GC/followup in manual mode.
+        if (store.getProject(projectId)?.mode === 'auto') autoDispatch(projectId, { maxStarts: 4 }).catch(() => {});
+        return;
+      }
       gcRunner?.run(projectId, nodeId, termination).catch(() => {});
       // Backfill immediately instead of waiting for the next 2 s tick.
       autoDispatch(projectId, { maxStarts: 4 }).catch(() => {});
     },
     cluster,
     kernel,
+    sandboxFactory: createSandboxRuntime,
+    sandboxBackend,
+    hostAdmission,
+    sandboxAdmission: { request: hostAdmission.request, verify: hostAdmission.verify,
+      beforeEffects: hostAdmission.beforeEffects,
+      release: (projectId, lease) => hostAdmission.release(projectId, lease.nodeId, lease),
+      finalize: (projectId, nodeId) => hostAdmission.finalize(projectId, nodeId) },
   });
+  const runtime = { ...runtimeCore, async start(projectId, nodeId, options) {
+    if (!activationComplete) throw Object.assign(new Error('Host activation is not settled; no Agent may start'), { code: 'HOST_ACTIVATION_PENDING' });
+    await assertRolePresets(ctx.agentPresets);
+    if (!activationComplete) throw Object.assign(new Error('Host activation is not settled; no Agent may start'), { code: 'HOST_ACTIVATION_PENDING' });
+    const node = readNode(projectId, nodeId);
+    if (node && (Object.hasOwn(node.execution ?? {}, 'sandboxProfile') || node.sandbox?.backend === 'opensandbox' || node.admission?.profile || node.sandboxGate)) {
+      await assertRolePresets(ctx.agentPresets, { sandboxWorker: SANDBOX_PRESET });
+    }
+    if (!activationComplete) throw Object.assign(new Error('Host activation is not settled; no Agent may start'), { code: 'HOST_ACTIVATION_PENDING' });
+    return runtimeCore.start(projectId, nodeId, options);
+  } };
   const transcript = createTranscriptReader({ ctx, store });
   const orchestrator = createOrchestrator({ ctx, store, git, runtime, cluster, kernel });
   gcRunner = createGcRunner({ ctx, store, orchestrator, kernel });
@@ -283,7 +340,7 @@ export async function apply(ctx, config = {}) {
   );
 
   ctx.effect(
-    () => () => runtime.dispose(),
+    () => () => { activationComplete = false; return runtime.dispose(); },
     'metainfer-research-lab: runtime',
   );
 
@@ -320,4 +377,5 @@ export async function apply(ctx, config = {}) {
   ctx.logger?.info?.(`metainfer-research-lab: cluster mode=${clusterInfo.mode} enabled=${Boolean(clusterInfo.enabled)}`);
   await writeActivationMarker('0.11.0');
   ctx.logger?.info?.(`metainfer-research-lab: M4 host ready (reconciled ${reconciled.length} running node(s))`);
+  activationComplete = true;
 }

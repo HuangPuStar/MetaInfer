@@ -8,6 +8,8 @@
  */
 import { LabError } from './git-engine.js';
 import { runCodexExecution } from './execution-codex.js';
+import { createHash } from 'node:crypto';
+import { isSandboxProfile } from './sandbox-targets.js';
 
 export const DEFAULT_EXECUTION_PROFILE = 'dsh';
 export const DEFAULT_EXECUTION_PROFILES = {
@@ -37,7 +39,11 @@ export function normalizeExecutionProfile(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new LabError('bad_request', 'execution profile must be an object', 400);
   }
+  if (Object.hasOwn(raw, 'backend')) throw new LabError('bad_request', 'legacy execution.backend is not supported', 400);
   const driver = typeof raw.driver === 'string' ? raw.driver.trim() : 'dsh';
+  if (Object.hasOwn(raw, 'sandboxProfile') && (driver !== 'dsh' || !isSandboxProfile(raw.sandboxProfile))) {
+    throw new LabError('bad_request', 'sandboxProfile must name an approved target with driver dsh', 400);
+  }
   if (!['dsh', ...Object.keys(EXECUTION_DRIVERS)].includes(driver)) {
     throw new LabError('bad_request', `unknown execution driver: ${driver}`, 400);
   }
@@ -49,6 +55,7 @@ export function normalizeExecutionProfile(raw) {
   if (reasoningEffort.length > 64) throw new LabError('bad_request', 'execution reasoningEffort is too long', 400);
   return {
     driver,
+    ...(Object.hasOwn(raw, 'sandboxProfile') ? { sandboxProfile: raw.sandboxProfile } : {}),
     ...(model ? { model } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(codexPath ? { codexPath } : {}),
@@ -63,6 +70,9 @@ export function normalizeExecutionProfile(raw) {
  */
 export function resolveExecutionProfile(project, input = {}) {
   const execution = project?.config?.execution ?? {};
+  if (['backend', 'profile', 'driver', 'sandboxProfile'].some((key) => Object.hasOwn(execution, key))) {
+    throw new LabError('bad_request', 'execution must use named profiles; legacy or wrong-level sandbox selection is not supported', 400);
+  }
   const profiles = execution.profiles && typeof execution.profiles === 'object'
     ? execution.profiles
     : DEFAULT_EXECUTION_PROFILES;
@@ -70,11 +80,14 @@ export function resolveExecutionProfile(project, input = {}) {
     ? input.taskType.trim().slice(0, 64)
     : '';
   const mapped = taskType ? execution.taskTypes?.[taskType] : undefined;
+  const inherited = input.inheritExecution;
+  const isolatedParent = inherited?.sandboxProfile !== undefined;
+  if (isolatedParent) normalizeExecutionProfile(inherited);
   const requested = input.executionProfile !== undefined && input.executionProfile !== null && input.executionProfile !== ''
     ? profileName(input.executionProfile, 'executionProfile')
-    : (typeof mapped === 'string' && mapped ? mapped : DEFAULT_EXECUTION_PROFILE);
+    : (isolatedParent ? profileName(inherited.profile, 'inherited execution profile') : (typeof mapped === 'string' && mapped ? mapped : DEFAULT_EXECUTION_PROFILE));
   if (!profiles[requested]) {
-    if (input.fallbackToDefault !== true) {
+    if (input.fallbackToDefault !== true || isolatedParent) {
       throw new LabError('bad_request', `unknown execution profile: ${requested}`, 400);
     }
     // A suggestion that names a profile this project does not define ("default"
@@ -91,6 +104,9 @@ export function resolveExecutionProfile(project, input = {}) {
     };
   }
   const profile = normalizeExecutionProfile(profiles[requested]);
+  if (isolatedParent && profile.sandboxProfile !== inherited.sandboxProfile) {
+    throw new LabError('bad_request', 'sandbox inheritance cannot fall back to local execution or change target', 400);
+  }
   return {
     profile: requested,
     requestedProfile: requested,
@@ -103,4 +119,13 @@ export function resolveExecutionProfile(project, input = {}) {
 /** Whether this execution is the existing in-process DSH worker. */
 export function isDshExecution(execution) {
   return !execution || execution.driver === 'dsh' || execution.driver === undefined;
+}
+
+/** Only immutable launch policy fields cross creation/edit/inheritance seams. */
+export function executionSnapshot(execution) {
+  return { profile: profileName(execution?.profile ?? DEFAULT_EXECUTION_PROFILE, 'execution profile'), ...normalizeExecutionProfile(execution) };
+}
+
+export function executionFingerprint(execution) {
+  return createHash('sha256').update(JSON.stringify(executionSnapshot(execution))).digest('hex');
 }

@@ -1,3 +1,4 @@
+import { holdsResources, sandboxProfileOf } from '../sandbox-state.js';
 /**
  * `dispatchOnce`: the deterministic fast path (design decision B3).
  *
@@ -22,6 +23,7 @@ import { applyClassBudgetsDetailed, applyReservation, classBudgetOf, reservedSlo
 
 /** Default broker choice: fleet nodes need the cluster broker, everything else the local pool. */
 export function defaultBrokerIdFor(request) {
+  if (request?.sandboxProfile !== undefined) return 'sandbox-admission';
   return request?.placement === 'fleet' ? 'cluster' : 'local-pool';
 }
 
@@ -68,7 +70,7 @@ export function createDispatchOnce({
     const candidateStart = clock();
     const runnable = projection.runnable(projectId, candidateStart);
     const maxRunningNodes = options.maxRunningNodes ?? Infinity;
-    const running = projection.listByStatus(projectId, 'running');
+    const running = projection.listNodes(projectId).filter(holdsResources);
     // Project-local p0 preemption (5.3.2/Q3): if every slot is held by a
     // lower-class node that has already run > 10 min, the dispatcher preempts
     // exactly one victim through the safety envelope. The victim records a
@@ -82,7 +84,7 @@ export function createDispatchOnce({
     const victim = p0HasBudget
       ? selectPreemptionVictim({
           now: candidateStart,
-          running,
+          running: running.filter((node) => node.status === 'running' && sandboxProfileOf(node) === null && node.sandbox?.backend !== 'opensandbox'),
           runnable,
           maxRunningNodes,
           enabled: options.preemption !== false,
@@ -105,7 +107,7 @@ export function createDispatchOnce({
         // preemption only knows the node. Sweep orphaned leases now so the p0
         // can use the freed slot in this same round instead of waiting a tick.
         for (const broker of brokers.values()) {
-          broker.releaseOrphans?.(executor.store?.listNodes?.(projectId) ?? projection.listNodes(projectId));
+          await broker.releaseOrphans?.(executor.store?.listNodes?.(projectId) ?? projection.listNodes(projectId));
         }
         preempted = { victimNodeId: victim.id, forNodeId: p0?.id ?? null, decisionId: decision.decisionId };
       } else {
@@ -116,7 +118,7 @@ export function createDispatchOnce({
     // is round-local; the queue remains the projection, never a second store.
     const reserved = options.reservedSlots ?? reservedSlotsOf(options.config);
     const budgeted = applyClassBudgetsDetailed(applyReservation(runnable, {
-      runningCount: projection.countByStatus(projectId).running ?? 0,
+      runningCount: running.length,
       maxRunningNodes,
       reservedSlots: reserved,
     }), { running, config: options.config ?? {} });

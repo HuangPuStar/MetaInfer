@@ -3,7 +3,7 @@
  *
  * A preset id is an executable reference: `startActivation({agentPreset})` and
  * `agentPresets.mount(ctx, id)` fail only when a real cycle reaches them. This
- * module lets boot validate the references before any run starts.
+ * module validates references before a run starts, outside Host activation.
  */
 
 /** L0/L1/L2 and planning roles dispatched through `runRole`. */
@@ -45,8 +45,8 @@ export class RolePresetError extends Error {
 /**
  * Resolve every role preset against the live AgentPresetRegistry.
  *
- * This runs during plugin boot, after the bundle's preset rows have registered.
- * A missing or broken definition is a startup error, not a first-cycle skip.
+ * Call only after the caller Host activation completes: registry settlement can
+ * await the same Loader. Missing definitions remain a pre-execution error.
  *
  * @param {{resolve: Function, list?: Function}} registry
  * @param {Record<string, string>} presets
