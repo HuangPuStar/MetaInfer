@@ -1,3 +1,5 @@
+import { executionSnapshot } from '../execution.js';
+import { sandboxProfileOf } from '../sandbox-state.js';
 /**
  * DeterministicStrategy (WP P3.4): the default dispatch strategy, no LLM.
  *
@@ -115,12 +117,15 @@ export function createDeterministicStrategy({
 
 /** Map a node's `needs` to a LeaseRequest. */
 export function defaultRequestFor(projectId, node) {
+  const sandboxProfile = sandboxProfileOf(node);
+  const forAttempt = (node.currentAttempt ?? 0) + 1;
   const needs = node.needs ?? {};
   const gpu = Number(needs.gpu ?? 0);
   const machines = Number(needs.machines ?? 1);
   const resources = Object.fromEntries(Object.entries(needs).filter(([key]) => key !== 'machines'));
   return {
-    requestId: leaseRequestId(projectId, node),
+    ...(sandboxProfile !== null ? { sandboxProfile, execution: executionSnapshot(node.execution), forAttempt } : {}),
+    requestId: sandboxProfile !== null ? `${projectId}:${node.id}:${forAttempt}` : leaseRequestId(projectId, node),
     projectId,
     nodeId: node.id,
     resources,

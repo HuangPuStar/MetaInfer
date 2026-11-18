@@ -12,7 +12,8 @@ import { LabError } from './git-engine.js';
 import { buildModelCatalog, cleanModelRef, resolveModelSelection, validateModelSelection } from './models.js';
 import { compilePlacementPolicy, describePlacementSpec, sanitizePlacementSpec } from './placement.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_GC_PROMPT, DEFAULT_MERGE_PROMPT, DEFAULT_SCHEDULER_PROMPT, DEFAULT_WORKER_PREFIX, PROMPT_PLACEHOLDERS } from './prompts.js';
-import { DEFAULT_EXECUTION_PROFILES, normalizeExecutionProfile, resolveExecutionProfile } from './execution.js';
+import { DEFAULT_EXECUTION_PROFILES, executionSnapshot, normalizeExecutionProfile, resolveExecutionProfile } from './execution.js';
+import { holdsResources, sandboxAdmissionBlock, sandboxProfileOf } from './sandbox-state.js';
 import { ExecutionLog } from './execution-log.js';
 import { DEFAULT_DASHBOARD_SPEC, DASHBOARD_CHAT_SCHEMA, WIDGET_DATA_RESULT_SCHEMA, sanitizeDashboardSpec, normalizeWidgets, normalizeWidgetData, applyWidgetLayouts, buildWidgetPrompt, buildDashboardChatPrompt } from './dashboard.js';
 import { assertModelSchema } from './schema-check.js';
@@ -329,8 +330,9 @@ function normalizeConfig(raw, base = undefined, { allowMigration = false } = {})
   }
 
   if (input.execution !== undefined) {
-    if (typeof input.execution !== 'object' || Array.isArray(input.execution)) {
-      throw new LabError('bad_request', 'config.execution must be an object');
+    if (!input.execution || typeof input.execution !== 'object' || Array.isArray(input.execution)
+      || ['backend', 'profile', 'driver', 'sandboxProfile'].some((key) => Object.hasOwn(input.execution, key))) {
+      throw new LabError('bad_request', 'config.execution must use named profiles; legacy execution.backend/profile is not supported');
     }
     const execution = {
       profiles: { ...(previous.execution?.profiles ?? DEFAULT_EXECUTION_PROFILES) },
@@ -770,13 +772,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         prompt: spec.prompt,
         successCriteria: '',
         status: 'planned',
-        execution: {
-          profile: rootExecution.profile,
-          driver: rootExecution.driver,
-          ...(rootExecution.model ? { model: rootExecution.model } : {}),
-          ...(rootExecution.reasoningEffort ? { reasoningEffort: rootExecution.reasoningEffort } : {}),
-          ...(rootExecution.codexPath ? { codexPath: rootExecution.codexPath } : {}),
-        },
+        execution: executionSnapshot(rootExecution),
         taskType: rootExecution.taskType,
         parentId: null,
         createdBy: 'seed',
@@ -1997,7 +1993,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   async function updateProject(projectId, input) {
     return store.withProjectLock(projectId, async () => {
-      const project = requireProject(projectId);
+      const project = structuredClone(requireProject(projectId));
       let changed = false;
       if (input?.name !== undefined) {
         project.name = text(input.name, 'name', { required: true, max: 120 });
@@ -2008,7 +2004,19 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         changed = true;
       }
       if (input?.config !== undefined) {
-        project.config = normalizeConfig(input.config, project.config);
+        const nextConfig = normalizeConfig(input.config, project.config);
+        if (input.config?.execution !== undefined) {
+          for (const node of store.listNodes(projectId)) {
+            if (!(holdsResources(node) || node.claim || node.admission || sandboxAdmissionBlock(node))) continue;
+            const name = node.execution?.profile ?? 'dsh';
+            const previous = sandboxProfileOf(node);
+            const next = nextConfig.execution?.profiles?.[name];
+            if (previous !== (next?.sandboxProfile ?? null) || (node.execution?.driver ?? 'dsh') !== (next?.driver ?? 'dsh')) {
+              throw new LabError('execution_in_use', 'execution target is in use by an active, claimed, reserved or unresolved node', 409);
+            }
+          }
+        }
+        project.config = nextConfig;
         changed = true;
       }
       if (!changed) return { project, revision: project.revision };
@@ -2044,11 +2052,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }
     return store.withProjectLock(projectId, async () => {
       const project = requireProject(projectId);
-      const node = requireNode(projectId, nodeId);
+      const node = structuredClone(requireNode(projectId, nodeId));
       const FIELD_EDITS = ['title', 'prompt', 'successCriteria', 'timeboxMinutes', 'needs', 'model', 'executionProfile', 'taskType'];
       const hasFieldEdits = FIELD_EDITS.some((key) => input?.[key] !== undefined);
       if (hasFieldEdits && node.status !== 'planned' && node.status !== 'proposed') {
         throw new LabError('node_not_editable', 'only planned or proposed nodes can be edited', 409);
+      }
+      if (hasFieldEdits && (node.claim || node.admission || sandboxAdmissionBlock(node))) {
+        throw new LabError('execution_in_use', 'execution fields are in use by a claimed, reserved or unresolved sandbox node', 409);
       }
       let changed = false;
       if (input?.title !== undefined) {
@@ -2086,14 +2097,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
         changed = true;
       }
       if (input?.executionProfile !== undefined || input?.taskType !== undefined) {
-        const execution = resolveExecutionProfile(project, input);
-        node.execution = {
-          profile: execution.profile,
-          driver: execution.driver,
-          ...(execution.model ? { model: execution.model } : {}),
-          ...(execution.reasoningEffort ? { reasoningEffort: execution.reasoningEffort } : {}),
-          ...(execution.codexPath ? { codexPath: execution.codexPath } : {}),
-        };
+        const execution = resolveExecutionProfile(project, { ...input, inheritExecution: node.execution });
+        node.execution = executionSnapshot(execution);
         node.taskType = execution.taskType;
         changed = true;
       }

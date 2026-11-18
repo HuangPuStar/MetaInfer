@@ -1,3 +1,4 @@
+import { holdsResources } from '../sandbox-state.js';
 /**
  * Resource arithmetic shared by the auto driver and the Host status surface.
  *
@@ -10,9 +11,10 @@
 /** @param {object} project @param {object[]} nodes */
 export function capacityOf(project, nodes, cluster = null) {
   const running = nodes.filter((node) => node.status === 'running');
+  const occupied = nodes.filter(holdsResources);
   const held = {};
-  for (const node of running) {
-    for (const [key, amount] of Object.entries(node.resourcesHeld ?? {})) {
+  for (const node of occupied) {
+    for (const [key, amount] of Object.entries(node.resourcesHeld ?? (node.sandbox ? node.needs : {}) ?? {})) {
       held[key] = (held[key] ?? 0) + amount;
     }
   }
@@ -20,14 +22,14 @@ export function capacityOf(project, nodes, cluster = null) {
   for (const [key, total] of Object.entries(project.config?.resourcePools ?? {})) {
     free[key] = Math.max(0, total - (held[key] ?? 0));
   }
-  let canStart = running.length < (project.config?.maxRunningNodes ?? 4);
+  let canStart = occupied.length < (project.config?.maxRunningNodes ?? 4);
   if (cluster?.enabled === true) {
     const status = cluster.getStatus?.() ?? {};
     const gpuFree = Number(status.pools?.gpu?.free);
     if (Number.isFinite(gpuFree)) free.gpu = gpuFree;
     const quota = Math.max(0, Number(project.config?.resourcePools?.gpu ?? 0));
     if (quota > 0) {
-      const heldGpu = running.reduce(
+      const heldGpu = occupied.reduce(
         (sum, node) => sum + Math.max(0, Number(node.resourcesHeld?.gpu ?? 0)),
         0,
       );
@@ -35,7 +37,7 @@ export function capacityOf(project, nodes, cluster = null) {
       free.gpu = Math.min(free.gpu ?? quota, Math.max(0, quota - heldGpu));
     }
   }
-  return { runningCount: running.length, held, free, canStart };
+  return { runningCount: running.length, occupiedCount: occupied.length, held, free, canStart };
 }
 
 /** @returns {boolean} whether this node's needs fit the free pools right now. */
@@ -51,7 +53,7 @@ export function anyFits(nodes, capacity) {
 
 /** Machine-readable reason a node cannot start now, or null when it fits. */
 export function blockingReason(node, capacity, project) {
-  if ((capacity.runningCount ?? 0) >= (project?.config?.maxRunningNodes ?? 4)) return 'max_running';
+  if ((capacity.occupiedCount ?? capacity.runningCount ?? 0) >= (project?.config?.maxRunningNodes ?? 4)) return 'max_running';
   for (const [key, amount] of Object.entries(node.needs ?? {})) {
     if (key === 'machines') continue;
     const free = capacity.free?.[key] ?? 0;
