@@ -3794,7 +3794,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   async function ledgerUpdate(projectId, input, exec) {
     const project = requireProject(projectId);
     const op = input?.op;
-    const id = text(input?.id, 'id', { required: true, max: 120 });
+    // `id` is the claim id. The public tool schema never documented it, so agents
+    // legitimately call ledger_update(op=open, hypothesis=...) without one and used
+    // to get a hard "id is required" — mint a stable-ish one instead of failing.
+    const rawId = typeof input?.id === 'string' ? input.id.trim() : '';
+    const id = rawId
+      ? text(rawId, 'id', { required: true, max: 120 })
+      : `claim-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     const known = ['open', 'confirm', 'rule_out'];
     if (!known.includes(op)) {
       return rejection('bad_request', `ledger op must be one of ${known.join(', ')}`);

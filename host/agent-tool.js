@@ -182,6 +182,7 @@ export const AGENT_TOOL_PARAMETERS = {
         nodeIds: { type: 'array', items: { type: 'string' }, description: 'for dag_get: node ids (max 50)' },
         neighbors: { type: 'boolean', description: 'for dag_get: include direct parents/children (default true)' },
         op: { type: 'string', enum: ['open', 'confirm', 'rule_out'], description: 'for ledger_update' },
+        id: { type: 'string', description: 'for ledger_update: claim id to confirm/rule_out; omit on open and one is minted' },
         hypothesis: { type: 'string', description: 'for ledger_update op=open' },
         evidence: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'evidence pointers {kind,ref,note?}; never log bodies' },
         reason: { type: 'string', description: 'for ledger_update op=rule_out or set_priority' },

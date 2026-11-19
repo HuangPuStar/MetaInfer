@@ -1777,7 +1777,13 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     const explicit = typeof proposal?.candidateId === 'string' ? proposal.candidateId.trim() : '';
     if (explicit) {
       const candidate = pendingCandidates.find((row) => row.candidateId === explicit);
-      return candidate ? { candidate, explicit: true } : { candidate: null, explicit: true, unknown: explicit };
+      if (candidate) return { candidate, explicit: true };
+      // Legacy advisor passes register no candidates at all (only the
+      // lead/high-review flow produces them). A model-invented id there must not
+      // kill an otherwise valid proposal: fall through to the lineage/branch
+      // matching below. When candidates DO exist, keep rejecting unknown ids so a
+      // consumed candidate cannot be re-materialized.
+      if (pendingCandidates.length > 0) return { candidate: null, explicit: true, unknown: explicit };
     }
     const byId = new Map(nodes.map((node) => [node.id, node]));
     const parentIdsOf = (node) => (Array.isArray(node.parentIds) && node.parentIds.length > 0 ? node.parentIds : (node.parentId ? [node.parentId] : []));
