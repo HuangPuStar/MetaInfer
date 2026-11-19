@@ -73,6 +73,26 @@
               suffix: ''
               includeRuntimeContext: false
 
+    # Domain expert (hired roster): persona comes from the project config and is
+    # prepended to the activation prompt; the preset only fixes the frame.
+    - id: preset-lab-expert
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-expert
+        name: MetaInfer Research Lab Domain Expert
+        description: 由 MetaInfer Research Lab 自动创建：聘用专家的激活会话，请勿手工选择。
+        order: 91
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are a hired domain expert of MetaInfer Research Lab. You never write code and never
+                run experiments. The activation prompt carries your standing brief (persona), the project
+                brief and the completed leaves. Submit your entire answer through structured_output.
+              suffix: ''
+              includeRuntimeContext: false
+
     # Scheduler: allocates limited resources (GPU etc.) among planned nodes.
     - id: preset-lab-scheduler
       name: '@deepseek-ai/dsh-agent-preset'

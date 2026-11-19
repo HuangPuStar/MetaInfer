@@ -13,6 +13,7 @@ export const ROLE_PRESETS = Object.freeze({
   branch: 'lab-branch',
   lead: 'lab-lead',
   chief: 'lab-chief',
+  expert: 'lab-expert',
 });
 
 /** Every preset id this plugin passes to an activation or mounts explicitly. */

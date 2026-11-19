@@ -20,6 +20,7 @@ import { createLedgerReader } from './context/ledger.js';
 import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
 import { baselineFor, normalizeExpected } from './kernel/prediction.js';
 import { BRANCH_REPORT_SCHEMA, EVIDENCE_FIELDS, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteQuota, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
+import { EXPERT_ACTIVATION_CAP, buildExpertPrompt, expertProposes, expertSchemaFor, firedTriggers, resolveRoster, selectActivations } from './experts/activation.js';
 import { MAX_CONSUMPTIONS, buildBranchCandidateQueue, candidateSkipReason, candidateStats, candidateStructureKey, replacementChainForNode } from './experts/candidates.js';
 import { assertModelSchema } from './schema-check.js';
 import { classifyRoleFailure, formatRoleFailure } from './role-errors.js';
@@ -1204,6 +1205,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       projectId: project.id,
       cycleId: cycle.id,
       role,
+      ...(options.expertId ? { expertId: options.expertId } : {}),
       sessionId,
       model,
       status: 'running',
@@ -1231,7 +1233,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     try {
       activation = await ctx.subagents.startActivation({
         provider: 'spawn',
-        label: `mirl-${role}${options.lens ? `-${options.lens.slice(0, 20)}` : ''}/${project.id}`,
+        label: `mirl-${role}${options.expertId ? `:${String(options.expertId).slice(0, 24)}` : ''}${options.lens ? `-${options.lens.slice(0, 20)}` : ''}/${project.id}`,
         delivery: 'caller',
         signal: lifetime.signal,
         childId: sessionId,
@@ -2525,6 +2527,85 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     }
   }
 
+  /**
+   * P4 wiring: wake the hired experts whose triggers fired, collect their
+   * answers, and route proposals through the same Host validation the advisor
+   * uses. Reviewers only record a verdict; they never mutate the DAG.
+   */
+  async function runExpertPass(projectId, cycle) {
+    let project = requireProject(projectId);
+    const roster = resolveRoster(project);
+    if (roster.length === 0) return;
+    const nodes = store.listNodes(projectId);
+    const { fired, leaves } = firedTriggers({ project, nodes, cycle });
+    if (leaves.length === 0) return;
+    let runs = [];
+    try { runs = store.listRuns(projectId, 200) ?? []; } catch { runs = []; }
+    const chosen = selectActivations({ roster, fired, runs, cap: EXPERT_ACTIVATION_CAP });
+    cycle.expertActivations = [];
+    if (chosen.length === 0) return;
+    const snapshot = buildAdvisorSnapshot(store, project);
+    for (const expert of chosen) {
+      project = requireProject(projectId);
+      const proposer = expertProposes(expert.template);
+      const schema = expertSchemaFor(expert.template);
+      const maxProposals = Math.min(2, Number(project.config?.advisor?.maxProposalsPerPass ?? 2));
+      const prompt = buildExpertPrompt({ project, expert, leaves, fired, maxProposals });
+      const timeoutMs = Number(expert.budget?.wallClockMs);
+      const maxQueries = Number(expert.budget?.queriesPerRun);
+      let outcome = null;
+      try {
+        const { record, failure } = await runRole(project, 'expert', cycle, prompt, schema, snapshot, {
+          expertId: expert.id,
+          lens: expert.lens || expert.name || null,
+          modelOverride: expert.model ?? undefined,
+          ...(Number.isFinite(timeoutMs) && timeoutMs > 0 ? { timeoutMs } : {}),
+          ...(Number.isFinite(maxQueries) && maxQueries > 0 ? { maxQueries } : {}),
+        });
+        outcome = {
+          expertId: expert.id,
+          runId: record.id,
+          status: failure ? 'failed' : 'completed',
+          error: failure ? (record.failureSummary ?? String(failure)) : null,
+        };
+        if (failure) {
+          cycle.errors.push(`expert ${expert.id}: ${outcome.error}`);
+        } else if (proposer) {
+          const proposals = Array.isArray(record.output?.proposals) ? record.output.proposals : [];
+          if (proposals.length > 0) {
+            const applied = await applyAdvisorOutput(projectId, cycle, { analysis: record.output?.analysis ?? '', proposals }, []);
+            cycle.createdNodeIds.push(...applied.createdNodeIds);
+            record.createdNodeIds = applied.createdNodeIds;
+            record.rejected = applied.rejected;
+            outcome.created = applied.createdNodeIds.length;
+            outcome.rejected = applied.rejected.length;
+          }
+          await saveRun(projectId, record, 'run/updated', { expertId: expert.id, created: outcome.created ?? 0 });
+        } else {
+          await commitMutations(projectId, [{
+            op: 'event.record',
+            type: 'expert/reviewed',
+            data: {
+              expertId: expert.id,
+              runId: record.id,
+              verdict: record.output?.verdict ?? null,
+              reason: record.output?.reason ?? null,
+              pruneSuggestions: record.output?.pruneSuggestions ?? [],
+            },
+          }], { causeId: `expert-review:${record.id}` });
+          cycle.expertReviews = [...(cycle.expertReviews ?? []), {
+            expertId: expert.id, runId: record.id, verdict: record.output?.verdict ?? null,
+          }];
+          await saveRun(projectId, record, 'run/updated', { expertId: expert.id });
+        }
+      } catch (error) {
+        outcome = { expertId: expert.id, status: 'failed', error: error instanceof Error ? error.message : String(error) };
+        cycle.errors.push(`expert ${expert.id}: ${outcome.error}`);
+      }
+      cycle.expertActivations.push(outcome);
+    }
+  }
+
   async function runCycle(projectId, trigger) {
     let project = requireProject(projectId);
     const cycle = {
@@ -2554,6 +2635,13 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     // --- hierarchy pass (real L0/L1/L2 activations) -------------------------
     if (hierarchyMode(project)) {
       await runHierarchyPass(projectId, cycle);
+      // P4: wake the hired experts AFTER the hierarchy pass so they see the
+      // branch reports it just persisted.
+      try {
+        await runExpertPass(projectId, cycle);
+      } catch (error) {
+        cycle.errors.push(`expert pass: ${error instanceof Error ? error.message : String(error)}`);
+      }
     } else {
     // --- advisor pass -------------------------------------------------------
     project = requireProject(projectId);
