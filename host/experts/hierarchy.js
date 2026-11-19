@@ -584,7 +584,18 @@ export function childVoteQuota({ project = {}, expertId = 'lab-lead', now = Date
   const sameExpert = votes.filter((vote) => vote.expertId === expertId);
   const rosterConfig = Array.isArray(project.config?.experts) ? null : project.config?.experts;
   const descriptorBudget = getExpertDescriptor(expertId)?.budget ?? {};
-  const limit = Math.max(1, Number(project.config?.expertsVotesPerHour ?? rosterConfig?.votesPerHour ?? descriptorBudget.childVotesPerHour ?? 50));
+  // A project override (`expert_update` -> project.expertOverrides) is the only
+  // per-project way to raise this quota — `config.expertsVotesPerHour` is dropped
+  // by normalizeConfig, so the override must be consulted here or the setting is
+  // displayed by `expert_list` and silently ignored by the throttle.
+  const overrideBudget = project?.expertOverrides?.[expertId]?.budget ?? null;
+  const limit = Math.max(1, Number(
+    project.config?.expertsVotesPerHour
+    ?? rosterConfig?.votesPerHour
+    ?? overrideBudget?.childVotesPerHour
+    ?? descriptorBudget.childVotesPerHour
+    ?? 50,
+  ));
   const hourAgo = now - CHILD_VOTE_WINDOW_MS;
   const recent = sameExpert
     .filter((vote) => Number(vote.at) >= hourAgo)
