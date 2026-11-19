@@ -710,8 +710,18 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       }
       if (state.idleStreak >= (auto.idleCycleLimit ?? 3)) {
         const atPause = store.listNodes(projectId);
-        const activeWork = atPause.some((node) => node.status === 'running' || node.status === 'proposed')
-          || runnableQueue(atPause, Date.now()).length > 0;
+        // A running node is progress *in flight*: the planner has nothing to add
+        // only because the queue is already busy. Counting those cycles as idleness
+        // stopped the driver in the middle of a 10-minute experiment (the page then
+        // reported "auto paused" while work was still running), so reset the streak
+        // instead of pausing.
+        const runningNow = atPause.some((node) => node.status === 'running');
+        const runnableNow = runnableQueue(atPause, Date.now()).length > 0;
+        if (runningNow || runnableNow) {
+          state.idleStreak = 0;
+          return undefined;
+        }
+        const activeWork = atPause.some((node) => node.status === 'proposed');
         const blockers = activeWork ? [] : deferredDeadlockBlockers(atPause, Date.now());
         if (blockers.length > 0) {
           const shown = blockers.slice(0, MAX_DEADLOCK_BLOCKERS);
