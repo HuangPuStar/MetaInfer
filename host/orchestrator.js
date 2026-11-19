@@ -2537,11 +2537,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     const roster = resolveRoster(project);
     if (roster.length === 0) return;
     const nodes = store.listNodes(projectId);
-    const { fired, leaves } = firedTriggers({ project, nodes, cycle });
-    if (leaves.length === 0) return;
+    const { fired, leaves, recent } = firedTriggers({ project, nodes, cycle });
+    if (recent.length === 0) return;
     let runs = [];
     try { runs = store.listRuns(projectId, 200) ?? []; } catch { runs = []; }
-    const chosen = selectActivations({ roster, fired, runs, cap: EXPERT_ACTIVATION_CAP });
+    const chosen = selectActivations({ roster, fired, runs, leaves, cap: EXPERT_ACTIVATION_CAP });
     cycle.expertActivations = [];
     if (chosen.length === 0) return;
     const snapshot = buildAdvisorSnapshot(store, project);
@@ -2550,7 +2550,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       const proposer = expertProposes(expert.template);
       const schema = expertSchemaFor(expert.template);
       const maxProposals = Math.min(2, Number(project.config?.advisor?.maxProposalsPerPass ?? 2));
-      const prompt = buildExpertPrompt({ project, expert, leaves, fired, maxProposals });
+      const prompt = buildExpertPrompt({ project, expert, leaves: proposer ? leaves : recent, fired, maxProposals });
       const timeoutMs = Number(expert.budget?.wallClockMs);
       const maxQueries = Number(expert.budget?.queriesPerRun);
       let outcome = null;

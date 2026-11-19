@@ -119,8 +119,14 @@ export function firedTriggers({ project, nodes, cycle }) {
     const ids = Array.isArray(node.parentIds) && node.parentIds.length > 0 ? node.parentIds : (node.parentId ? [node.parentId] : []);
     for (const id of ids) parentIds.add(id);
   }
-  const leaves = nodes.filter((node) => node.status === 'completed' && !parentIds.has(node.id));
-  if (leaves.length > 0) fired.add('node.completed');
+  const completed = nodes
+    .filter((node) => node.status === 'completed')
+    .sort((a, b) => (Number(b.timestamps?.completedAt ?? b.timestamps?.lastActivityAt ?? 0))
+      - (Number(a.timestamps?.completedAt ?? a.timestamps?.lastActivityAt ?? 0)));
+  const leaves = completed.filter((node) => !parentIds.has(node.id));
+  // Reviewers judge finished work even when every branch already has a child;
+  // only proposers need an attachable leaf.
+  if (completed.length > 0) fired.add('node.completed');
   const inFlight = nodes.filter((node) => node.status === 'running' || node.status === 'planned').length;
   if (inFlight < 2) fired.add('low_water');
   if (leaves.some((node) => (node.review?.reviewedHeadCommit ?? null) !== (node.git?.headCommit ?? null))) {
@@ -128,7 +134,7 @@ export function firedTriggers({ project, nodes, cycle }) {
   }
   void project;
   void cycle;
-  return { fired, leaves };
+  return { fired, leaves, recent: completed.slice(0, 6) };
 }
 
 /**
@@ -136,13 +142,15 @@ export function firedTriggers({ project, nodes, cycle }) {
  * budget, then at most `cap` of them ordered by level then id (stable).
  * @param {{roster: object[], fired: Set<string>, runs: object[], now?: number, cap?: number}} input
  */
-export function selectActivations({ roster, fired, runs = [], now = Date.now(), cap = EXPERT_ACTIVATION_CAP }) {
+export function selectActivations({ roster, fired, runs = [], leaves = [], now = Date.now(), cap = EXPERT_ACTIVATION_CAP }) {
   const cooldownMs = 5 * 60_000;
   const hourAgo = now - 60 * 60_000;
   const picked = [];
   for (const expert of roster) {
     const triggers = Array.isArray(expert.triggers) ? expert.triggers : [];
     if (!triggers.some((trigger) => fired.has(trigger))) continue;
+    // A proposer with nowhere to attach would only burn an activation.
+    if (expertProposes(expert.template) && leaves.length === 0) continue;
     const mine = runs.filter((run) => run.expertId === expert.id);
     const recent = mine.filter((run) => Number(run.startedAt ?? 0) > now - cooldownMs);
     if (recent.length > 0) continue;
