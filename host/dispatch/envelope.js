@@ -112,7 +112,11 @@ export function createDispatchEnvelope({ projectId, executor, projection, broker
         actor,
         mutations: [
           { op: 'node.releaseClaim', nodeId: node.id, decisionId, reason: 'launch_failed', eventType: 'dispatch/start_failed', eventData: { decisionId, message: String(error?.message ?? error), backoffMs } },
-          { op: 'node.update', nodeId: node.id, set: { dispatchFailures: failures, dispatchHold: { untilMs: clock() + backoffMs, reason: 'launch_failed', by: actor.id } }, eventType: 'dispatch/held', eventData: { decisionId, untilMs: clock() + backoffMs, reason: 'launch_failed' } },
+          // The `dispatch/start_failed` event above carries the message too, but
+          // `node.releaseClaim` returns no event when the claim is already gone,
+          // and in practice only this `dispatch/held` row survived — which left
+          // every launch failure undiagnosable. Repeat the message here.
+          { op: 'node.update', nodeId: node.id, set: { dispatchFailures: failures, dispatchHold: { untilMs: clock() + backoffMs, reason: 'launch_failed', by: actor.id } }, eventType: 'dispatch/held', eventData: { decisionId, untilMs: clock() + backoffMs, reason: 'launch_failed', message: String(error?.message ?? error).slice(0, 500) } },
         ],
       });
       return { ok: false, code: 'start_failed', message: String(error?.message ?? error), decisionId };
