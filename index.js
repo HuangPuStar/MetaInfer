@@ -224,7 +224,15 @@ export async function apply(ctx, config = {}) {
     ctx.effect(() => ctx.on('webserver/index-inject', (table, peer) => {
       // Only the owner page gets the browser credential. It is read fresh on
       // every index render and is never returned by an API response.
-      if (peer?.principal?.kind !== 'owner') return;
+      //
+      // Older Hosts passed the requesting peer as the second emit argument and a
+      // strict `peer.principal.kind !== 'owner'` guard made sense. Current Hosts
+      // emit ONLY the table (dsh-host-webserver: collectIndexInjections() emits a
+      // single argument), so `peer` is undefined for every subscriber and the guard
+      // silently dropped the token from every index render — the browser then had
+      // no write credential on any page, no matter how often it was reloaded.
+      // Keep the owner check when a peer is supplied; inject when it is absent.
+      if (peer && peer.principal?.kind !== 'owner') return;
       table.push({
         kind: 'global',
         name: '__METAINFER_OPERATOR_TOKEN__',
