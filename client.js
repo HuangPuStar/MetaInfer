@@ -60,6 +60,8 @@ window.__ModuleLoader__.load({
       node: 'api/metainfer-research-lab/node',
       explain: 'api/metainfer-research-lab/explain',
       filesDownload: 'api/metainfer-research-lab/files/download',
+      trace: 'api/metainfer-research-lab/trace',
+      chat: 'api/metainfer-research-lab/chat',
     };
 
     /** Poll cadence while the page is visible. */
@@ -1724,6 +1726,7 @@ window.__ModuleLoader__.load({
       "ws.tabs.observability": "可观测性",
       "ws.tabs.sessions": "会话记录",
       "ws.tabs.settings": "设置",
+      "ws.tabs.trace": "Profile 追踪",
       "ws.termination.gpuFreed": "GPU 已释放",
       "ws.termination.jobs": "终止任务",
       "ws.termination.killedAt": "终止时间",
@@ -1737,6 +1740,69 @@ window.__ModuleLoader__.load({
       "ws.termination.title": "终止记录",
       "ws.termination.verifiedClean": "已验证无残留",
       "ws.termination.yes": "是",
+      "ws.trace.action.bound": "是否 compute / memory bound",
+      "ws.trace.action.call-context": "完整代码调用上下文",
+      "ws.trace.action.code-path": "为什么选中这个 kernel",
+      "ws.trace.action.explain": "这个 kernel 在干什么",
+      "ws.trace.action.fusion": "Fusion 分析并建节点",
+      "ws.trace.action.implementation": "解释 kernel 实现",
+      "ws.trace.action.optimize": "创建定向优化任务",
+      "ws.trace.action.shapes": "输入输出形状解释",
+      "ws.trace.actions": "Agent 操作",
+      "ws.trace.actionsHint": "前 7 项交给项目 Copilot；fusion 与定向优化会创建新的根节点进入待执行任务。",
+      "ws.trace.aggregate": "聚合统计",
+      "ws.trace.ask": "提问",
+      "ws.trace.askPlaceholder": "针对这个 kernel 提问…",
+      "ws.trace.chat": "Agent 回答",
+      "ws.trace.chatEmpty": "还没有与这个 trace 相关的对话。",
+      "ws.trace.chooseFile": "选择本地 trace",
+      "ws.trace.close": "关闭 trace",
+      "ws.trace.copied": "已复制 prompt",
+      "ws.trace.copy": "复制 prompt",
+      "ws.trace.copyFailed": "复制失败",
+      "ws.trace.detail": "Kernel 详情",
+      "ws.trace.detailHint": "单击或双击时间线中的 kernel span 查看 9 个 Agent 操作。",
+      "ws.trace.deviceStream": "GPU {device} · stream {stream}",
+      "ws.trace.dispatching": "已交给项目 Copilot，等待回答…",
+      "ws.trace.dtypes": "dtype",
+      "ws.trace.empty": "还没有打开 trace：选择本地 JSON 或填写 Host 上的绝对路径。",
+      "ws.trace.error": "trace 加载失败",
+      "ws.trace.fit": "全览",
+      "ws.trace.inputs": "输入形状",
+      "ws.trace.invalidExt": "只支持 .json / .json.gz trace 文件",
+      "ws.trace.kernels": "Kernel 聚合",
+      "ws.trace.laneEmpty": "该视图范围内没有 span",
+      "ws.trace.launch": "启动算子",
+      "ws.trace.layout": "Grid / Block",
+      "ws.trace.loading": "正在解析 trace…",
+      "ws.trace.menu": "Kernel 操作",
+      "ws.trace.menuHint": "双击 span 打开右侧面板",
+      "ws.trace.neighbours": "相邻 kernel",
+      "ws.trace.nodeCreate": "创建节点",
+      "ws.trace.nodeCreated": "已创建节点 {id}",
+      "ws.trace.nodeFailed": "节点创建失败",
+      "ws.trace.nodeHint": "把该 kernel 的 fusion / 优化分析作为新的根节点加入待执行任务。",
+      "ws.trace.nodeTitle": "创建任务节点",
+      "ws.trace.notFound": "trace 已过期或被关闭",
+      "ws.trace.open": "打开",
+      "ws.trace.pathPlaceholder": "/path/to/torch_trace.json 或 .json.gz",
+      "ws.trace.refresh": "刷新",
+      "ws.trace.search": "搜索 kernel",
+      "ws.trace.sort": "排序",
+      "ws.trace.sort.avg": "平均耗时",
+      "ws.trace.sort.count": "调用次数",
+      "ws.trace.sort.max": "最大耗时",
+      "ws.trace.sort.sum": "总耗时",
+      "ws.trace.spans": "{shown}/{total} 个 span",
+      "ws.trace.stack": "调用栈",
+      "ws.trace.subtitle": "打开 torch.profiler 导出的 chrome trace；双击任意 kernel span 直接让 Agent 分析，或一键创建 DAG 任务节点。",
+      "ws.trace.summary": "{kernels} 个 kernel · {ops} 个 CPU 算子 · 时间窗 {duration}",
+      "ws.trace.timebox": "时间盒（分钟）",
+      "ws.trace.timeline": "时间线",
+      "ws.trace.title": "Torch Profile 追踪查看器",
+      "ws.trace.tooLarge": "文件过大，请改用 Host 路径打开",
+      "ws.trace.zoomIn": "放大",
+      "ws.trace.zoomOut": "缩小",
       "ws.transcript.args": "参数",
       "ws.transcript.assistant": "Agent",
       "ws.transcript.close": "关闭对话",
@@ -3304,6 +3370,7 @@ window.__ModuleLoader__.load({
       "ws.tabs.observability": "Observability",
       "ws.tabs.sessions": "Sessions",
       "ws.tabs.settings": "Settings",
+      "ws.tabs.trace": "Profiling",
       "ws.termination.gpuFreed": "GPU released",
       "ws.termination.jobs": "Killed jobs",
       "ws.termination.killedAt": "Terminated at",
@@ -3317,6 +3384,69 @@ window.__ModuleLoader__.load({
       "ws.termination.title": "Termination record",
       "ws.termination.verifiedClean": "Verified clean",
       "ws.termination.yes": "yes",
+      "ws.trace.action.bound": "Compute or memory bound?",
+      "ws.trace.action.call-context": "Full code call context",
+      "ws.trace.action.code-path": "Why was this kernel selected?",
+      "ws.trace.action.explain": "What does this kernel do?",
+      "ws.trace.action.fusion": "Fusion analysis + DAG node",
+      "ws.trace.action.implementation": "Explain the kernel implementation",
+      "ws.trace.action.optimize": "Create optimisation task",
+      "ws.trace.action.shapes": "Explain input/output shapes",
+      "ws.trace.actions": "Agent actions",
+      "ws.trace.actionsHint": "The first seven go to the project Copilot; fusion and targeted optimisation create a new root node for the task queue.",
+      "ws.trace.aggregate": "Aggregates",
+      "ws.trace.ask": "Ask",
+      "ws.trace.askPlaceholder": "Ask about this kernel…",
+      "ws.trace.chat": "Agent answer",
+      "ws.trace.chatEmpty": "No conversation about this trace yet.",
+      "ws.trace.chooseFile": "Choose local trace",
+      "ws.trace.close": "Close trace",
+      "ws.trace.copied": "Prompt copied",
+      "ws.trace.copy": "Copy prompt",
+      "ws.trace.copyFailed": "Copy failed",
+      "ws.trace.detail": "Kernel detail",
+      "ws.trace.detailHint": "Click or double-click a kernel span on the timeline to open the nine Agent actions.",
+      "ws.trace.deviceStream": "GPU {device} · stream {stream}",
+      "ws.trace.dispatching": "Sent to the project Copilot; waiting for the answer…",
+      "ws.trace.dtypes": "dtypes",
+      "ws.trace.empty": "No trace is open: choose a local JSON file or enter an absolute Host path.",
+      "ws.trace.error": "Failed to load the trace",
+      "ws.trace.fit": "Fit",
+      "ws.trace.inputs": "Input shapes",
+      "ws.trace.invalidExt": "Only .json / .json.gz trace files are supported",
+      "ws.trace.kernels": "Kernel aggregates",
+      "ws.trace.laneEmpty": "No spans in this view window",
+      "ws.trace.launch": "Launch op",
+      "ws.trace.layout": "Grid / Block",
+      "ws.trace.loading": "Parsing trace…",
+      "ws.trace.menu": "Kernel actions",
+      "ws.trace.menuHint": "Double-click a span to open the side panel",
+      "ws.trace.neighbours": "Neighbour kernels",
+      "ws.trace.nodeCreate": "Create node",
+      "ws.trace.nodeCreated": "Created node {id}",
+      "ws.trace.nodeFailed": "Node creation failed",
+      "ws.trace.nodeHint": "Add this kernel's fusion / optimisation analysis as a new root node in the task queue.",
+      "ws.trace.nodeTitle": "Create a task node",
+      "ws.trace.notFound": "This trace expired or was closed",
+      "ws.trace.open": "Open",
+      "ws.trace.pathPlaceholder": "/path/to/torch_trace.json or .json.gz",
+      "ws.trace.refresh": "Refresh",
+      "ws.trace.search": "Search kernels",
+      "ws.trace.sort": "Sort",
+      "ws.trace.sort.avg": "Average",
+      "ws.trace.sort.count": "Launch count",
+      "ws.trace.sort.max": "Max",
+      "ws.trace.sort.sum": "Total time",
+      "ws.trace.spans": "{shown}/{total} spans",
+      "ws.trace.stack": "Call stack",
+      "ws.trace.subtitle": "Open a torch.profiler chrome trace; double-click any kernel span to analyse it with the Agent or materialise a DAG task.",
+      "ws.trace.summary": "{kernels} kernels · {ops} CPU ops · window {duration}",
+      "ws.trace.timebox": "Timebox (minutes)",
+      "ws.trace.timeline": "Timeline",
+      "ws.trace.title": "Torch profile trace viewer",
+      "ws.trace.tooLarge": "File is too large; open it by Host path instead",
+      "ws.trace.zoomIn": "Zoom in",
+      "ws.trace.zoomOut": "Zoom out",
       "ws.transcript.args": "Arguments",
       "ws.transcript.assistant": "Agent",
       "ws.transcript.close": "Close conversation",
@@ -4121,6 +4251,55 @@ window.__ModuleLoader__.load({
       '@media (max-width: 820px) { .rl-guide-card { height: calc(100dvh - 16px); max-height: calc(100vh - 16px); } .rl-guide-body { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 10px 12px; overflow: auto; } .rl-guide-visual { order: -1; min-height: 190px; } .rl-guide-svg { max-height: 32vh; } .rl-guide-text { overflow: visible; } .rl-guide-page-title { font-size: 19px; } .rl-guide-swipe { display: none; } .rl-guide-foot { padding: 8px 12px; } }',
       '@media (max-width: 520px) { .rl-guide-layer { padding: 6px; } .rl-guide-card { height: calc(100dvh - 12px); border-radius: 10px; } .rl-guide-head { padding: 8px 10px; } .rl-guide-count { display: none; } .rl-guide-visual { min-height: 160px; } .rl-guide-actions { width: 100%; justify-content: flex-end; } }',
       '@media (prefers-reduced-motion: reduce) { .rl-spinner { animation: none; } .rl-dot-running { animation: none; } .rl-node { transition: none; } .rl-node-actions { transition: none; } }',
+      '.rl-trace-page { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; padding: 12px 16px 16px; overflow: hidden; }',
+      '.rl-trace-head { display: flex; align-items: flex-start; gap: 12px; flex: none; }',
+      '.rl-trace-head > div { min-width: 0; flex: 1 1 auto; }',
+      '.rl-trace-openbar { display: flex; align-items: center; gap: 8px; flex: none; flex-wrap: wrap; }',
+      '.rl-trace-recent { display: flex; align-items: center; gap: 6px; flex: none; flex-wrap: wrap; }',
+      '.rl-trace-recent-item { cursor: pointer; }',
+      '.rl-trace-recent-active { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }',
+      '.rl-trace-openbar .rl-input { width: clamp(220px, 38vw, 520px); }',
+      '.rl-trace-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }',
+      '.rl-trace-sep { color: var(--dsw-alias-label-tertiary); }',
+      '.rl-trace-summary { display: flex; align-items: baseline; gap: 10px; flex: none; flex-wrap: wrap; color: var(--dsw-alias-label-secondary); font-size: 12px; }',
+      '.rl-trace-summary strong { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 600; }',
+      '.rl-trace-grid { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 30vw, 380px); gap: 12px; flex: 1 1 auto; min-height: 0; }',
+      '.rl-trace-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; overflow: hidden; }',
+      '.rl-trace-timeline-wrap { display: flex; flex-direction: column; gap: 6px; flex: 0 1 46%; min-height: 150px; overflow: hidden; }',
+      '.rl-trace-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }',
+      '.rl-trace-chip { padding: 1px 7px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 999px; color: var(--dsw-alias-label-secondary); font-size: 10.5px; white-space: nowrap; }',
+      '.rl-trace-canvas { flex: 1 1 auto; min-height: 0; overflow: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-canvas-inner { position: relative; padding: 4px 0; }',
+      '.rl-trace-lane { display: flex; align-items: center; gap: 6px; padding: 1px 6px; box-sizing: border-box; }',
+      '.rl-trace-lane-label { flex: none; width: 86px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 10px; font-family: ' + MONO + '; }',
+      '.rl-trace-lane-track { position: relative; flex: 1 1 auto; height: 18px; border-radius: 4px; background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-trace-span { position: absolute; top: 2px; height: 14px; padding: 0; border: 0; border-radius: 3px; background: var(--dsw-alias-brand-primary); opacity: 0.62; cursor: pointer; }',
+      '.rl-trace-span:hover { opacity: 0.9; }',
+      '.rl-trace-span-selected { opacity: 1; box-shadow: 0 0 0 1px var(--dsw-alias-label-primary); }',
+      '.rl-trace-span:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }',
+      '.rl-trace-table-wrap { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; overflow: hidden; }',
+      '.rl-trace-table-head { display: flex; align-items: center; gap: 8px; flex: none; flex-wrap: wrap; }',
+      '.rl-trace-table-head .rl-input { width: clamp(160px, 24vw, 320px); }',
+      '.rl-trace-table { flex: 1 1 auto; min-height: 0; overflow: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-row { display: grid; grid-template-columns: minmax(0, 1fr) 60px 92px 92px 56px; gap: 8px; align-items: center; width: 100%; padding: 5px 10px; border: 0; border-bottom: 0.5px solid var(--dsw-alias-border-l1); background: transparent; color: var(--dsw-alias-label-secondary); font-size: 11.5px; text-align: left; font-variant-numeric: tabular-nums; }',
+      'button.rl-trace-row { cursor: pointer; }',
+      'button.rl-trace-row:hover { background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-trace-row-head { color: var(--dsw-alias-label-tertiary); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }',
+      '.rl-trace-row-selected { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }',
+      '.rl-trace-kname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ' + MONO + '; font-size: 11px; }',
+      '.rl-trace-detail { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: auto; }',
+      '.rl-trace-stack { display: flex; flex-direction: column; gap: 2px; margin: 0; padding-left: 18px; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }',
+      '.rl-trace-neighbours { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 2px 0; }',
+      '.rl-trace-actions { display: flex; flex-wrap: wrap; gap: 6px; }',
+      '.rl-trace-actions .rl-btn { font-size: 11.5px; }',
+      '.rl-trace-ask { display: flex; align-items: center; gap: 6px; margin-top: 6px; }',
+      '.rl-trace-ask .rl-input { flex: 1 1 auto; }',
+      '.rl-trace-chat { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 0.5px solid var(--dsw-alias-border-l1); }',
+      '.rl-trace-chat-row { display: flex; gap: 6px; font-size: 11.5px; line-height: 16px; }',
+      '.rl-trace-chat-text { min-width: 0; overflow-wrap: anywhere; color: var(--dsw-alias-label-secondary); }',
+      '.rl-trace-chat-user .rl-trace-chat-text { color: var(--dsw-alias-label-primary); }',
+      '.rl-trace-chat-role { flex: none; }',
+      '@media (max-width: 1100px) { .rl-trace-grid { grid-template-columns: minmax(0, 1fr); } .rl-trace-detail { max-height: 320px; } }',
     ].join('\n');
     // #endregion
 
@@ -4571,6 +4750,26 @@ window.__ModuleLoader__.load({
       fetchClusterConfig(signal, t) {
         return requestJson(ROUTES.clusterConfig, { signal }, t);
       },
+      /** Issue #94: opened-trace inventory (no traceId) or one trace summary. */
+      fetchTraces(signal, t) {
+        return requestJson(ROUTES.trace, { signal }, t);
+      },
+      fetchTrace(traceId, view, params, t) {
+        const search = new URLSearchParams({ traceId, view });
+        const extra = asObject(params);
+        for (const key of Object.keys(extra)) {
+          const value = extra[key];
+          if (value === undefined || value === null || value === '') continue;
+          search.set(key, String(value));
+        }
+        return requestJson(ROUTES.trace + '?' + search.toString(), {}, t);
+      },
+      openTrace(payload, t) {
+        return requestJson(ROUTES.commands, { method: 'POST', body: Object.assign({ type: 'trace.open' }, asObject(payload)) }, t);
+      },
+      fetchChat(projectId, signal, t) {
+        return requestJson(ROUTES.chat + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
+      },
       fetchRun(projectId, runId, signal, t) {
         return requestJson(
           ROUTES.runs + '?projectId=' + encodeURIComponent(projectId) + '&runId=' + encodeURIComponent(runId),
@@ -4925,7 +5124,7 @@ window.__ModuleLoader__.load({
     }
 
     /** The seven first-class project views. The order is the tab order. */
-    const LAB_TAB_IDS = Object.freeze(['dag', 'observability', 'experts', 'dashboard', 'settings', 'sessions', 'audit']);
+    const LAB_TAB_IDS = Object.freeze(['dag', 'observability', 'experts', 'dashboard', 'settings', 'sessions', 'audit', 'trace']);
     function normalizeLabTab(value) {
       const id = firstString(value);
       return LAB_TAB_IDS.includes(id) ? id : 'dag';
@@ -9836,6 +10035,7 @@ window.__ModuleLoader__.load({
       settings: 'ws.tabs.settings',
       sessions: 'ws.tabs.sessions',
       audit: 'ws.tabs.audit',
+      trace: 'ws.tabs.trace',
     });
     function projectTabDomId(tab) {
       return 'metainfer-project-tab-' + tab;
@@ -11009,6 +11209,8 @@ window.__ModuleLoader__.load({
           mountedTabs.has('sessions') ? h(SessionsTab, { projectId, nodes, onOpenSession: openSessionNative, t }) : null),
         h(ProjectTabPanel, { key: 'audit', tab: 'audit', active: activeTab === 'audit' },
           mountedTabs.has('audit') ? h(AuditTab, { projectId, nodes, onOpenNode: (nodeId) => { setSelectedId(nodeId); noteNode(nodeId); selectTab('dag'); }, t }) : null),
+        h(ProjectTabPanel, { key: 'trace', tab: 'trace', active: activeTab === 'trace' },
+          mountedTabs.has('trace') ? h(ProfilerTab, { projectId, t, active: activeTab === 'trace' }) : null),
       ];
 
       return h(
@@ -17344,6 +17546,584 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // #region profiler trace viewer (issue #94)
+    /** Vertical pitch of one GPU stream lane in the trace timeline. */
+    const TRACE_LANE_HEIGHT = 26;
+    /** Hard cap on mounted span bars; the chip reports the culled remainder. */
+    const TRACE_MAX_RENDERED_SPANS = 400;
+    /** One zoom step is 1.6x in or out around the view centre. */
+    const TRACE_ZOOM_STEP = 1.6;
+    /** Timeline canvas width in CSS pixels (the wrapper scrolls horizontally). */
+    const TRACE_CANVAS_WIDTH = 1200;
+    /** Project-chat poll cadence while a trace action is in flight. */
+    const TRACE_CHAT_POLL_MS = 1500;
+    /** Upper bound on chat polls so a failed turn cannot spin forever. */
+    const TRACE_CHAT_TRIES = 60;
+    /** Rows rendered by the kernel aggregate table. */
+    const TRACE_KERNEL_ROWS = 40;
+    /** Trace actions that materialise a DAG node instead of a chat turn. */
+    const TRACE_NODE_ACTIONS = Object.freeze(['fusion', 'optimize']);
+    /** Default and maximum timebox for a trace-created node. */
+    const TRACE_DEFAULT_TIMEBOX = 30;
+    const TRACE_MAX_TIMEBOX = 240;
+    /** Local file ceiling; larger traces must be opened by Host path. */
+    const TRACE_FILE_LIMIT = 64 * 1024 * 1024;
+
+    /** `1.234 ms` style duration; traces are recorded in microseconds. */
+    function formatTraceMicros(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return '—';
+      if (number >= 1_000_000) return (number / 1_000_000).toFixed(3) + ' s';
+      if (number >= 1000) return (number / 1000).toFixed(3) + ' ms';
+      return number.toFixed(1) + ' µs';
+    }
+
+    function formatTraceShape(dims) {
+      const rows = asArray(dims);
+      if (rows.length === 0) return '—';
+      return '[' + rows.map((entry) => (Array.isArray(entry) ? '[' + entry.join('x') + ']' : String(entry))).join(', ') + ']';
+    }
+
+    function traceWindowOf(payload) {
+      const window = asObject(asObject(payload)?.window);
+      const start = Number(window?.startTs);
+      const end = Number(window?.endTs);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+      return { from: start, to: end };
+    }
+
+    function clampTraceView(view, full) {
+      if (full === null) return null;
+      const raw = asObject(view);
+      let from = Number(raw?.from);
+      let to = Number(raw?.to);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return { from: full.from, to: full.to };
+      const span = Math.max(to - from, 1);
+      from = Math.max(full.from, Math.min(from, full.to - span));
+      to = Math.min(full.to, from + span);
+      return { from, to };
+    }
+
+    /** Aggregated kernel table plus the timeline for one opened trace. */
+    function ProfilerTab({ projectId, t, active }) {
+      const tr = typeof t === 'function' ? t : (key) => key;
+      const [traces, setTraces] = React.useState([]);
+      const [traceId, setTraceId] = React.useState('');
+      const [summary, setSummary] = React.useState(null);
+      const [phase, setPhase] = React.useState('idle');
+      const [error, setError] = React.useState('');
+      const [pathInput, setPathInput] = React.useState('');
+      const [search, setSearch] = React.useState('');
+      const [sort, setSort] = React.useState('sum');
+      const [kernels, setKernels] = React.useState({ rows: [], matched: 0, total: 0 });
+      const [timeline, setTimeline] = React.useState({ spans: [], lanes: [] });
+      const [view, setView] = React.useState(null);
+      const [selected, setSelected] = React.useState(null);
+      const [panelOpen, setPanelOpen] = React.useState(false);
+      const [chat, setChat] = React.useState([]);
+      const [busy, setBusy] = React.useState('');
+      const [notice, setNotice] = React.useState('');
+      const [actionError, setActionError] = React.useState('');
+      const [nodeDialog, setNodeDialog] = React.useState(null);
+      const [timebox, setTimebox] = React.useState(TRACE_DEFAULT_TIMEBOX);
+      const [question, setQuestion] = React.useState('');
+      const aliveRef = React.useRef(true);
+      const timerRef = React.useRef(null);
+
+      React.useEffect(() => {
+        aliveRef.current = true;
+        return () => {
+          aliveRef.current = false;
+          if (timerRef.current !== null) clearTimeout(timerRef.current);
+        };
+      }, []);
+
+      const loadTraces = React.useCallback(async (signal) => {
+        try {
+          const data = await api.fetchTraces(signal, tr);
+          if (signal?.aborted) return;
+          setTraces(asArray(asObject(data).traces));
+        } catch (reason) {
+          if (!isAbortError(reason)) setActionError(describeError(reason, tr));
+        }
+      }, [tr]);
+
+      React.useEffect(() => {
+        if (active === false) return undefined;
+        const controller = new AbortController();
+        void loadTraces(controller.signal);
+        return () => controller.abort();
+      }, [active, loadTraces]);
+
+      const refreshTrace = React.useCallback(async (id) => {
+        if (typeof id !== 'string' || id === '') return;
+        setPhase('loading');
+        setError('');
+        try {
+          const data = await api.fetchTrace(id, 'summary', {}, tr);
+          if (!aliveRef.current) return;
+          setSummary(asObject(data));
+          setTraceId(id);
+          setPhase('ready');
+        } catch (reason) {
+          if (!aliveRef.current) return;
+          setPhase('error');
+          setError(describeError(reason, tr));
+        }
+      }, [tr]);
+
+      const loadKernels = React.useCallback(async (id, sortKey, query) => {
+        try {
+          const data = await api.fetchTrace(id, 'kernels', { sort: sortKey, q: query, limit: 200 }, tr);
+          if (!aliveRef.current) return;
+          setKernels({
+            rows: asArray(asObject(data).rows),
+            matched: numberOr(asObject(data).matched, 0),
+            total: numberOr(asObject(data).total, 0),
+          });
+        } catch (reason) {
+          if (!isAbortError(reason)) setActionError(describeError(reason, tr));
+        }
+      }, [tr]);
+
+      const loadTimeline = React.useCallback(async (id) => {
+        try {
+          const data = await api.fetchTrace(id, 'timeline', {}, tr);
+          if (!aliveRef.current) return;
+          const payload = asObject(data);
+          setTimeline({ spans: asArray(payload.spans), lanes: asArray(payload.lanes) });
+          setView(clampTraceView(null, traceWindowOf(payload)));
+        } catch (reason) {
+          if (!isAbortError(reason)) setActionError(describeError(reason, tr));
+        }
+      }, [tr]);
+
+      React.useEffect(() => {
+        if (phase !== 'ready' || traceId === '') return undefined;
+        void loadKernels(traceId, sort, search);
+        void loadTimeline(traceId);
+        return undefined;
+      }, [phase, traceId, loadKernels, loadTimeline]);
+
+      React.useEffect(() => {
+        if (traceId === '') return undefined;
+        const handle = setTimeout(() => { void loadKernels(traceId, sort, search); }, 150);
+        return () => clearTimeout(handle);
+      }, [search, sort, traceId, loadKernels]);
+
+      const openTrace = async (payload) => {
+        setPhase('loading');
+        setError('');
+        setNotice('');
+        try {
+          const data = await api.openTrace(payload, tr);
+          if (!aliveRef.current) return;
+          await refreshTrace(asObject(data).traceId);
+          await loadTraces();
+        } catch (reason) {
+          if (!aliveRef.current) return;
+          setPhase('error');
+          setError(describeError(reason, tr));
+        }
+      };
+
+      const openByPath = () => {
+        const value = pathInput.trim();
+        if (value === '') return;
+        void openTrace({ path: value });
+      };
+
+      const openByFile = async (event) => {
+        const file = event?.target?.files?.[0];
+        if (!file) return;
+        if (file.size > TRACE_FILE_LIMIT) {
+          setActionError(tr('ws.trace.tooLarge'));
+          return;
+        }
+        try {
+          const text = await file.text();
+          await openTrace({ content: text, name: firstString(file.name) || 'uploaded-trace.json' });
+        } catch (reason) {
+          setActionError(describeError(reason, tr));
+        } finally {
+          if (event?.target) event.target.value = '';
+        }
+      };
+
+      const selectKernel = async (kernelIndex, openPanel) => {
+        if (!Number.isInteger(kernelIndex) || traceId === '') return;
+        setBusy('kernel');
+        setActionError('');
+        try {
+          const data = await api.fetchTrace(traceId, 'kernel', { kernel: kernelIndex }, tr);
+          if (!aliveRef.current) return;
+          const payload = asObject(data);
+          setSelected({ index: kernelIndex, detail: asObject(payload.detail), actions: asArray(payload.actions) });
+          if (openPanel) setPanelOpen(true);
+        } catch (reason) {
+          setActionError(describeError(reason, tr));
+        } finally {
+          setBusy('');
+        }
+      };
+
+      const pollChat = async (before) => {
+        for (let attempt = 0; attempt < TRACE_CHAT_TRIES; attempt += 1) {
+          if (!aliveRef.current) return;
+          await new Promise((resolve) => { timerRef.current = setTimeout(resolve, TRACE_CHAT_POLL_MS); });
+          if (!aliveRef.current) return;
+          try {
+            const data = await api.fetchChat(projectId, undefined, tr);
+            const messages = asArray(asObject(data).messages);
+            setChat(messages);
+            const answered = messages.length > before && messages.some((message, index) => index >= before && asObject(message).role !== 'user');
+            if (answered) {
+              setNotice('');
+              return;
+            }
+          } catch (reason) {
+            if (!isAbortError(reason)) {
+              setActionError(describeError(reason, tr));
+              return;
+            }
+          }
+        }
+        setNotice('');
+      };
+
+      const dispatchAction = async (actionId) => {
+        if (selected === null || traceId === '') return;
+        setBusy(actionId);
+        setActionError('');
+        setNotice(tr('ws.trace.dispatching'));
+        try {
+          const promptData = await api.fetchTrace(traceId, 'prompt', {
+            action: actionId,
+            kernel: selected.index,
+            question,
+          }, tr);
+          const before = asArray(chat).length;
+          const command = await api.command({ type: 'project.chat', projectId, text: asObject(promptData).prompt }, undefined, tr);
+          if (!aliveRef.current) return;
+          const messages = asArray(asObject(command).messages);
+          if (messages.length > 0) setChat(messages);
+          setQuestion('');
+          await pollChat(before);
+        } catch (reason) {
+          setNotice('');
+          setActionError(describeError(reason, tr));
+        } finally {
+          setBusy('');
+        }
+      };
+
+      const askQuestion = () => {
+        if (question.trim() === '') return;
+        void dispatchAction('ask');
+      };
+
+      const createNode = async (actionId) => {
+        setBusy(actionId);
+        setActionError('');
+        try {
+          const data = await api.command({
+            type: 'trace.task',
+            projectId,
+            traceId,
+            kernelIndex: selected?.index,
+            action: actionId,
+            timeboxMinutes: timebox,
+          }, undefined, tr);
+          const node = asObject(asObject(data).node);
+          setNodeDialog(null);
+          setNotice(tr('ws.trace.nodeCreated', { id: firstString(node.id) }));
+        } catch (reason) {
+          setActionError(describeError(reason, tr));
+        } finally {
+          setBusy('');
+        }
+      };
+
+      const closeTrace = async () => {
+        if (traceId === '') return;
+        try {
+          await api.command({ type: 'trace.close', traceId }, undefined, tr);
+        } catch (reason) {
+          setActionError(describeError(reason, tr));
+        }
+        setSummary(null);
+        setSelected(null);
+        setTimeline({ spans: [], lanes: [] });
+        setTraceId('');
+        setPhase('idle');
+        setChat([]);
+        void loadTraces();
+      };
+
+      const fullWindow = traceWindowOf(timeline.spans.length > 0 ? { window: { startTs: Math.min(...timeline.spans.map((row) => numberOr(row.ts, 0))), endTs: Math.max(...timeline.spans.map((row) => numberOr(row.ts, 0) + numberOr(row.dur, 0))) } } : summary);
+      const zoomBy = (factor) => {
+        if (fullWindow === null || view === null) return;
+        const centre = (view.from + view.to) / 2;
+        const half = Math.max((view.to - view.from) / (2 * factor), 0.5);
+        setView(clampTraceView({ from: centre - half, to: centre + half }, fullWindow));
+      };
+      const fitView = () => setView(clampTraceView(null, fullWindow));
+
+      const laneRows = asArray(timeline.lanes);
+      const spans = asArray(timeline.spans);
+      const mountedSpans = spans.slice(0, TRACE_MAX_RENDERED_SPANS);
+      const windowFrom = view === null ? 0 : view.from;
+      const windowTo = view === null ? 1 : view.to;
+      const spanWindow = Math.max(windowTo - windowFrom, 0.0001);
+      const xOf = (ts) => ((Number(ts) - windowFrom) / spanWindow) * TRACE_CANVAS_WIDTH;
+      const widthOf = (dur) => Math.max(2, (Number(dur) / spanWindow) * TRACE_CANVAS_WIDTH);
+      const detail = asObject(selected?.detail);
+      const kernelRow = asObject(detail.kernel);
+      const aggregate = asObject(detail.aggregate);
+      const neighbours = asObject(detail.neighbours);
+      const actionList = selected !== null && asArray(selected.actions).length > 0
+        ? asArray(selected.actions)
+        : TRACE_NODE_ACTIONS.concat(['explain']).map((id) => ({ id, kind: TRACE_NODE_ACTIONS.indexOf(id) >= 0 ? 'node' : 'chat' }));
+
+      const controls = h(
+        'div',
+        { className: 'rl-trace-openbar' },
+        h(LabButton, { label: tr('ws.trace.chooseFile'), variant: 'primary', onClick: () => {
+          if (typeof document === 'undefined') return;
+          const input = document.getElementById('metainfer-trace-file');
+          if (input) input.click();
+        } }),
+        h('input', {
+          id: 'metainfer-trace-file',
+          type: 'file',
+          accept: '.json,.gz,application/json',
+          className: 'rl-trace-file',
+          onChange: (event) => { void openByFile(event); },
+        }),
+        h('span', { className: 'rl-trace-sep' }, '·'),
+        h(LabInput, {
+          value: pathInput,
+          placeholder: tr('ws.trace.pathPlaceholder'),
+          ariaLabel: tr('ws.trace.pathPlaceholder'),
+          onChange: (event) => setPathInput(firstString(event?.target?.value)),
+        }),
+        h(LabButton, { label: tr('ws.trace.open'), onClick: openByPath, disabled: pathInput.trim() === '' }),
+        traces.length > 0
+          ? h(LabSelect, {
+              value: traceId,
+              ariaLabel: tr('ws.trace.title'),
+              options: traces.map((row) => ({ value: firstString(row.traceId), label: firstString(row.name) || firstString(row.traceId) })),
+              onChange: (event) => { void refreshTrace(firstString(event?.target?.value)); },
+            })
+          : null,
+        traceId !== '' ? h(LabButton, { label: tr('ws.trace.close'), variant: 'ghost', onClick: () => { void closeTrace(); } }) : null,
+      );
+
+      const recentTraces = traces.length === 0
+        ? null
+        : h('div', { className: 'rl-trace-recent' },
+            h('span', { className: 'rl-hint' }, tr('ws.trace.title')),
+            traces.map((row) => h('button', {
+              key: 'recent-' + firstString(asObject(row).traceId),
+              type: 'button',
+              className: 'rl-chip rl-trace-recent-item' + (firstString(asObject(row).traceId) === traceId ? ' rl-trace-recent-active' : ''),
+              onClick: () => { void refreshTrace(firstString(asObject(row).traceId)); },
+            }, firstString(asObject(row).name) || firstString(asObject(row).traceId))));
+
+      const summaryLine = summary === null
+        ? null
+        : h('div', { className: 'rl-trace-summary' },
+            h('strong', null, firstString(summary.name)),
+            h('span', null, tr('ws.trace.summary', {
+              kernels: numberOr(asObject(summary.counts).kernels, 0),
+              ops: numberOr(asObject(summary.counts).ops, 0),
+              duration: formatTraceMicros(numberOr(asObject(summary.window).durationUs, 0)),
+            })));
+
+      const kernelTable = h('div', { className: 'rl-trace-table-wrap' },
+        h('div', { className: 'rl-trace-table-head' },
+          h('span', { className: 'rl-section-title' }, tr('ws.trace.kernels')),
+          h(LabInput, {
+            value: search,
+            placeholder: tr('ws.trace.search'),
+            ariaLabel: tr('ws.trace.search'),
+            onChange: (event) => setSearch(firstString(event?.target?.value)),
+          }),
+          h(LabSelect, {
+            value: sort,
+            ariaLabel: tr('ws.trace.sort'),
+            options: [
+              { value: 'sum', label: tr('ws.trace.sort.sum') },
+              { value: 'count', label: tr('ws.trace.sort.count') },
+              { value: 'avg', label: tr('ws.trace.sort.avg') },
+              { value: 'max', label: tr('ws.trace.sort.max') },
+            ],
+            onChange: (event) => setSort(firstString(event?.target?.value, 'sum')),
+          }),
+        ),
+        h('div', { className: 'rl-trace-table', role: 'table', 'data-testid': 'trace-kernel-table' },
+          h('div', { className: 'rl-trace-row rl-trace-row-head', role: 'row' },
+            h('span', null, 'kernel'),
+            h('span', null, tr('ws.trace.sort.count')),
+            h('span', null, tr('ws.trace.sort.sum')),
+            h('span', null, tr('ws.trace.sort.avg')),
+            h('span', null, '%')),
+          asArray(kernels.rows).slice(0, TRACE_KERNEL_ROWS).map((row, index) => {
+            const id = firstString(asObject(row).name) + ':' + String(index);
+            return h('button', {
+              key: id,
+              type: 'button',
+              role: 'row',
+              className: 'rl-trace-row' + (selected !== null && asObject(row).kernelIndex === selected.index ? ' rl-trace-row-selected' : ''),
+              title: firstString(asObject(row).name),
+              onClick: () => { void selectKernel(numberOr(asObject(row).kernelIndex, 0), true); },
+            },
+              h('span', { className: 'rl-trace-kname' }, firstString(asObject(row).shortName)),
+              h('span', null, String(numberOr(asObject(row).count, 0))),
+              h('span', null, formatTraceMicros(numberOr(asObject(row).sumUs, 0))),
+              h('span', null, formatTraceMicros(numberOr(asObject(row).avgUs, 0))),
+              h('span', null, ((numberOr(asObject(row).shareOfKernelTime, 0)) * 100).toFixed(1) + '%'));
+          }),
+        ),
+      );
+
+      const timelineView = h('div', { className: 'rl-trace-timeline-wrap', 'data-testid': 'trace-timeline' },
+        h('div', { className: 'rl-trace-toolbar' },
+          h('span', { className: 'rl-section-title' }, tr('ws.trace.timeline')),
+          h(LabButton, { label: tr('ws.trace.zoomIn'), variant: 'ghost', onClick: () => zoomBy(TRACE_ZOOM_STEP) }),
+          h(LabButton, { label: tr('ws.trace.zoomOut'), variant: 'ghost', onClick: () => zoomBy(1 / TRACE_ZOOM_STEP) }),
+          h(LabButton, { label: tr('ws.trace.fit'), variant: 'ghost', onClick: fitView }),
+          h('span', { className: 'rl-trace-chip' }, tr('ws.trace.spans', { shown: mountedSpans.length, total: numberOr(asObject(timeline).matched, spans.length) })),
+        ),
+        laneRows.length === 0
+          ? h('p', { className: 'rl-hint' }, tr('ws.trace.laneEmpty'))
+          : h('div', { className: 'rl-trace-canvas', role: 'group', 'aria-label': tr('ws.trace.timeline') },
+              h('div', { className: 'rl-trace-canvas-inner', style: { width: TRACE_CANVAS_WIDTH + 140 } },
+                laneRows.map((lane) => {
+                  const laneId = firstString(asObject(lane).lane);
+                  const laneSpans = mountedSpans.filter((span) => firstString(asObject(span).lane) === laneId);
+                  return h('div', { key: laneId, className: 'rl-trace-lane', style: { height: TRACE_LANE_HEIGHT } },
+                    h('span', { className: 'rl-trace-lane-label', title: laneId }, 'gpu' + String(numberOr(asObject(lane).device, 0)) + ' · s' + String(numberOr(asObject(lane).stream, 0))),
+                    h('div', { className: 'rl-trace-lane-track' },
+                      laneSpans.map((span) => {
+                        const row = asObject(span);
+                        const index = numberOr(row.id, -1);
+                        return h('button', {
+                          key: 'span-' + String(index),
+                          type: 'button',
+                          className: 'rl-trace-span' + (selected !== null && selected.index === index ? ' rl-trace-span-selected' : ''),
+                          style: { left: xOf(row.ts), width: widthOf(row.dur) },
+                          title: firstString(row.fullName) + ' · ' + formatTraceMicros(row.dur),
+                          onClick: (event) => { event.stopPropagation(); void selectKernel(index, false); },
+                          onDoubleClick: (event) => { event.stopPropagation(); void selectKernel(index, true); },
+                        }, '');
+                      })),
+                  );
+                }),
+              )),
+      );
+
+      const neighbourRow = (label, rows) => h('div', { className: 'rl-trace-neighbours' },
+        h('span', { className: 'rl-info-label' }, label),
+        asArray(rows).length === 0
+          ? h('span', { className: 'rl-hint' }, '—')
+          : asArray(rows).map((row, index) => h('span', { key: label + index, className: 'rl-trace-chip', title: firstString(asObject(row).shortName) },
+              firstString(asObject(row).shortName) + ' · ' + formatTraceMicros(numberOr(asObject(row).dur, 0)))));
+
+      const chatBlock = h('div', { className: 'rl-trace-chat' },
+        h('span', { className: 'rl-section-title' }, tr('ws.trace.chat')),
+        asArray(chat).length === 0
+          ? h('p', { className: 'rl-hint' }, tr('ws.trace.chatEmpty'))
+          : asArray(chat).slice(-6).map((message, index) => {
+              const row = asObject(message);
+              const role = firstString(row.role);
+              return h('div', { key: 'chat-' + String(index), className: 'rl-trace-chat-row rl-trace-chat-' + role },
+                h('span', { className: 'rl-trace-chat-role' }, role === 'user' ? '🙋' : role === 'error' ? '⚠️' : '🤖'),
+                h('span', { className: 'rl-trace-chat-text' }, firstString(row.text)));
+            }));
+
+      const detailPanel = h('aside', { className: 'rl-inspector rl-trace-detail', 'data-testid': 'trace-detail' },
+        h('div', { className: 'rl-inspector-head' },
+          h('h3', { className: 'rl-inspector-title' }, tr('ws.trace.detail')),
+          selected !== null ? h('span', { className: 'rl-inspector-id rl-mono' }, '#' + String(selected.index)) : null),
+        selected === null
+          ? h('p', { className: 'rl-hint' }, tr('ws.trace.detailHint'))
+          : h('div', null,
+              h('div', { className: 'rl-section' },
+                h('span', { className: 'rl-section-title', title: firstString(kernelRow.name) }, firstString(kernelRow.shortName)),
+                h(LabInfoRow, { label: tr('ws.trace.deviceStream'), value: tr('ws.trace.deviceStream', { device: numberOr(kernelRow.device, 0), stream: numberOr(kernelRow.stream, 0) }) }),
+                h(LabInfoRow, { label: tr('ws.trace.sort.max'), value: formatTraceMicros(kernelRow.dur) }),
+                h(LabInfoRow, { label: tr('ws.trace.aggregate'), value: tr('ws.trace.sort.count') + ' ' + String(numberOr(aggregate.count, 0)) + ' · ' + tr('ws.trace.sort.sum') + ' ' + formatTraceMicros(aggregate.sumUs) + ' · p99 ' + formatTraceMicros(aggregate.p99Us) }),
+                h(LabInfoRow, { label: tr('ws.trace.layout'), value: (Array.isArray(kernelRow.grid) ? 'grid [' + kernelRow.grid.join('x') + '] ' : '') + (Array.isArray(kernelRow.block) ? 'block [' + kernelRow.block.join('x') + ']' : '') || '—' }),
+                h(LabInfoRow, { label: tr('ws.trace.launch'), value: firstString(asObject(kernelRow.launchOp).name, '—') }),
+                h(LabInfoRow, { label: tr('ws.trace.inputs'), value: formatTraceShape(asObject(detail.inputs).dims) }),
+                h(LabInfoRow, { label: tr('ws.trace.dtypes'), value: asArray(detail.dtypes).length > 0 ? asArray(detail.dtypes).join(', ') : '—' })),
+              asArray(detail.stack).length > 0
+                ? h('div', { className: 'rl-section' },
+                    h('span', { className: 'rl-section-title' }, tr('ws.trace.stack')),
+                    h('ol', { className: 'rl-trace-stack' }, asArray(detail.stack).slice(-10).reverse().map((entry, index) => h('li', { key: 'stack-' + String(index), className: 'rl-mono' },
+                      firstString(asObject(entry).name) + (firstString(asObject(entry).source) === '' ? '' : ' @ ' + firstString(asObject(entry).source))))))
+                : null,
+              neighbourRow(tr('ws.trace.neighbours') + ' ←', neighbours.prev),
+              neighbourRow(tr('ws.trace.neighbours') + ' →', neighbours.next),
+              h('div', { className: 'rl-section' },
+                h('span', { className: 'rl-section-title' }, tr('ws.trace.actions')),
+                h('p', { className: 'rl-hint' }, tr('ws.trace.actionsHint')),
+                h('div', { className: 'rl-inspector-actions rl-trace-actions' },
+                  actionList.map((action) => {
+                    const id = firstString(asObject(action).id);
+                    const isNode = firstString(asObject(action).kind) === 'node';
+                    return h('button', {
+                      key: id,
+                      type: 'button',
+                      className: 'rl-btn' + (isNode ? ' rl-btn-primary' : ''),
+                      disabled: busy !== '',
+                      onClick: () => { if (isNode) setNodeDialog({ action: id }); else void dispatchAction(id); },
+                    }, tr('ws.trace.action.' + id));
+                  })),
+                h('div', { className: 'rl-trace-ask' },
+                  h(LabInput, {
+                    value: question,
+                    placeholder: tr('ws.trace.askPlaceholder'),
+                    ariaLabel: tr('ws.trace.askPlaceholder'),
+                    onChange: (event) => setQuestion(firstString(event?.target?.value)),
+                  }),
+                  h(LabButton, { label: tr('ws.trace.ask'), disabled: busy !== '' || question.trim() === '', onClick: askQuestion })),
+                busy !== '' ? h(LabLoading, { label: tr('ws.trace.dispatching') }) : null,
+                notice !== '' ? h('p', { className: 'rl-hint' }, notice) : null,
+                actionError !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, actionError) : null),
+              chatBlock));
+
+      const nodeModal = nodeDialog === null ? null : h('div', { className: 'rl-overlay-layer' },
+        h('div', { className: 'rl-modal rl-modal-narrow', role: 'dialog', 'aria-modal': 'true' },
+          h('div', { className: 'rl-modal-head' }, h('h3', { className: 'rl-modal-title' }, tr('ws.trace.nodeTitle'))),
+          h('div', { className: 'rl-modal-body' },
+            h('p', { className: 'rl-hint' }, tr('ws.trace.nodeHint')),
+            h(LabField, { label: tr('ws.trace.timebox') },
+              h(LabInput, { type: 'number', min: 1, max: TRACE_MAX_TIMEBOX, value: String(timebox), onChange: (event) => setTimebox(numberOr(event?.target?.value, TRACE_DEFAULT_TIMEBOX)) }))),
+          h('div', { className: 'rl-modal-foot' },
+            h(LabButton, { label: tr('common.cancel'), variant: 'ghost', onClick: () => setNodeDialog(null) }),
+            h(LabButton, { label: tr('ws.trace.nodeCreate'), variant: 'primary', disabled: busy !== '', onClick: () => { void createNode(firstString(nodeDialog.action)); } }))));
+
+      return h('section', { className: 'rl-trace-page', 'data-testid': 'trace-view' },
+        h('header', { className: 'rl-trace-head' },
+          h('div', null,
+            h('h2', { className: 'rl-page-title' }, tr('ws.trace.title')),
+            h('p', { className: 'rl-hint' }, tr('ws.trace.subtitle'))),
+          h(LabButton, { label: tr('ws.trace.refresh'), variant: 'ghost', onClick: () => { if (traceId !== '') void refreshTrace(traceId); else void loadTraces(); } })),
+        controls,
+        recentTraces,
+        error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, error) : null,
+        phase === 'loading' ? h(LabLoading, { label: tr('ws.trace.loading') }) : null,
+        phase === 'idle' && traces.length === 0 ? h('p', { className: 'rl-hint' }, tr('ws.trace.empty')) : null,
+        summaryLine,
+        h('div', { className: 'rl-trace-grid' },
+          h('div', { className: 'rl-trace-main' }, timelineView, kernelTable),
+          panelOpen || selected !== null ? detailPanel : h('aside', { className: 'rl-inspector rl-trace-detail' }, h('p', { className: 'rl-hint' }, tr('ws.trace.detailHint')))),
+        nodeModal);
+    }
+    // #endregion profiler trace viewer
+
     // #region page, error boundary, sidebar icon
     /** Inline chrome for the crash fallback (the panel stylesheet may not be mounted). */
     const CRASH_STYLE = {
@@ -19227,6 +20007,7 @@ window.__ModuleLoader__.load({
         MetainferLabPage,
         ProjectTabBar,
         ProjectTabPanel,
+        ProfilerTab,
         WorkspaceScreen,
         WorkspaceTopBar,
         ProjectsPanel,

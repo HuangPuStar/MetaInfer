@@ -22,6 +22,7 @@
     "host/kernel/*.js",
     "host/experts/*.js",
     "host/dispatch/*.js",
+    "host/profiler/*.js",
     "host/coordinator/*.js",
     "client.js",
     "cordis.patch.yml",

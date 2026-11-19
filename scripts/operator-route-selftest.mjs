@@ -76,8 +76,8 @@ const tokenBody = (entry) => {
   return {};
 };
 
-check('the policy table has exactly 48 unique method+path rows',
-  ROUTE_POLICY.length === 49 && new Set(ROUTE_POLICY.map((row) => `${row.method} ${row.path}`)).size === 49,
+check('the policy table has exactly 50 unique method+path rows',
+  ROUTE_POLICY.length === 50 && new Set(ROUTE_POLICY.map((row) => `${row.method} ${row.path}`)).size === 50,
   JSON.stringify({ rows: ROUTE_POLICY.length }));
 
 const registeredPairs = registrations.flatMap((row) => row.methods.map((method) => `${method} ${row.path}`)).sort();

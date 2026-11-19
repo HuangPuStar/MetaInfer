@@ -3457,6 +3457,98 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return orchestrator.createSuccessor(projectId, nodeId, input);
   }
 
+  /**
+   * Issue #94: a profiling span may materialise a root DAG node.
+   *
+   * A trace action ("kernel fusing research", "targeted optimisation") must
+   * become an executable task without pretending it descends from a completed
+   * node. Root nodes are exactly what `createProject` mints, so this mirrors
+   * that shape: status `planned`, `createdBy: 'user'`, its own branch/worktree
+   * from the project base commit, and the same counters/event mutation.
+   */
+  async function createTraceTask(projectId, input = {}) {
+    const title = clampNodeTitle(input?.title);
+    if (typeof title !== 'string' || title.trim() === '') {
+      throw new LabError('bad_request', 'title is required', 400);
+    }
+    const prompt = text(input?.prompt, 'prompt', { required: true, max: 8000 });
+    if (prompt.length < 10) throw new LabError('bad_request', 'prompt must be at least 10 characters', 400);
+    return store.withProjectLock(projectId, async () => {
+      const project = requireProject(projectId);
+      if (store.listNodes(projectId).length >= (project.config.maxNodes ?? 60)) {
+        throw new LabError('max_nodes', 'maxNodes reached for this project', 409);
+      }
+      const now = Date.now();
+      const execution = resolveExecutionProfile(project, { taskType: input?.taskType ?? 'general' });
+      const maxMinutes = project.config?.maxNodeTimeoutMinutes ?? 240;
+      const requested = input?.timeboxMinutes === undefined || input?.timeboxMinutes === null
+        ? (project.config?.nodeTimeoutMinutes ?? 10)
+        : input.timeboxMinutes;
+      const timeboxMinutes = Number.isInteger(requested) ? Math.min(Math.max(requested, 1), maxMinutes) : (project.config?.nodeTimeoutMinutes ?? 10);
+      const nodeId = `n-${String(project.counters.nextNodeSeq ?? 2).padStart(4, '0')}`;
+      const node = {
+        id: nodeId,
+        projectId,
+        title,
+        prompt,
+        successCriteria: '',
+        status: 'planned',
+        priority: { class: 'p1', by: 'human', reason: 'profiling trace action', at: now },
+        parentId: null,
+        createdBy: 'user',
+        needs: {},
+        timeboxMs: timeboxMinutes * 60_000,
+        anchorSessionId: newSessionId(),
+        sessionId: newSessionId(),
+        deadlineAt: null,
+        taskType: execution.taskType,
+        execution: {
+          profile: execution.profile,
+          driver: execution.driver,
+          ...(execution.model ? { model: execution.model } : {}),
+          ...(execution.reasoningEffort ? { reasoningEffort: execution.reasoningEffort } : {}),
+          ...(execution.codexPath ? { codexPath: execution.codexPath } : {}),
+        },
+        source: {
+          kind: 'profiling-trace',
+          traceId: typeof input?.traceId === 'string' ? input.traceId.slice(0, 64) : null,
+          kernelIndex: Number.isInteger(input?.kernelIndex) ? input.kernelIndex : null,
+          action: typeof input?.action === 'string' ? input.action.slice(0, 32) : null,
+        },
+        git: {
+          branch: `dshex/${projectId}/${nodeId}`,
+          worktreePath: path.join(project.repo.worktreeRoot, nodeId),
+          baseCommit: project.repo.baseCommit,
+          headCommit: null,
+        },
+        timestamps: { createdAt: now, lastActivityAt: null },
+      };
+      const counters = {
+        ...project.counters,
+        nextNodeSeq: (project.counters.nextNodeSeq ?? 2) + 1,
+        nodes: (project.counters.nodes ?? 0) + 1,
+      };
+      const result = await commitMutations(projectId, [{
+        op: 'node.create',
+        node,
+        counters,
+        eventType: 'node/created',
+        eventData: {
+          title: node.title,
+          parentId: null,
+          isRoot: true,
+          createdBy: node.createdBy,
+          source: 'profiling-trace',
+          timeboxMinutes,
+        },
+      }], {
+        actor: { kind: 'human', id: 'operator' },
+        causeId: `trace:${node.source.traceId ?? 'unknown'}:${node.source.kernelIndex ?? '?'}`,
+      });
+      return { node: store.getNode(projectId, nodeId), revision: result.revision };
+    });
+  }
+
   async function createMergeNode(projectId, input) {
     if (!orchestrator) throw new LabError('unavailable', 'orchestrator is not wired', 503);
     return orchestrator.createMergeNode(projectId, input);
@@ -6437,6 +6529,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     getChat,
     clearProjectChat,
     projectChat,
+    createTraceTask,
     getCopilot,
     openCopilot,
     createPrivateCopilotSession,

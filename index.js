@@ -17,6 +17,7 @@ import { createTranscriptReader } from './host/transcript.js';
 import { createOrchestrator } from './host/orchestrator.js';
 import { registerAgentTool } from './host/agent-tool.js';
 import { registerHttpRoutes } from './host/http.js';
+import { createProfilerStore } from './host/profiler/store.js';
 import { registerTrajectoryWeb } from './host/trajectory-web.js';
 import { registerMcp } from './host/mcp.js';
 import { ensureTrajectoryBackend } from './host/trajectory-backend.js';
@@ -214,8 +215,12 @@ export async function apply(ctx, config = {}) {
     'metainfer-research-lab: storage domain',
   );
 
+  // Issue #94: profiling traces are Host-memory only; the store keeps the last
+  // few opened traces queryable and never writes into the user's repository.
+  const profiler = createProfilerStore();
+
   ctx.effect(
-    () => registerHttpRoutes(ctx, service),
+    () => registerHttpRoutes(ctx, service, { profiler }),
     'metainfer-research-lab: http routes',
   );
 
