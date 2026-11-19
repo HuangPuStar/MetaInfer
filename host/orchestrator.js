@@ -2128,9 +2128,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     return applied;
   }
 
-  function hierarchyMode(project) {
-    const mode = project?.config?.expertsMode ?? project?.config?.experts?.mode;
-    return mode === 'hierarchy' || mode === 'resident' || project?.config?.reviewHierarchy?.enabled === true;
+  // The legacy advisor cycle has been removed: every project is supervised by the
+  // expert hierarchy (or resident experts). Kept as a named predicate because the
+  // planner reads it in several places, but it is now unconditional.
+  function hierarchyMode() {
+    return true;
   }
 
   function hierarchySummary(review) {

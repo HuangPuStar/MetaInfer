@@ -1692,15 +1692,6 @@ window.__ModuleLoader__.load({
       "ws.settings.title": "项目设置",
       "ws.state.more": "继续加载",
       "ws.state.partial": "已加载 {shown} / {total} 个节点，继续加载",
-      "ws.step": "▶ Step",
-      "ws.step.cycleBusy": "上一轮循环仍在进行，请稍后再试。",
-      "ws.step.dismiss": "关闭",
-      "ws.step.error": "Step 失败",
-      "ws.step.errors": "错误 {count} 条",
-      "ws.step.hint": "手动执行一轮：专家组评审 + 调度器决策。",
-      "ws.step.running": "正在执行 Step…",
-      "ws.step.skipped": "跳过 {count} 项",
-      "ws.step.summary": "Step 完成：新建 {created} · 启动 {started}",
       "ws.successor.action": "＋ 添加后继",
       "ws.successor.addNeed": "＋ 添加资源",
       "ws.successor.cancel": "取消",
@@ -3281,15 +3272,6 @@ window.__ModuleLoader__.load({
       "ws.settings.title": "Project settings",
       "ws.state.more": "Load more",
       "ws.state.partial": "Loaded {shown} / {total} nodes — continue loading",
-      "ws.step": "▶ Step",
-      "ws.step.cycleBusy": "A cycle is still running; try again shortly.",
-      "ws.step.dismiss": "Dismiss",
-      "ws.step.error": "Step failed",
-      "ws.step.errors": "{count} errors",
-      "ws.step.hint": "Run one manual cycle: advisor review + scheduler decisions.",
-      "ws.step.running": "Running Step…",
-      "ws.step.skipped": "{count} skipped",
-      "ws.step.summary": "Step finished: {created} created · {started} started",
       "ws.successor.action": "＋ Add successor",
       "ws.successor.addNeed": "Add resource",
       "ws.successor.cancel": "Cancel",
@@ -10224,8 +10206,6 @@ window.__ModuleLoader__.load({
       const [continueNodeId, setContinueNodeId] = React.useState(null);
       const [busyKey, setBusyKey] = React.useState('');
       const [actionError, setActionError] = React.useState('');
-      const [stepBusy, setStepBusy] = React.useState(false);
-      const [stepInfo, setStepInfo] = React.useState(null);
       const [successorOpen, setSuccessorOpen] = React.useState(false);
       const [successorNodeId, setSuccessorNodeId] = React.useState(null);
       const [runsOpen, setRunsOpen] = React.useState(false);
@@ -10264,7 +10244,6 @@ window.__ModuleLoader__.load({
         }
       });
       const busyRef = React.useRef('');
-      const stepBusyRef = React.useRef(false);
       const autoBusyRef = React.useRef(false);
       const nodes = snapshot?.nodes;
       const edges = snapshot?.edges;
@@ -10579,37 +10558,6 @@ window.__ModuleLoader__.load({
         if (continueNodeId === null) return { ok: false, error: t('error.unknown') };
         return runNodeCommand('node?.message', continueNodeId, { text });
       }, [continueNodeId, runNodeCommand, t]);
-
-      /** Manual Step: one advisor + scheduler cycle, then a summary or inline error. */
-      const runStep = React.useCallback(async () => {
-        if (stepBusyRef.current) return;
-        stepBusyRef.current = true;
-        setStepBusy(true);
-        setStepInfo(null);
-        try {
-          const data = await api.command({ type: 'project.step', projectId }, undefined, t);
-          const result = asObject(data);
-          const created = idListOf(result?.created).length;
-          const started = idListOf(result?.started).length;
-          const skipped = asArray(result?.skipped).length;
-          const errors = stringListOf(result?.errors).length;
-          const meta = [
-            skipped > 0 ? t('ws.step.skipped', { count: skipped }) : '',
-            errors > 0 ? t('ws.step.errors', { count: errors }) : '',
-          ].filter((part) => part !== '').join(' · ');
-          setStepInfo({ kind: 'summary', text: t('ws.step.summary', { created, started }), meta });
-          reload();
-        } catch (error) {
-          if (isAbortError(error)) return;
-          const message = error instanceof LabRequestError && error.code === 'cycle_busy'
-            ? t('ws.step.cycleBusy')
-            : describeError(error, t);
-          setStepInfo({ kind: 'error', text: t('ws.step.error') + ': ' + message });
-        } finally {
-          stepBusyRef.current = false;
-          setStepBusy(false);
-        }
-      }, [projectId, reload, t]);
 
       const openSuccessor = React.useCallback((nodeId) => {
         setSuccessorNodeId(nodeId);
@@ -11073,11 +11021,9 @@ window.__ModuleLoader__.load({
           revision: snapshot?.revision,
           nodeCount: nodes.length,
           runningCount,
-          stepBusy,
           auto: autoState,
           pendingProposals: Math.max(pendingProposalsCount, Math.round(numberOr(snapshot?.pendingProposals, 0))),
           autoBusy,
-          onStep: runStep,
           onOpenExperts: () => selectTab('experts'),
           onOpenStatus: () => selectTab('settings'),
           activeTab,
@@ -11127,7 +11073,6 @@ window.__ModuleLoader__.load({
               h(LabButton, { label: t('ws.action.dismiss'), variant: 'ghost', onClick: () => setActionError('') }),
             )
           : null,
-        stepInfo !== null ? h(StepBanner, { info: stepInfo, onDismiss: () => setStepInfo(null), t }) : null,
         h('div', { className: 'rl-workspace-shell' },
           h('div', { className: 'rl-workspace-main' }, tabPanels),
         ),
@@ -11601,11 +11546,9 @@ window.__ModuleLoader__.load({
       revision,
       nodeCount,
       runningCount,
-      stepBusy,
       auto,
       pendingProposals,
       autoBusy,
-      onStep,
       onOpenExperts,
       onOpenStatus,
       activeTab,
@@ -11700,15 +11643,6 @@ window.__ModuleLoader__.load({
             { className: 'rl-topbar-actions' },
             h('span', { 'data-testid': 'topbar-action-auto', className: 'rl-topbar-auto-actions' }, autoActions),
             h('span', { 'data-testid': 'topbar-action-experts' }, h(ExpertChip, { runs, onOpen: onOpenExperts, t })),
-            h('span', { 'data-testid': 'topbar-action-step' }, h('button', {
-              type: 'button',
-              className: 'rl-btn rl-btn-primary rl-topbar-step',
-              disabled: stepBusy === true || autoStatus !== 'off',
-              title: autoStatus === 'off' ? t('ws.step.hint') : t('ws.auto.stepOnlyManual'),
-              onClick: onStep,
-            },
-            stepBusy === true ? h('span', { className: 'rl-spinner', 'aria-hidden': true }) : null,
-            stepBusy === true ? t('ws.step.running') : t('ws.step'))),
             h(
               'div',
               { className: 'rl-menu-wrap', 'data-testid': 'topbar-action-menu' },
@@ -16537,19 +16471,6 @@ window.__ModuleLoader__.load({
           onSave, onSavePlacementPolicy, t,
         }),
         h(MigrationPanel, { project, projectId, reload, t }),
-      );
-    }
-
-    /** Inline Step result banner (summary or localized error). */
-    function StepBanner({ info, onDismiss, t }) {
-      const record = asObject(info);
-      const isError = record?.kind === 'error';
-      return h(
-        'div',
-        { className: 'rl-step-banner' + (isError ? ' rl-step-banner-error' : ''), role: 'status' },
-        h('span', { className: 'rl-step-banner-text' + (isError ? '' : ' rl-step-banner-ok') }, record?.text || ''),
-        record?.meta ? h('span', { className: 'rl-step-banner-meta' }, record?.meta) : null,
-        h(LabButton, { label: t('ws.step.dismiss'), variant: 'ghost', onClick: onDismiss }),
       );
     }
 

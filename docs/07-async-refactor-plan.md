@@ -684,14 +684,14 @@ Message = claim | offer | counter | concede | agree   // 字段见 P7.3
 | `kernel.strictWrites` | Host 配置 | `off|warn|throw` | `warn`（生产），`throw`（测试/模拟） | P1.7 |
 | `kernel.consistencyCheckEvery` | Host 配置 | 整数（0 关闭） | 0（生产），1（模拟） | P1.4 |
 | `ui.incremental` | Host 配置 | bool | true | P1.9 |
-| `dispatch.strategy` | `project.config` | `legacy-llm|deterministic|<agent id>` | `deterministic` | P3.5 |
+| `dispatch.strategy` | `project.config` | `deterministic` | `deterministic`（唯一策略，legacy-llm/shadow 已删除） | P3.5 |
 | `dispatch.shadow` | `project.config` | 策略 id 或 null | null | P3.5 |
 | `dispatch.fallback` / `fallbackAfterMs` | `project.config` | 策略 id / 毫秒 | `deterministic` / 120000 | P3.5 |
 | `cluster.planner.mode` | `cluster.json` | `greedy|easy|conservative` | `easy` | P3.5.4 |
 | `cluster.planner.reserveDepth` | `cluster.json` | 整数 | 1 | P3.5.4 |
 | `cluster.holdIdle.enabled` | `cluster.json` | bool | false | P3.5.7 |
 | `cluster.preemption.enabled` | `cluster.json` | bool | false | P3.5.9 |
-| `experts.mode` | `project.config` | `legacy-cycle|runtime` | `runtime`（新项目），旧项目保持 `legacy-cycle` 直到手动切换 | P4.6 |
+| `experts.mode` | `project.config` | `hierarchy|resident` | `hierarchy`（唯一模式；`legacy-cycle` 已删除，旧项目读取时自动前移） | P4.6 |
 | `experts.curator.enabled` | `project.config` | bool | true | P5.6 |
 | `experts.arbiter.enabled` | `project.config` | bool | true | P5.7 |
 | `contest.mode` | `cluster.json` | `off|shadow|consensus|mediated` | `off` → `shadow` → `consensus` | P7 |
@@ -1489,3 +1489,16 @@ P0 ──► P1 ──┬──► P2 ──┐
 | `presets.patch.yml` | P2.2、P4.1（`lab-expert` 系列 preset）、P4.7（K15） |
 | `client.js`、`locale/*.json` | P1.9、P3.5.10、P5.8、P6.5 |
 | `package.json` | ✅ `files`、`scripts` |
+
+## 11. 变更记录：删除 legacy-cycle 与 Step（2026-11-19）
+
+operator 决策：**不再保留 legacy advisor cycle 兼容层**，只保留「专家 + worker 异步」这一条路径。
+
+- `expertsMode` 合法值收敛为 `hierarchy|resident`，默认 `hierarchy`；`legacy-cycle` 从配置校验、
+  `advance_migration` 与状态输出中删除；存量项目读取时自动前移为 `hierarchy`（不报错、不改数据）。
+- `migration.phase` 起点从 1 改为 2（phase 1 的旧运行时已不存在）。
+- `dispatch.strategy` 只接受 `deterministic`；`legacy-llm` / `shadow-deterministic` 删除。
+- `hierarchyMode()` 恒为 true（保留函数名，规划器多处引用）。
+- **Step 概念删除**：移除 agent 工具 `step` action、HTTP `project.step` 路由、`service.step()`、
+  顶栏 Step 按钮、`StepBanner` 及其状态；自动挡 tick 内部的 `orchestrator.step()`（规划）保留，
+  但不再对外暴露为“手动跑一轮”。

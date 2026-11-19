@@ -520,23 +520,22 @@ function normalizeConfig(raw, base = undefined, { allowMigration = false } = {})
   config.models = config.models ?? {};
   config.placementPolicy = config.placementPolicy ?? { text: '', spec: null, compiledAt: null, explanation: [], warnings: [], compiler: null };
 
-  // C14: the migration is staged, and every phase has an explicit switch. The
-  // defaults keep an existing project on the legacy cycle until an operator
-  // advances the phase; no project is silently moved between runtimes.
+  // The legacy advisor cycle is gone: every project runs the async expert +
+  // deterministic-dispatch runtime. `hierarchy` / `resident` only choose which
+  // expert topology supervises the branches; there is no fallback mode.
   const migration = { ...(previous.migration ?? {}), ...(input.migration ?? {}) };
-  const phase = integer(migration.phase, 'config.migration.phase', previous.migration?.phase ?? 1, 1, 3);
-  const expertMode = input.expertsMode ?? previous.expertsMode ?? migration.expertMode ?? 'legacy-cycle';
-  if (!['legacy-cycle', 'hierarchy', 'resident'].includes(expertMode)) {
-    throw new LabError('bad_request', 'config.expertsMode must be legacy-cycle, hierarchy or resident');
-  }
-  if (input.expertsMode !== undefined && expertMode !== 'legacy-cycle' && phase < 2) {
-    throw new LabError('bad_request', 'config.expertsMode hierarchy/resident is only available from migration phase 2');
+  const phase = integer(migration.phase, 'config.migration.phase', previous.migration?.phase ?? 2, 2, 3);
+  // Projects created before the refactor still carry the removed values; coerce
+  // them forward instead of failing every later config write.
+  const rawExpertMode = input.expertsMode ?? previous.expertsMode ?? migration.expertMode ?? 'hierarchy';
+  const expertMode = rawExpertMode === 'legacy-cycle' ? 'hierarchy' : rawExpertMode;
+  if (!['hierarchy', 'resident'].includes(expertMode)) {
+    throw new LabError('bad_request', 'config.expertsMode must be hierarchy or resident');
   }
   const dispatch = { ...(previous.dispatch ?? {}), ...(input.dispatch ?? {}) };
-  const dispatchStrategy = dispatch.strategy ?? previous.dispatch?.strategy ?? 'deterministic';
-  if (!['legacy-llm', 'shadow-deterministic', 'deterministic'].includes(dispatchStrategy)) {
-    throw new LabError('bad_request', 'config.dispatch.strategy must be legacy-llm, shadow-deterministic or deterministic');
-  }
+  // `legacy-llm` / `shadow-deterministic` were removed with the legacy cycle:
+  // the deterministic dispatcher is the only strategy now.
+  const dispatchStrategy = 'deterministic';
   const contest = { ...(previous.contest ?? {}), ...(input.contest ?? {}) };
   const contestMode = contest.mode ?? previous.contest?.mode ?? 'off';
   if (!['off', 'shadow', 'consensus'].includes(contestMode)) {
@@ -1877,20 +1876,18 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return {
       ok: true,
       projectId,
-      phase: migration.phase ?? 1,
+      phase: migration.phase ?? 2,
       switches: {
         dispatch: project.config?.dispatch?.strategy ?? 'deterministic',
-        experts: project.config?.expertsMode ?? 'legacy-cycle',
+        experts: project.config?.expertsMode ?? 'hierarchy',
         contest: project.config?.contest?.mode ?? 'off',
       },
       parity: migration.parity ?? null,
       zeroDowntime: true,
       staged: [
-        { phase: 1, switch: 'dispatch.strategy', values: ['legacy-llm', 'shadow-deterministic', 'deterministic'] },
-        { phase: 2, switch: 'expertsMode', values: ['legacy-cycle', 'hierarchy', 'resident'] },
+        { phase: 2, switch: 'expertsMode', values: ['hierarchy', 'resident'] },
         { phase: 3, switch: 'contest.mode', values: ['off', 'shadow', 'consensus'] },
       ],
-      p1NoSwitch: (project.config?.migration?.phase ?? 1) === 1,
     };
   }
 
@@ -1900,29 +1897,27 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const actor = actorOverride ?? (exec ? actorFromToolExecution(exec) : { kind: 'human', id: 'operator' });
     if (actor.kind === 'expert') return rejection('forbidden_expert_action', 'experts may not advance the migration');
     const target = Number(input.phase);
-    if (![1, 2, 3].includes(target)) return rejection('bad_request', 'phase must be 1, 2 or 3');
-    const current = project.config?.migration?.phase ?? 1;
+    if (![2, 3].includes(target)) return rejection('bad_request', 'phase must be 2 or 3 (the legacy phase 1 runtime no longer exists)');
+    const current = project.config?.migration?.phase ?? 2;
     if (target !== current && target !== current + 1) return rejection('invalid_migration_step', `migration must advance one phase at a time (current ${current})`);
     const parity = input.parity ?? project.config?.migration?.parity ?? null;
     if (target > 1 && parity?.ok !== true) return rejection('parity_required', 'S14 parity must pass before phase 2 or 3');
-    const currentExpertMode = project.config?.expertsMode ?? 'legacy-cycle';
+    const currentExpertMode = project.config?.expertsMode ?? 'hierarchy';
     const requestedExperts = input.expertsMode ?? null;
-    if (requestedExperts !== null && !['legacy-cycle', 'hierarchy', 'resident'].includes(requestedExperts)) {
-      return rejection('bad_request', 'expertsMode must be legacy-cycle, hierarchy or resident');
+    if (requestedExperts !== null && !['hierarchy', 'resident'].includes(requestedExperts)) {
+      return rejection('bad_request', 'expertsMode must be hierarchy or resident');
     }
-    const expertsMode = target >= 2 ? (requestedExperts && requestedExperts !== 'legacy-cycle' ? requestedExperts : (currentExpertMode === 'legacy-cycle' ? 'hierarchy' : currentExpertMode)) : 'legacy-cycle';
+    const expertsMode = requestedExperts ?? currentExpertMode;
     const requestedContest = input.contestMode ?? null;
     if (requestedContest !== null && !['off', 'shadow', 'consensus'].includes(requestedContest)) {
       return rejection('bad_request', 'contestMode must be off, shadow or consensus');
     }
     const contestMode = target >= 3 ? (requestedContest && requestedContest !== 'off' ? requestedContest : (project.config?.contest?.mode === 'off' ? 'shadow' : project.config.contest.mode)) : 'off';
     const requestedDispatch = input.dispatchStrategy ?? null;
-    if (requestedDispatch !== null && !['legacy-llm', 'shadow-deterministic', 'deterministic'].includes(requestedDispatch)) {
-      return rejection('bad_request', 'dispatchStrategy must be legacy-llm, shadow-deterministic or deterministic');
+    if (requestedDispatch !== null && requestedDispatch !== 'deterministic') {
+      return rejection('bad_request', 'dispatchStrategy must be deterministic');
     }
-    const dispatchStrategy = target === 1
-      ? (requestedDispatch ?? (project.config?.dispatch?.strategy === 'legacy-llm' ? 'shadow-deterministic' : project.config?.dispatch?.strategy ?? 'shadow-deterministic'))
-      : (requestedDispatch ?? project.config?.dispatch?.strategy ?? 'shadow-deterministic');
+    const dispatchStrategy = requestedDispatch ?? project.config?.dispatch?.strategy ?? 'deterministic';
     const next = {
       ...project.config,
       migration: { ...(project.config.migration ?? {}), phase: target, parity, switchedAt: Date.now(), switchedBy: { kind: actor.kind, id: actor.id } },
@@ -1930,7 +1925,6 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       contest: { ...(project.config.contest ?? {}), mode: contestMode },
       dispatch: { ...(project.config.dispatch ?? {}), strategy: dispatchStrategy },
     };
-    if (target >= 2 && expertsMode === 'legacy-cycle') return rejection('invalid_migration_step', 'phase 2 must select a hierarchy or resident expert mode');
     if (target >= 3 && contestMode === 'off') return rejection('invalid_migration_step', 'phase 3 must select contest shadow or consensus');
     const normalized = normalizeConfig(next, project.config, { allowMigration: true });
     const commit = await commitMutations(projectId, [{ op: 'project.migration', config: normalized }], { eventType: 'project/migration_advanced', eventData: { from: current, to: target, switches: { expertsMode, contestMode } }, actor, causeId: `migration:${projectId}:${target}` });
@@ -3390,11 +3384,6 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   async function getTranscript(projectId, nodeId, afterSeq, limit = 200) {
     if (!transcript) throw new LabError('unavailable', 'transcript reader is not wired', 503);
     return transcript.read(projectId, nodeId, afterSeq, limit);
-  }
-
-  async function step(projectId, trigger = 'manual') {
-    if (!orchestrator) throw new LabError('unavailable', 'orchestrator is not wired', 503);
-    return orchestrator.step(projectId, trigger);
   }
 
   async function createSuccessor(projectId, nodeId, input) {
@@ -6229,7 +6218,6 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'dashboard_chat') return chatDashboard(input?.projectId, input?.text);
     if (action === 'dashboard_layout') return updateDashboardLayout(input?.projectId, input?.layouts);
     if (action === 'transcript') return getTranscript(input?.projectId, input?.nodeId, input?.afterSeq, input?.limit);
-    if (action === 'step') return orchestrator.step(input?.projectId, input?.trigger ?? 'manual');
     if (action === 'successor') return orchestrator.createSuccessor(input?.projectId, input?.nodeId, input);
     if (action === 'create_merge') return createMergeNode(input?.projectId, input);
     if (action === 'finish_merge') return finishMerge(input?.projectId, input?.nodeId, input);

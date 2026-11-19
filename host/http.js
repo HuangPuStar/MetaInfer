@@ -649,9 +649,6 @@ export function registerHttpRoutes(ctx, service) {
     if (type === 'project.compile_placement') {
       return ok(await service.compilePlacementPolicyForProject(body.projectId, body.text));
     }
-    if (type === 'project.step') {
-      return ok(await service.step(body.projectId, body.trigger ?? 'manual'));
-    }
     if (type === 'migration.advance') {
       return ok(await service.advanceMigration(body.projectId, body, null, actor));
     }
