@@ -524,7 +524,17 @@ function normalizeConfig(raw, base = undefined, { allowMigration = false } = {})
   // deterministic-dispatch runtime. `hierarchy` / `resident` only choose which
   // expert topology supervises the branches; there is no fallback mode.
   const migration = { ...(previous.migration ?? {}), ...(input.migration ?? {}) };
-  const phase = integer(migration.phase, 'config.migration.phase', previous.migration?.phase ?? 2, 2, 3);
+  // The accepted range must include the value the project already stores. It was
+  // [2, 3] while the fallback is `previous.migration.phase`, so a project still
+  // at phase 1 rejected EVERY config write ("phase must be between 2 and 3") —
+  // and passing a phase explicitly is refused by the advanceMigration-only guard,
+  // which makes the rejection unavoidable. The effect was that maxNodes,
+  // maxCycles and the dashboard settings could not be changed at all on any
+  // project created before the refactor.
+  //
+  // Phase 1 is accepted as a *stored* value only; moving the phase forward stays
+  // exclusively advance_migration's job (it enforces the S14 parity gate).
+  const phase = integer(migration.phase, 'config.migration.phase', previous.migration?.phase ?? 2, 1, 3);
   // Projects created before the refactor still carry the removed values; coerce
   // them forward instead of failing every later config write.
   const rawExpertMode = input.expertsMode ?? previous.expertsMode ?? migration.expertMode ?? 'hierarchy';

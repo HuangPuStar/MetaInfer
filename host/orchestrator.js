@@ -521,7 +521,8 @@ function leadPromptParts(project, review, branchRuns, pendingCandidates = [], op
   const candidateBytesAfter = Buffer.byteLength(JSON.stringify(candidates), 'utf8');
   const text = [
     'You are the L1 lead. Use the bounded L0 BranchReports and the pending candidate queue to materialize the next useful nodes.',
-    'Create at most one successor per completed leaf. Return proposals with parentId, title, prompt, rationale.',
+    'Any completed node may receive a successor, including one that already has children: the DAG is a graph, not a frontier-only tree. Branching from an older node is the supported way to re-open a state whose experiment was missing or wrong.',
+    'What is forbidden is duplicate WORK: the same hypothesis (same prompt content) from the same parent is rejected. Return proposals with parentId, title, prompt, rationale.',
     'If a proposal implements one of the pending branch-report candidates, set candidateId to that exact id.',
     'A candidate is consumed only when the Host creates its node; repeating the same candidate without creating a node is useless.',
     'For every pending candidate you do not implement, return a candidateDecisions entry: candidateId, decision (blocked_by_failed_source, needs_human_scope_decision, duplicate_of_consumed, low_confidence_only, deferred_by_pass_limit, not_selected_by_lead, implemented), and a one-line reason.',
@@ -902,7 +903,10 @@ function advisorPrompt(project, snapshot, lens) {
     '# Rules',
     '1. The payload is intentionally incomplete. `focus` holds up to 8 active leaves; navigate with',
     '   dag_query (filter by status / subtreeOf / depth / since / text) and dag_get(nodeIds). A parent must be',
-    '   a completed leaf with a commit; a completed node that already has a child cannot be extended.',
+    '   a completed node with a commit. It does NOT have to be a leaf: a node that already has children may',
+    '   still receive a new successor, which is how a branch is re-opened from a historical state (an ancestor',
+    '   that turned out to be missing an experiment, or whose verdict is now suspect). Only duplicate work is',
+    '   rejected — the same hypothesis from the same parent.',
     '2. Size the proposal count to idle capacity: resources.free / resources.maxRunningNodes say how many',
     '   slots are idle. When free slots exceed the runnable nodes, propose 2-4 INDEPENDENT successors so the',
     '   queue does not drain; when capacity is tight (free < 2) propose only the best next step.',
@@ -1423,11 +1427,26 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     const replacingFailedSource = Boolean(sourceFailed && parentsOf(source).includes(parentId));
     const children = nodes.filter((node) => node.id !== parentId && parentsOf(node).includes(parentId));
     // A deferred child means "not this time", and a cancelled child is gone.
-    // Neither may make a completed parent look terminal: otherwise the parent
-    // cannot get a replacement successor and the deferred child never runs,
-    // deadlocking the branch (high-review defer -> parent_already_has_successor
-    // rejection -> noProgress).
     const blockingChildren = children.filter((node) => node.status !== 'proposed' && !isNonBlockingSuccessor(node));
+    // The graph is a DAG, not a tree restricted to its frontier.
+    //
+    // A completed node may receive a NEW child even when it already has live
+    // ones. The only invariant in that area is commit immutability — a parent's
+    // code state must not change after it has branched — and that is enforced by
+    // `baseCommit = parent.git.headCommit` in createChild(), NOT by a child
+    // count. Siblings are the supported way to re-open a branch from a
+    // historical state (a review finds that an ancestor, now a grandparent,
+    // never ran one of its experiments).
+    //
+    // Duplicate *work* is still rejected: the prompt-hash check below refuses
+    // the same hypothesis from the same parent. That is the real guard; a child
+    // count was never a proxy for it, and using one turned every non-leaf parent
+    // into a permanently closed branch.
+    //
+    // True when the parent already advanced: this child hangs off a historical
+    // state instead of continuing the frontier. Recorded on the node so review,
+    // the dashboard and the reports can label the branch.
+    const branchFromHistoricalState = blockingChildren.length > 0;
     let replacementTarget = null;
     if (replacingFailedSource) {
       // Round 36: a failed replacement is not a live successor. Walk the
@@ -1435,7 +1454,6 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       // replacesNodeId points at B. Cap the chain at three attempts so a scope
       // cannot be retried forever; a fourth proposal gets a named rejection.
       const chain = replacementChainForNode(nodes, source.id);
-      const chainIds = new Set(chain.map((node) => node.id));
       const chainLabel = chain.map((node) => node.id).join(' -> ');
       const liveReplacement = chain.find((node) => node.id !== source.id && node.status !== 'failed' && node.status !== 'cancelled' && !isNonBlockingSuccessor(node));
       if (liveReplacement) {
@@ -1452,18 +1470,8 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           reason: `replacement chain for ${chain[0]?.id ?? source.id} exhausted after 3 attempts (${chainLabel}); no further attempt`,
         };
       }
-      const liveChild = blockingChildren.find((node) => node.id !== source.id && !chainIds.has(node.id) && node.status !== 'failed' && node.status !== 'cancelled' && !isNonBlockingSuccessor(node));
-      if (liveChild) {
-        return {
-          ok: false,
-          code: 'parent_already_has_successor',
-          reason: `parent ${parentId} already has a live successor ${liveChild.id}; only the failed child ${source.id} is retryable`,
-        };
-      }
       const terminal = chain.at(-1) ?? source;
       replacementTarget = terminal.id;
-    } else if (blockingChildren.length > 0) {
-      return { ok: false, code: 'parent_already_has_successor', reason: `parent ${parentId} already has a successor; propose from a leaf` };
     }
     // A title is a label, not an instruction: clamp it instead of rejecting the
     // whole proposal (rejections here used to starve the auto driver silently).
@@ -1513,6 +1521,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       ok: true,
       parent,
       replacesNodeId: replacingFailedSource ? replacementTarget : null,
+      branchFromHistoricalState,
       executionNote: execution.profileFallback
         ? { requestedProfile: execution.requestedProfile, usedProfile: execution.profile }
         : null,
@@ -1594,6 +1603,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
       ...(meta.candidateId ? { candidateId: meta.candidateId } : {}),
+      ...(meta.branchFromHistoricalState ? { branchFromHistoricalState: true } : {}),
       ...(spec.replacesNodeId ? { replacesNodeId: spec.replacesNodeId } : {}),
       ...(meta.reviewLevel ? { reviewLevel: meta.reviewLevel, ratifiedBy: null } : {}),
       ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
@@ -1688,6 +1698,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
       ...(meta.candidateId ? { candidateId: meta.candidateId } : {}),
+      ...(meta.branchFromHistoricalState ? { branchFromHistoricalState: true } : {}),
       ...(spec.replacesNodeId ? { replacesNodeId: spec.replacesNodeId } : {}),
       ...(meta.reviewLevel ? { reviewLevel: meta.reviewLevel, ratifiedBy: null } : {}),
       ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
@@ -2004,6 +2015,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
             rationale: proposal.rationale,
             expected,
             expectedBaseline: baselineFor(check.parent, expected),
+            ...(check.branchFromHistoricalState ? { branchFromHistoricalState: true } : {}),
             ...(selectedCandidate ? { candidateId: selectedCandidate.candidateId, candidate: selectedCandidate } : {}),
             ...(hierarchy ? { reviewLevel: 'lead', hierarchy: true } : {}),
             ...(pendingHighReview ? { pendingHighReview } : {}),
@@ -2537,11 +2549,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     const roster = resolveRoster(project);
     if (roster.length === 0) return;
     const nodes = store.listNodes(projectId);
-    const { fired, leaves, recent } = firedTriggers({ project, nodes, cycle });
+    const { fired, leaves, attachable, recent } = firedTriggers({ project, nodes, cycle });
     if (recent.length === 0) return;
     let runs = [];
     try { runs = store.listRuns(projectId, 200) ?? []; } catch { runs = []; }
-    const chosen = selectActivations({ roster, fired, runs, leaves, cap: EXPERT_ACTIVATION_CAP });
+    const chosen = selectActivations({ roster, fired, runs, leaves, attachable, cap: EXPERT_ACTIVATION_CAP });
     cycle.expertActivations = [];
     if (chosen.length === 0) return;
     const snapshot = buildAdvisorSnapshot(store, project);
@@ -2834,7 +2846,18 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           ? { ...cleanModelRef(validatedModel), source: 'user' }
           : null,
         execution,
-      }, { createdBy: 'user' });
+      }, {
+        createdBy: 'user',
+        // Same marker the lead path records: an operator may also branch from a
+        // node that already advanced, so review/reports must be able to label it.
+        branchFromHistoricalState: nodes.some((node) => {
+          const parents = Array.isArray(node.parentIds) && node.parentIds.length > 0
+            ? node.parentIds
+            : (node.parentId ? [node.parentId] : []);
+          return node.id !== parent.id && parents.includes(parent.id)
+            && node.status !== 'proposed' && !isNonBlockingSuccessor(node);
+        }),
+      });
       return { node, revision: project.revision };
     });
   }

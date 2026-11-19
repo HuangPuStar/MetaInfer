@@ -125,7 +125,9 @@ export function firedTriggers({ project, nodes, cycle }) {
       - (Number(a.timestamps?.completedAt ?? a.timestamps?.lastActivityAt ?? 0)));
   const leaves = completed.filter((node) => !parentIds.has(node.id));
   // Reviewers judge finished work even when every branch already has a child;
-  // only proposers need an attachable leaf.
+  // a proposer needs an ATTACHABLE parent, and after the DAG change that is any
+  // completed node — not just a leaf. A fully chained graph (every completed
+  // node already has a child) must still be able to open a new branch.
   if (completed.length > 0) fired.add('node.completed');
   const inFlight = nodes.filter((node) => node.status === 'running' || node.status === 'planned').length;
   if (inFlight < 2) fired.add('low_water');
@@ -134,7 +136,7 @@ export function firedTriggers({ project, nodes, cycle }) {
   }
   void project;
   void cycle;
-  return { fired, leaves, recent: completed.slice(0, 6) };
+  return { fired, leaves, attachable: completed, recent: completed.slice(0, 6) };
 }
 
 /**
@@ -142,15 +144,18 @@ export function firedTriggers({ project, nodes, cycle }) {
  * budget, then at most `cap` of them ordered by level then id (stable).
  * @param {{roster: object[], fired: Set<string>, runs: object[], now?: number, cap?: number}} input
  */
-export function selectActivations({ roster, fired, runs = [], leaves = [], now = Date.now(), cap = EXPERT_ACTIVATION_CAP }) {
+export function selectActivations({ roster, fired, runs = [], leaves = [], attachable = leaves, now = Date.now(), cap = EXPERT_ACTIVATION_CAP }) {
   const cooldownMs = 5 * 60_000;
   const hourAgo = now - 60 * 60_000;
   const picked = [];
   for (const expert of roster) {
     const triggers = Array.isArray(expert.triggers) ? expert.triggers : [];
     if (!triggers.some((trigger) => fired.has(trigger))) continue;
-    // A proposer with nowhere to attach would only burn an activation.
-    if (expertProposes(expert.template) && leaves.length === 0) continue;
+    // A proposer with nowhere to attach would only burn an activation. Any
+    // completed node counts as a parent, so `attachable` (default: leaves) is the
+    // right emptiness test; requiring a leaf would silence every proposer on a
+    // fully chained branch.
+    if (expertProposes(expert.template) && attachable.length === 0) continue;
     const mine = runs.filter((run) => run.expertId === expert.id);
     const recent = mine.filter((run) => Number(run.startedAt ?? 0) > now - cooldownMs);
     if (recent.length > 0) continue;
@@ -202,17 +207,24 @@ export function buildExpertPrompt({ project, expert, leaves, fired, maxProposals
     '',
     `# Fired triggers: ${[...fired].join(', ')}`,
     '',
-    '# Completed leaves you may branch from',
+    '# The current frontier (completed leaves), for orientation',
     focus.length === 0 ? '(none)' : JSON.stringify(focus, null, 2),
+    '',
+    'Any other completed node is also a legal parent — call dag_query / dag_get to inspect one that is not',
+    'listed here. A node that already has children is still a legal parent: re-opening an older state is the',
+    'supported way to fix an experiment that was missing or whose verdict is now suspect.',
     '',
     '# Rules',
     proposes
       ? [
         `1. Propose at most ${maxProposals} successors. Each must be ONE falsifiable experiment, not a batch.`,
-        '2. parentId must be one of the completed leaf ids above.',
+        '2. parentId must be a completed node id with a commit — one from the frontier above, or any other',
+        '   completed node you find with dag_query. A parent that already has children is allowed.',
         '3. The prompt must be self-contained: a fresh worker sees only that text plus the project brief.',
         '4. Every proposal needs an explicit falsification condition (what result kills the branch).',
-        '5. Never repeat work already reported by a leaf: read its report/metrics first.',
+        '5. Never repeat work already reported by a node: read its report/metrics first. The Host rejects the',
+        '   same hypothesis (same prompt content) from the same parent, so re-proposing a finished experiment',
+        '   verbatim cannot land — say what is NEW about this attempt instead.',
         '6. needs must stay within the pool above; a single GPU experiment needs gpu=1.',
         '7. Return proposals: [] when nothing is worth doing.',
       ].join('\n')
