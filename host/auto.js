@@ -791,7 +791,15 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
         }
         continue;
       }
-      if (state.status === 'running') await tickOne(project.id);
+      // `waiting` is a capacity throttle, not a terminal state — but only
+      // `running` projects were ticked, so a waiting driver never re-measured
+      // capacity and the lab sat idle until a human resumed it. Tick throttled
+      // waits too; `tickOne` re-checks the 30 s guard and either resumes or
+      // re-parks. (Guarding inside `tickOne` alone is unreachable: this loop is
+      // the only caller.)
+      const throttledWait = state.status === 'waiting'
+        && (state.pauseReason === 'capacityFull' || state.pauseReason === 'awaitingGpu');
+      if (state.status === 'running' || throttledWait) await tickOne(project.id);
     }
   }
 
