@@ -129,7 +129,7 @@ export const AGENT_TOOL_PARAMETERS = {
         trigger: { type: 'string', description: 'cycle trigger label for action=step' },
         phase: { type: 'number', description: 'for advance_migration: target migration phase 1..3' },
         parity: { type: 'object', additionalProperties: true, description: 'for advance_migration: S14 parity result; {ok:true} is required for phase 2/3' },
-        expertsMode: { type: 'string', enum: ['legacy-cycle', 'hierarchy', 'resident'], description: 'for advance_migration: expert mode at phase 2' },
+        expertsMode: { type: 'string', enum: ['hierarchy', 'resident'], description: 'for advance_migration: expert topology' },
         contestMode: { type: 'string', enum: ['off', 'shadow', 'consensus'], description: 'for advance_migration: contest mode at phase 3' },
         dispatchStrategy: { type: 'string', enum: ['deterministic'], description: 'for advance_migration: dispatch strategy' },
         decision: { type: 'string', enum: ['defer', 'withdraw', 'keep'], description: 'chief high-review decision for action=resolve_high_review' },
