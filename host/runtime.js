@@ -16,6 +16,7 @@ import {
   validateModelSelection,
 } from './models.js';
 import { isDshExecution, EXECUTION_DRIVERS } from './execution.js';
+import { isDispatchableClass } from './kernel/priority.js';
 import { ExecutionLog, executionLogPath } from './execution-log.js';
 import { newSessionId } from './store.js';
 import { prepareRemoteRun } from './remote-run.js';
@@ -1163,6 +1164,14 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     const preNode = requireNode(projectId, nodeId);
     if (preNode.status !== 'planned') {
       throw new LabError('node_not_startable', `node ${nodeId} is ${preNode.status}, expected planned`, 409);
+    }
+    // `deferred` is a priority class that means "never dispatched", and only
+    // `node.claim` enforced it. A claim persisted across a reload is resumed by a
+    // path that calls start() directly, so a node deferred after it was claimed
+    // still launched — an operator/chief prune silently overridden. Guard the one
+    // chokepoint every launch goes through.
+    if (!isDispatchableClass(preNode.priority ?? {})) {
+      throw new LabError('node_not_dispatchable', `node ${nodeId} is deferred; restore its priority before starting it`, 409);
     }
     const execution = preNode.execution && typeof preNode.execution === 'object'
       ? preNode.execution
