@@ -6401,7 +6401,6 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     startDashboardScheduler,
     resolveWorktreeFile,
     getExecutionEvents,
-    step,
     createSuccessor,
     createMergeNode,
     finishMerge,
