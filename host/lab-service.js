@@ -42,6 +42,7 @@ import { evaluateEscalationTriggers, evaluateThresholdTriggers, queueOverloadSta
 import { applyNomination, createCurator } from './experts/curator.js';
 import { HIGH_REVIEW_WINDOW_MS, buildHierarchyReview, chiefActivationMetrics, chiefPolicy, childVoteWeight, escalationRate, filterVisibleExperts, validateChiefDecision } from './experts/hierarchy.js';
 import { createResidentSession, RESIDENT_LIMITS } from './experts/resident.js';
+import { sweepOverdueNodes } from './reconcile.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
 // A state index row never carries a full prompt; the inspector loads the node.
@@ -1551,7 +1552,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   function startDashboardScheduler() {
-    const timer = setInterval(() => { tickDashboards().catch(() => {}); }, 30_000);
+    const timer = setInterval(() => {
+      tickDashboards().catch(() => {});
+      // Housekeeping shares this tick: a node whose worker died must not hold its
+      // resources and maxRunningNodes slot until the next restart.
+      sweepOverdueNodes({ store, kernel }).catch(() => {});
+    }, 30_000);
     return () => clearInterval(timer);
   }
 
