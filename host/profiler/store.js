@@ -16,6 +16,8 @@ import { gunzipSync } from 'node:zlib';
 import { TRACE_LIMITS, parseTraceDocument, traceSummary } from './trace.js';
 
 const MAX_TRACES = 3;
+/** Total raw-bytes budget for opened traces (the parsed index is extra). */
+const MAX_RAW_BYTES = 512 * 1024 * 1024;
 
 function mintId(name, size, now) {
   const digest = createHash('sha1')
@@ -47,10 +49,23 @@ export function createProfilerStore(options = {}) {
     return index;
   }
 
+  function rawBytesOf(index) {
+    return index && index.rawBytes instanceof Uint8Array ? index.rawBytes.byteLength : 0;
+  }
+
   function remember(index) {
     traces.set(index.traceId, index);
     while (traces.size > maxTraces) {
       const oldest = traces.keys().next().value;
+      traces.delete(oldest);
+    }
+    let total = 0;
+    for (const row of traces.values()) total += rawBytesOf(row);
+    // Evict least-recently-used traces until the raw budget fits; the newest
+    // trace always survives even when it alone is larger than the budget.
+    while (total > MAX_RAW_BYTES && traces.size > 1) {
+      const oldest = traces.keys().next().value;
+      total -= rawBytesOf(traces.get(oldest));
       traces.delete(oldest);
     }
     return index;
@@ -88,6 +103,9 @@ export function createProfilerStore(options = {}) {
       name: path.basename(resolved),
       sourcePath: resolved,
     });
+    // Keep the exact bytes: the Client hands them to the embedded Perfetto UI,
+    // which parses the trace itself (issue #94 follow-up: standard viewer).
+    index.rawBytes = bytes;
     return remember(index);
   }
 
@@ -108,6 +126,7 @@ export function createProfilerStore(options = {}) {
     const displayName = typeof name === 'string' && name.trim() !== '' ? name.trim().slice(0, 200) : 'uploaded-trace.json';
     const traceId = mintId(displayName, content.length, now);
     const index = parseTraceDocument(content, { traceId, name: displayName, sourcePath: null });
+    index.rawBytes = Buffer.from(content, 'utf8');
     return remember(index);
   }
 
@@ -137,5 +156,12 @@ export function createProfilerStore(options = {}) {
     return traces.delete(traceId);
   }
 
-  return { openPath, openContent, get, list, summary, close };
+  /** Raw trace bytes for the embedded Perfetto UI (read-only). */
+  function bytes(traceId) {
+    const index = get(traceId);
+    if (!index || !(index.rawBytes instanceof Uint8Array)) return null;
+    return { bytes: index.rawBytes, name: index.name };
+  }
+
+  return { openPath, openContent, get, list, summary, bytes, close };
 }

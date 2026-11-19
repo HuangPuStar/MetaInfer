@@ -91,6 +91,15 @@ async function call(method, pathname, { body, token = authority.token, search = 
   return response.json();
 }
 
+async function callRaw(method, pathname, { search = '', token = authority.token } = {}) {
+  const route = routes.find((candidate) => candidate.path === pathname && candidate.methods.includes(method));
+  assert.ok(route, `route ${method} ${pathname} is registered`);
+  const headers = { accept: 'application/json' };
+  if (token !== null) headers['x-metainfer-operator'] = token;
+  const response = await route.fetch(new Request('http://local' + pathname + search, { method, headers }));
+  return response;
+}
+
 const tracePath = '/api/metainfer-research-lab/trace';
 const commandPath = '/api/metainfer-research-lab/commands';
 const envelope = (payload) => (payload.ok === true ? payload.data : null);
@@ -116,6 +125,12 @@ const prompt = envelope(await call('GET', tracePath, { search: `?traceId=${trace
 check('a fusion prompt is built on demand', typeof prompt?.prompt === 'string' && prompt.prompt.includes('fusion'));
 const timeline = envelope(await call('GET', tracePath, { search: `?traceId=${traceId}&view=timeline` }));
 check('timeline returns spans and lanes', timeline?.spans?.length === 2 && timeline?.lanes?.length === 1);
+
+// 2b. Raw bytes for the embedded Perfetto UI.
+const bytesResponse = await callRaw('GET', tracePath, { search: `?traceId=${traceId}&view=bytes` });
+const raw = await bytesResponse.text();
+check('trace bytes view returns the original document', raw.includes('ampere_sgemm_128x64_nn') && JSON.parse(raw).traceEvents.length === TRACE.traceEvents.length);
+check('trace bytes view is served as JSON with no-store', bytesResponse.headers.get('content-type')?.includes('application/json') === true && bytesResponse.headers.get('cache-control') === 'no-store');
 
 // 3. Materialise a root node from the span.
 const task = await call('POST', commandPath, {

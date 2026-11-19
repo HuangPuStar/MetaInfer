@@ -1786,6 +1786,14 @@ window.__ModuleLoader__.load({
       "ws.trace.notFound": "trace 已过期或被关闭",
       "ws.trace.open": "打开",
       "ws.trace.pathPlaceholder": "/path/to/torch_trace.json 或 .json.gz",
+      "ws.trace.perfetto.download": "下载 trace",
+      "ws.trace.perfetto.loaded": "已载入 Perfetto；选中 kernel 可在右侧分析",
+      "ws.trace.perfetto.offlineHint": "嵌入式 Perfetto 未能连接。可在新标签打开 Perfetto，或下载 trace 后用本地 Perfetto/Chrome Tracing 打开；首次从本站打开时会弹出一次来源信任提示，选择 Always trust 即可。",
+      "ws.trace.perfetto.openTab": "在新标签打开 Perfetto",
+      "ws.trace.perfetto.ready": "Perfetto 就绪，正在载入 trace…",
+      "ws.trace.perfetto.starting": "正在连接 Perfetto UI…",
+      "ws.trace.perfetto.unavailable": "Perfetto UI 不可用（可能无外网或被拦截）",
+      "ws.trace.recent": "最近的 trace",
       "ws.trace.refresh": "刷新",
       "ws.trace.search": "搜索 kernel",
       "ws.trace.sort": "排序",
@@ -3430,6 +3438,14 @@ window.__ModuleLoader__.load({
       "ws.trace.notFound": "This trace expired or was closed",
       "ws.trace.open": "Open",
       "ws.trace.pathPlaceholder": "/path/to/torch_trace.json or .json.gz",
+      "ws.trace.perfetto.download": "Download trace",
+      "ws.trace.perfetto.loaded": "Perfetto loaded; pick a kernel for analysis",
+      "ws.trace.perfetto.offlineHint": "The embedded Perfetto UI could not connect. Open Perfetto in a new tab, or download the trace and open it locally; the first post from this origin shows a one-time trust prompt — choose Always trust.",
+      "ws.trace.perfetto.openTab": "Open Perfetto in a new tab",
+      "ws.trace.perfetto.ready": "Perfetto is ready; loading the trace…",
+      "ws.trace.perfetto.starting": "Connecting to Perfetto UI…",
+      "ws.trace.perfetto.unavailable": "Perfetto UI is unavailable (offline or blocked)",
+      "ws.trace.recent": "Recent traces",
       "ws.trace.refresh": "Refresh",
       "ws.trace.search": "Search kernels",
       "ws.trace.sort": "Sort",
@@ -4266,6 +4282,20 @@ window.__ModuleLoader__.load({
       '.rl-trace-grid { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 30vw, 380px); gap: 12px; flex: 1 1 auto; min-height: 0; }',
       '.rl-trace-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; overflow: hidden; }',
       '.rl-trace-timeline-wrap { display: flex; flex-direction: column; gap: 6px; flex: 0 1 46%; min-height: 150px; overflow: hidden; }',
+      '.rl-trace-stage { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }',
+      '.rl-trace-stagebar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: none; }',
+      '.rl-trace-stagebar-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }',
+      '.rl-trace-frame-wrap { position: relative; flex: 1 1 auto; min-height: 320px; overflow: hidden; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-frame { display: block; width: 100%; height: 100%; min-height: 320px; border: 0; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-frame-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-rail { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-rail-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; padding: 8px 10px 4px; }',
+      '.rl-trace-rail-head .rl-input { width: 100%; }',
+      '.rl-trace-klist { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 6px 8px; }',
+      '.rl-trace-krow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); font-size: 11.5px; text-align: left; cursor: pointer; }',
+      '.rl-trace-krow:hover { background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-trace-krow-active { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }',
+      '.rl-trace-kmeta { flex: none; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; font-size: 10.5px; }',
       '.rl-trace-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }',
       '.rl-trace-chip { padding: 1px 7px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 999px; color: var(--dsw-alias-label-secondary); font-size: 10.5px; white-space: nowrap; }',
       '.rl-trace-canvas { flex: 1 1 auto; min-height: 0; overflow: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
@@ -4769,6 +4799,21 @@ window.__ModuleLoader__.load({
       },
       fetchChat(projectId, signal, t) {
         return requestJson(ROUTES.chat + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
+      },
+      /** Raw trace bytes for the embedded Perfetto UI (same-origin cookie read). */
+      fetchTraceBytes(traceId, t) {
+        const headers = { accept: 'application/json' };
+        const operator = operatorToken();
+        if (operator !== '') headers['x-metainfer-operator'] = operator;
+        return fetch(ROUTES.trace + '?traceId=' + encodeURIComponent(traceId) + '&view=bytes', { headers }).then((response) => {
+          if (!response || response.ok === false) {
+            throw new LabRequestError('trace_bytes_unavailable', t('ws.trace.perfetto.unavailable'), response?.status);
+          }
+          return response.arrayBuffer();
+        });
+      },
+      traceBytesUrl(traceId) {
+        return ROUTES.trace + '?traceId=' + encodeURIComponent(traceId) + '&view=bytes';
       },
       fetchRun(projectId, runId, signal, t) {
         return requestJson(
@@ -17547,19 +17592,19 @@ window.__ModuleLoader__.load({
     }
 
     // #region profiler trace viewer (issue #94)
-    /** Vertical pitch of one GPU stream lane in the trace timeline. */
-    const TRACE_LANE_HEIGHT = 26;
-    /** Hard cap on mounted span bars; the chip reports the culled remainder. */
-    const TRACE_MAX_RENDERED_SPANS = 400;
-    /** One zoom step is 1.6x in or out around the view centre. */
-    const TRACE_ZOOM_STEP = 1.6;
-    /** Timeline canvas width in CSS pixels (the wrapper scrolls horizontally). */
-    const TRACE_CANVAS_WIDTH = 1200;
+    /** Google Perfetto UI owns trace rendering (issue #94 follow-up: standard UI). */
+    const TRACE_PERFETTO_ORIGIN = 'https://ui.perfetto.dev';
+    /** Embedded mode disables the sidebar and the file-drop handler. */
+    const TRACE_PERFETTO_SRC = TRACE_PERFETTO_ORIGIN + '/#!/?mode=embedded';
+    /** Handshake ping cadence; the UI answers PONG once its listener is ready. */
+    const TRACE_PING_MS = 150;
+    /** Give the embedded UI this long to answer PONG before offering fallbacks. */
+    const TRACE_PERFETTO_TIMEOUT_MS = 12000;
     /** Project-chat poll cadence while a trace action is in flight. */
     const TRACE_CHAT_POLL_MS = 1500;
     /** Upper bound on chat polls so a failed turn cannot spin forever. */
     const TRACE_CHAT_TRIES = 60;
-    /** Rows rendered by the kernel aggregate table. */
+    /** Rows rendered by the kernel selector rail. */
     const TRACE_KERNEL_ROWS = 40;
     /** Trace actions that materialise a DAG node instead of a chat turn. */
     const TRACE_NODE_ACTIONS = Object.freeze(['fusion', 'optimize']);
@@ -17568,6 +17613,8 @@ window.__ModuleLoader__.load({
     const TRACE_MAX_TIMEBOX = 240;
     /** Local file ceiling; larger traces must be opened by Host path. */
     const TRACE_FILE_LIMIT = 64 * 1024 * 1024;
+    /** Perfetto zooms this fill ratio when a kernel is picked in the rail. */
+    const TRACE_VIEW_FILL = 0.9;
 
     /** `1.234 ms` style duration; traces are recorded in microseconds. */
     function formatTraceMicros(value) {
@@ -17581,7 +17628,8 @@ window.__ModuleLoader__.load({
     function formatTraceShape(dims) {
       const rows = asArray(dims);
       if (rows.length === 0) return '—';
-      return '[' + rows.map((entry) => (Array.isArray(entry) ? '[' + entry.join('x') + ']' : String(entry))).join(', ') + ']';
+      const parts = rows.map((entry) => (Array.isArray(entry) ? '[' + entry.join('x') + ']' : String(entry)));
+      return '[' + parts.join(', ') + ']';
     }
 
     function traceWindowOf(payload) {
@@ -17592,19 +17640,12 @@ window.__ModuleLoader__.load({
       return { from: start, to: end };
     }
 
-    function clampTraceView(view, full) {
-      if (full === null) return null;
-      const raw = asObject(view);
-      let from = Number(raw?.from);
-      let to = Number(raw?.to);
-      if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return { from: full.from, to: full.to };
-      const span = Math.max(to - from, 1);
-      from = Math.max(full.from, Math.min(from, full.to - span));
-      to = Math.min(full.to, from + span);
-      return { from, to };
-    }
-
-    /** Aggregated kernel table plus the timeline for one opened trace. */
+    /**
+     * Trace workspace: Google Perfetto renders the trace in an embedded iframe
+     * (`mode=embedded`), the Host parses the same bytes for the kernel rail, and
+     * the nine Agent actions run from the rail. Selecting a kernel in the rail
+     * zooms Perfetto to that slice via the documented postMessage API.
+     */
     function ProfilerTab({ projectId, t, active }) {
       const tr = typeof t === 'function' ? t : (key) => key;
       const [traces, setTraces] = React.useState([]);
@@ -17616,10 +17657,8 @@ window.__ModuleLoader__.load({
       const [search, setSearch] = React.useState('');
       const [sort, setSort] = React.useState('sum');
       const [kernels, setKernels] = React.useState({ rows: [], matched: 0, total: 0 });
-      const [timeline, setTimeline] = React.useState({ spans: [], lanes: [] });
-      const [view, setView] = React.useState(null);
       const [selected, setSelected] = React.useState(null);
-      const [panelOpen, setPanelOpen] = React.useState(false);
+      const [showDetail, setShowDetail] = React.useState(false);
       const [chat, setChat] = React.useState([]);
       const [busy, setBusy] = React.useState('');
       const [notice, setNotice] = React.useState('');
@@ -17627,7 +17666,10 @@ window.__ModuleLoader__.load({
       const [nodeDialog, setNodeDialog] = React.useState(null);
       const [timebox, setTimebox] = React.useState(TRACE_DEFAULT_TIMEBOX);
       const [question, setQuestion] = React.useState('');
+      const [perfetto, setPerfetto] = React.useState({ state: 'starting', loaded: false });
       const aliveRef = React.useRef(true);
+      const frameRef = React.useRef(null);
+      const pingRef = React.useRef(null);
       const timerRef = React.useRef(null);
 
       React.useEffect(() => {
@@ -17635,8 +17677,56 @@ window.__ModuleLoader__.load({
         return () => {
           aliveRef.current = false;
           if (timerRef.current !== null) clearTimeout(timerRef.current);
+          if (pingRef.current !== null) clearInterval(pingRef.current);
         };
       }, []);
+
+      const perfettoWindow = React.useCallback(() => {
+        const frame = frameRef.current;
+        return frame === null || frame === undefined ? null : frame.contentWindow;
+      }, []);
+
+      const postPerfetto = React.useCallback((payload, transfer) => {
+        const target = perfettoWindow();
+        if (target === null) return false;
+        try {
+          if (Array.isArray(transfer) && transfer.length > 0) target.postMessage(payload, '*', transfer);
+          else target.postMessage(payload, '*');
+          return true;
+        } catch (reason) {
+          return false;
+        }
+      }, [perfettoWindow]);
+
+      // PING/PONG: the Perfetto message channel is not buffered, so the trace
+      // can only be posted after the UI answers PONG.
+      React.useEffect(() => {
+        if (active === false || typeof window === 'undefined') return undefined;
+        const onMessage = (event) => {
+          const target = perfettoWindow();
+          if (target === null || event.source !== target) return;
+          if (event.data === 'PONG') {
+            if (pingRef.current !== null) clearInterval(pingRef.current);
+            pingRef.current = null;
+            setPerfetto((previous) => (previous.state === 'ready' ? previous : { state: 'ready', loaded: previous.loaded }));
+          }
+        };
+        window.addEventListener('message', onMessage);
+        if (pingRef.current !== null) clearInterval(pingRef.current);
+        const ping = () => { postPerfetto('PING'); };
+        ping();
+        pingRef.current = setInterval(ping, TRACE_PING_MS);
+        const timeout = setTimeout(() => {
+          setPerfetto((previous) => (previous.state === 'ready' ? previous : { state: 'unavailable', loaded: false }));
+        }, TRACE_PERFETTO_TIMEOUT_MS);
+        timerRef.current = timeout;
+        return () => {
+          window.removeEventListener('message', onMessage);
+          if (pingRef.current !== null) clearInterval(pingRef.current);
+          pingRef.current = null;
+          clearTimeout(timeout);
+        };
+      }, [active, perfettoWindow, postPerfetto]);
 
       const loadTraces = React.useCallback(async (signal) => {
         try {
@@ -17664,6 +17754,9 @@ window.__ModuleLoader__.load({
           if (!aliveRef.current) return;
           setSummary(asObject(data));
           setTraceId(id);
+          setSelected(null);
+          setShowDetail(false);
+          setPerfetto((previous) => ({ state: previous.state === 'unavailable' ? 'unavailable' : 'ready', loaded: false }));
           setPhase('ready');
         } catch (reason) {
           if (!aliveRef.current) return;
@@ -17671,6 +17764,26 @@ window.__ModuleLoader__.load({
           setError(describeError(reason, tr));
         }
       }, [tr]);
+
+      // Hand the raw bytes to Perfetto once the channel is up and a trace exists.
+      React.useEffect(() => {
+        if (traceId === '' || perfetto.state !== 'ready') return undefined;
+        let cancelled = false;
+        (async () => {
+          try {
+            const buffer = await api.fetchTraceBytes(traceId, tr);
+            if (cancelled || !aliveRef.current) return;
+            const title = firstString(asObject(summary).name) || traceId;
+            const posted = postPerfetto({ perfetto: { buffer, title, keepApiOpen: true } }, [buffer]);
+            if (!cancelled) setPerfetto((previous) => ({ ...previous, loaded: posted }));
+          } catch (reason) {
+            if (cancelled || !aliveRef.current) return;
+            setPerfetto((previous) => ({ ...previous, state: 'unavailable', loaded: false }));
+            setActionError(describeError(reason, tr));
+          }
+        })();
+        return () => { cancelled = true; };
+      }, [traceId, perfetto.state, summary, postPerfetto, tr]);
 
       const loadKernels = React.useCallback(async (id, sortKey, query) => {
         try {
@@ -17686,24 +17799,11 @@ window.__ModuleLoader__.load({
         }
       }, [tr]);
 
-      const loadTimeline = React.useCallback(async (id) => {
-        try {
-          const data = await api.fetchTrace(id, 'timeline', {}, tr);
-          if (!aliveRef.current) return;
-          const payload = asObject(data);
-          setTimeline({ spans: asArray(payload.spans), lanes: asArray(payload.lanes) });
-          setView(clampTraceView(null, traceWindowOf(payload)));
-        } catch (reason) {
-          if (!isAbortError(reason)) setActionError(describeError(reason, tr));
-        }
-      }, [tr]);
-
       React.useEffect(() => {
         if (phase !== 'ready' || traceId === '') return undefined;
-        void loadKernels(traceId, sort, search);
-        void loadTimeline(traceId);
+        void loadKernels(traceId, sort, '');
         return undefined;
-      }, [phase, traceId, loadKernels, loadTimeline]);
+      }, [phase, traceId, loadKernels]);
 
       React.useEffect(() => {
         if (traceId === '') return undefined;
@@ -17750,7 +17850,24 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const selectKernel = async (kernelIndex, openPanel) => {
+      const revealInPerfetto = (detail) => {
+        if (perfetto.state !== 'ready') return;
+        const kernel = asObject(asObject(detail).kernel);
+        const ts = Number(kernel.ts);
+        const dur = Number(kernel.dur);
+        if (!Number.isFinite(ts)) return;
+        // Perfetto's postMessage time range is absolute seconds, while chrome
+        // traces from torch.profiler record microseconds.
+        postPerfetto({
+          perfetto: {
+            timeStart: ts / 1e6,
+            timeEnd: (ts + Math.max(Number.isFinite(dur) ? dur : 0, 1)) / 1e6,
+            viewPercentage: TRACE_VIEW_FILL,
+          },
+        });
+      };
+
+      const selectKernel = async (kernelIndex, openDetail) => {
         if (!Number.isInteger(kernelIndex) || traceId === '') return;
         setBusy('kernel');
         setActionError('');
@@ -17759,7 +17876,8 @@ window.__ModuleLoader__.load({
           if (!aliveRef.current) return;
           const payload = asObject(data);
           setSelected({ index: kernelIndex, detail: asObject(payload.detail), actions: asArray(payload.actions) });
-          if (openPanel) setPanelOpen(true);
+          setShowDetail(openDetail === true);
+          revealInPerfetto(payload.detail);
         } catch (reason) {
           setActionError(describeError(reason, tr));
         } finally {
@@ -17853,41 +17971,25 @@ window.__ModuleLoader__.load({
         }
         setSummary(null);
         setSelected(null);
-        setTimeline({ spans: [], lanes: [] });
+        setShowDetail(false);
         setTraceId('');
         setPhase('idle');
         setChat([]);
+        setPerfetto((previous) => ({ ...previous, loaded: false }));
         void loadTraces();
       };
 
-      const fullWindow = traceWindowOf(timeline.spans.length > 0 ? { window: { startTs: Math.min(...timeline.spans.map((row) => numberOr(row.ts, 0))), endTs: Math.max(...timeline.spans.map((row) => numberOr(row.ts, 0) + numberOr(row.dur, 0))) } } : summary);
-      const zoomBy = (factor) => {
-        if (fullWindow === null || view === null) return;
-        const centre = (view.from + view.to) / 2;
-        const half = Math.max((view.to - view.from) / (2 * factor), 0.5);
-        setView(clampTraceView({ from: centre - half, to: centre + half }, fullWindow));
+      const openPerfettoTab = () => {
+        if (typeof window === 'undefined' || typeof window.open !== 'function') return;
+        window.open(TRACE_PERFETTO_SRC, '_blank', 'noopener');
       };
-      const fitView = () => setView(clampTraceView(null, fullWindow));
 
-      const laneRows = asArray(timeline.lanes);
-      const spans = asArray(timeline.spans);
-      const mountedSpans = spans.slice(0, TRACE_MAX_RENDERED_SPANS);
-      const windowFrom = view === null ? 0 : view.from;
-      const windowTo = view === null ? 1 : view.to;
-      const spanWindow = Math.max(windowTo - windowFrom, 0.0001);
-      const xOf = (ts) => ((Number(ts) - windowFrom) / spanWindow) * TRACE_CANVAS_WIDTH;
-      const widthOf = (dur) => Math.max(2, (Number(dur) / spanWindow) * TRACE_CANVAS_WIDTH);
-      const detail = asObject(selected?.detail);
-      const kernelRow = asObject(detail.kernel);
-      const aggregate = asObject(detail.aggregate);
-      const neighbours = asObject(detail.neighbours);
-      const actionList = selected !== null && asArray(selected.actions).length > 0
-        ? asArray(selected.actions)
-        : TRACE_NODE_ACTIONS.concat(['explain']).map((id) => ({ id, kind: TRACE_NODE_ACTIONS.indexOf(id) >= 0 ? 'node' : 'chat' }));
+      const downloadTrace = () => {
+        if (traceId === '' || typeof window === 'undefined') return;
+        window.open(api.traceBytesUrl(traceId), '_blank', 'noopener');
+      };
 
-      const controls = h(
-        'div',
-        { className: 'rl-trace-openbar' },
+      const controls = h('div', { className: 'rl-trace-openbar' },
         h(LabButton, { label: tr('ws.trace.chooseFile'), variant: 'primary', onClick: () => {
           if (typeof document === 'undefined') return;
           const input = document.getElementById('metainfer-trace-file');
@@ -17908,21 +18010,13 @@ window.__ModuleLoader__.load({
           onChange: (event) => setPathInput(firstString(event?.target?.value)),
         }),
         h(LabButton, { label: tr('ws.trace.open'), onClick: openByPath, disabled: pathInput.trim() === '' }),
-        traces.length > 0
-          ? h(LabSelect, {
-              value: traceId,
-              ariaLabel: tr('ws.trace.title'),
-              options: traces.map((row) => ({ value: firstString(row.traceId), label: firstString(row.name) || firstString(row.traceId) })),
-              onChange: (event) => { void refreshTrace(firstString(event?.target?.value)); },
-            })
-          : null,
         traceId !== '' ? h(LabButton, { label: tr('ws.trace.close'), variant: 'ghost', onClick: () => { void closeTrace(); } }) : null,
       );
 
       const recentTraces = traces.length === 0
         ? null
         : h('div', { className: 'rl-trace-recent' },
-            h('span', { className: 'rl-hint' }, tr('ws.trace.title')),
+            h('span', { className: 'rl-hint' }, tr('ws.trace.recent')),
             traces.map((row) => h('button', {
               key: 'recent-' + firstString(asObject(row).traceId),
               type: 'button',
@@ -17940,111 +18034,83 @@ window.__ModuleLoader__.load({
               duration: formatTraceMicros(numberOr(asObject(summary.window).durationUs, 0)),
             })));
 
-      const kernelTable = h('div', { className: 'rl-trace-table-wrap' },
-        h('div', { className: 'rl-trace-table-head' },
-          h('span', { className: 'rl-section-title' }, tr('ws.trace.kernels')),
-          h(LabInput, {
-            value: search,
-            placeholder: tr('ws.trace.search'),
-            ariaLabel: tr('ws.trace.search'),
-            onChange: (event) => setSearch(firstString(event?.target?.value)),
-          }),
-          h(LabSelect, {
-            value: sort,
-            ariaLabel: tr('ws.trace.sort'),
-            options: [
-              { value: 'sum', label: tr('ws.trace.sort.sum') },
-              { value: 'count', label: tr('ws.trace.sort.count') },
-              { value: 'avg', label: tr('ws.trace.sort.avg') },
-              { value: 'max', label: tr('ws.trace.sort.max') },
-            ],
-            onChange: (event) => setSort(firstString(event?.target?.value, 'sum')),
-          }),
-        ),
-        h('div', { className: 'rl-trace-table', role: 'table', 'data-testid': 'trace-kernel-table' },
-          h('div', { className: 'rl-trace-row rl-trace-row-head', role: 'row' },
-            h('span', null, 'kernel'),
-            h('span', null, tr('ws.trace.sort.count')),
-            h('span', null, tr('ws.trace.sort.sum')),
-            h('span', null, tr('ws.trace.sort.avg')),
-            h('span', null, '%')),
-          asArray(kernels.rows).slice(0, TRACE_KERNEL_ROWS).map((row, index) => {
-            const id = firstString(asObject(row).name) + ':' + String(index);
-            return h('button', {
-              key: id,
-              type: 'button',
-              role: 'row',
-              className: 'rl-trace-row' + (selected !== null && asObject(row).kernelIndex === selected.index ? ' rl-trace-row-selected' : ''),
-              title: firstString(asObject(row).name),
-              onClick: () => { void selectKernel(numberOr(asObject(row).kernelIndex, 0), true); },
-            },
-              h('span', { className: 'rl-trace-kname' }, firstString(asObject(row).shortName)),
-              h('span', null, String(numberOr(asObject(row).count, 0))),
-              h('span', null, formatTraceMicros(numberOr(asObject(row).sumUs, 0))),
-              h('span', null, formatTraceMicros(numberOr(asObject(row).avgUs, 0))),
-              h('span', null, ((numberOr(asObject(row).shareOfKernelTime, 0)) * 100).toFixed(1) + '%'));
-          }),
-        ),
-      );
+      const perfettoStatus = perfetto.state === 'ready'
+        ? (perfetto.loaded ? tr('ws.trace.perfetto.loaded') : tr('ws.trace.perfetto.ready'))
+        : perfetto.state === 'unavailable'
+          ? tr('ws.trace.perfetto.unavailable')
+          : tr('ws.trace.perfetto.starting');
 
-      const timelineView = h('div', { className: 'rl-trace-timeline-wrap', 'data-testid': 'trace-timeline' },
-        h('div', { className: 'rl-trace-toolbar' },
-          h('span', { className: 'rl-section-title' }, tr('ws.trace.timeline')),
-          h(LabButton, { label: tr('ws.trace.zoomIn'), variant: 'ghost', onClick: () => zoomBy(TRACE_ZOOM_STEP) }),
-          h(LabButton, { label: tr('ws.trace.zoomOut'), variant: 'ghost', onClick: () => zoomBy(1 / TRACE_ZOOM_STEP) }),
-          h(LabButton, { label: tr('ws.trace.fit'), variant: 'ghost', onClick: fitView }),
-          h('span', { className: 'rl-trace-chip' }, tr('ws.trace.spans', { shown: mountedSpans.length, total: numberOr(asObject(timeline).matched, spans.length) })),
-        ),
-        laneRows.length === 0
+      const stage = h('div', { className: 'rl-trace-stage' },
+        h('div', { className: 'rl-trace-stagebar' },
+          h('span', { className: 'rl-trace-chip' }, 'Perfetto UI'),
+          h('span', { className: 'rl-hint' }, perfettoStatus),
+          h('span', { className: 'rl-trace-stagebar-actions' },
+            h(LabButton, { label: tr('ws.trace.perfetto.openTab'), variant: 'ghost', onClick: openPerfettoTab }),
+            traceId !== '' ? h(LabButton, { label: tr('ws.trace.perfetto.download'), variant: 'ghost', onClick: downloadTrace }) : null)),
+        h('div', { className: 'rl-trace-frame-wrap' },
+          h('iframe', {
+            ref: frameRef,
+            className: 'rl-trace-frame',
+            title: 'Perfetto',
+            src: TRACE_PERFETTO_SRC,
+            allow: 'clipboard-write',
+          }),
+          perfetto.state === 'unavailable'
+            ? h('div', { className: 'rl-trace-frame-fallback' },
+                h('p', { className: 'rl-hint' }, tr('ws.trace.perfetto.offlineHint')),
+                h(LabButton, { label: tr('ws.trace.perfetto.openTab'), variant: 'primary', onClick: openPerfettoTab }))
+            : null));
+
+      const kernelRow = asObject(asObject(selected?.detail).kernel);
+      const aggregate = asObject(asObject(selected?.detail).aggregate);
+      const neighbours = asObject(asObject(selected?.detail).neighbours);
+      const actionList = selected !== null && asArray(selected.actions).length > 0
+        ? asArray(selected.actions)
+        : TRACE_NODE_ACTIONS.concat(['explain']).map((id) => ({ id, kind: TRACE_NODE_ACTIONS.indexOf(id) >= 0 ? 'node' : 'chat' }));
+
+      const kernelList = h('div', { className: 'rl-trace-rail-head' },
+        h('span', { className: 'rl-section-title' }, tr('ws.trace.kernels')),
+        h(LabInput, {
+          value: search,
+          placeholder: tr('ws.trace.search'),
+          ariaLabel: tr('ws.trace.search'),
+          onChange: (event) => setSearch(firstString(event?.target?.value)),
+        }),
+        h(LabSelect, {
+          value: sort,
+          ariaLabel: tr('ws.trace.sort'),
+          options: [
+            { value: 'sum', label: tr('ws.trace.sort.sum') },
+            { value: 'count', label: tr('ws.trace.sort.count') },
+            { value: 'avg', label: tr('ws.trace.sort.avg') },
+            { value: 'max', label: tr('ws.trace.sort.max') },
+          ],
+          onChange: (event) => setSort(firstString(event?.target?.value, 'sum')),
+        }));
+
+      const kernelRows = asArray(kernels.rows).slice(0, TRACE_KERNEL_ROWS).map((row, index) => {
+        const id = firstString(asObject(row).name) + ':' + String(index);
+        return h('button', {
+          key: id,
+          type: 'button',
+          className: 'rl-trace-krow' + (selected !== null && asObject(row).kernelIndex === selected.index ? ' rl-trace-krow-active' : ''),
+          title: firstString(asObject(row).name),
+          onClick: () => { void selectKernel(numberOr(asObject(row).kernelIndex, 0), true); },
+        },
+          h('span', { className: 'rl-trace-kname' }, firstString(asObject(row).shortName)),
+          h('span', { className: 'rl-trace-kmeta' },
+            '×' + String(numberOr(asObject(row).count, 0)) + ' · ' + formatTraceMicros(numberOr(asObject(row).sumUs, 0))));
+      });
+
+      const kernelListPanel = h('div', { className: 'rl-trace-rail', 'data-testid': 'trace-kernel-table' },
+        kernelList,
+        asArray(kernels.rows).length === 0
           ? h('p', { className: 'rl-hint' }, tr('ws.trace.laneEmpty'))
-          : h('div', { className: 'rl-trace-canvas', role: 'group', 'aria-label': tr('ws.trace.timeline') },
-              h('div', { className: 'rl-trace-canvas-inner', style: { width: TRACE_CANVAS_WIDTH + 140 } },
-                laneRows.map((lane) => {
-                  const laneId = firstString(asObject(lane).lane);
-                  const laneSpans = mountedSpans.filter((span) => firstString(asObject(span).lane) === laneId);
-                  return h('div', { key: laneId, className: 'rl-trace-lane', style: { height: TRACE_LANE_HEIGHT } },
-                    h('span', { className: 'rl-trace-lane-label', title: laneId }, 'gpu' + String(numberOr(asObject(lane).device, 0)) + ' · s' + String(numberOr(asObject(lane).stream, 0))),
-                    h('div', { className: 'rl-trace-lane-track' },
-                      laneSpans.map((span) => {
-                        const row = asObject(span);
-                        const index = numberOr(row.id, -1);
-                        return h('button', {
-                          key: 'span-' + String(index),
-                          type: 'button',
-                          className: 'rl-trace-span' + (selected !== null && selected.index === index ? ' rl-trace-span-selected' : ''),
-                          style: { left: xOf(row.ts), width: widthOf(row.dur) },
-                          title: firstString(row.fullName) + ' · ' + formatTraceMicros(row.dur),
-                          onClick: (event) => { event.stopPropagation(); void selectKernel(index, false); },
-                          onDoubleClick: (event) => { event.stopPropagation(); void selectKernel(index, true); },
-                        }, '');
-                      })),
-                  );
-                }),
-              )),
-      );
-
-      const neighbourRow = (label, rows) => h('div', { className: 'rl-trace-neighbours' },
-        h('span', { className: 'rl-info-label' }, label),
-        asArray(rows).length === 0
-          ? h('span', { className: 'rl-hint' }, '—')
-          : asArray(rows).map((row, index) => h('span', { key: label + index, className: 'rl-trace-chip', title: firstString(asObject(row).shortName) },
-              firstString(asObject(row).shortName) + ' · ' + formatTraceMicros(numberOr(asObject(row).dur, 0)))));
-
-      const chatBlock = h('div', { className: 'rl-trace-chat' },
-        h('span', { className: 'rl-section-title' }, tr('ws.trace.chat')),
-        asArray(chat).length === 0
-          ? h('p', { className: 'rl-hint' }, tr('ws.trace.chatEmpty'))
-          : asArray(chat).slice(-6).map((message, index) => {
-              const row = asObject(message);
-              const role = firstString(row.role);
-              return h('div', { key: 'chat-' + String(index), className: 'rl-trace-chat-row rl-trace-chat-' + role },
-                h('span', { className: 'rl-trace-chat-role' }, role === 'user' ? '🙋' : role === 'error' ? '⚠️' : '🤖'),
-                h('span', { className: 'rl-trace-chat-text' }, firstString(row.text)));
-            }));
+          : h('div', { className: 'rl-trace-klist' }, kernelRows));
 
       const detailPanel = h('aside', { className: 'rl-inspector rl-trace-detail', 'data-testid': 'trace-detail' },
         h('div', { className: 'rl-inspector-head' },
-          h('h3', { className: 'rl-inspector-title' }, tr('ws.trace.detail')),
+          h('button', { type: 'button', className: 'rl-btn rl-btn-ghost', onClick: () => setShowDetail(false) }, '← ' + tr('ws.trace.kernels')),
           selected !== null ? h('span', { className: 'rl-inspector-id rl-mono' }, '#' + String(selected.index)) : null),
         selected === null
           ? h('p', { className: 'rl-hint' }, tr('ws.trace.detailHint'))
@@ -18056,16 +18122,24 @@ window.__ModuleLoader__.load({
                 h(LabInfoRow, { label: tr('ws.trace.aggregate'), value: tr('ws.trace.sort.count') + ' ' + String(numberOr(aggregate.count, 0)) + ' · ' + tr('ws.trace.sort.sum') + ' ' + formatTraceMicros(aggregate.sumUs) + ' · p99 ' + formatTraceMicros(aggregate.p99Us) }),
                 h(LabInfoRow, { label: tr('ws.trace.layout'), value: (Array.isArray(kernelRow.grid) ? 'grid [' + kernelRow.grid.join('x') + '] ' : '') + (Array.isArray(kernelRow.block) ? 'block [' + kernelRow.block.join('x') + ']' : '') || '—' }),
                 h(LabInfoRow, { label: tr('ws.trace.launch'), value: firstString(asObject(kernelRow.launchOp).name, '—') }),
-                h(LabInfoRow, { label: tr('ws.trace.inputs'), value: formatTraceShape(asObject(detail.inputs).dims) }),
-                h(LabInfoRow, { label: tr('ws.trace.dtypes'), value: asArray(detail.dtypes).length > 0 ? asArray(detail.dtypes).join(', ') : '—' })),
-              asArray(detail.stack).length > 0
+                h(LabInfoRow, { label: tr('ws.trace.inputs'), value: formatTraceShape(asObject(selected.detail).inputs?.dims) }),
+                h(LabInfoRow, { label: tr('ws.trace.dtypes'), value: asArray(asObject(selected.detail).dtypes).length > 0 ? asArray(asObject(selected.detail).dtypes).join(', ') : '—' })),
+              asArray(asObject(selected.detail).stack).length > 0
                 ? h('div', { className: 'rl-section' },
                     h('span', { className: 'rl-section-title' }, tr('ws.trace.stack')),
-                    h('ol', { className: 'rl-trace-stack' }, asArray(detail.stack).slice(-10).reverse().map((entry, index) => h('li', { key: 'stack-' + String(index), className: 'rl-mono' },
+                    h('ol', { className: 'rl-trace-stack' }, asArray(asObject(selected.detail).stack).slice(-10).reverse().map((entry, index) => h('li', { key: 'stack-' + String(index), className: 'rl-mono' },
                       firstString(asObject(entry).name) + (firstString(asObject(entry).source) === '' ? '' : ' @ ' + firstString(asObject(entry).source))))))
                 : null,
-              neighbourRow(tr('ws.trace.neighbours') + ' ←', neighbours.prev),
-              neighbourRow(tr('ws.trace.neighbours') + ' →', neighbours.next),
+              h('div', { className: 'rl-trace-neighbours' },
+                h('span', { className: 'rl-info-label' }, tr('ws.trace.neighbours') + ' ←'),
+                asArray(neighbours.prev).length === 0
+                  ? h('span', { className: 'rl-hint' }, '—')
+                  : asArray(neighbours.prev).map((row, index) => h('span', { key: 'prev-' + String(index), className: 'rl-trace-chip' }, firstString(asObject(row).shortName) + ' · ' + formatTraceMicros(numberOr(asObject(row).dur, 0))))),
+              h('div', { className: 'rl-trace-neighbours' },
+                h('span', { className: 'rl-info-label' }, tr('ws.trace.neighbours') + ' →'),
+                asArray(neighbours.next).length === 0
+                  ? h('span', { className: 'rl-hint' }, '—')
+                  : asArray(neighbours.next).map((row, index) => h('span', { key: 'next-' + String(index), className: 'rl-trace-chip' }, firstString(asObject(row).shortName) + ' · ' + formatTraceMicros(numberOr(asObject(row).dur, 0))))),
               h('div', { className: 'rl-section' },
                 h('span', { className: 'rl-section-title' }, tr('ws.trace.actions')),
                 h('p', { className: 'rl-hint' }, tr('ws.trace.actionsHint')),
@@ -18092,7 +18166,17 @@ window.__ModuleLoader__.load({
                 busy !== '' ? h(LabLoading, { label: tr('ws.trace.dispatching') }) : null,
                 notice !== '' ? h('p', { className: 'rl-hint' }, notice) : null,
                 actionError !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, actionError) : null),
-              chatBlock));
+              h('div', { className: 'rl-trace-chat' },
+                h('span', { className: 'rl-section-title' }, tr('ws.trace.chat')),
+                asArray(chat).length === 0
+                  ? h('p', { className: 'rl-hint' }, tr('ws.trace.chatEmpty'))
+                  : asArray(chat).slice(-6).map((message, index) => {
+                      const row = asObject(message);
+                      const role = firstString(row.role);
+                      return h('div', { key: 'chat-' + String(index), className: 'rl-trace-chat-row rl-trace-chat-' + role },
+                        h('span', { className: 'rl-trace-chat-role' }, role === 'user' ? '🙋' : role === 'error' ? '⚠️' : '🤖'),
+                        h('span', { className: 'rl-trace-chat-text' }, firstString(row.text)));
+                    }))));
 
       const nodeModal = nodeDialog === null ? null : h('div', { className: 'rl-overlay-layer' },
         h('div', { className: 'rl-modal rl-modal-narrow', role: 'dialog', 'aria-modal': 'true' },
@@ -18117,9 +18201,7 @@ window.__ModuleLoader__.load({
         phase === 'loading' ? h(LabLoading, { label: tr('ws.trace.loading') }) : null,
         phase === 'idle' && traces.length === 0 ? h('p', { className: 'rl-hint' }, tr('ws.trace.empty')) : null,
         summaryLine,
-        h('div', { className: 'rl-trace-grid' },
-          h('div', { className: 'rl-trace-main' }, timelineView, kernelTable),
-          panelOpen || selected !== null ? detailPanel : h('aside', { className: 'rl-inspector rl-trace-detail' }, h('p', { className: 'rl-hint' }, tr('ws.trace.detailHint')))),
+        h('div', { className: 'rl-trace-grid' }, stage, showDetail ? detailPanel : kernelListPanel),
         nodeModal);
     }
     // #endregion profiler trace viewer

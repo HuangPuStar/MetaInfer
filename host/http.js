@@ -596,6 +596,23 @@ export function registerHttpRoutes(ctx, service, extras = {}) {
     if (!traceId) return ok({ traces: profiler ? profiler.list() : [] });
     const index = requireTrace(traceId);
     const view = params.get('view') ?? 'summary';
+    if (view === 'bytes') {
+      // Raw trace bytes, handed to the embedded Perfetto UI. Same-origin read:
+      // the browser fetches with its owner cookie, Perfetto parses in-browser.
+      const payload = requireProfiler().bytes(traceId);
+      if (!payload) {
+        throw Object.assign(new Error(`trace bytes are unavailable: ${traceId}`), { code: 'trace_not_found' });
+      }
+      const safeName = String(payload.name ?? 'trace.json').replace(/[^\w.-]+/g, '_');
+      return new Response(payload.bytes, {
+        status: 200,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'content-disposition': `inline; filename="${safeName}"`,
+          'cache-control': 'no-store',
+        },
+      });
+    }
     if (view === 'summary') return ok(profiler.summary(traceId));
     if (view === 'kernels') {
       return ok(queryKernels(index, {
