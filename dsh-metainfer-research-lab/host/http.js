@@ -112,9 +112,17 @@ export function registerHttpRoutes(ctx, service) {
     return ok(result);
   });
 
-  route(`${PREFIX}/repo`, ['GET'], async (request) => {
-    const repoPath = query(request).get('path');
-    return ok(await service.validateRepo(repoPath));
+  route(`${PREFIX}/repo`, ['GET', 'POST'], async (request) => {
+    if (request.method === 'GET') return ok(await service.validateRepo(query(request).get('path')));
+    const body = await readJsonBody(request);
+    return ok(await service.prepareRepo(body.path));
+  });
+
+  route(`${PREFIX}/git`, ['GET'], async () => ok(await service.gitStatus()));
+
+  route(`${PREFIX}/git/install`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    return ok(await service.installGit({ confirmed: body.confirmed === true }));
   });
 
   route(`${PREFIX}/state`, ['GET'], async (request) => {

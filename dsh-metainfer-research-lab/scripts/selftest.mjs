@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, access, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { openStore } from '../host/store.js';
@@ -41,7 +41,14 @@ function memoryDomain() {
 function fakeSubprocess() {
   return {
     spawn(spec) {
-      const child = spawn(spec.argv[0], spec.argv.slice(1), { cwd: spec.cwd, env: { ...process.env, ...spec.env } });
+      const env = { ...process.env };
+      for (const [key, value] of Object.entries(spec.env || {})) {
+        for (const inherited of Object.keys(env)) {
+          if (inherited === key || (process.platform === 'win32' && inherited.toUpperCase() === key.toUpperCase())) delete env[inherited];
+        }
+        if (value !== undefined) env[key] = value;
+      }
+      const child = spawn(spec.argv[0], spec.argv.slice(1), { cwd: spec.cwd, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
       let stdout = '';
       let stderr = '';
       child.stdout.on('data', (chunk) => { stdout += chunk; });
@@ -182,7 +189,7 @@ await test('listProjects summary', async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].nodeCount, 1);
   assert.equal(list[0].id, project.id);
-  assert.equal(list[0].repoPath, DEMO_REPO);
+  assert.equal(path.resolve(list[0].repoPath), DEMO_REPO);
 });
 
 await test('reject invalid config', async () => {
@@ -253,13 +260,16 @@ async function callHttp(pathname, { method = 'GET', query = '', rawBody = undefi
   return response.json();
 }
 
-await test('routes: all thirteen endpoints registered', async () => {
-  assert.equal(routes.length, 13);
+await test('routes: repository, dashboard and execution endpoints registered', async () => {
+  assert.equal(routes.length, 23);
   const expected = [
     [`${PREFIX}/health`, 'GET'],
     [`${PREFIX}/projects`, 'GET'],
     [`${PREFIX}/projects`, 'POST'],
     [`${PREFIX}/repo`, 'GET'],
+    [`${PREFIX}/repo`, 'POST'],
+    [`${PREFIX}/git`, 'GET'],
+    [`${PREFIX}/git/install`, 'POST'],
     [`${PREFIX}/state`, 'GET'],
     [`${PREFIX}/events`, 'GET'],
     [`${PREFIX}/transcript`, 'GET'],
@@ -268,7 +278,16 @@ await test('routes: all thirteen endpoints registered', async () => {
     [`${PREFIX}/models`, 'GET'],
     [`${PREFIX}/chat`, 'GET'],
     [`${PREFIX}/copilot`, 'GET'],
+    [`${PREFIX}/intake`, 'GET'],
+    [`${PREFIX}/files/info`, 'GET'],
+    [`${PREFIX}/files/download`, 'GET'],
     [`${PREFIX}/runs`, 'GET'],
+    [`${PREFIX}/dashboard`, 'GET'],
+    [`${PREFIX}/dashboard`, 'POST'],
+    [`${PREFIX}/dashboard/refresh`, 'POST'],
+    [`${PREFIX}/dashboard/chat`, 'POST'],
+    [`${PREFIX}/dashboard/layout`, 'POST'],
+    [`${PREFIX}/execution`, 'GET'],
     [`${PREFIX}/commands`, 'POST'],
   ];
   for (const [pathname, method] of expected) findRoute(pathname, method);
@@ -379,6 +398,70 @@ await test('HTTP malformed body returns the error envelope', async () => {
   const payload = await callHttp(`${PREFIX}/commands`, { method: 'POST', rawBody: 'not-json' });
   assert.equal(payload.ok, false);
   assert.equal(payload.error.code, 'bad_request');
+});
+
+await test('HTTP prepares a new directory, then validation is read-only and idempotent', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'mirl-http-prepare-'));
+  try {
+    const first = await callHttp(`${PREFIX}/repo`, { method: 'POST', rawBody: JSON.stringify({ path: directory }) });
+    assert.equal(first.ok, true, first.error?.message);
+    assert.ok(first.data.baseCommit);
+    assert.ok(first.data.branches.includes(first.data.defaultBranch));
+    const again = await callHttp(`${PREFIX}/repo`, { method: 'POST', rawBody: JSON.stringify({ path: directory }) });
+    assert.equal(again.data.baseCommit, first.data.baseCommit);
+    const checked = await callHttp(`${PREFIX}/repo`, { query: `?path=${encodeURIComponent(directory)}` });
+    assert.equal(checked.data.baseCommit, first.data.baseCommit);
+  } finally {
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+await test('createProject prepares directories only after validating other inputs', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'mirl-create-prepare-'));
+  const input = { name: 'Fresh directory', brief: 'Prepare an empty directory', repoPath: directory, initialPrompt: 'Calculate 99 times 100 and report 9900.' };
+  try {
+    await assert.rejects(lab.createProject({ ...input, config: { maxNodes: 0 } }), (error) => error.code === 'bad_request');
+    await assert.rejects(access(path.join(directory, '.git')), (error) => error.code === 'ENOENT');
+    const created = await lab.createProject(input);
+    assert.ok(created.project.repo.baseCommit);
+    assert.equal(created.rootNode.status, 'planned');
+    assert.equal(path.resolve(created.project.repo.path), directory);
+    await lab.deleteProject(created.project.id, { removeWorktrees: false });
+  } finally {
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+await test('preparation validates and preserves upstream execution profiles', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'mirl-execution-prepare-'));
+  const input = { name: 'Execution profile', brief: 'Prepare without starting Codex', repoPath: directory, initialPrompt: 'Calculate 99 times 100 and report 9900.' };
+  try {
+    await assert.rejects(lab.createProject({ ...input, executionProfile: 'missing' }), (error) => error.code === 'bad_request');
+    await assert.rejects(access(path.join(directory, '.git')), (error) => error.code === 'ENOENT');
+    const created = await lab.createProject({ ...input, executionProfile: 'codex-strong', taskType: 'analysis' });
+    assert.ok(created.project.repo.baseCommit);
+    assert.equal(created.rootNode.status, 'planned');
+    assert.deepEqual(created.rootNode.execution, { profile: 'codex-strong', driver: 'codex', reasoningEffort: 'high' });
+    assert.equal(created.rootNode.taskType, 'analysis');
+    await lab.deleteProject(created.project.id, { removeWorktrees: false });
+  } finally {
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+});
+
+await test('HTTP Git status is available; installation requires literal confirmation', async () => {
+  const status = await callHttp(`${PREFIX}/git`);
+  assert.equal(status.ok, true);
+  assert.equal(status.data.available, true);
+  for (const confirmed of [undefined, false, 'true', 1]) {
+    const refused = await callHttp(`${PREFIX}/git/install`, { method: 'POST', rawBody: JSON.stringify({ confirmed }) });
+    assert.equal(refused.ok, false);
+    assert.equal(refused.error.code, 'git_install_confirmation_required');
+  }
+  // Already installed Git is only reverified: this never runs an installer.
+  const available = await callHttp(`${PREFIX}/git/install`, { method: 'POST', rawBody: JSON.stringify({ confirmed: true }) });
+  assert.equal(available.ok, true);
+  assert.equal(available.data.available, true);
 });
 
 disposeRoutes();

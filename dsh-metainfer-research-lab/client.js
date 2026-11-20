@@ -31,6 +31,8 @@ window.__ModuleLoader__.load({
       health: 'api/metainfer-research-lab/health',
       projects: 'api/metainfer-research-lab/projects',
       repo: 'api/metainfer-research-lab/repo',
+      git: 'api/metainfer-research-lab/git',
+      gitInstall: 'api/metainfer-research-lab/git/install',
       state: 'api/metainfer-research-lab/state',
       events: 'api/metainfer-research-lab/events',
       replay: 'api/metainfer-research-lab/replay',
@@ -400,28 +402,50 @@ window.__ModuleLoader__.load({
       'guide.arch.step7.desc': 'Worker 在 child worktree 中从父 commit 出发执行实验，提交新 commit 并回传报告。GitEngine 记录 branch/commit 历史；DAG 节点 running → completed，DAG 长出一条新的实验分支。',
       'guide.arch.step8.title': '⑧ Auto Loop：DAG 生长与人的取舍',
       'guide.arch.step8.desc': 'auto 模式重复「完成 → 评审 → 提案 → 调度 → 执行」，DAG 持续变深/变宽；confirm 模式在 approve/reject 暂停。merge 节点汇合成功分支，你最终决定 merge/push 回 Git Repo。',
-      'wizard.intro': '绑定一个 Git 仓库，为根节点写好实验指令。',
-      'wizard.section.repo': '① 绑定 Git 仓库',
+      'wizard.intro': '填写本地绝对目录或 Git 仓库 URL，点击准备仓库。新目录会自动初始化，空库会补一个本地空提交；不会提交你的文件或自动推送。',
+      'wizard.section.repo': '① 准备 Git 仓库',
       'wizard.section.research': '② 研究设定',
-      'wizard.repoPath': '仓库路径',
-      'wizard.repoPath.placeholder': '/absolute/path/to/git/repo',
-      'wizard.repoPath.required': '请先填写仓库路径',
-      'wizard.validate': '验证仓库',
-      'wizard.validating': '正在验证…',
-      'wizard.repo.valid': '仓库校验通过',
+      'wizard.repoPath': '目录路径 / 仓库 URL',
+      'wizard.repoPath.placeholder': 'D:\\work\\project 或 https://github.com/owner/repo',
+      'wizard.repoPath.required': '请先填写目录绝对路径或仓库 URL',
+      'wizard.validate': '准备仓库',
+      'wizard.validating': '正在准备…',
+      'wizard.repo.valid': '仓库已就绪',
       'wizard.repo.root': '仓库根目录',
       'wizard.repo.gitDir': 'Git 目录',
       'wizard.repo.baseBranch': '基准分支',
       'wizard.repo.commit': '基准提交',
       'wizard.repo.branches': '共 {count} 个分支',
       'wizard.repo.dirty': '工作区有未提交改动',
+      'wizard.repo.dirtyHint': '未提交文件保留在原目录，不会进入实验工作树；如需使用，请先提交这些文件，再重新准备仓库。',
       'wizard.repo.clean': '工作区干净',
-      'wizard.repo.error': '仓库校验失败',
-      'wizard.repo.error.invalid_repo': '路径不是有效的 Git 仓库',
-      'wizard.repo.error.not_git': '目录不是 Git 仓库',
-      'wizard.repo.error.bare': '不支持裸仓库',
-      'wizard.repo.error.bad_path': '路径无效或不可读',
-      'wizard.repo.error.no_commits': '仓库还没有任何提交，无法创建项目',
+      'wizard.repo.error': '仓库准备失败',
+      'wizard.repo.error.invalid_repo': '无法读取该仓库。请确认路径、访问权限或仓库 URL 后重试。',
+      'wizard.repo.error.not_git': '目录尚未初始化。请点击“准备仓库”自动配置，或先在该目录执行 git init。',
+      'wizard.repo.error.bare': '该目录是裸仓库。请选择普通工作目录，或填写仓库 URL 以克隆后使用。',
+      'wizard.repo.error.bad_path': '路径或 URL 无效。请填写可读写的绝对目录或有效 Git URL，并确认目录权限。',
+      'wizard.repo.error.path_too_long': 'Windows 仓库路径过长。请改用更短目录；克隆路径过长时缩短 DSH_HOME 后重启 DSH。',
+      'wizard.repo.error.no_commits': '仓库尚无提交。请点击“准备仓库”自动补本地空提交，或先创建一次提交。',
+      'wizard.repo.error.bad_branch': '找不到所选分支。请重新准备仓库并选择已有分支，或检查 URL 中的分支名。',
+      'wizard.repo.error.git_missing': '未找到 Git。请允许自动安装，或安装 Git 后重试；无需手工设置全局用户名和邮箱。',
+      'wizard.repo.error.git_timeout': 'Git 操作超时。请检查网络或是否有 Git 操作占用仓库，然后重试。',
+      'wizard.repo.error.git_failed': 'Git 操作未完成。请确认 Git 可运行、目录可读写且仓库状态正常，然后重试。',
+      'wizard.repo.error.git_permission': '没有目录访问权限。请选择可读写目录，或向目录所有者申请权限后重试。',
+      'wizard.repo.error.git_unsafe': 'Git 不信任该目录的所有权。请使用自己拥有的目录，或核实后手动配置 safe.directory。',
+      'wizard.repo.error.clone_failed': '无法克隆仓库。请检查 URL、网络和仓库访问权限；私有库需先配置 Git 凭据。',
+      'wizard.repo.error.repo_setup_required': '仓库需要准备。请点击“准备仓库”以自动克隆、初始化或补本地空提交。',
+      'wizard.repo.error.initial_commit_failed': '无法创建初始提交。请确认目录可写且 Git 正常，再重新准备；原文件不会自动提交。',
+      'wizard.repo.error.git_install_confirmation_required': '安装 Git 需要你的确认。请阅读安装说明后点击“同意并安装 Git”。',
+      'wizard.repo.error.git_install_failed': 'Git 安装未完成。请确认安装权限，或按下方命令手动安装后重试。',
+      'wizard.repo.error.git_install_timeout': 'Git 安装超时。请检查是否有系统授权窗口，完成安装后重新准备仓库。',
+      'wizard.repo.error.git_install_unavailable': '当前环境无法自动安装 Git。请使用系统包管理器或 git-scm.com 安装后重试。',
+      'wizard.repo.error.unknown': '暂时无法准备仓库。请检查目录权限、Git 安装、网络和仓库地址，然后重试。',
+      'wizard.git.title': '需要安装 Git',
+      'wizard.git.consent': '仅在你同意后执行下方系统包管理器命令。Windows 安装会接受 Git 包和 winget 源协议，并可能出现系统权限提示；不会修改全局 Git 身份配置。',
+      'wizard.git.install': '同意并安装 Git',
+      'wizard.git.installing': '正在安装 Git，完成后自动继续…',
+      'wizard.git.cancel': '暂不安装',
+      'wizard.git.manual': '也可手动安装 Git，然后重新点击“准备仓库”。',
       'wizard.name': '项目名称',
       'wizard.name.placeholder': '默认使用仓库目录名',
       'wizard.brief': '研究目标 / 假设',
@@ -449,7 +473,8 @@ window.__ModuleLoader__.load({
       'wizard.required.repo': '请先验证仓库并选择基准分支',
       'wizard.required.name': '请填写项目名称',
       'wizard.required.brief': '请填写研究目标 / 假设',
-      'wizard.required.prompt': '请填写根节点提示词',
+      'wizard.required.prompt': '根节点提示词至少需要 10 个字符',
+      'wizard.error.validation': '请检查必填项、提示词长度和资源/时限设置，再重试。',
       'wizard.error.noProject': 'Host 未返回项目 id',
 
       'ws.back': '← 项目列表',
@@ -1728,28 +1753,50 @@ window.__ModuleLoader__.load({
       'guide.arch.step7.desc': 'The worker runs the child experiment from its parent commit in the child worktree, creates a new commit, and returns a report. GitEngine records branch/commit history; the DAG node moves running → completed and the DAG grows a new experiment branch.',
       'guide.arch.step8.title': '⑧ Auto loop: DAG growth and human choices',
       'guide.arch.step8.desc': 'Auto mode repeats complete → review → propose → schedule → execute, growing the DAG deeper and wider; confirm mode pauses at approve/reject. A merge node joins successful branches, and you decide the final merge/push back to the Git Repo.',
-      'wizard.intro': 'Bind a Git repository and write the root node instruction.',
-      'wizard.section.repo': '① Bind a Git repository',
+      'wizard.intro': 'Enter an absolute local directory or Git URL, then prepare it. New directories are initialized and empty repositories receive a local empty commit. Your files are not committed or pushed automatically.',
+      'wizard.section.repo': '① Prepare a Git repository',
       'wizard.section.research': '② Research setup',
-      'wizard.repoPath': 'Repository path',
-      'wizard.repoPath.placeholder': '/absolute/path/to/git/repo',
-      'wizard.repoPath.required': 'Enter a repository path first',
-      'wizard.validate': 'Validate repository',
-      'wizard.validating': 'Validating…',
-      'wizard.repo.valid': 'Repository validated',
+      'wizard.repoPath': 'Directory path / repository URL',
+      'wizard.repoPath.placeholder': '/absolute/project/path or https://github.com/owner/repo',
+      'wizard.repoPath.required': 'Enter an absolute directory path or repository URL first',
+      'wizard.validate': 'Prepare repository',
+      'wizard.validating': 'Preparing…',
+      'wizard.repo.valid': 'Repository ready',
       'wizard.repo.root': 'Repository root',
       'wizard.repo.gitDir': 'Git directory',
       'wizard.repo.baseBranch': 'Base branch',
       'wizard.repo.commit': 'Base commit',
       'wizard.repo.branches': '{count} branches',
       'wizard.repo.dirty': 'Working tree has uncommitted changes',
+      'wizard.repo.dirtyHint': 'Uncommitted files remain in the original directory, outside experiment worktrees. Commit the files you need, then prepare the repository again.',
       'wizard.repo.clean': 'Working tree clean',
-      'wizard.repo.error': 'Repository validation failed',
-      'wizard.repo.error.invalid_repo': 'The path is not a valid Git repository',
-      'wizard.repo.error.not_git': 'The directory is not a Git repository',
-      'wizard.repo.error.bare': 'Bare repositories are not supported',
-      'wizard.repo.error.bad_path': 'The path is invalid or unreadable',
-      'wizard.repo.error.no_commits': 'The repository has no commits yet',
+      'wizard.repo.error': 'Repository preparation failed',
+      'wizard.repo.error.invalid_repo': 'Cannot read this repository. Check the path, permissions or repository URL, then retry.',
+      'wizard.repo.error.not_git': 'This directory is not initialized. Click Prepare repository to configure it, or run git init there first.',
+      'wizard.repo.error.bare': 'This is a bare repository. Choose a normal working directory, or enter its URL to clone it first.',
+      'wizard.repo.error.bad_path': 'Invalid path or URL. Enter a writable absolute directory or valid Git URL, and check directory permissions.',
+      'wizard.repo.error.path_too_long': 'The Windows repository path is too long. Use a shorter folder; for a clone cache, shorten DSH_HOME and restart DSH.',
+      'wizard.repo.error.no_commits': 'This repository has no commits. Click Prepare repository to add a local empty commit, or create a commit first.',
+      'wizard.repo.error.bad_branch': 'The selected branch was not found. Prepare again and choose an existing branch, or check the branch in the URL.',
+      'wizard.repo.error.git_missing': 'Git was not found. Allow automatic installation, or install Git and retry. Global name/email setup is not required.',
+      'wizard.repo.error.git_timeout': 'Git timed out. Check the network and any other Git operation using this repository, then retry.',
+      'wizard.repo.error.git_failed': 'Git could not finish. Check that Git runs, the directory is writable and the repository is healthy, then retry.',
+      'wizard.repo.error.git_permission': 'Directory access was denied. Choose a writable directory, or ask its owner for access, then retry.',
+      'wizard.repo.error.git_unsafe': 'Git does not trust this directory ownership. Use your own directory, or verify it before manually configuring safe.directory.',
+      'wizard.repo.error.clone_failed': 'Cannot clone this repository. Check the URL, network and access permissions. Configure Git credentials first for private repositories.',
+      'wizard.repo.error.repo_setup_required': 'This repository needs preparation. Click Prepare repository to clone, initialize or add a local empty commit.',
+      'wizard.repo.error.initial_commit_failed': 'Cannot create the initial commit. Check directory write access and Git, then prepare again. Your files are not committed automatically.',
+      'wizard.repo.error.git_install_confirmation_required': 'Git installation needs your consent. Read the installation details, then click Agree and install Git.',
+      'wizard.repo.error.git_install_failed': 'Git installation did not finish. Check installation permissions, or run the command below manually and retry.',
+      'wizard.repo.error.git_install_timeout': 'Git installation timed out. Check for a system permission dialog, finish installation, then prepare again.',
+      'wizard.repo.error.git_install_unavailable': 'Automatic Git installation is unavailable. Install Git with your system package manager or from git-scm.com, then retry.',
+      'wizard.repo.error.unknown': 'Cannot prepare this repository right now. Check directory permissions, Git, the network and repository address, then retry.',
+      'wizard.git.title': 'Git installation required',
+      'wizard.git.consent': 'The system package-manager command below runs only with your consent. On Windows it accepts the Git package and winget source agreements and may show a system permission prompt. Global Git identity settings are not changed.',
+      'wizard.git.install': 'Agree and install Git',
+      'wizard.git.installing': 'Installing Git; preparation will resume automatically…',
+      'wizard.git.cancel': 'Not now',
+      'wizard.git.manual': 'You can also install Git manually, then click Prepare repository again.',
       'wizard.name': 'Project name',
       'wizard.name.placeholder': 'Defaults to the repository directory name',
       'wizard.brief': 'Research goal / hypothesis',
@@ -1777,7 +1824,8 @@ window.__ModuleLoader__.load({
       'wizard.required.repo': 'Validate a repository and choose a base branch first',
       'wizard.required.name': 'Enter a project name',
       'wizard.required.brief': 'Enter the research goal / hypothesis',
-      'wizard.required.prompt': 'Enter the root node prompt',
+      'wizard.required.prompt': 'The root node prompt needs at least 10 characters',
+      'wizard.error.validation': 'Check required fields, prompt length, resource pools and time limits, then retry.',
       'wizard.error.noProject': 'The Host did not return a project id',
 
       'ws.back': '← Projects',
@@ -3518,6 +3566,15 @@ window.__ModuleLoader__.load({
       },
       inspectRepo(repoPath, signal, t) {
         return requestJson(ROUTES.repo + '?path=' + encodeURIComponent(repoPath), { signal }, t);
+      },
+      prepareRepo(repoPath, signal, t) {
+        return requestJson(ROUTES.repo, { method: 'POST', body: { path: repoPath }, signal }, t);
+      },
+      gitStatus(signal, t) {
+        return requestJson(ROUTES.git, { signal }, t);
+      },
+      installGit(signal, t) {
+        return requestJson(ROUTES.gitInstall, { method: 'POST', body: { confirmed: true }, signal }, t);
       },
       listProjects(signal, t) {
         return requestJson(ROUTES.projects, { signal }, t);
@@ -5940,11 +5997,16 @@ window.__ModuleLoader__.load({
 
     /** Map a Host repo error code to a localized wizard message when known. */
     function localizedRepoError(error, t) {
-      const known = ['invalid_repo', 'not_git', 'bare', 'bad_path', 'no_commits'];
-      if (error instanceof LabRequestError && known.indexOf(error.code) >= 0) {
-        return t('wizard.repo.error.' + error.code);
-      }
-      return describeError(error, t);
+      const known = [
+        'invalid_repo', 'not_git', 'bare', 'bad_path', 'path_too_long', 'no_commits', 'bad_branch',
+        'git_missing', 'git_timeout', 'git_failed', 'git_permission', 'git_unsafe',
+        'clone_failed', 'repo_setup_required', 'initial_commit_failed',
+        'git_install_confirmation_required', 'git_install_failed', 'git_install_timeout', 'git_install_unavailable',
+      ];
+      if (error && known.indexOf(error.code) >= 0) return t('wizard.repo.error.' + error.code);
+      if (error && error.code === 'unauthorized') return t('error.unauthorized');
+      if (error && error.name === 'TypeError') return t('error.network');
+      return t('wizard.repo.error.unknown');
     }
     // #endregion
 
@@ -7069,8 +7131,8 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Two-section wizard: validate the Git repository (GET /repo) and collect the
-     * research setup, then POST one project and open its workspace.
+     * Two-section wizard: explicitly prepare the Git repository (POST /repo) and
+     * collect the research setup, then POST one project and open its workspace.
      */
     function CreateProjectWizard({ t, onCreated, embedded = false }) {
       const formSchema = React.useMemo(() => projectFormSchema(t), [t]);
@@ -7079,7 +7141,8 @@ window.__ModuleLoader__.load({
       const [repoPhase, setRepoPhase] = React.useState('idle');
       const [repoInfo, setRepoInfo] = React.useState(null);
       const [repoError, setRepoError] = React.useState('');
-      const [nameTouched, setNameTouched] = React.useState(false);
+      const [gitSetup, setGitSetup] = React.useState(null);
+      const nameTouchedRef = React.useRef(false);
       const [pools, setPools] = React.useState(() => {
         const initial = formDefaults.resourcePools && typeof formDefaults.resourcePools === 'object'
           ? formDefaults.resourcePools
@@ -7100,43 +7163,63 @@ window.__ModuleLoader__.load({
         if (createAbortRef.current !== null) createAbortRef.current.abort();
       }, []);
 
-      const validateRepo = async () => {
+      const validateRepo = async ({ install = false } = {}) => {
+        if (repoAbortRef.current !== null && !repoAbortRef.current.signal.aborted) return;
         const path = String(values.repoPath === undefined || values.repoPath === null ? '' : values.repoPath).trim();
         if (!path) {
           setRepoPhase('error');
-          setRepoError(t('wizard.repoPath.required'));
+          setRepoError({ key: 'wizard.repoPath.required' });
           return;
         }
-        if (repoAbortRef.current !== null) repoAbortRef.current.abort();
         const controller = new AbortController();
         repoAbortRef.current = controller;
-        setRepoPhase('validating');
+        const current = () => repoAbortRef.current === controller && !controller.signal.aborted;
+        setRepoPhase(install ? 'installing' : 'validating');
         setRepoError('');
         setRepoInfo(null);
+        if (!install) setGitSetup(null);
         try {
-          const payload = await api.inspectRepo(path, controller.signal, t);
+          if (install) {
+            const status = await api.installGit(controller.signal, t);
+            if (!current()) return;
+            if (!status || status.available !== true) throw new LabRequestError('git_install_failed');
+            setGitSetup(null);
+            setRepoPhase('validating');
+          }
+          const payload = await api.prepareRepo(path, controller.signal, t);
+          if (!current()) return;
           const info = normalizeRepoInfo(payload);
-          if (!info.repoRoot && info.branches.length === 0) {
-            throw new LabRequestError('invalid_repo', t('wizard.repo.error.invalid_repo'));
+          if (!info.repoRoot || !info.defaultBranch || !info.baseCommit) {
+            throw new LabRequestError('invalid_repo');
           }
           setRepoInfo(info);
           setRepoPhase('valid');
           setValues((previous) => {
             const next = { ...previous };
-            next.repoPath = info.repoRoot || path;
+            next.repoPath = info.repoRoot;
             next.baseBranch = previous.baseBranch && info.branches.indexOf(previous.baseBranch) >= 0
               ? previous.baseBranch
               : info.defaultBranch;
-            if (!(nameTouched && String(previous.name || '').trim())) {
-              const suggested = basenameOfPath(info.repoRoot || path);
+            if (!(nameTouchedRef.current && String(previous.name || '').trim())) {
+              const suggested = basenameOfPath(info.repoRoot);
               if (suggested) next.name = suggested;
             }
             return next;
           });
         } catch (error) {
-          if (isAbortError(error)) return;
+          if (!current() || isAbortError(error)) return;
           setRepoPhase('error');
-          setRepoError(localizedRepoError(error, t));
+          setRepoError(error);
+          if (error && error.code === 'git_missing' && !install) {
+            try {
+              const status = await api.gitStatus(controller.signal, t);
+              if (current()) setGitSetup(asObject(status));
+            } catch (statusError) {
+              if (current() && !isAbortError(statusError)) setRepoError(statusError);
+            }
+          }
+        } finally {
+          if (repoAbortRef.current === controller) repoAbortRef.current = null;
         }
       };
 
@@ -7156,35 +7239,35 @@ window.__ModuleLoader__.load({
         for (const pool of pools) {
           const key = String(pool.key === undefined || pool.key === null ? '' : pool.key).trim();
           const amount = parseInteger(pool.value, 0);
-          if (!key || amount <= 0) return { error: t('wizard.pools.required') };
-          if (Object.prototype.hasOwnProperty.call(resourcePools, key)) return { error: t('wizard.pools.duplicate') };
+          if (!key || amount <= 0) return { error: 'wizard.pools.required' };
+          if (Object.prototype.hasOwnProperty.call(resourcePools, key)) return { error: 'wizard.pools.duplicate' };
           resourcePools[key] = amount;
         }
-        if (Object.keys(resourcePools).length === 0) return { error: t('wizard.pools.required') };
+        if (Object.keys(resourcePools).length === 0) return { error: 'wizard.pools.required' };
         return { value: resourcePools };
       };
 
       const create = async () => {
         if (createPhase === 'creating') return;
         if (repoInfo === null || repoPhase !== 'valid') {
-          setCreateError(t('wizard.required.repo'));
+          setCreateError({ key: 'wizard.required.repo' });
           return;
         }
         if (!String(values.name === undefined || values.name === null ? '' : values.name).trim()) {
-          setCreateError(t('wizard.required.name'));
+          setCreateError({ key: 'wizard.required.name' });
           return;
         }
         if (!String(values.brief === undefined || values.brief === null ? '' : values.brief).trim()) {
-          setCreateError(t('wizard.required.brief'));
+          setCreateError({ key: 'wizard.required.brief' });
           return;
         }
-        if (!String(values.initialPrompt === undefined || values.initialPrompt === null ? '' : values.initialPrompt).trim()) {
-          setCreateError(t('wizard.required.prompt'));
+        if (String(values.initialPrompt === undefined || values.initialPrompt === null ? '' : values.initialPrompt).trim().length < 10) {
+          setCreateError({ key: 'wizard.required.prompt' });
           return;
         }
         const collected = collectPools();
         if (collected.error) {
-          setCreateError(collected.error);
+          setCreateError({ key: collected.error });
           return;
         }
         setCreatePhase('creating');
@@ -7198,23 +7281,26 @@ window.__ModuleLoader__.load({
             resourcePools: collected.value,
           });
           const response = await api.createProject(payload, controller.signal, t);
+          if (controller.signal.aborted) return;
           const record = asObject(response);
           const project = record.project !== null && typeof record.project === 'object' ? record.project : null;
           const createdId = project !== null ? projectIdOf(project) : firstString(record.projectId, record.id);
           if (!createdId) {
-            setCreateError(t('wizard.error.noProject'));
+            setCreateError({ key: 'wizard.error.noProject' });
             setCreatePhase('idle');
             return;
           }
           onCreated(createdId);
         } catch (error) {
-          if (isAbortError(error)) return;
-          setCreateError(describeError(error, t));
+          if (controller.signal.aborted || isAbortError(error)) return;
+          setCreateError(error && error.code === 'bad_request' ? { key: 'wizard.error.validation' } : error);
           setCreatePhase('idle');
         }
       };
 
+      const wizardError = (error) => error && error.key ? t(error.key) : localizedRepoError(error, t);
       const validating = repoPhase === 'validating';
+      const installing = repoPhase === 'installing';
       const creating = createPhase === 'creating';
       let branchOptions = [];
       if (repoInfo !== null) {
@@ -7235,7 +7321,7 @@ window.__ModuleLoader__.load({
         const hint = field.help || '';
         const onChange = (event) => {
           setValue(field.id, event.target.value);
-          if (field.id === 'name') setNameTouched(true);
+          if (field.id === 'name') nameTouchedRef.current = true;
         };
         if (field.type === 'textarea') {
           return h(LabField, { key: field.id, label: field.label, hint },
@@ -7291,18 +7377,24 @@ window.__ModuleLoader__.load({
                 value: values.repoPath === undefined || values.repoPath === null ? '' : values.repoPath,
                 placeholder: t('wizard.repoPath.placeholder'),
                 ariaLabel: t('wizard.repoPath'),
+                disabled: creating || installing,
                 onChange: (event) => {
+                  if (repoAbortRef.current !== null) repoAbortRef.current.abort();
+                  repoAbortRef.current = null;
                   setValue('repoPath', event.target.value);
-                  if (repoPhase !== 'idle') setRepoPhase('idle');
-                  if (repoInfo !== null) setRepoInfo(null);
-                  if (repoError) setRepoError('');
+                  setValue('baseBranch', '');
+                  setRepoPhase('idle');
+                  setRepoInfo(null);
+                  setRepoError('');
+                  setGitSetup(null);
+                  setCreateError('');
                 },
               }),
               h(LabButton, {
                 label: validating ? t('wizard.validating') : t('wizard.validate'),
                 variant: 'ghost',
-                disabled: validating,
-                onClick: validateRepo,
+                disabled: validating || installing || creating,
+                onClick: () => validateRepo(),
               }),
             ),
           ),
@@ -7310,7 +7402,23 @@ window.__ModuleLoader__.load({
             ? h(
                 'p',
                 { className: 'rl-error-text', role: 'alert' },
-                t('wizard.repo.error') + ': ' + repoError,
+                t('wizard.repo.error') + ': ' + wizardError(repoError),
+              )
+            : null,
+          installing ? h(LabLoading, { label: t('wizard.git.installing') }) : null,
+          gitSetup !== null
+            ? h(
+                'div',
+                { className: 'rl-repo-info', role: 'status' },
+                h('strong', null, t('wizard.git.title')),
+                h('p', { className: 'rl-hint' }, t(gitSetup.installable === true ? 'wizard.git.consent' : 'wizard.git.manual')),
+                h('code', { className: 'rl-text-prewrap' }, firstString(gitSetup.command, gitSetup.manualCommand)),
+                gitSetup.installable === true
+                  ? h('div', { className: 'rl-form-actions' },
+                      h(LabButton, { label: t('wizard.git.install'), variant: 'primary', disabled: installing, onClick: () => validateRepo({ install: true }) }),
+                      h(LabButton, { label: t('wizard.git.cancel'), variant: 'ghost', disabled: installing, onClick: () => setGitSetup(null) }),
+                    )
+                  : null,
               )
             : null,
           repoInfo !== null
@@ -7324,6 +7432,7 @@ window.__ModuleLoader__.load({
                   h('span', { className: 'rl-chip' }, t('wizard.repo.branches', { count: repoInfo.branches.length })),
                   h('span', { className: 'rl-chip' }, repoInfo.dirty ? t('wizard.repo.dirty') : t('wizard.repo.clean')),
                 ),
+                repoInfo.dirty ? h('p', { className: 'rl-hint' }, t('wizard.repo.dirtyHint')) : null,
                 h(LabInfoRow, { label: t('wizard.repo.root'), value: repoInfo.repoRoot }),
                 repoInfo.gitDir ? h(LabInfoRow, { label: t('wizard.repo.gitDir'), value: repoInfo.gitDir, mono: true }) : null,
                 h(LabInfoRow, { label: t('wizard.repo.commit'), value: repoInfo.baseCommit, mono: true }),
@@ -7395,7 +7504,7 @@ window.__ModuleLoader__.load({
         ),
 
         createError
-          ? h('p', { className: 'rl-error-text', role: 'alert' }, t('wizard.error') + ': ' + createError)
+          ? h('p', { className: 'rl-error-text', role: 'alert' }, t('wizard.error') + ': ' + wizardError(createError))
           : null,
         h(
           'div',
@@ -7403,7 +7512,7 @@ window.__ModuleLoader__.load({
           h(LabButton, {
             label: creating ? t('wizard.creating') : t('wizard.create'),
             variant: 'primary',
-            disabled: creating,
+            disabled: creating || validating || installing,
             onClick: create,
           }),
         ),
