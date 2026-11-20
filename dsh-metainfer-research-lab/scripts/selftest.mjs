@@ -182,7 +182,7 @@ await test('listProjects summary', async () => {
   assert.equal(list.length, 1);
   assert.equal(list[0].nodeCount, 1);
   assert.equal(list[0].id, project.id);
-  assert.equal(list[0].repoPath, DEMO_REPO);
+  assert.equal(path.resolve(list[0].repoPath), path.resolve(DEMO_REPO));
 });
 
 await test('reject invalid config', async () => {
@@ -253,8 +253,8 @@ async function callHttp(pathname, { method = 'GET', query = '', rawBody = undefi
   return response.json();
 }
 
-await test('routes: all thirteen endpoints registered', async () => {
-  assert.equal(routes.length, 13);
+await test('routes: all fourteen endpoints registered', async () => {
+  assert.equal(routes.length, 14);
   const expected = [
     [`${PREFIX}/health`, 'GET'],
     [`${PREFIX}/projects`, 'GET'],
@@ -379,6 +379,32 @@ await test('HTTP malformed body returns the error envelope', async () => {
   const payload = await callHttp(`${PREFIX}/commands`, { method: 'POST', rawBody: 'not-json' });
   assert.equal(payload.ok, false);
   assert.equal(payload.error.code, 'bad_request');
+});
+
+await test('role timeout defaults to 1800 seconds and is project-configurable', async () => {
+  const created = await lab.createProject({
+    name: 'Role timeout',
+    brief: 'Configure the advisor/scheduler run deadline from project settings.',
+    repoPath: DEMO_REPO,
+    initialPrompt: 'Run the seed sweep and report the mean validation loss.',
+    config: { resourcePools: { gpu: 1 }, maxRunningNodes: 1, maxNodes: 4, nodeTimeoutMinutes: 10 },
+  });
+  const pid = created.project.id;
+  let project = (await lab.getState(pid)).project;
+  assert.equal(project.config.advisor.timeoutSeconds, 1800);
+
+  await lab.updateProject(pid, { config: { advisor: { timeoutSeconds: 18000 } } });
+  project = (await lab.getState(pid)).project;
+  assert.equal(project.config.advisor.timeoutSeconds, 18000);
+
+  await assert.rejects(
+    () => lab.updateProject(pid, { config: { advisor: { timeoutSeconds: 29 } } }),
+    (error) => error.code === 'bad_request',
+  );
+  await assert.rejects(
+    () => lab.updateProject(pid, { config: { advisor: { timeoutSeconds: 18001 } } }),
+    (error) => error.code === 'bad_request',
+  );
 });
 
 disposeRoutes();

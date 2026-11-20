@@ -14,8 +14,6 @@ import { newSessionId } from './store.js';
 import { advisorCandidates, buildAdvisorSnapshot, buildSchedulerSnapshot, promptHash } from './snapshot.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
 
-const ROLE_RUN_TIMEOUT_MS = 180_000;
-
 /**
  * Read the platform-published expert-skill overlay.  The MetaInfer trajectory
  * registry writes this file; the Lab only consumes it for advisor/scheduler
@@ -348,10 +346,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     }
   }
 
-  /** Per-project advisor wall-clock budget (seconds -> ms), with the legacy default. */
+  /** Per-project advisor/scheduler wall-clock budget (seconds -> ms); default 30 minutes. */
   function advisorTimeoutMs(project) {
-    const seconds = Number(project?.config?.advisor?.timeoutSeconds ?? 180);
-    const bounded = Number.isFinite(seconds) ? Math.max(30, Math.min(1800, Math.round(seconds))) : 180;
+    const seconds = Number(project?.config?.advisor?.timeoutSeconds ?? 1800);
+    const bounded = Number.isFinite(seconds) ? Math.max(30, Math.min(18000, Math.round(seconds))) : 1800;
     return bounded * 1000;
   }
 
@@ -365,7 +363,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     const preset = role === 'advisor' ? 'lab-advisor' : 'lab-scheduler';
     const timeoutMs = Math.max(
       30_000,
-      Math.min(1_800_000, Number(options.timeoutMs) || ROLE_RUN_TIMEOUT_MS),
+      Math.min(1_800_000, Number(options.timeoutMs) || advisorTimeoutMs(project)),
     );
     const record = {
       id,
@@ -386,6 +384,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     let activation;
     let result = null;
     let failure = null;
+    let timeoutTimer = null;
     try {
       activation = await ctx.subagents.startActivation({
         provider: 'spawn',
@@ -406,11 +405,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
       result = await Promise.race([
         activation.result,
         new Promise((_, reject) => {
-          const timer = setTimeout(
+          timeoutTimer = setTimeout(
             () => reject(new LabError('run_timeout', `${role} run exceeded ${timeoutMs / 1000}s`, 504)),
             timeoutMs,
           );
-          timer.unref?.();
+          timeoutTimer.unref?.();
         }),
       ]);
       if (result?.stopReason !== 'completed') {
@@ -419,6 +418,10 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster }) {
     } catch (error) {
       failure = error;
     } finally {
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+        timeoutTimer = null;
+      }
       roleActivations.delete(sessionId);
       if (activation) {
         try {
