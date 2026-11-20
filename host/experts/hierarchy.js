@@ -179,10 +179,37 @@ export function validateEvidencePointers(evidence, nodes, { requireQuote = false
     if (requireQuote) {
       const quote = pointer.quote;
       if (typeof quote !== 'string' || quote.length === 0) errors.push(`evidence[${index}].quote is required`);
-      else if (!JSON.stringify(value).includes(quote)) errors.push(`evidence[${index}].quote is not present in ${field}`);
+      else if (!quoteMatchesValue(value, quote)) errors.push(`evidence[${index}].quote is not present in ${field}`);
     }
   });
   return errors;
+}
+
+/**
+ * Does `quote` actually occur in `value`?
+ *
+ * The reviewer copies text out of the rendered prompt, so the comparison must not
+ * require the quote to match its JSON-escaped form. The old check was
+ * `JSON.stringify(value).includes(quote)`, which made every quote containing a
+ * double quote, a newline or a backslash unmatchable — long markdown prompts and
+ * report summaries are full of them, so the chief's escalations were rejected as
+ * "quote is not present in prompt" while quoting perfectly faithfully (three
+ * consecutive cycles lost to this).
+ *
+ * Accept the quote when it appears in the raw string value, in the JSON form, in
+ * the JSON form after unescaping the quote, or in either after whitespace
+ * squashing (a quote may span a line break the model normalised).
+ */
+function quoteMatchesValue(value, quote) {
+  const json = JSON.stringify(value);
+  if (json.includes(quote)) return true;
+  if (typeof value === 'string' && value.includes(quote)) return true;
+  const unescaped = quote.replace(/\\(["\\/bfnrt])/g, (match, code) => ({
+    '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t',
+  }[code] ?? match));
+  if (unescaped !== quote && (json.includes(unescaped) || (typeof value === 'string' && value.includes(unescaped)))) return true;
+  const squash = (text) => text.replace(/\s+/g, ' ').trim();
+  return squash(json).includes(squash(quote)) || (typeof value === 'string' && squash(value).includes(squash(quote)));
 }
 
 /** Compact one branch into a bounded BranchReport (<=15 nodes / <=20 KB). */
