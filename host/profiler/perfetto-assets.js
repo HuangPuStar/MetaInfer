@@ -64,11 +64,25 @@ export function resolvePerfettoPath(root, requestPath) {
  * app boots and only observes the DOM afterwards.
  */
 export function injectPerfettoHook(html) {
-  const script = `<script src="${HOOK_SRC}" defer></script>`;
   if (typeof html !== 'string' || html === '') return html;
   if (html.includes(HOOK_SRC)) return html;
-  if (html.includes('</body>')) return html.replace('</body>', `  ${script}\n</body>`);
-  return html + script;
+  // The release build appends a Google-internal userscript
+  // (storage.cloud.google.com/.../amalgamated.js). On an offline/intranet Host
+  // that request hangs, the document never reaches readyState=complete, and
+  // Perfetto then ignores every postMessage (including PING). Neutralise that
+  // one script from <head> before the bundle installs its loader.
+  const guard = '<script>/* metainfer perfetto guard */'
+    + '(()=>{const fix=n=>{try{if(n&&n.tagName===\'SCRIPT\'&&/storage\\.cloud\\.google\\.com|amalgamated\\.js/.test(String(n.src))){n.src=\'/metainfer/perfetto/empty.js\';}}catch(e){}};'
+    + 'const ap=Element.prototype.append;Element.prototype.append=function(){for(const n of arguments)fix(n);return ap.apply(this,arguments);};'
+    + 'const ac=Node.prototype.appendChild;Node.prototype.appendChild=function(n){fix(n);return ac.call(this,n);};'
+    + 'const ib=Node.prototype.insertBefore;Node.prototype.insertBefore=function(n,r){fix(n);return ib.call(this,n,r);};'
+    + '})();</script>';
+  const hook = `<script src="${HOOK_SRC}" defer></script>`;
+  let out = html;
+  if (out.includes('<head>')) out = out.replace('<head>', `<head>${guard}`);
+  if (out.includes('</body>')) out = out.replace('</body>', `  ${hook}\n</body>`);
+  else out += hook;
+  return out;
 }
 
 /**
@@ -114,6 +128,13 @@ export function registerPerfettoWeb(webServer, options = {}) {
         const body = await readFile(HOOK_FILE, 'utf8');
         res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
         res.end(body);
+        return;
+      }
+      if (relativeUrl === '/empty.js' || relativeUrl === 'empty.js') {
+        // Stand-in for the Google-internal userscript: same-origin so the DSH
+        // CSP allows it and its load event fires immediately.
+        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
+        res.end('/* metainfer noop */\n');
         return;
       }
       const cleaned = relativeUrl === '/' || relativeUrl === '' ? '/index.html' : relativeUrl;

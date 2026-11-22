@@ -1412,6 +1412,7 @@
     "ws.trace.detail": "Kernel detail",
     "ws.trace.detailHint": "Click or double-click a kernel span on the timeline to open the nine Agent actions.",
     "ws.trace.deviceStream": "GPU {device} · stream {stream}",
+    "ws.trace.device": "Device / stream",
     "ws.trace.launch": "Launch op",
     "ws.trace.layout": "Grid / Block",
     "ws.trace.inputs": "Input shapes",

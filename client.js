@@ -1762,6 +1762,7 @@ window.__ModuleLoader__.load({
       "ws.trace.copyFailed": "复制失败",
       "ws.trace.detail": "Kernel 详情",
       "ws.trace.detailHint": "单击或双击时间线中的 kernel span 查看 9 个 Agent 操作。",
+      "ws.trace.device": "设备 / 流",
       "ws.trace.deviceStream": "GPU {device} · stream {stream}",
       "ws.trace.dispatching": "已交给项目 Copilot，等待回答…",
       "ws.trace.dtypes": "dtype",
@@ -3415,6 +3416,7 @@ window.__ModuleLoader__.load({
       "ws.trace.copyFailed": "Copy failed",
       "ws.trace.detail": "Kernel detail",
       "ws.trace.detailHint": "Click or double-click a kernel span on the timeline to open the nine Agent actions.",
+      "ws.trace.device": "Device / stream",
       "ws.trace.deviceStream": "GPU {device} · stream {stream}",
       "ws.trace.dispatching": "Sent to the project Copilot; waiting for the answer…",
       "ws.trace.dtypes": "dtypes",
@@ -17800,7 +17802,9 @@ window.__ModuleLoader__.load({
           setTraceId(id);
           setSelected(null);
           setShowDetail(false);
-          setPerfetto((previous) => ({ ...previous, state: previous.state === 'unavailable' ? 'unavailable' : 'ready', loaded: false }));
+          // Do NOT force 'ready' here: Perfetto accepts messages only after its
+          // document is complete (PONG), otherwise the trace is silently dropped.
+          setPerfetto((previous) => ({ ...previous, loaded: false }));
           setPhase('ready');
         } catch (reason) {
           if (!aliveRef.current) return;
@@ -18059,11 +18063,19 @@ window.__ModuleLoader__.load({
         traceId !== '' ? h(LabButton, { label: tr('ws.trace.close'), variant: 'ghost', onClick: () => { void closeTrace(); } }) : null,
       );
 
-      const recentTraces = traces.length === 0
+      const uniqueTraces = [];
+      const seenTraceKeys = new Set();
+      for (const row of traces) {
+        const key = firstString(asObject(row).sourcePath) || firstString(asObject(row).name) || firstString(asObject(row).traceId);
+        if (seenTraceKeys.has(key)) continue;
+        seenTraceKeys.add(key);
+        uniqueTraces.push(row);
+      }
+      const recentTraces = uniqueTraces.length === 0
         ? null
         : h('div', { className: 'rl-trace-recent' },
             h('span', { className: 'rl-hint' }, tr('ws.trace.recent')),
-            traces.map((row) => h('button', {
+            uniqueTraces.map((row) => h('button', {
               key: 'recent-' + firstString(asObject(row).traceId),
               type: 'button',
               className: 'rl-chip rl-trace-recent-item' + (firstString(asObject(row).traceId) === traceId ? ' rl-trace-recent-active' : ''),
@@ -18166,7 +18178,7 @@ window.__ModuleLoader__.load({
           : h('div', null,
               h('div', { className: 'rl-section' },
                 h('span', { className: 'rl-section-title', title: firstString(kernelRow.name) }, firstString(kernelRow.shortName)),
-                h(LabInfoRow, { label: tr('ws.trace.deviceStream'), value: tr('ws.trace.deviceStream', { device: numberOr(kernelRow.device, 0), stream: numberOr(kernelRow.stream, 0) }) }),
+                h(LabInfoRow, { label: tr('ws.trace.device'), value: tr('ws.trace.deviceStream', { device: numberOr(kernelRow.device, 0), stream: numberOr(kernelRow.stream, 0) }) }),
                 h(LabInfoRow, { label: tr('ws.trace.sort.max'), value: formatTraceMicros(kernelRow.dur) }),
                 h(LabInfoRow, { label: tr('ws.trace.aggregate'), value: tr('ws.trace.sort.count') + ' ' + String(numberOr(aggregate.count, 0)) + ' · ' + tr('ws.trace.sort.sum') + ' ' + formatTraceMicros(aggregate.sumUs) + ' · p99 ' + formatTraceMicros(aggregate.p99Us) }),
                 h(LabInfoRow, { label: tr('ws.trace.layout'), value: (Array.isArray(kernelRow.grid) ? 'grid [' + kernelRow.grid.join('x') + '] ' : '') + (Array.isArray(kernelRow.block) ? 'block [' + kernelRow.block.join('x') + ']' : '') || '—' }),

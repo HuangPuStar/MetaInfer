@@ -1412,6 +1412,7 @@
     "ws.trace.detail": "Kernel 详情",
     "ws.trace.detailHint": "单击或双击时间线中的 kernel span 查看 9 个 Agent 操作。",
     "ws.trace.deviceStream": "GPU {device} · stream {stream}",
+    "ws.trace.device": "设备 / 流",
     "ws.trace.launch": "启动算子",
     "ws.trace.layout": "Grid / Block",
     "ws.trace.inputs": "输入形状",
