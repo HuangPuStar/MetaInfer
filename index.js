@@ -18,6 +18,7 @@ import { createOrchestrator } from './host/orchestrator.js';
 import { registerAgentTool } from './host/agent-tool.js';
 import { registerHttpRoutes } from './host/http.js';
 import { createProfilerStore } from './host/profiler/store.js';
+import { registerPerfettoWeb } from './host/profiler/perfetto-assets.js';
 import { registerTrajectoryWeb } from './host/trajectory-web.js';
 import { registerMcp } from './host/mcp.js';
 import { ensureTrajectoryBackend } from './host/trajectory-backend.js';
@@ -264,6 +265,18 @@ export async function apply(ctx, config = {}) {
     ctx.effect(
       () => registerTrajectoryWeb(ctx, webServer),
       'metainfer-research-lab: trajectory web bridge',
+    );
+    // Issue #94 follow-up: serve the pinned Perfetto UI build from this origin
+    // (offline, same-origin => no trust prompt). Missing assets answer 404 and
+    // the Client falls back to ui.perfetto.dev.
+    const perfettoUiRoot = path.join(
+      process.env.DSH_HOME ?? path.join(os.homedir(), '.dsh'),
+      'metainfer-research-lab',
+      'perfetto-ui',
+    );
+    ctx.effect(
+      () => registerPerfettoWeb(webServer, { uiRoot: perfettoUiRoot, logger: ctx.logger }),
+      'metainfer-research-lab: perfetto ui',
     );
     ctx.effect(
       () => registerMcp(ctx, webServer, service),

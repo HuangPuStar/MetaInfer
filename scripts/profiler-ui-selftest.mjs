@@ -149,7 +149,7 @@ await React.act(async () => {
 
 check('the trace tab root renders', host.querySelector('[data-testid="trace-view"]') !== null);
 const frame = host.querySelector('iframe.rl-trace-frame');
-check('the embedded Perfetto UI iframe is present', frame !== null && String(frame.getAttribute('src')).includes('ui.perfetto.dev'));
+check('the embedded Perfetto UI iframe is present', frame !== null && String(frame.getAttribute('src')).includes('/metainfer/perfetto/'));
 check('embedded mode is requested', String(frame?.getAttribute('src')).includes('mode=embedded'));
 check('the opened-trace inventory is fetched on mount',
   calls.some((call) => call.method === 'GET' && call.path.includes('/trace') && !call.path.includes('traceId')));
@@ -184,6 +184,7 @@ check('the trace buffer is posted to the embedded UI',
   tracePost !== undefined && tracePost.data.perfetto.title === 'torch-demo.json',
   JSON.stringify(posted.filter((entry) => entry.data && entry.data.perfetto).map((entry) => Object.keys(entry.data.perfetto))));
 check('the buffer is transferred, not copied', Array.isArray(tracePost?.transfer) && tracePost.transfer.length === 1);
+
 
 // Kernel rail: rows, selection, detail and the Perfetto viewport jump.
 const rows = host.querySelectorAll('.rl-trace-krow');
@@ -248,6 +249,20 @@ await React.act(async () => {
   await wait(80);
 });
 check('the rail returns to the kernel list', host.querySelectorAll('.rl-trace-krow').length === 2);
+
+
+// Self-hosted hook: a selection message inside Perfetto must drive the rail.
+const selectionEvent = new window.MessageEvent('message', {
+  data: { metainfer: { selection: { text: 'Name ampere_sgemm_128x64_nn Start 1.0 ms Duration 400 us', at: 1 } } },
+});
+Object.defineProperty(selectionEvent, 'source', { value: frame?.contentWindow });
+await React.act(async () => {
+  window.dispatchEvent(selectionEvent);
+  await wait(200);
+});
+check('a slice selected inside Perfetto opens that kernel in the rail',
+  calls.some((call) => call.path.includes('view=kernel') && call.path.includes('kernel=0'))
+  && (host.querySelector('[data-testid="trace-detail"]')?.textContent ?? '').includes('ampere_sgemm_128x64_nn'));
 
 if (failures.length > 0) {
   console.error(`\nprofiler-ui-selftest: ${failures.length} check(s) failed`);

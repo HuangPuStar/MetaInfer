@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { buildTraceIndex, kernelDetail, parseTraceDocument, queryKernels, queryTimeline, shortKernelName, traceSummary } from '../host/profiler/trace.js';
 import { buildActionPrompt, buildNodeTask, PROFILE_ACTIONS, PROMPT_LIMIT } from '../host/profiler/prompts.js';
+import { injectPerfettoHook, perfettoMimeOf, resolvePerfettoPath } from '../host/profiler/perfetto-assets.js';
 
 const results = [];
 function test(name, fn) {
@@ -188,6 +189,24 @@ test('empty traces are rejected with a named code', () => {
   } catch (error) {
     assert.equal(error.code, 'trace_empty');
   }
+});
+
+test('the Perfetto hook is injected once into index.html', () => {
+  const html = '<html><body><div id="app"></div></body></html>';
+  const injected = injectPerfettoHook(html);
+  assert.equal(injected.includes('/metainfer/perfetto/hook.js'), true);
+  assert.equal(injected.indexOf('</body>') > injected.indexOf('hook.js'), true);
+  assert.equal(injectPerfettoHook(injected), injected, 'injection is idempotent');
+  assert.equal(injectPerfettoHook(''), '');
+});
+
+test('the static Perfetto handler refuses traversal and maps MIME types', () => {
+  assert.equal(resolvePerfettoPath('/srv/perfetto', '/v59.1/index.html'), '/srv/perfetto/v59.1/index.html');
+  assert.equal(resolvePerfettoPath('/srv/perfetto', '/../../etc/passwd'), null);
+  assert.equal(resolvePerfettoPath('/srv/perfetto', 'v59.1/../../../etc/passwd'), null);
+  assert.equal(perfettoMimeOf('a.wasm'), 'application/wasm');
+  assert.equal(perfettoMimeOf('a.woff2'), 'font/woff2');
+  assert.equal(perfettoMimeOf('a.unknown'), 'application/octet-stream');
 });
 
 const failures = results.filter((row) => !row.ok);

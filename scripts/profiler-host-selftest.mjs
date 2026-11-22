@@ -17,6 +17,7 @@ import { createLabService } from '../host/lab-service.js';
 import { registerHttpRoutes } from '../host/http.js';
 import { createOperatorAuthority } from '../host/operator-token.js';
 import { createProfilerStore } from '../host/profiler/store.js';
+import { injectPerfettoHook, registerPerfettoWeb } from '../host/profiler/perfetto-assets.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
@@ -36,6 +37,10 @@ const TRACE = {
 };
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'mirl-profiler-'));
+const perfettoRoot = await mkdtemp(path.join(os.tmpdir(), 'mirl-perfetto-'));
+await (await import('node:fs/promises')).mkdir(path.join(perfettoRoot, 'v59.1'), { recursive: true });
+await (await import('node:fs/promises')).writeFile(path.join(perfettoRoot, 'v59.1', 'index.html'), '<html><body>perfetto</body></html>');
+await (await import('node:fs/promises')).writeFile(path.join(perfettoRoot, 'v59.1', 'app.js'), 'console.log(1);');
 const domain = memoryDomain();
 const store = await openStore(storeContext(domain));
 const kernel = createKernel({ store });
@@ -166,7 +171,47 @@ check('trace.close reports the eviction', closed?.closed === true);
 const afterClose = await call('GET', tracePath, { search: `?traceId=${traceId}&view=summary` });
 check('a closed trace is no longer queryable', afterClose.ok === false && afterClose.error?.code === 'trace_not_found');
 
+// 6. Self-hosted Perfetto static route: injection, MIME, traversal refusal.
+const perfettoRoutes = [];
+registerPerfettoWeb({ register(route) { perfettoRoutes.push(route); return () => {}; } }, { uiRoot: perfettoRoot });
+check('the perfetto route is a prefix route below /metainfer/perfetto',
+  perfettoRoutes.length === 1 && perfettoRoutes[0].kind === 'prefix' && perfettoRoutes[0].path === '/metainfer/perfetto');
+function fakeRes() {
+  const chunks = [];
+  return {
+    statusCode: 0,
+    headers: {},
+    writeHead(code, headers) { this.statusCode = code; this.headers = headers ?? {}; },
+    end(body) { if (body !== undefined) chunks.push(String(body)); this.body = chunks.join(''); },
+    write(chunk) { chunks.push(String(chunk)); },
+    on() {},
+    once() {},
+    emit() {},
+    body: '',
+  };
+}
+async function perfettoCall(url) {
+  const res = fakeRes();
+  const req = { url, method: 'GET' };
+  perfettoRoutes[0].handler(req, res);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  return res;
+}
+const indexRes = await perfettoCall('/metainfer/perfetto/');
+check('the perfetto index is served with the hook injected',
+  indexRes.statusCode === 200 && indexRes.body.includes('/metainfer/perfetto/hook.js') && indexRes.body.includes('perfetto'));
+check('the perfetto index is HTML', String(indexRes.headers['content-type']).includes('text/html'));
+const hookRes = await perfettoCall('/metainfer/perfetto/hook.js');
+check('the hook script is served', hookRes.statusCode === 200 && hookRes.body.includes('__METAINFER_PERFETTO_HOOK__'));
+const assetRes = await perfettoCall('/metainfer/perfetto/app.js');
+check('an asset keeps its JavaScript MIME', assetRes.statusCode === 200 && String(assetRes.headers['content-type']).includes('javascript'), JSON.stringify({ status: assetRes.statusCode, headers: assetRes.headers }));
+const missingRes = await perfettoCall('/metainfer/perfetto/nope.js');
+check('a missing asset answers 404', missingRes.statusCode === 404);
+const traversalRes = await perfettoCall('/metainfer/perfetto/../../etc/passwd');
+check('a traversal attempt is refused', traversalRes.statusCode === 400 || traversalRes.statusCode === 404);
+
 await rm(root, { recursive: true, force: true });
+await rm(perfettoRoot, { recursive: true, force: true });
 if (failed > 0) {
   console.error(`profiler-host-selftest: ${failed} check(s) failed`);
   process.exit(1);

@@ -1382,6 +1382,7 @@
     "ws.trace.pathPlaceholder": "/path/to/torch_trace.json or .json.gz",
     "ws.trace.recent": "Recent traces",
     "ws.trace.perfetto.starting": "Connecting to Perfetto UI…",
+    "ws.trace.perfetto.external": "Using the public ui.perfetto.dev (self-hosted assets are not installed)",
     "ws.trace.perfetto.ready": "Perfetto is ready; loading the trace…",
     "ws.trace.perfetto.loaded": "Perfetto loaded; pick a kernel for analysis",
     "ws.trace.perfetto.unavailable": "Perfetto UI is unavailable (offline or blocked)",

@@ -1382,6 +1382,7 @@
     "ws.trace.pathPlaceholder": "/path/to/torch_trace.json 或 .json.gz",
     "ws.trace.recent": "最近的 trace",
     "ws.trace.perfetto.starting": "正在连接 Perfetto UI…",
+    "ws.trace.perfetto.external": "使用公共 ui.perfetto.dev（本地 Perfetto 资源未安装）",
     "ws.trace.perfetto.ready": "Perfetto 就绪，正在载入 trace…",
     "ws.trace.perfetto.loaded": "已载入 Perfetto；选中 kernel 可在右侧分析",
     "ws.trace.perfetto.unavailable": "Perfetto UI 不可用（可能无外网或被拦截）",

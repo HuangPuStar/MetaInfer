@@ -1787,6 +1787,7 @@ window.__ModuleLoader__.load({
       "ws.trace.open": "打开",
       "ws.trace.pathPlaceholder": "/path/to/torch_trace.json 或 .json.gz",
       "ws.trace.perfetto.download": "下载 trace",
+      "ws.trace.perfetto.external": "使用公共 ui.perfetto.dev（本地 Perfetto 资源未安装）",
       "ws.trace.perfetto.loaded": "已载入 Perfetto；选中 kernel 可在右侧分析",
       "ws.trace.perfetto.offlineHint": "嵌入式 Perfetto 未能连接。可在新标签打开 Perfetto，或下载 trace 后用本地 Perfetto/Chrome Tracing 打开；首次从本站打开时会弹出一次来源信任提示，选择 Always trust 即可。",
       "ws.trace.perfetto.openTab": "在新标签打开 Perfetto",
@@ -3439,6 +3440,7 @@ window.__ModuleLoader__.load({
       "ws.trace.open": "Open",
       "ws.trace.pathPlaceholder": "/path/to/torch_trace.json or .json.gz",
       "ws.trace.perfetto.download": "Download trace",
+      "ws.trace.perfetto.external": "Using the public ui.perfetto.dev (self-hosted assets are not installed)",
       "ws.trace.perfetto.loaded": "Perfetto loaded; pick a kernel for analysis",
       "ws.trace.perfetto.offlineHint": "The embedded Perfetto UI could not connect. Open Perfetto in a new tab, or download the trace and open it locally; the first post from this origin shows a one-time trust prompt — choose Always trust.",
       "ws.trace.perfetto.openTab": "Open Perfetto in a new tab",
@@ -17594,8 +17596,10 @@ window.__ModuleLoader__.load({
     // #region profiler trace viewer (issue #94)
     /** Google Perfetto UI owns trace rendering (issue #94 follow-up: standard UI). */
     const TRACE_PERFETTO_ORIGIN = 'https://ui.perfetto.dev';
+    /** Same-origin self-hosted build (served by the Host when installed). */
+    const TRACE_PERFETTO_LOCAL_SRC = '/metainfer/perfetto/#!/?mode=embedded';
     /** Embedded mode disables the sidebar and the file-drop handler. */
-    const TRACE_PERFETTO_SRC = TRACE_PERFETTO_ORIGIN + '/#!/?mode=embedded';
+    const TRACE_PERFETTO_EXTERNAL_SRC = TRACE_PERFETTO_ORIGIN + '/#!/?mode=embedded';
     /** Handshake ping cadence; the UI answers PONG once its listener is ready. */
     const TRACE_PING_MS = 150;
     /** Give the embedded UI this long to answer PONG before offering fallbacks. */
@@ -17666,8 +17670,10 @@ window.__ModuleLoader__.load({
       const [nodeDialog, setNodeDialog] = React.useState(null);
       const [timebox, setTimebox] = React.useState(TRACE_DEFAULT_TIMEBOX);
       const [question, setQuestion] = React.useState('');
-      const [perfetto, setPerfetto] = React.useState({ state: 'starting', loaded: false });
+      const [perfetto, setPerfetto] = React.useState({ state: 'starting', loaded: false, origin: 'local' });
       const aliveRef = React.useRef(true);
+      const kernelsRef = React.useRef([]);
+      const selectKernelRef = React.useRef(null);
       const frameRef = React.useRef(null);
       const pingRef = React.useRef(null);
       const timerRef = React.useRef(null);
@@ -17700,16 +17706,46 @@ window.__ModuleLoader__.load({
 
       // PING/PONG: the Perfetto message channel is not buffered, so the trace
       // can only be posted after the UI answers PONG.
+      // Latest kernel rows, for the Perfetto selection bridge (the message
+      // listener must not be re-bound on every kernel page).
+      React.useEffect(() => { kernelsRef.current = asArray(kernels.rows); }, [kernels]);
+
       React.useEffect(() => {
         if (active === false || typeof window === 'undefined') return undefined;
+        const origin = perfetto.origin;
         const onMessage = (event) => {
           const target = perfettoWindow();
           if (target === null || event.source !== target) return;
           if (event.data === 'PONG') {
             if (pingRef.current !== null) clearInterval(pingRef.current);
             pingRef.current = null;
-            setPerfetto((previous) => (previous.state === 'ready' ? previous : { state: 'ready', loaded: previous.loaded }));
+            setPerfetto((previous) => (previous.state === 'ready' ? previous : { ...previous, state: 'ready' }));
+            return;
           }
+          // Self-hosted hook: the user picked a slice inside Perfetto.
+          const selection = asObject(asObject(event.data).metainfer)?.selection;
+          const text = firstString(asObject(selection).text);
+          if (text === '') return;
+          const needle = text.toLowerCase();
+          let match = null;
+          for (const row of kernelsRef.current) {
+            const name = firstString(asObject(row).name);
+            if (name.length < 8) continue;
+            if (needle.includes(name.toLowerCase())) { match = row; break; }
+          }
+          if (match === null) {
+            for (const row of kernelsRef.current) {
+              const family = firstString(asObject(row).family);
+              if (family.length < 8) continue;
+              if (needle.includes(family.toLowerCase())) { match = row; break; }
+            }
+          }
+          if (match === null) return;
+          const index = numberOr(asObject(match).kernelIndex, -1);
+          if (index < 0) return;
+          const handler = selectKernelRef.current;
+          if (typeof handler !== 'function') return;
+          void handler(index, true);
         };
         window.addEventListener('message', onMessage);
         if (pingRef.current !== null) clearInterval(pingRef.current);
@@ -17717,7 +17753,12 @@ window.__ModuleLoader__.load({
         ping();
         pingRef.current = setInterval(ping, TRACE_PING_MS);
         const timeout = setTimeout(() => {
-          setPerfetto((previous) => (previous.state === 'ready' ? previous : { state: 'unavailable', loaded: false }));
+          if (origin === 'local') {
+            // Self-hosted assets are not installed: retry against the public UI.
+            setPerfetto((previous) => (previous.state === 'ready' ? previous : { state: 'starting', loaded: false, origin: 'external' }));
+            return;
+          }
+          setPerfetto((previous) => (previous.state === 'ready' ? previous : { ...previous, state: 'unavailable', loaded: false }));
         }, TRACE_PERFETTO_TIMEOUT_MS);
         timerRef.current = timeout;
         return () => {
@@ -17726,7 +17767,10 @@ window.__ModuleLoader__.load({
           pingRef.current = null;
           clearTimeout(timeout);
         };
-      }, [active, perfettoWindow, postPerfetto]);
+        // selectKernel/selected are read through refs; binding once per origin is
+        // what keeps the Perfetto ping loop stable.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [active, perfetto.origin, perfettoWindow, postPerfetto]);
 
       const loadTraces = React.useCallback(async (signal) => {
         try {
@@ -17756,7 +17800,7 @@ window.__ModuleLoader__.load({
           setTraceId(id);
           setSelected(null);
           setShowDetail(false);
-          setPerfetto((previous) => ({ state: previous.state === 'unavailable' ? 'unavailable' : 'ready', loaded: false }));
+          setPerfetto((previous) => ({ ...previous, state: previous.state === 'unavailable' ? 'unavailable' : 'ready', loaded: false }));
           setPhase('ready');
         } catch (reason) {
           if (!aliveRef.current) return;
@@ -17885,6 +17929,8 @@ window.__ModuleLoader__.load({
         }
       };
 
+      selectKernelRef.current = selectKernel;
+
       const pollChat = async (before) => {
         for (let attempt = 0; attempt < TRACE_CHAT_TRIES; attempt += 1) {
           if (!aliveRef.current) return;
@@ -17981,7 +18027,7 @@ window.__ModuleLoader__.load({
 
       const openPerfettoTab = () => {
         if (typeof window === 'undefined' || typeof window.open !== 'function') return;
-        window.open(TRACE_PERFETTO_SRC, '_blank', 'noopener');
+        window.open(perfetto.origin === 'local' ? TRACE_PERFETTO_LOCAL_SRC : TRACE_PERFETTO_EXTERNAL_SRC, '_blank', 'noopener');
       };
 
       const downloadTrace = () => {
@@ -18038,7 +18084,9 @@ window.__ModuleLoader__.load({
         ? (perfetto.loaded ? tr('ws.trace.perfetto.loaded') : tr('ws.trace.perfetto.ready'))
         : perfetto.state === 'unavailable'
           ? tr('ws.trace.perfetto.unavailable')
-          : tr('ws.trace.perfetto.starting');
+          : perfetto.origin === 'external'
+            ? tr('ws.trace.perfetto.external')
+            : tr('ws.trace.perfetto.starting');
 
       const stage = h('div', { className: 'rl-trace-stage' },
         h('div', { className: 'rl-trace-stagebar' },
@@ -18049,10 +18097,11 @@ window.__ModuleLoader__.load({
             traceId !== '' ? h(LabButton, { label: tr('ws.trace.perfetto.download'), variant: 'ghost', onClick: downloadTrace }) : null)),
         h('div', { className: 'rl-trace-frame-wrap' },
           h('iframe', {
+            key: 'perfetto-' + perfetto.origin,
             ref: frameRef,
             className: 'rl-trace-frame',
             title: 'Perfetto',
-            src: TRACE_PERFETTO_SRC,
+            src: perfetto.origin === 'local' ? TRACE_PERFETTO_LOCAL_SRC : TRACE_PERFETTO_EXTERNAL_SRC,
             allow: 'clipboard-write',
           }),
           perfetto.state === 'unavailable'
