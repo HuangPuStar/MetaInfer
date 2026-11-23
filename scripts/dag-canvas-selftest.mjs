@@ -313,6 +313,11 @@ check('a completed node with a successor offers no priority submenu',
   doneMenu?.textContent ?? '');
 check('a completed node still offers the merge action',
   (doneMenu?.textContent ?? '').includes('ws.menu.createMerge'), doneMenu?.textContent ?? '');
+check('a completed parent (already has a child) offers no continue',
+  (doneMenu?.textContent ?? '').includes('ws.menu.continue') === false, doneMenu?.textContent ?? '');
+const leafMenu = await rightClickAt(280, 160);
+check('a completed leaf still offers continue',
+  (leafMenu?.textContent ?? '').includes('ws.menu.continue'), leafMenu?.textContent ?? '');
 await React.act(async () => { dispatchRoot.unmount(); });
 
 // --- multi-level menu: the priority submenu ----------------------------------

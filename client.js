@@ -13275,6 +13275,7 @@ window.__ModuleLoader__.load({
         }
         const node = sceneRef.current?.byId?.get(nodeId)?.node ?? null;
         const status = node === null ? 'planned' : nodeStatusOf(node);
+        const childCount = sceneRef.current?.childCount?.get(nodeId) ?? 0;
         const items = [
           { key: 'child', label: t('ws.menu.createChild'), run: () => onSuccessor(nodeId) },
           { key: 'files', label: t('ws.menu.files'), run: () => onOpenFiles(nodeId) },
@@ -13287,8 +13288,17 @@ window.__ModuleLoader__.load({
         if (status === 'running') {
           items.push({ key: 'cancel', label: t('ws.menu.cancel'), run: () => onNodeAction('node?.cancel', nodeId) });
         }
-        if (status === 'completed' || status === 'running') {
-          items.push({ key: 'continue', label: t('ws.menu.continue'), run: () => onContinue(nodeId) });
+        // Continue is only legal for a node that can still take a message: a finished
+        // leaf that has not been sealed, or a running merge. Offering it on a parent
+        // that already has successors (or on a sealed node) promised an action the
+        // Host would reject.
+        {
+          const isLeaf = childCount === 0;
+          const sealedFlag = node === null ? false : nodeSealedFlagOf(node);
+          const mergeRunning = status === 'running' && node !== null && nodeIsMergeOf(node);
+          if (mergeRunning || (status === 'completed' && isLeaf && !sealedFlag)) {
+            items.push({ key: 'continue', label: t('ws.menu.continue'), run: () => onContinue(nodeId) });
+          }
         }
         if (status === 'completed' && node !== null && nodeIsMergeOf(node) === false && typeof onOpenMergeCreate === 'function') {
           items.push({ key: 'merge', label: t('ws.menu.createMerge'), run: () => onOpenMergeCreate(nodeId) });
@@ -13307,7 +13317,6 @@ window.__ModuleLoader__.load({
         // still be dispatched. A node that already produced a successor (or is
         // finished/failed) has nothing left to schedule — offering the submenu there
         // was misleading.
-        const childCount = sceneRef.current?.childCount?.get(nodeId) ?? 0;
         const dispatchable = (status === 'planned' || status === 'running') && childCount === 0;
         const currentPriority = node === null ? '' : nodePriorityClassOf(node);
         const priorityChildren = [
