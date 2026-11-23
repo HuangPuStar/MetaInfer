@@ -1434,7 +1434,7 @@
     "ws.trace.chat": "Agent answer",
     "ws.trace.chatEmpty": "No conversation about this trace yet.",
     "ws.trace.nodeTitle": "Create a task node",
-    "ws.trace.nodeHint": "Lists this node *.json.gz trace files; select two or more to compare",
+    "ws.trace.nodeHint": "Only nodes with a *.json.gz trace are listed; select two or more to compare",
     "ws.trace.timebox": "Timebox (minutes)",
     "ws.trace.nodeCreate": "Create node",
     "ws.trace.nodeCreated": "Created node {id}",
@@ -1672,6 +1672,7 @@
     "ws.nodeTrace.empty": "No trace files found",
     "ws.nodeTrace.open": "Open",
     "ws.nodeTrace.compare": "Compare selected",
-    "ws.canvas.label": "experiment DAG canvas"
+    "ws.canvas.label": "experiment DAG canvas",
+    "ws.trace.nodeNone": "No node produced a trace (*.json.gz) yet"
   }
 }

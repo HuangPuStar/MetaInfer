@@ -270,6 +270,18 @@ const escaped = await call('POST', commandPath, {
 });
 check('a traversal relPath is refused', escaped.ok === false && escaped.error?.code === 'bad_request', JSON.stringify(escaped).slice(0, 200));
 
+// The picker index lists only nodes that actually have a trace.
+const indexEmptyNode = await call('POST', commandPath, {
+  body: { type: 'node?.files', projectId, nodeId: 'n-empty' },
+}).catch(() => ({ ok: false }));
+void indexEmptyNode;
+const index = envelope(await call('GET', tracePath, { search: `?view=nodes&projectId=${projectId}` }));
+check('the node index lists the node that has traces',
+  Array.isArray(index?.nodes) && index.nodes.some((row) => row.nodeId === node.id), JSON.stringify(index?.nodes));
+check('the node index reports counts and a sample file',
+  index?.nodes?.[0]?.sample?.endsWith('.json.gz') === true, JSON.stringify(index?.nodes?.[0]));
+check('the node index caches its pass', index?.cached === false || index?.cached === true);
+
 const compare = envelope(await call('GET', tracePath, {
   search: `?view=compare&traceIds=${openedV1.traceId},${openedV2.traceId}`,
 }));

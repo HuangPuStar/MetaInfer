@@ -1795,7 +1795,8 @@ window.__ModuleLoader__.load({
       "ws.trace.nodeCreated": "已创建节点 {id}",
       "ws.trace.nodeEmpty": "这个节点的 worktree 里没有找到 trace 文件（torch.profiler 导出的 chrome trace）",
       "ws.trace.nodeFailed": "节点创建失败",
-      "ws.trace.nodeHint": "只列出该节点产出的 *.json.gz trace 文件；勾选 2 个以上可并排对比",
+      "ws.trace.nodeHint": "只列出有 *.json.gz trace 的节点；勾选 2 个以上可并排对比",
+      "ws.trace.nodeNone": "没有节点产出 trace（*.json.gz）",
       "ws.trace.nodeOpen": "打开所选",
       "ws.trace.nodePicker": "从 DAG 节点打开",
       "ws.trace.nodePickerEmpty": "选择一个节点…",
@@ -3467,7 +3468,8 @@ window.__ModuleLoader__.load({
       "ws.trace.nodeCreated": "Created node {id}",
       "ws.trace.nodeEmpty": "No trace files found in this node worktree (torch.profiler chrome traces)",
       "ws.trace.nodeFailed": "Node creation failed",
-      "ws.trace.nodeHint": "Lists this node *.json.gz trace files; select two or more to compare",
+      "ws.trace.nodeHint": "Only nodes with a *.json.gz trace are listed; select two or more to compare",
+      "ws.trace.nodeNone": "No node produced a trace (*.json.gz) yet",
       "ws.trace.nodeOpen": "Open selected",
       "ws.trace.nodePicker": "Open from a DAG node",
       "ws.trace.nodePickerEmpty": "Pick a node…",
@@ -4863,6 +4865,11 @@ window.__ModuleLoader__.load({
       /** Trace files a DAG node produced (read-only; the Host scans the worktree). */
       fetchTraceCandidates(projectId, nodeId, t) {
         const search = new URLSearchParams({ view: 'candidates', projectId, nodeId });
+        return requestJson(ROUTES.trace + '?' + search.toString(), {}, t);
+      },
+      /** Nodes that actually produced traces (cached Host scan). */
+      fetchTraceNodes(projectId, t) {
+        const search = new URLSearchParams({ view: 'nodes', projectId });
         return requestJson(ROUTES.trace + '?' + search.toString(), {}, t);
       },
       /** Multi-trace comparison aligned by kernel name; first id is the baseline. */
@@ -18118,6 +18125,7 @@ window.__ModuleLoader__.load({
       const [candidates, setCandidates] = React.useState({ nodeId: '', rows: [], error: '', busy: false });
       const [candidateNode, setCandidateNode] = React.useState('');
       const [pickedCandidates, setPickedCandidates] = React.useState([]);
+      const [traceNodes, setTraceNodes] = React.useState({ rows: [], busy: true, error: '' });
       const [traceId, setTraceId] = React.useState('');
       const [summary, setSummary] = React.useState(null);
       const [phase, setPhase] = React.useState('idle');
@@ -18576,6 +18584,26 @@ window.__ModuleLoader__.load({
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [request?.at]);
 
+      // Only nodes with at least one trace are offered: probing 900 worktrees one
+      // by one from the browser is not an option, so the Host scans once and
+      // caches the answer.
+      React.useEffect(() => {
+        if (active === false && traceNodes.busy === false && traceNodes.rows.length > 0) return undefined;
+        let cancelled = false;
+        (async () => {
+          try {
+            const data = await api.fetchTraceNodes(projectId, tr);
+            if (cancelled || !aliveRef.current) return;
+            setTraceNodes({ rows: asArray(asObject(data).nodes), busy: false, error: '' });
+          } catch (reason) {
+            if (cancelled || !aliveRef.current) return;
+            setTraceNodes({ rows: [], busy: false, error: describeError(reason, tr) });
+          }
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [projectId, active, tr]);
+
       React.useEffect(() => {
         if (candidateNode === '') return;
         void loadCandidates(candidateNode);
@@ -18597,9 +18625,9 @@ window.__ModuleLoader__.load({
             'aria-label': tr('ws.trace.nodePicker'),
             onChange: (event) => { setCandidateNode(firstString(event?.target?.value)); setPickedCandidates([]); },
           },
-          h('option', { value: '' }, tr('ws.trace.nodePickerEmpty')),
-          asArray(nodes).slice(0, 300).map((row) => {
-            const id = firstString(asObject(row).id);
+          h('option', { value: '' }, traceNodes.rows.length === 0 ? tr('ws.trace.nodeNone') : tr('ws.trace.nodePickerEmpty')),
+          traceNodes.rows.map((row) => {
+            const id = firstString(asObject(row).nodeId);
             const title = firstString(asObject(row).title) || id;
             return h('option', { key: 'node-' + id, value: id }, id + ' · ' + title.slice(0, 60));
           })),

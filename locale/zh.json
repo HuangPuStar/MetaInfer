@@ -1434,7 +1434,7 @@
     "ws.trace.chat": "Agent 回答",
     "ws.trace.chatEmpty": "还没有与这个 trace 相关的对话。",
     "ws.trace.nodeTitle": "创建任务节点",
-    "ws.trace.nodeHint": "只列出该节点产出的 *.json.gz trace 文件；勾选 2 个以上可并排对比",
+    "ws.trace.nodeHint": "只列出有 *.json.gz trace 的节点；勾选 2 个以上可并排对比",
     "ws.trace.timebox": "时间盒（分钟）",
     "ws.trace.nodeCreate": "创建节点",
     "ws.trace.nodeCreated": "已创建节点 {id}",
@@ -1672,6 +1672,7 @@
     "ws.nodeTrace.empty": "没有找到 trace 文件",
     "ws.nodeTrace.open": "打开",
     "ws.nodeTrace.compare": "对比所选",
-    "ws.canvas.label": "实验 DAG 画布"
+    "ws.canvas.label": "实验 DAG 画布",
+    "ws.trace.nodeNone": "没有节点产出 trace（*.json.gz）"
   }
 }

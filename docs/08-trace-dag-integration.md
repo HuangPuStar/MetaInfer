@@ -112,3 +112,16 @@ Host 用例覆盖：非 trace JSON 被过滤、`node_modules` 被跳过、`../..
 
 - 悬停不再弹快捷按钮（DOM 卡片只给选中节点）；悬停有描边高亮，点一下即出现完整卡片与操作。
 - 画布颜色跟随 `prefers-color-scheme`，不读 CSS 变量（canvas 需要具体色值）。
+
+## 5. 只列有 trace 的节点
+
+Profiler tab 的「从 DAG 节点打开」不再列出全部节点，而是 Host 侧一次性扫描出
+**真正产出过 `*.json.gz`** 的节点（`GET /trace?view=nodes&projectId=…`）。
+
+- 扫描是**有界 + 缓存的**：只对记录过 worktree 的节点做 `stat`，目录不存在的直接跳过；
+  每个 worktree 命中第一个 trace 就停（`stopAfter: 1`），并发 8，结果缓存 120 秒。
+- 返回值含 `nodeId / title / status / sample / latestMtimeMs`，按最新 trace 倒序，
+  前端直接拿来填下拉框；选中后再走 `view=candidates` 列文件。
+- 没有命中任何节点时，下拉框显示「没有节点产出 trace」，按钮保持禁用。
+
+这样 900 个节点里只有真正有数据的那些会出现，不会出现"选了个节点却发现没有文件"。

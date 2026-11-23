@@ -3348,7 +3348,81 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { projectId: project.id, nodeId: node.id, ...listing };
   }
 
-  /** Resolve a node-relative trace path, refusing anything outside the worktree. */
+  const traceIndexCache = new Map();
+  const TRACE_INDEX_TTL_MS = 120_000;
+  /**
+   * Which nodes actually produced `*.json.gz` traces.
+   *
+   * The Profiler picker must not list 900 nodes that have nothing to open, so the
+   * Host does one bounded, cached pass over the worktrees instead of letting the
+   * client probe node by node. Nodes without a worktree directory are skipped
+   * without a filesystem walk, and each existing worktree stops at the first hit.
+   */
+  async function nodeTraceIndex(projectId, options = {}) {
+    const project = requireProject(projectId);
+    const limit = Number.isFinite(options.limit) && options.limit > 0 ? Math.trunc(options.limit) : 500;
+    const cached = traceIndexCache.get(projectId);
+    if (cached && Date.now() - cached.at < TRACE_INDEX_TTL_MS && !options.refresh) {
+      return { ...cached.value, cached: true, ageMs: Date.now() - cached.at };
+    }
+    const nodes = store.listNodes(projectId);
+    // Any node with a recorded worktree can carry traces (completed, failed and
+    // cancelled runs all do; a hand-seeded worktree may too), so the index does
+    // not filter by status — a missing directory is skipped by the stat below.
+    const candidates = nodes.filter((node) => node?.git?.worktreePath);
+    const rows = [];
+    let scanned = 0;
+    let skipped = 0;
+    const CONCURRENCY = 8;
+    let cursor = 0;
+    const worker = async () => {
+      for (;;) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= candidates.length) return;
+        const node = candidates[index];
+        scanned += 1;
+        const worktree = node.git.worktreePath;
+        let info = null;
+        try {
+          const { stat } = await import('node:fs/promises');
+          info = await stat(worktree);
+        } catch {
+          info = null;
+        }
+        if (!info || !info.isDirectory()) { skipped += 1; continue; }
+        try {
+          const listing = await listNodeTraces(worktree, { stopAfter: 1, limit: 1 });
+          if (listing.candidates.length > 0) {
+            rows.push({
+              nodeId: node.id,
+              title: node.title ?? node.id,
+              status: node.status ?? null,
+              count: listing.total > 1 ? null : 1,
+              latestMtimeMs: listing.candidates[0].mtimeMs,
+              sample: listing.candidates[0].relPath,
+            });
+          }
+        } catch {
+          skipped += 1;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    rows.sort((left, right) => (right.latestMtimeMs ?? 0) - (left.latestMtimeMs ?? 0));
+    const value = {
+      projectId: project.id,
+      worktrees: candidates.length,
+      scanned,
+      skipped,
+      total: rows.length,
+      nodes: rows.slice(0, limit),
+    };
+    traceIndexCache.set(projectId, { at: Date.now(), value });
+    return { ...value, cached: false, ageMs: 0 };
+  }
+
+  /** Resolve a node-relative trace path, refusing anything outside the worktree. */  /** Resolve a node-relative trace path, refusing anything outside the worktree. */
   function resolveNodeTrace(projectId, nodeId, relPath) {
     requireProject(projectId);
     const node = requireNode(projectId, nodeId);
@@ -6584,6 +6658,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     startDashboardScheduler,
     resolveWorktreeFile,
     getExecutionEvents,
+    nodeTraceIndex,
     nodeTraceCandidates,
     resolveNodeTrace,
     createSuccessor,

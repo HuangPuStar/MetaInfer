@@ -128,7 +128,13 @@ globalThis.fetch = async (url, init = {}) => {
     }
   } else if (parsed.pathname.endsWith('/trace')) {
     const traceId = parsed.searchParams.get('traceId');
-    if (view === 'candidates') {
+    if (view === 'nodes') {
+      data = {
+        projectId: 'p1', worktrees: 2, scanned: 2, skipped: 0, total: 1,
+        nodes: [{ nodeId: 'n-1', title: 'n1 · demo', status: 'completed', latestMtimeMs: 2, sample: 'results/a.json.gz', count: 1 }],
+        cached: false,
+      };
+    } else if (view === 'candidates') {
       data = {
         projectId: 'p1', nodeId: parsed.searchParams.get('nodeId'), worktree: '/tmp/wt', scanned: 3, total: 2,
         candidates: [
@@ -343,7 +349,12 @@ await React.act(async () => {
 });
 const pickerSelect = pickerHost.querySelector('.rl-trace-node-select');
 check('the profiler exposes a DAG node picker', pickerSelect !== null);
-check('the picker lists the project nodes', pickerSelect?.querySelectorAll('option').length === 3);
+check('the picker lists placeholders before the index arrives', pickerSelect !== null);
+await wait(120);
+check('the picker lists only nodes that have a trace', pickerSelect?.querySelectorAll('option').length === 2,
+  String(pickerSelect?.querySelectorAll('option').length));
+check('the picker offers the node id, not the full node list',
+  (pickerSelect?.textContent ?? '').includes('n-1') && !(pickerSelect?.textContent ?? '').includes('n-2'));
 await React.act(async () => {
   pickerSelect.value = 'n-1';
   pickerSelect.dispatchEvent(new window.Event('change', { bubbles: true }));

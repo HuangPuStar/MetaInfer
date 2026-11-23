@@ -53,11 +53,16 @@ export async function listNodeTraces(root, options = {}) {
   const maxFiles = Number.isFinite(options.maxFiles) ? options.maxFiles : DEFAULT_MAX_FILES;
   const maxDepth = Number.isFinite(options.maxDepth) ? options.maxDepth : DEFAULT_MAX_DEPTH;
   const limit = Number.isFinite(options.limit) ? options.limit : DEFAULT_LIMIT;
+  // `stopAfter: 1` answers "does this node have any trace?" without walking the
+  // whole worktree — the project index calls it once per node.
+  const stopAfter = Number.isFinite(options.stopAfter) && options.stopAfter > 0 ? options.stopAfter : 0;
 
   const candidates = [];
   let scanned = 0;
+  let truncated = false;
   const queue = [{ dir: base, depth: 0 }];
   while (queue.length > 0 && scanned < maxFiles) {
+    if (stopAfter > 0 && candidates.length >= stopAfter) { truncated = true; break; }
     const { dir, depth } = queue.shift();
     let entries;
     try {
@@ -93,7 +98,7 @@ export async function listNodeTraces(root, options = {}) {
     }
   }
   candidates.sort((a, b) => (b.mtimeMs - a.mtimeMs) || a.relPath.localeCompare(b.relPath));
-  return { worktree: base, scanned, candidates: candidates.slice(0, limit), total: candidates.length };
+  return { worktree: base, scanned, candidates: candidates.slice(0, limit), total: candidates.length, truncated };
 }
 
 /**

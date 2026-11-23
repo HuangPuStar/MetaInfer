@@ -597,6 +597,14 @@ export function registerHttpRoutes(ctx, service, extras = {}) {
     const view = params.get('view') ?? 'summary';
     // DAG → trace hop: enumerate the trace files a node's worktree produced, so
     // the inspector can offer one click per file instead of asking for a path.
+    // Which nodes have traces at all: one cached Host pass so the picker can
+    // show only nodes that actually have something to open.
+    if (view === 'nodes') {
+      const projectId = params.get('projectId');
+      const limit = params.get('limit') === null ? undefined : Number(params.get('limit'));
+      const refresh = params.get('refresh') === '1';
+      return ok(await service.nodeTraceIndex(projectId, { limit, refresh }));
+    }
     if (view === 'candidates') {
       const projectId = params.get('projectId');
       const nodeId = params.get('nodeId');
