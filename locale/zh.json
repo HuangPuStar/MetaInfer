@@ -1436,7 +1436,7 @@
     "ws.trace.chat": "Agent 回答",
     "ws.trace.chatEmpty": "还没有与这个 trace 相关的对话。",
     "ws.trace.nodeTitle": "创建任务节点",
-    "ws.trace.nodeHint": "选中节点后列出它 worktree 里的 trace 文件；勾选 2 个以上可并排对比",
+    "ws.trace.nodeHint": "按后缀列出该节点产出的 trace 文件（json / json.gz / tar.gz）；tar.gz 需先解压，非标准格式打开会报错",
     "ws.trace.timebox": "时间盒（分钟）",
     "ws.trace.nodeCreate": "创建节点",
     "ws.trace.nodeCreated": "已创建节点 {id}",
@@ -1669,10 +1669,11 @@
     "ws.trace.compareDelta": "Δ",
     "ws.trace.compareTruncated": "仅显示前 {count} 行",
     "ws.nodeTrace.title": "Profile 追踪",
-    "ws.nodeTrace.hint": "这个节点产出的 trace 文件；可多选后并排对比",
+    "ws.nodeTrace.hint": "按后缀列出该节点的 trace 文件；tar.gz 需先解压，非标准格式打开会报错",
     "ws.nodeTrace.scanning": "正在扫描…",
     "ws.nodeTrace.empty": "没有找到 trace 文件",
     "ws.nodeTrace.open": "打开",
-    "ws.nodeTrace.compare": "对比所选"
+    "ws.nodeTrace.compare": "对比所选",
+    "ws.trace.needsExtraction": "需解压"
   }
 }

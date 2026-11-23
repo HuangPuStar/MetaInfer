@@ -1436,7 +1436,7 @@
     "ws.trace.chat": "Agent answer",
     "ws.trace.chatEmpty": "No conversation about this trace yet.",
     "ws.trace.nodeTitle": "Create a task node",
-    "ws.trace.nodeHint": "Lists the trace files in that node worktree; select two or more to compare",
+    "ws.trace.nodeHint": "Lists trace files by extension (json / json.gz / tar.gz); tar.gz must be unpacked first and a non-standard document fails on open",
     "ws.trace.timebox": "Timebox (minutes)",
     "ws.trace.nodeCreate": "Create node",
     "ws.trace.nodeCreated": "Created node {id}",
@@ -1669,10 +1669,11 @@
     "ws.trace.compareDelta": "Δ",
     "ws.trace.compareTruncated": "Showing the first {count} rows",
     "ws.nodeTrace.title": "Profile traces",
-    "ws.nodeTrace.hint": "Trace files produced by this node; select several to compare them",
+    "ws.nodeTrace.hint": "Trace files by extension; tar.gz must be unpacked first, a non-standard document fails on open",
     "ws.nodeTrace.scanning": "Scanning…",
     "ws.nodeTrace.empty": "No trace files found",
     "ws.nodeTrace.open": "Open",
-    "ws.nodeTrace.compare": "Compare selected"
+    "ws.nodeTrace.compare": "Compare selected",
+    "ws.trace.needsExtraction": "extract first"
   }
 }

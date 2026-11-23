@@ -224,13 +224,23 @@ await mkdirP(path.join(worktree, 'results', 'nested'), { recursive: true });
 await writeF(path.join(worktree, 'results', 'torch-v1.json'), JSON.stringify(TRACE));
 await writeF(path.join(worktree, 'results', 'nested', 'torch-v2.json'), JSON.stringify(traceV2));
 await writeF(path.join(worktree, 'results', 'notes.json'), JSON.stringify({ hello: 'not a trace' }));
+const { gzipSync } = await import('node:zlib');
+// A real gzip stream wrapping a POSIX tar header, so the failure is the tar
+// check rather than a broken gzip.
+const tarHeader = Buffer.alloc(1024);
+tarHeader.write('ustar', 257, 'latin1');
+await writeF(path.join(worktree, 'results', 'trace.tar.gz'), gzipSync(tarHeader));
 await mkdirP(path.join(worktree, 'node_modules', 'pkg'), { recursive: true });
 await writeF(path.join(worktree, 'node_modules', 'pkg', 'decoy.json'), JSON.stringify(TRACE));
 
 const candidates = envelope(await call('GET', tracePath, { search: `?view=candidates&projectId=${projectId}&nodeId=${node.id}` }));
-check('candidates lists the node traces', candidates?.candidates?.length === 2, JSON.stringify(candidates).slice(0, 300));
-check('candidates skip non-trace json and node_modules',
-  candidates?.candidates?.every((row) => !row.relPath.includes('node_modules') && !row.relPath.endsWith('notes.json')));
+check('candidates lists every trace-looking file by extension',
+  candidates?.candidates?.length === 4, JSON.stringify(candidates?.candidates?.map((row) => row.relPath)));
+check('candidates keep the tar.gz bundle', candidates?.candidates?.some((row) => row.relPath.endsWith('trace.tar.gz') && row.needsExtraction === true));
+check('candidates still skip node_modules',
+  candidates?.candidates?.every((row) => !row.relPath.includes('node_modules')));
+check('a plain json artifact is listed without being parsed',
+  candidates?.candidates?.some((row) => row.relPath.endsWith('notes.json')));
 check('candidates carry a relative path and size',
   typeof candidates?.candidates?.[0]?.relPath === 'string' && candidates.candidates[0].size > 0);
 
@@ -245,6 +255,10 @@ check('two traces from one node can be open at once', openedV1?.traceId !== open
 const listed = envelope(await call('GET', tracePath, { search: '' }));
 const listedRow = listed?.traces?.find((row) => row.traceId === openedV1?.traceId);
 check('an opened node trace keeps its provenance', listedRow?.nodeId === node.id && listedRow?.relPath === 'results/torch-v1.json');
+const tarball = await call('POST', commandPath, {
+  body: { type: 'trace.open', projectId, nodeId: node.id, relPath: 'results/trace.tar.gz' },
+});
+check('opening a tar.gz fails with a named code', tarball.ok === false && tarball.error?.code === 'trace_is_tarball', JSON.stringify(tarball).slice(0, 200));
 const escaped = await call('POST', commandPath, {
   body: { type: 'trace.open', projectId, nodeId: node.id, relPath: '../../../etc/passwd' },
 });

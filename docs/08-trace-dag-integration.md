@@ -33,13 +33,18 @@ Profiler tab 顶部新增 **从 DAG 节点打开** 选择器：选节点 → 列
 
 | 文件 | 职责 |
 |---|---|
-| `host/profiler/node-traces.js` | `listNodeTraces(worktree)`：有界遍历（深度 4 / 4000 文件 / 跳过 `.git` `node_modules`），用首 4 KiB 的 `"traceEvents"` / `"deviceProperties"` 标记判定 chrome trace；`resolveNodeTracePath(root, relPath)`：路径必须落在 worktree 内，越界返回 `bad_request` |
+| `host/profiler/node-traces.js` | `listNodeTraces(worktree)`：有界遍历（深度 4 / 4000 文件 / 跳过 `.git` `node_modules`），**只按后缀**列出候选（`.json` `.json.gz` `.gz` `.ndjson` `.trace` `.pt.trace` `.tar.gz` `.tgz`），不解析内容；`resolveNodeTracePath(root, relPath)`：路径必须落在 worktree 内，越界返回 `bad_request` |
 | `host/profiler/compare.js` | `compareTraces(entries)`：纯函数，按 kernel 名对齐，输出 columns / totals / rows（含 `fastest`、`deltaPct`） |
 | `host/profiler/store.js` | 打开上限 3 → **8**；打开时记录 `nodeId/projectId/relPath` 溯源，`list()` 回传 |
 | `host/lab-service.js` | `nodeTraceCandidates(projectId,nodeId)` / `resolveNodeTrace(projectId,nodeId,relPath)` |
 | `host/http.js` | `GET /trace?view=candidates`、`GET /trace?view=compare&traceIds=a,b`；`trace.open` 支持 `{projectId,nodeId,relPath}` |
 
 安全边界：扫描只读、不跟随符号链接；打开路径二次校验包含关系，客户端拿不到 worktree 外的文件。
+
+**为什么按后缀而不是嗅探内容**：实验产物里 trace 的封装形态不统一（裸 json、json.gz、tar.gz 打包），
+逐个解压/解析才能判定类型既慢又会漏掉 operator 真正想看的文件。所以列表阶段只做后缀过滤，
+**加载阶段才校验**：不是合法 chrome trace 就报错（`trace_invalid_json` / `trace_is_tarball` /
+`trace_invalid_gzip`），tar.gz 会提示"需先解压"。
 
 ### 2.2 Client
 
@@ -65,6 +70,7 @@ Host 用例覆盖：非 trace JSON 被过滤、`node_modules` 被跳过、`../..
 
 ## 4. 已知限制
 
-- 只识别 chrome trace（JSON / gzip）；`.pt.trace.json` 之外的私有格式需要先转换。
+- 列表按后缀给候选，不等于是合法 trace；打开时非 chrome trace 会失败（按设计）。
+- `tar.gz` 只列出、不自动解包：需要先解出 json 再打开（界面标「需解压」）。
 - 对比按 kernel **名**聚合；同名不同 shape 的 kernel 会被合并（视图里可再看 detail）。
 - Perfetto UI 需要 `npm run perfetto:fetch` 联网下载；缺失时降级为内置查看器（对比表不依赖 Perfetto）。

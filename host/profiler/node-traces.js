@@ -6,6 +6,12 @@
  * The DAG → trace hop must not ask the operator to paste an absolute path: the
  * Host can enumerate the candidates itself and hand relative paths back.
  *
+ * The listing is **extension-only on purpose**: experiments also ship traces as
+ * `tar.gz` bundles or as files the Host cannot classify without unpacking them.
+ * Parsing every candidate up front would be slow and would hide exactly the files
+ * the operator wants; instead the scan reports what it finds, and `trace.open`
+ * fails with a named code when the document is not a chrome trace.
+ *
  * Two invariants:
  *  - the scan never leaves the worktree, never follows symlinks, and skips
  *    `.git` / `node_modules`;
@@ -18,30 +24,25 @@ import path from 'node:path';
 import { TRACE_LIMITS } from './trace.js';
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.venv', '__pycache__', '.cache', 'build', 'dist']);
-/** Any of these names is worth a content sniff. */
-const CANDIDATE_EXT = /\.(json|gz|trace|pt\.trace|json\.gz)$/i;
-/** Chrome trace / torch.profiler document markers, searched in the first 4 KiB. */
-const TRACE_MARKERS = /"(traceEvents|deviceProperties|distributedInfo|chromeTraceEvents)"\s*:/;
+/**
+ * Trace-looking names, by extension only. Ordered most-specific first so a
+ * `.json.gz` is not reported as a plain `.gz`.
+ */
+const CANDIDATE_EXT = /\.(json\.gz|tar\.gz|tgz|json|ndjson|trace|pt\.trace|gz)$/i;
+
+/** Classify by name alone; the viewer validates on open. */
+export function traceKindOf(name) {
+  const lower = String(name ?? '').toLowerCase();
+  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) return 'tar-gzip';
+  if (lower.endsWith('.json.gz') || lower.endsWith('.gz')) return 'gzip-json';
+  if (lower.endsWith('.json') || lower.endsWith('.ndjson')) return 'json';
+  if (lower.endsWith('.trace') || lower.endsWith('.pt.trace')) return 'trace';
+  return 'unknown';
+}
 
 const DEFAULT_MAX_FILES = 4000;
 const DEFAULT_MAX_DEPTH = 4;
 const DEFAULT_LIMIT = 60;
-
-async function sniffMarker(filePath) {
-  let handle = null;
-  try {
-    handle = await open(filePath, 'r');
-    const buffer = Buffer.alloc(4096);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    return TRACE_MARKERS.test(buffer.subarray(0, bytesRead).toString('utf8'));
-  } catch {
-    return false;
-  } finally {
-    if (handle !== null) {
-      try { await handle.close(); } catch { /* already closed */ }
-    }
-  }
-}
 
 /**
  * Walk one node worktree and return trace candidates, best first.
@@ -80,20 +81,21 @@ export async function listNodeTraces(root, options = {}) {
       scanned += 1;
       let info;
       try { info = await stat(absolute); } catch { continue; }
+      // Size is the only content-level filter: an oversized candidate is skipped
+      // because opening it would exceed the trace budget anyway.
       if (!info.isFile() || info.size === 0 || info.size > TRACE_LIMITS.maxBytes) continue;
       const relPath = path.relative(base, absolute);
-      // gzip bodies cannot be sniffed without inflating them; keep them as a
-      // lower-confidence candidate and let the viewer validate on open.
-      const gzip = /\.gz$/i.test(entry.name);
-      const isTrace = gzip ? true : await sniffMarker(absolute);
-      if (!isTrace) continue;
+      const kind = traceKindOf(entry.name);
       candidates.push({
         relPath,
         name: path.basename(relPath),
         size: info.size,
         mtimeMs: Math.trunc(info.mtimeMs),
-        gzip,
-        kind: gzip ? 'chrome-trace-gzip' : 'chrome-trace',
+        gzip: /\.gz$/i.test(entry.name),
+        kind,
+        // tar bundles must be unpacked before the viewer can index them; the
+        // listing still shows them so the operator knows the trace exists.
+        needsExtraction: kind === 'tar-gzip',
       });
     }
   }

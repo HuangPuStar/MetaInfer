@@ -32,6 +32,11 @@ function looksGzip(buffer) {
   return buffer.length > 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
 }
 
+/** A POSIX tar header carries "ustar" at offset 257. */
+function looksTar(buffer) {
+  return Boolean(buffer) && buffer.length > 262 && buffer.subarray(257, 262).toString('latin1') === 'ustar';
+}
+
 /**
  * @param {object} [options]
  * @param {number} [options.maxTraces] in-memory traces kept before LRU eviction
@@ -96,7 +101,21 @@ export function createProfilerStore(options = {}) {
       );
     }
     const bytes = await readFile(resolved);
-    const text = looksGzip(bytes) ? gunzipSync(bytes).toString('utf8') : bytes.toString('utf8');
+    let body = bytes;
+    if (looksGzip(bytes)) {
+      try {
+        body = gunzipSync(bytes);
+      } catch (error) {
+        throw Object.assign(new Error(`gzip decode failed: ${error?.message ?? error}`), { code: 'trace_invalid_gzip' });
+      }
+    }
+    // `.tar.gz` shows up in experiment worktrees; it cannot be indexed without
+    // unpacking, so fail with a named code instead of a JSON parse error. The
+    // listing still advertises it (extension-only scan) — opening is what fails.
+    if (looksTar(body)) {
+      throw Object.assign(new Error('trace is inside a tar archive; extract the .json first'), { code: 'trace_is_tarball' });
+    }
+    const text = body.toString('utf8');
     const now = Date.now();
     const traceId = mintId(path.basename(resolved), info.size, now);
     const index = parseTraceDocument(text, {
