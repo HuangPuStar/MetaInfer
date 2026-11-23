@@ -1722,6 +1722,13 @@
     "ws.menu.zoomOut": "缩小",
     "ws.menu.clearSelection": "取消选中",
     "ws.menu.approve": "批准提案",
-    "ws.menu.reject": "拒绝提案"
+    "ws.menu.reject": "拒绝提案",
+    "ws.menu.priority": "优先级",
+    "ws.menu.prioritySet": "设为 {class}",
+    "priority.p0": "P0",
+    "priority.p1": "P1",
+    "priority.p2": "P2",
+    "priority.p3": "P3",
+    "priority.deferred": "延后"
   }
 }

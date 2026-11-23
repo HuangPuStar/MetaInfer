@@ -263,6 +263,54 @@ await React.act(async () => {
 check('Escape closes the context menu', host.querySelector('[data-testid="dag-context-menu"]') === null);
 
 
+// --- multi-level menu: the priority submenu ----------------------------------
+const prioHost = window.document.createElement('div');
+window.document.body.appendChild(prioHost);
+const prioRoot = createRoot(prioHost);
+const prioNodes = [{ id: 'n-prio', title: 'prio', status: 'completed', parentId: null, priority: { class: 'p2' } }];
+const prioLayout = { positions: new Map([['n-prio', { x: 10, y: 10 }]]), width: 400, height: 200 };
+await React.act(async () => {
+  prioRoot.render(React.createElement(DagCanvas, {
+    nodes: prioNodes, edges: [], layout: prioLayout, selectedId: null, now: Date.now(), busyKey: '',
+    onSelect: noop, onOpenNative: noop, onContinue: noop, onNodeAction: record('action'),
+    onProposalAction: noop, onRetryRequest: noop, onEscalate: noop,
+    onOpenTrace: noop, onOpenFiles: noop, onSuccessor: noop,
+    replayFooter: null, factsSlot: null, t: (key, vars) => (vars && vars.class ? key + ':' + vars.class : key),
+  }));
+  await wait(120);
+});
+await wait(60);
+const prioCanvas = prioHost.querySelector('[data-testid="dag-canvas"]');
+prioCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 1000, right: 1600, bottom: 1000, x: 0, y: 0 });
+const prioZoom = Math.min((1600 - 96) / prioLayout.width, (1000 - 96) / prioLayout.height, 1);
+const prioPan = { x: (1600 - prioLayout.width * prioZoom) / 2, y: (1000 - prioLayout.height * prioZoom) / 2 };
+await React.act(async () => {
+  prioCanvas.dispatchEvent(new window.MouseEvent('contextmenu', {
+    bubbles: true, cancelable: true,
+    clientX: (10 + 30) * prioZoom + prioPan.x,
+    clientY: (10 + 30) * prioZoom + prioPan.y,
+  }));
+  await wait(60);
+});
+const prioMenu = prioHost.querySelector('[data-testid="dag-context-menu"]');
+check('the root menu exposes a priority entry with a submenu arrow',
+  (prioMenu?.textContent ?? '').includes('ws.menu.priority') && (prioMenu?.textContent ?? '').includes('▸'));
+const priorityItem = [...(prioMenu?.querySelectorAll('.rl-dag-menu-item') ?? [])]
+  .find((button) => (button.textContent ?? '').includes('ws.menu.priority'));
+await React.act(async () => { priorityItem.click(); await wait(60); });
+const submenu = prioHost.querySelector('[data-testid="dag-context-submenu"]');
+check('clicking the priority entry opens a nested menu', submenu !== null);
+check('the nested menu steps up/down and picks a class',
+  ['ws.menu.priorityRaise', 'ws.menu.priorityLower', 'ws.menu.prioritySet:priority.p0', 'ws.menu.prioritySet:priority.deferred']
+    .every((label) => (submenu?.textContent ?? '').includes(label)), submenu?.textContent ?? '');
+const setP0 = [...(submenu?.querySelectorAll('.rl-dag-menu-item') ?? [])]
+  .find((button) => (button.textContent ?? '').includes('ws.menu.prioritySet:priority.p0'));
+await React.act(async () => { setP0.click(); await wait(60); });
+check('choosing a class dispatches node.priority with that class',
+  calls.some(([name, arg]) => name === 'action' && arg === 'node?.priority'), JSON.stringify(calls.slice(-3)));
+check('the menu closes after choosing a submenu item', prioHost.querySelector('[data-testid="dag-context-menu"]') === null);
+await React.act(async () => { prioRoot.unmount(); });
+
 // --- no floating card: selection is canvas highlight only --------------------
 const selHost = window.document.createElement('div');
 window.document.body.appendChild(selHost);

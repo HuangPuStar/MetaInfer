@@ -1722,6 +1722,13 @@
     "ws.menu.zoomOut": "Zoom out",
     "ws.menu.clearSelection": "Clear selection",
     "ws.menu.approve": "Approve proposal",
-    "ws.menu.reject": "Reject proposal"
+    "ws.menu.reject": "Reject proposal",
+    "ws.menu.priority": "Priority",
+    "ws.menu.prioritySet": "Set to {class}",
+    "priority.p0": "P0",
+    "priority.p1": "P1",
+    "priority.p2": "P2",
+    "priority.p3": "P3",
+    "priority.deferred": "Deferred"
   }
 }

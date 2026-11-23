@@ -600,6 +600,11 @@ window.__ModuleLoader__.load({
       "log.type.scheduler.started": "调度器开始",
       "nav.returnToLab": "← 返回 Lab 项目",
       "panel": "科研实验台",
+      "priority.deferred": "延后",
+      "priority.p0": "P0",
+      "priority.p1": "P1",
+      "priority.p2": "P2",
+      "priority.p3": "P3",
       "replay.close": "退出回放",
       "replay.loading": "正在加载历史…",
       "replay.pause": "暂停回放",
@@ -1307,8 +1312,10 @@ window.__ModuleLoader__.load({
       "ws.menu.files": "查看文件",
       "ws.menu.fit": "适应视图",
       "ws.menu.native": "打开原生会话",
+      "ws.menu.priority": "优先级",
       "ws.menu.priorityLower": "降低优先级",
       "ws.menu.priorityRaise": "提升优先级",
+      "ws.menu.prioritySet": "设为 {class}",
       "ws.menu.reject": "拒绝提案",
       "ws.menu.retry": "重试",
       "ws.menu.trace": "查看 Profile 追踪",
@@ -2322,6 +2329,11 @@ window.__ModuleLoader__.load({
       "log.type.scheduler.started": "scheduler started",
       "nav.returnToLab": "← Back to Lab project",
       "panel": "Research Lab",
+      "priority.deferred": "Deferred",
+      "priority.p0": "P0",
+      "priority.p1": "P1",
+      "priority.p2": "P2",
+      "priority.p3": "P3",
       "replay.close": "Exit replay",
       "replay.loading": "Loading history…",
       "replay.pause": "Pause replay",
@@ -3029,8 +3041,10 @@ window.__ModuleLoader__.load({
       "ws.menu.files": "Browse files",
       "ws.menu.fit": "Fit view",
       "ws.menu.native": "Open native session",
+      "ws.menu.priority": "Priority",
       "ws.menu.priorityLower": "Lower priority",
       "ws.menu.priorityRaise": "Raise priority",
+      "ws.menu.prioritySet": "Set to {class}",
       "ws.menu.reject": "Reject proposal",
       "ws.menu.retry": "Retry",
       "ws.menu.trace": "View profile trace",
@@ -3977,7 +3991,14 @@ window.__ModuleLoader__.load({
       '.rl-dag-menu { position: absolute; z-index: 20; min-width: 176px; padding: 4px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); box-shadow: 0 8px 28px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent); display: flex; flex-direction: column; gap: 1px; }',
       '.rl-dag-menu-head { padding: 4px 8px 6px; color: var(--dsw-alias-label-tertiary, inherit); font-size: 10.5px; font-family: var(--dsw-alias-font-mono, monospace); border-bottom: 0.5px solid var(--dsw-alias-border-l2); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
       '.rl-dag-menu-item { display: block; width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 12px; line-height: 18px; text-align: left; cursor: pointer; white-space: nowrap; }',
-      '.rl-dag-menu-item:hover { background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-dag-menu-item:hover, .rl-dag-menu-item-open { background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-dag-menu-wrap { position: relative; }',
+      '.rl-dag-menu-label { flex: 1 1 auto; }',
+      '.rl-dag-menu-arrow { margin-left: 12px; color: var(--dsw-alias-label-tertiary, inherit); font-size: 10px; }',
+      '.rl-dag-menu-item { display: flex; align-items: center; justify-content: space-between; }',
+      '.rl-dag-menu-sep { height: 1px; margin: 3px 6px; background: var(--dsw-alias-border-l2); }',
+      '.rl-dag-menu-sub { position: absolute; z-index: 21; min-width: 190px; }',
+      '.rl-dag-menu-sub-flip { left: auto; right: 100%; }',
       '.rl-explain-list { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }',
       '.rl-explain-subtitle { margin: 8px 0 0; font-size: 12px; opacity: 0.8; }',
       '.rl-explain-kind { font-weight: 600; margin-right: 6px; }',
@@ -12992,6 +13013,7 @@ window.__ModuleLoader__.load({
       // Right-click menu: the inspector only carries details; node actions live
       // here so the side panel stops listing everything at once.
       const [menu, setMenu] = React.useState(null);
+      const [openSubmenuKey, setOpenSubmenuKey] = React.useState(null);
       // Degraded payloads (a panel mounted before the snapshot arrives) must not
       // crash the canvas: normalise once, then every effect reads the safe values.
       const safeLayout = layout && layout.positions instanceof Map ? layout : { positions: new Map(), width: 0, height: 0 };
@@ -13203,7 +13225,7 @@ window.__ModuleLoader__.load({
         const hit = hitTestDag(sceneRef.current, worldPointOf(event));
         if (hit !== null && typeof onOpenNative === 'function') onOpenNative(hit.id, 'trajectory');
       };
-      const closeMenu = React.useCallback(() => setMenu(null), []);
+      const closeMenu = React.useCallback(() => { setMenu(null); setOpenSubmenuKey(null); }, []);
       React.useEffect(() => {
       if (menu === null) return undefined;
       const onDocPointer = () => setMenu(null);
@@ -13230,48 +13252,102 @@ window.__ModuleLoader__.load({
       };
 
       const menuItemsFor = (nodeId) => {
-      if (nodeId === null) {
-        return [
-          { key: 'fit', label: t('ws.menu.fit'), run: fit },
-          { key: 'zoom-in', label: t('ws.menu.zoomIn'), run: () => zoomBy(1.2) },
-          { key: 'zoom-out', label: t('ws.menu.zoomOut'), run: () => zoomBy(1 / 1.2) },
-          { key: 'clear', label: t('ws.menu.clearSelection'), run: () => onSelect(null) },
+        if (nodeId === null) {
+          return [
+            { key: 'fit', label: t('ws.menu.fit'), run: fit },
+            { key: 'zoom-in', label: t('ws.menu.zoomIn'), run: () => zoomBy(1.2) },
+            { key: 'zoom-out', label: t('ws.menu.zoomOut'), run: () => zoomBy(1 / 1.2) },
+            { key: 'clear', label: t('ws.menu.clearSelection'), run: () => onSelect(null) },
+          ];
+        }
+        const node = sceneRef.current?.byId?.get(nodeId)?.node ?? null;
+        const status = node === null ? 'planned' : nodeStatusOf(node);
+        const items = [
+          { key: 'child', label: t('ws.menu.createChild'), run: () => onSuccessor(nodeId) },
+          { key: 'files', label: t('ws.menu.files'), run: () => onOpenFiles(nodeId) },
+          { key: 'trace', label: t('ws.menu.trace'), run: () => onOpenTrace(nodeId) },
+          { key: 'native', label: t('ws.menu.native'), run: () => onOpenNative(nodeId, 'trajectory') },
         ];
-      }
-      const node = sceneRef.current?.byId?.get(nodeId)?.node ?? null;
-      const status = node === null ? 'planned' : nodeStatusOf(node);
-      const items = [
-        { key: 'child', label: t('ws.menu.createChild'), run: () => onSuccessor(nodeId) },
-        { key: 'files', label: t('ws.menu.files'), run: () => onOpenFiles(nodeId) },
-        { key: 'trace', label: t('ws.menu.trace'), run: () => onOpenTrace(nodeId) },
-        { key: 'native', label: t('ws.menu.native'), run: () => onOpenNative(nodeId, 'trajectory') },
-      ];
-      if (status === 'completed' || status === 'running') {
-        items.push({ key: 'continue', label: t('ws.menu.continue'), run: () => onContinue(nodeId) });
-      }
-      if (status === 'proposed') {
-        items.push({ key: 'approve', label: t('ws.menu.approve'), run: () => onProposalAction('approve', nodeId) });
-        items.push({ key: 'reject', label: t('ws.menu.reject'), run: () => onProposalAction('reject', nodeId) });
-      }
-      if (status === 'failed' || status === 'cancelled') {
-        items.push({ key: 'retry', label: t('ws.menu.retry'), run: () => onRetryRequest(nodeId) });
-      }
-      if (status === 'failed') {
-        items.push({ key: 'escalate', label: t('ws.menu.escalate'), run: () => onEscalate(nodeId) });
-      }
-      items.push({
-        key: 'priority-raise',
-        label: t('ws.menu.priorityRaise'),
-        run: () => onNodeAction('node?.priority', nodeId, { priority: { class: nodePriorityTargetOf(node, 'raise') } }),
-      });
-      items.push({
-        key: 'priority-lower',
-        label: t('ws.menu.priorityLower'),
-        run: () => onNodeAction('node?.priority', nodeId, { priority: { class: nodePriorityTargetOf(node, 'lower') } }),
-      });
-      items.push({ key: 'copy', label: t('ws.menu.copyId'), run: () => { copyText(nodeId); } });
-      return items;
+        if (status === 'completed' || status === 'running') {
+          items.push({ key: 'continue', label: t('ws.menu.continue'), run: () => onContinue(nodeId) });
+        }
+        if (status === 'proposed') {
+          items.push({ key: 'approve', label: t('ws.menu.approve'), run: () => onProposalAction('approve', nodeId) });
+          items.push({ key: 'reject', label: t('ws.menu.reject'), run: () => onProposalAction('reject', nodeId) });
+        }
+        if (status === 'failed' || status === 'cancelled') {
+          items.push({ key: 'retry', label: t('ws.menu.retry'), run: () => onRetryRequest(nodeId) });
+        }
+        if (status === 'failed') {
+          items.push({ key: 'escalate', label: t('ws.menu.escalate'), run: () => onEscalate(nodeId) });
+        }
+        // Priority is a submenu: step up/down plus an explicit class pick, and the
+        // menu renderer supports arbitrary nesting so more can be grouped later.
+        const currentPriority = node === null ? '' : nodePriorityClassOf(node);
+        const priorityChildren = [
+          {
+            key: 'raise',
+            label: t('ws.menu.priorityRaise'),
+            run: () => onNodeAction('node?.priority', nodeId, { priority: { class: nodePriorityTargetOf(node, 'raise') } }),
+          },
+          {
+            key: 'lower',
+            label: t('ws.menu.priorityLower'),
+            run: () => onNodeAction('node?.priority', nodeId, { priority: { class: nodePriorityTargetOf(node, 'lower') } }),
+          },
+          { key: 'sep', kind: 'separator' },
+          ...PRIORITY_ORDER.map((cls) => ({
+            key: 'set-' + cls,
+            label: (cls === currentPriority ? '✓ ' : '') + t('ws.menu.prioritySet', { class: t('priority.' + cls) }),
+            run: () => onNodeAction('node?.priority', nodeId, { priority: { class: cls } }),
+          })),
+        ];
+        items.push({ key: 'priority', label: t('ws.menu.priority'), children: priorityChildren });
+        items.push({ key: 'copy', label: t('ws.menu.copyId'), run: () => { void copyTextToClipboard(nodeId); } });
+        return items;
       };
+
+      // Flip nested levels to the left when the root menu sits in the right half.
+      const flipSubmenu = (sizeRef.current.width || 0) > 0
+        && (menu?.x ?? 0) > (sizeRef.current.width || 0) * 0.6;
+
+      const renderMenuLevel = (items, depth, style, extraClass = '', headLabel = '') => h(
+        'div',
+        {
+          className: 'rl-dag-menu' + (depth > 0 ? ' rl-dag-menu-sub' : '') + extraClass,
+          'data-testid': depth === 0 ? 'dag-context-menu' : 'dag-context-submenu',
+          role: 'menu',
+          style,
+          onPointerDown: (event) => event?.stopPropagation(),
+          onContextMenu: (event) => { event?.preventDefault?.(); event?.stopPropagation?.(); },
+        },
+        headLabel === '' ? null : h('div', { className: 'rl-dag-menu-head' }, headLabel),
+        items.map((item) => {
+          if (item?.kind === 'separator') return h('div', { key: 'sep-' + depth + '-' + Math.random().toString(36).slice(2, 7), className: 'rl-dag-menu-sep' });
+          const children = Array.isArray(item.children) ? item.children : [];
+          const open = children.length > 0 && openSubmenuKey === item.key;
+          return h('div', { key: 'wrap-' + item.key, className: 'rl-dag-menu-wrap' },
+            h('button', {
+              type: 'button',
+              role: 'menuitem',
+              'aria-haspopup': children.length > 0 ? 'menu' : undefined,
+              'aria-expanded': children.length > 0 ? open : undefined,
+              className: 'rl-dag-menu-item' + (open ? ' rl-dag-menu-item-open' : ''),
+              onMouseEnter: () => { if (openSubmenuKey !== (children.length > 0 ? item.key : null)) setOpenSubmenuKey(children.length > 0 ? item.key : null); },
+              onClick: (event) => {
+                if (children.length > 0) { event?.stopPropagation?.(); setOpenSubmenuKey(open ? null : item.key); return; }
+                closeMenu();
+                item.run();
+              },
+            },
+            h('span', { className: 'rl-dag-menu-label' }, item.label),
+            children.length > 0 ? h('span', { className: 'rl-dag-menu-arrow', 'aria-hidden': true }, '▸') : null),
+            open
+              ? renderMenuLevel(children, depth + 1, { top: 0, left: '100%' }, flipSubmenu ? ' rl-dag-menu-sub-flip' : '')
+              : null,
+          );
+        }),
+      );
 
       const onKeyDown = (event) => {
         const view = viewRef.current;
@@ -13308,24 +13384,12 @@ window.__ModuleLoader__.load({
           onDoubleClick,
           onKeyDown,
         }),
-        menu === null ? null : h(
-          'div',
-          {
-            className: 'rl-dag-menu',
-            'data-testid': 'dag-context-menu',
-            role: 'menu',
-            style: { left: menu.x, top: menu.y },
-            onPointerDown: (event) => event?.stopPropagation(),
-            onContextMenu: (event) => { event?.preventDefault?.(); event?.stopPropagation?.(); },
-          },
-          menu.nodeId === null ? null : h('div', { className: 'rl-dag-menu-head' }, menu.nodeId),
-          menuItemsFor(menu.nodeId).map((item) => h('button', {
-            key: 'menu-' + item.key,
-            type: 'button',
-            role: 'menuitem',
-            className: 'rl-dag-menu-item',
-            onClick: () => { closeMenu(); item.run(); },
-          }, item.label)),
+        menu === null ? null : renderMenuLevel(
+          menuItemsFor(menu.nodeId),
+          0,
+          { left: Math.min(menu.x, Math.max(0, (sizeRef.current.width || 0) - 210)), top: Math.min(menu.y, Math.max(0, (sizeRef.current.height || 0) - 240)) },
+          '',
+          menu.nodeId,
         ),
         h(
           'div',
