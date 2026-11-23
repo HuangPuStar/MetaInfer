@@ -39,7 +39,26 @@ tr '\0' '\n' <"/proc/$OLD/environ" >"$ENVF" || { log "cannot read environ"; exit
 kill "$OLD" 2>>"$LOG"
 for _ in $(seq 1 20); do kill -0 "$OLD" 2>/dev/null || break; sleep 0.5; done
 kill -9 "$OLD" 2>>"$LOG" || true
-sleep 2
+
+# A killed dsh can leave a child holding the port; starting before it is released
+# makes the new process die with EADDRINUSE, which leaves the operator staring at
+# "task stopped" while nothing is listening. Clear stale listeners and wait for the
+# port to be actually free before the first start attempt.
+if command -v ss >/dev/null 2>&1; then
+  for pid in $(ss -ltnp 2>/dev/null | grep ':3081' | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u); do
+    [ "$pid" = "$$" ] && continue
+    log "killing stale listener pid=$pid on :3081"
+    kill -9 "$pid" 2>>"$LOG" || true
+  done
+fi
+for _ in $(seq 1 40); do
+  if timeout 1 bash -c 'exec 3<>/dev/tcp/172.17.0.5/3081' 2>/dev/null; then
+    sleep 0.5
+  else
+    break
+  fi
+done
+sleep 1
 
 cd /
 set -a
