@@ -3972,9 +3972,9 @@ window.__ModuleLoader__.load({
       '.rl-canvas-dragging .rl-dag-canvas { cursor: grabbing; }',
       '.rl-dag-overlay { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }',
       '.rl-dag-overlay-card { position: absolute; pointer-events: auto; }',
-      '.rl-dag-menu { position: absolute; z-index: 20; min-width: 168px; padding: 4px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-elevated, #fff); box-shadow: 0 6px 24px rgba(0,0,0,0.18); display: flex; flex-direction: column; gap: 1px; }',
-      '.rl-dag-menu-head { padding: 4px 8px 6px; color: var(--dsw-alias-label-tertiary); font-size: 10.5px; font-family: var(--dsw-alias-font-mono, monospace); border-bottom: 0.5px solid var(--dsw-alias-border-l2); margin-bottom: 3px; }',
-      '.rl-dag-menu-item { display: block; width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font-size: 12px; text-align: left; cursor: pointer; }',
+      '.rl-dag-menu { position: absolute; z-index: 20; min-width: 176px; padding: 4px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); box-shadow: 0 8px 28px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent); display: flex; flex-direction: column; gap: 1px; }',
+      '.rl-dag-menu-head { padding: 4px 8px 6px; color: var(--dsw-alias-label-tertiary, inherit); font-size: 10.5px; font-family: var(--dsw-alias-font-mono, monospace); border-bottom: 0.5px solid var(--dsw-alias-border-l2); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+      '.rl-dag-menu-item { display: block; width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 12px; line-height: 18px; text-align: left; cursor: pointer; white-space: nowrap; }',
       '.rl-dag-menu-item:hover { background: var(--dsw-alias-bg-layer-2); }',
       '.rl-explain-list { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }',
       '.rl-explain-subtitle { margin: 8px 0 0; font-size: 12px; opacity: 0.8; }',
@@ -12688,11 +12688,74 @@ window.__ModuleLoader__.load({
       paused: '#c9a227',
     };
 
+    /**
+     * Canvas colours follow the *application* theme, not just the OS media query:
+     * the shell can force light/dark with a class, and hardcoded fallbacks showed
+     * a white menu on a dark page. The palette is read from the same design tokens
+     * the DOM uses and cached against a cheap signature.
+     */
+    let dagThemeCache = { key: '', palette: null };
     function dagTheme() {
-      const dark = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      const mediaDark = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
         ? window.matchMedia('(prefers-color-scheme: dark)').matches
         : true;
-      return dark ? DAG_THEME.dark : DAG_THEME.light;
+      const fallback = mediaDark ? DAG_THEME.dark : DAG_THEME.light;
+      if (typeof window === 'undefined' || typeof getComputedStyle !== 'function' || !document?.documentElement) {
+        return fallback;
+      }
+      const root = document.documentElement;
+      const key = (root.className || '') + '|' + (root.dataset?.theme || '') + '|' + String(mediaDark);
+      if (dagThemeCache.key === key && dagThemeCache.palette !== null) return dagThemeCache.palette;
+      const style = getComputedStyle(root);
+      const read = (name) => {
+        const value = style.getPropertyValue(name);
+        return typeof value === 'string' ? value.trim() : '';
+      };
+      const card = read('--dsw-alias-bg-layer-1') || fallback.card;
+      const text = read('--dsw-alias-label-primary') || fallback.text;
+      const muted = read('--dsw-alias-label-tertiary') || read('--dsw-alias-label-secondary') || fallback.muted;
+      const border = read('--dsw-alias-border-l2') || fallback.border;
+      const accent = read('--dsw-alias-brand-primary') || fallback.accent;
+      const layer2 = read('--dsw-alias-bg-layer-2') || card;
+      const darkSurface = luminanceOf(card) < 0.5;
+      const palette = {
+        card,
+        cardAlt: layer2,
+        border,
+        text,
+        muted,
+        edge: darkSurface ? DAG_THEME.dark.edge : DAG_THEME.light.edge,
+        edgeActive: accent,
+        accent,
+        grid: darkSurface ? DAG_THEME.dark.grid : DAG_THEME.light.grid,
+      };
+      dagThemeCache = { key, palette };
+      return palette;
+    }
+
+    /** Relative luminance of #rgb / #rrggbb / rgb(); anything unparseable is dark. */
+    function luminanceOf(color) {
+      const value = String(color ?? '').trim();
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      const hex = /^#([0-9a-f]{3,8})$/i.exec(value);
+      if (hex) {
+        const raw = hex[1];
+        const full = raw.length === 3 || raw.length === 4
+          ? raw.split('').map((ch) => ch + ch).join('')
+          : raw;
+        r = parseInt(full.slice(0, 2), 16);
+        g = parseInt(full.slice(2, 4), 16);
+        b = parseInt(full.slice(4, 6), 16);
+      } else {
+        const rgb = /rgba?\(([^)]+)\)/i.exec(value);
+        if (!rgb) return 0;
+        const parts = rgb[1].split(/[,/\s]+/).filter(Boolean).map(Number);
+        [r, g, b] = [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
+      }
+      if (![r, g, b].every(Number.isFinite)) return 0;
+      return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
     }
 
     /** Truncate by an average glyph width: measuring 10k strings per frame is slower. */
@@ -13038,6 +13101,27 @@ window.__ModuleLoader__.load({
       }, [fit, safeLayout.width, safeLayout.height]);
 
       React.useEffect(() => { schedule(); }, [scene, selectedId, now, busyKey, schedule]);
+
+      // Repaint when the shell switches theme: the palette is read from tokens at
+      // paint time, so an unobserved class change would leave stale colours.
+      React.useEffect(() => {
+        if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
+        const onTheme = () => schedule();
+        let observer = null;
+        if (typeof MutationObserver === 'function' && document.documentElement) {
+          observer = new MutationObserver(onTheme);
+          observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme'] });
+        }
+        let media = null;
+        if (typeof window.matchMedia === 'function') {
+          media = window.matchMedia('(prefers-color-scheme: dark)');
+          if (typeof media.addEventListener === 'function') media.addEventListener('change', onTheme);
+        }
+        return () => {
+          if (observer !== null) observer.disconnect();
+          if (media !== null && typeof media.removeEventListener === 'function') media.removeEventListener('change', onTheme);
+        };
+      }, [schedule]);
 
       // Wheel zoom is anchored at the cursor; both handlers mutate the ref and
       // only schedule a repaint, so React never re-renders during a gesture.

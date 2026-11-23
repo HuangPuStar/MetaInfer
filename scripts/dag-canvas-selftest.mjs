@@ -90,6 +90,21 @@ for (let index = 1; index < TOTAL; index += 1) {
   if (parent) edges.push({ from: parent, to: nodes[index].id });
 }
 
+// The canvas palette must follow the application tokens, not hardcoded white.
+window.document.documentElement.className = 'theme-dark';
+window.document.documentElement.style.setProperty('--dsw-alias-bg-layer-1', '#14171c');
+window.document.documentElement.style.setProperty('--dsw-alias-label-primary', '#e8eaed');
+window.document.documentElement.style.setProperty('--dsw-alias-border-l2', '#2f333a');
+const themed = dag.dagTheme();
+check('canvas palette reads the design tokens', themed.card === '#14171c' && themed.text === '#e8eaed' && themed.border === '#2f333a', JSON.stringify(themed));
+check('canvas palette treats a dark surface as dark', themed.edge === '#3d4148', themed.edge);
+window.document.documentElement.className = 'theme-light';
+window.document.documentElement.style.setProperty('--dsw-alias-bg-layer-1', '#ffffff');
+const lightThemed = dag.dagTheme();
+check('switching the theme class rebuilds the palette', lightThemed.card === '#ffffff' && lightThemed.edge === '#c9ccd3', JSON.stringify(lightThemed));
+window.document.documentElement.className = 'theme-dark';
+window.document.documentElement.style.setProperty('--dsw-alias-bg-layer-1', '#14171c');
+
 const scene = dag.buildDagScene({ nodes, edges, layout, t: (key) => key });
 check('the scene holds every node', scene.count === TOTAL, String(scene.count));
 check('the scene holds every edge', scene.segments.length === edges.length, `${scene.segments.length}/${edges.length}`);
