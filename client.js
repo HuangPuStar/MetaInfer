@@ -10901,6 +10901,53 @@ window.__ModuleLoader__.load({
       }, active === 'wal' ? walPanel : replayPanel);
     }
 
+    function replaySnapshot(data, at) {
+      const nodes = asArray(asObject(data).nodes);
+      const edges = asArray(asObject(data).edges);
+      const events = asArray(asObject(data).events);
+      const created = new Map();
+      const status = new Map();
+      for (const node of nodes) {
+        const stamps = asObject(node?.timestamps);
+        const createdAt = Number(stamps.createdAt ?? node?.createdAt ?? 0);
+        if (createdAt > 0 && createdAt <= at) {
+          created.set(node?.id, createdAt);
+          status.set(node?.id, firstString(node?.status) === 'proposed' ? 'proposed' : 'planned');
+        }
+      }
+      for (const event of events) {
+        if (Number(event?.at) > at) continue;
+        const id = firstString(event?.nodeId, asObject(event?.data)?.nodeId);
+        if (!id) continue;
+        const type = firstString(event?.type);
+        if (type === 'node/created' || type === 'node/proposed') {
+          if (!created.has(id)) created.set(id, Number(event?.at) || 0);
+          status.set(id, type === 'node/proposed' ? 'proposed' : 'planned');
+        } else if (type === 'node/approved' || type === 'node/retried' || type === 'node/escalated') {
+          status.set(id, 'planned');
+        } else if (type === 'node/started') {
+          status.set(id, 'running');
+        } else if (type === 'node/completed') {
+          status.set(id, 'completed');
+        } else if (type === 'node/failed' || type === 'node/timeout' || type === 'node/resource_lost') {
+          status.set(id, 'failed');
+        } else if (type === 'node/cancelled' || type === 'node/rejected') {
+          status.set(id, 'cancelled');
+        }
+      }
+      const visible = new Set();
+      const resultNodes = [];
+      for (const node of nodes) {
+        if (!created.has(node?.id)) continue;
+        visible.add(node?.id);
+        resultNodes.push({ ...node, status: status.get(node?.id) || node?.status });
+      }
+      const resultEdges = edges.filter((edge) => visible.has(edge.from) && visible.has(edge.to));
+      return { nodes: resultNodes, edges: resultEdges };
+    }
+
+    /** Timeline bar for dragging through DAG growth history. */
+
     /** Timeline bar for dragging through DAG growth history. */
     function ReplayBar({ data, at, playing, loading, error, onChange, onTogglePlay, onClose, t }) {
       const startAt = Number(asObject(data).startAt) || at;
@@ -21904,7 +21951,7 @@ window.__ModuleLoader__.load({
     // by that test; the Web shell never sees these fields.
     if (typeof window !== 'undefined' && window.__METAINFER_TEST__ === true) {
       // Internal renderer entry points used by scripts/dag-canvas-selftest.mjs.
-      exported.__dag = { buildDagScene, visibleDagItems, hitTestDag, paintDag, dagTheme, nodeActionsOf, inspectorSectionIndexes, NODE_WINDOW_TABS };
+      exported.__dag = { buildDagScene, visibleDagItems, hitTestDag, paintDag, dagTheme, nodeActionsOf, inspectorSectionIndexes, NODE_WINDOW_TABS, replaySnapshot };
       exported.__components = {
         LandingScreen,
         CreateProjectWizard,
@@ -21917,6 +21964,7 @@ window.__ModuleLoader__.load({
         WalLogPanel,
         WalDetailDialog,
         HistoryModal,
+        ReplayBar,
         ProjectTabBar,
         ProjectTabPanel,
         ProfilerTab,

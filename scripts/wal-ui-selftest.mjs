@@ -91,6 +91,7 @@ const mod = factory((id) => {
   if (id === 'react') return React;
   throw new Error(`unexpected require(${id})`);
 });
+const dag = mod.__dag;
 const WalLogPanel = mod.__components.WalLogPanel;
 const HistoryModal = mod.__components.HistoryModal;
 assert.equal(typeof WalLogPanel, 'function', 'WalLogPanel is exported');
@@ -172,6 +173,39 @@ check('a host error is reported, not shown as an empty log',
   (host.querySelector('[role="alert"]')?.textContent ?? '') !== '', host.querySelector('[role="alert"]')?.textContent ?? '(none)');
 await React.act(async () => { root.unmount(); });
 host.remove();
+
+// --- replay is part of the same module ---------------------------------------
+{
+  assert.equal(typeof dag?.replaySnapshot, 'function', 'replaySnapshot is exported');
+  const data = {
+    startAt: 1000,
+    endAt: 2000,
+    nodes: [
+      { id: 'n-1', status: 'completed', timestamps: { createdAt: 1100 } },
+      { id: 'n-2', status: 'planned', timestamps: { createdAt: 1500 } },
+      { id: 'n-3', status: 'planned', timestamps: { createdAt: 1900 } },
+    ],
+    edges: [{ from: 'n-1', to: 'n-2' }, { from: 'n-2', to: 'n-3' }],
+    events: [
+      { at: 1200, type: 'node/started', nodeId: 'n-1' },
+      { at: 1400, type: 'node/completed', nodeId: 'n-1' },
+    ],
+  };
+  const early = dag.replaySnapshot(data, 1300);
+  check('replay at an early moment hides nodes that did not exist yet',
+    early.nodes.map((node) => node.id).join(',') === 'n-1', early.nodes.map((node) => node.id).join(','));
+  check('replay applies the status as of that moment',
+    early.nodes[0].status === 'running', early.nodes[0].status);
+  const later = dag.replaySnapshot(data, 1600);
+  check('replay grows the graph as time advances',
+    later.nodes.map((node) => node.id).join(',') === 'n-1,n-2' && later.nodes[0].status === 'completed',
+    JSON.stringify(later.nodes.map((node) => node.id + ':' + node.status)));
+  check('replay keeps edges between surviving nodes only',
+    later.edges.length === 1 && later.edges[0].from === 'n-1' && later.edges[0].to === 'n-2',
+    JSON.stringify(later.edges));
+  check('replay returns only the graph for that moment',
+    Object.keys(later).sort().join(',') === 'edges,nodes', Object.keys(later).join(','));
+}
 
 // --- the detail dialog -------------------------------------------------------
 {
