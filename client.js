@@ -13071,6 +13071,8 @@ window.__ModuleLoader__.load({
           w: NODE_W,
           h: NODE_H,
           status: nodeStatusOf(node),
+          // Painted label: the raw status key leaked onto the canvas in non-English UIs.
+          statusLabel: t('status.' + nodeStatusOf(node)),
           title: nodeTitleOf(node, t),
           subtitle: '',
           color: DAG_STATUS_COLOR[nodeStatusOf(node)] ?? '#8a93a6',
@@ -13256,7 +13258,7 @@ window.__ModuleLoader__.load({
           ctx.fillText(truncateForWidth(item.title, item.w - 22, fontSize), item.x + 14, item.y + 26);
           ctx.font = '10px system-ui, -apple-system, "Segoe UI", sans-serif';
           ctx.fillStyle = theme.muted;
-          ctx.fillText(truncateForWidth(item.status + ' · ' + item.id, item.w - 22, 10), item.x + 14, item.y + 52);
+          ctx.fillText(truncateForWidth((item.statusLabel ?? item.status) + ' · ' + item.id, item.w - 22, 10), item.x + 14, item.y + 52);
         }
       }
       ctx.globalAlpha = 1;
