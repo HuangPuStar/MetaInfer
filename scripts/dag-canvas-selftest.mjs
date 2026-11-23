@@ -263,6 +263,26 @@ await React.act(async () => {
 check('Escape closes the context menu', host.querySelector('[data-testid="dag-context-menu"]') === null);
 
 
+// --- the action predicate is the single source of truth ----------------------
+const acts = dag.nodeActionsOf;
+check('planned node: start + priority', (() => {
+  const a = acts({ status: 'planned', childCount: 0 });
+  return a.includes('start') && a.includes('priority') && a.includes('child');
+})());
+check('completed leaf: continue + merge, no priority',
+  (() => { const a = acts({ status: 'completed', childCount: 0, sealed: false }); return a.includes('continue') && a.includes('merge') && !a.includes('priority'); })());
+check('completed parent: no continue, no priority',
+  (() => { const a = acts({ status: 'completed', childCount: 2, sealed: false }); return !a.includes('continue') && !a.includes('priority'); })());
+check('sealed leaf: no continue',
+  (() => { const a = acts({ status: 'completed', childCount: 0, sealed: true }); return !a.includes('continue'); })());
+check('running merge: cancel + continue',
+  (() => { const a = acts({ status: 'running', isMerge: true }); return a.includes('cancel') && a.includes('continue'); })());
+check('failed: retry + escalate, no priority',
+  (() => { const a = acts({ status: 'failed', childCount: 1 }); return a.includes('retry') && a.includes('escalate') && !a.includes('priority'); })());
+check('proposed: approve + reject', (() => { const a = acts({ status: 'proposed' }); return a.includes('approve') && a.includes('reject'); })());
+check('every node keeps the shared entries',
+  (() => { const a = acts({ status: 'cancelled' }); return ['child', 'files', 'trace', 'native', 'copy'].every((id) => a.includes(id)); })());
+
 // --- priority is offered only where dispatch is still possible ----------------
 const dispatchHost = window.document.createElement('div');
 window.document.body.appendChild(dispatchHost);

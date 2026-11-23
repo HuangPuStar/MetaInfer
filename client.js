@@ -5362,6 +5362,39 @@ window.__ModuleLoader__.load({
       const record = asObject(attempt);
       return firstString(record?.sessionId, record?.anchorSessionId);
     }
+    // #region node-actions
+    /**
+     * Single source of truth for "what may the operator do with this node".
+     *
+     * The context menu used to re-derive these rules inline and drifted from the
+     * Host predicates (it offered 继续对话 on parents and sealed nodes, and priority
+     * on finished nodes). Every action id returned here must correspond to a Host
+     * command that would actually be accepted.
+     *
+     * @param {{status: string, childCount?: number, sealed?: boolean, isMerge?: boolean}} input
+     * @returns {string[]} action ids in menu order
+     */
+    function nodeActionsOf({ status, childCount = 0, sealed = false, isMerge = false } = {}) {
+      const leaf = childCount === 0;
+      const actions = ['child', 'files', 'trace', 'native'];
+      if (status === 'planned') actions.push('start');
+      if (status === 'running') {
+        actions.push('cancel');
+        if (isMerge) actions.push('continue');
+      }
+      if (status === 'completed' && leaf && !sealed) actions.push('continue');
+      if (status === 'completed' && !isMerge) actions.push('merge');
+      if (status === 'proposed') actions.push('approve', 'reject');
+      if (status === 'failed' || status === 'cancelled') actions.push('retry');
+      if (status === 'failed') actions.push('escalate');
+      // Priority only reorders dispatch: a finished node, or one that already
+      // produced a successor, has nothing left to schedule.
+      if ((status === 'planned' || status === 'running') && leaf) actions.push('priority');
+      actions.push('copy');
+      return actions;
+    }
+    // #endregion node-actions
+
     function nodeCanContinueOf(node, nodes) {
       const status = nodeStatusOf(node);
       const isLeaf = nodeIsLeafOf(node, nodes);
@@ -13276,70 +13309,52 @@ window.__ModuleLoader__.load({
         const node = sceneRef.current?.byId?.get(nodeId)?.node ?? null;
         const status = node === null ? 'planned' : nodeStatusOf(node);
         const childCount = sceneRef.current?.childCount?.get(nodeId) ?? 0;
-        const items = [
-          { key: 'child', label: t('ws.menu.createChild'), run: () => onSuccessor(nodeId) },
-          { key: 'files', label: t('ws.menu.files'), run: () => onOpenFiles(nodeId) },
-          { key: 'trace', label: t('ws.menu.trace'), run: () => onOpenTrace(nodeId) },
-          { key: 'native', label: t('ws.menu.native'), run: () => onOpenNative(nodeId, 'trajectory') },
-        ];
-        if (status === 'planned') {
-          items.push({ key: 'start', label: t('ws.menu.start'), run: () => onNodeAction('node?.start', nodeId) });
-        }
-        if (status === 'running') {
-          items.push({ key: 'cancel', label: t('ws.menu.cancel'), run: () => onNodeAction('node?.cancel', nodeId) });
-        }
-        // Continue is only legal for a node that can still take a message: a finished
-        // leaf that has not been sealed, or a running merge. Offering it on a parent
-        // that already has successors (or on a sealed node) promised an action the
-        // Host would reject.
-        {
-          const isLeaf = childCount === 0;
-          const sealedFlag = node === null ? false : nodeSealedFlagOf(node);
-          const mergeRunning = status === 'running' && node !== null && nodeIsMergeOf(node);
-          if (mergeRunning || (status === 'completed' && isLeaf && !sealedFlag)) {
-            items.push({ key: 'continue', label: t('ws.menu.continue'), run: () => onContinue(nodeId) });
-          }
-        }
-        if (status === 'completed' && node !== null && nodeIsMergeOf(node) === false && typeof onOpenMergeCreate === 'function') {
-          items.push({ key: 'merge', label: t('ws.menu.createMerge'), run: () => onOpenMergeCreate(nodeId) });
-        }
-        if (status === 'proposed') {
-          items.push({ key: 'approve', label: t('ws.menu.approve'), run: () => onProposalAction('approve', nodeId) });
-          items.push({ key: 'reject', label: t('ws.menu.reject'), run: () => onProposalAction('reject', nodeId) });
-        }
-        if (status === 'failed' || status === 'cancelled') {
-          items.push({ key: 'retry', label: t('ws.menu.retry'), run: () => onRetryRequest(nodeId) });
-        }
-        if (status === 'failed') {
-          items.push({ key: 'escalate', label: t('ws.menu.escalate'), run: () => onEscalate(nodeId) });
-        }
-        // Priority only reorders *dispatch*, so it is offered only for nodes that can
-        // still be dispatched. A node that already produced a successor (or is
-        // finished/failed) has nothing left to schedule — offering the submenu there
-        // was misleading.
-        const dispatchable = (status === 'planned' || status === 'running') && childCount === 0;
+        const sealed = node === null ? false : nodeSealedFlagOf(node);
+        const isMerge = node === null ? false : nodeIsMergeOf(node);
         const currentPriority = node === null ? '' : nodePriorityClassOf(node);
-        const priorityChildren = [
-          {
-            key: 'raise',
-            label: t('ws.menu.priorityRaise'),
-            run: () => onNodeAction('node?.priority', nodeId, { priority: { class: nodePriorityTargetOf(node, 'raise') } }),
-          },
-          {
-            key: 'lower',
-            label: t('ws.menu.priorityLower'),
-            run: () => onNodeAction('node?.priority', nodeId, { priority: { class: nodePriorityTargetOf(node, 'lower') } }),
-          },
-          { key: 'sep', kind: 'separator' },
-          ...PRIORITY_ORDER.map((cls) => ({
-            key: 'set-' + cls,
-            label: (cls === currentPriority ? '✓ ' : '') + t('ws.menu.prioritySet', { class: t('priority.' + cls) }),
-            run: () => onNodeAction('node?.priority', nodeId, { priority: { class: cls } }),
-          })),
-        ];
-        if (dispatchable) items.push({ key: 'priority', label: t('ws.menu.priority'), children: priorityChildren });
-        items.push({ key: 'copy', label: t('ws.menu.copyId'), run: () => { void copyTextToClipboard(nodeId); } });
-        return items;
+        const actions = nodeActionsOf({ status, childCount, sealed, isMerge });
+
+        const builders = {
+          child: () => ({ label: t('ws.menu.createChild'), run: () => onSuccessor(nodeId) }),
+          files: () => ({ label: t('ws.menu.files'), run: () => onOpenFiles(nodeId) }),
+          trace: () => ({ label: t('ws.menu.trace'), run: () => onOpenTrace(nodeId) }),
+          native: () => ({ label: t('ws.menu.native'), run: () => onOpenNative(nodeId, 'trajectory') }),
+          start: () => ({ label: t('ws.menu.start'), run: () => onNodeAction('node?.start', nodeId) }),
+          cancel: () => ({ label: t('ws.menu.cancel'), run: () => onNodeAction('node?.cancel', nodeId) }),
+          continue: () => ({ label: t('ws.menu.continue'), run: () => onContinue(nodeId) }),
+          merge: () => ({ label: t('ws.menu.createMerge'), run: () => { if (typeof onOpenMergeCreate === 'function') onOpenMergeCreate(nodeId); } }),
+          approve: () => ({ label: t('ws.menu.approve'), run: () => onProposalAction('approve', nodeId) }),
+          reject: () => ({ label: t('ws.menu.reject'), run: () => onProposalAction('reject', nodeId) }),
+          retry: () => ({ label: t('ws.menu.retry'), run: () => onRetryRequest(nodeId) }),
+          escalate: () => ({ label: t('ws.menu.escalate'), run: () => onEscalate(nodeId) }),
+          copy: () => ({ label: t('ws.menu.copyId'), run: () => { void copyTextToClipboard(nodeId); } }),
+          priority: () => ({
+            label: t('ws.menu.priority'),
+            children: [
+              {
+                key: 'raise',
+                label: t('ws.menu.priorityRaise'),
+                run: () => onNodeAction('node?.priority', nodeId, { priority: { class: nodePriorityTargetOf(node, 'raise') } }),
+              },
+              {
+                key: 'lower',
+                label: t('ws.menu.priorityLower'),
+                run: () => onNodeAction('node?.priority', nodeId, { priority: { class: nodePriorityTargetOf(node, 'lower') } }),
+              },
+              { key: 'sep', kind: 'separator' },
+              ...PRIORITY_ORDER.map((cls) => ({
+                key: 'set-' + cls,
+                label: (cls === currentPriority ? '✓ ' : '') + t('ws.menu.prioritySet', { class: t('priority.' + cls) }),
+                run: () => onNodeAction('node?.priority', nodeId, { priority: { class: cls } }),
+              })),
+            ],
+          }),
+        };
+        return actions.map((id) => {
+          const build = builders[id];
+          if (typeof build !== 'function') return null;
+          return { key: id, ...build() };
+        }).filter(Boolean);
       };
 
       // Flip nested levels to the left when the root menu sits in the right half.
@@ -21201,7 +21216,7 @@ window.__ModuleLoader__.load({
     // by that test; the Web shell never sees these fields.
     if (typeof window !== 'undefined' && window.__METAINFER_TEST__ === true) {
       // Internal renderer entry points used by scripts/dag-canvas-selftest.mjs.
-      exported.__dag = { buildDagScene, visibleDagItems, hitTestDag, paintDag, dagTheme };
+      exported.__dag = { buildDagScene, visibleDagItems, hitTestDag, paintDag, dagTheme, nodeActionsOf };
       exported.__components = {
         LandingScreen,
         CreateProjectWizard,
