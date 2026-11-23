@@ -44,7 +44,7 @@ function check(name, condition, detail = '') {
 
 check('topbar declares exactly six action ids', JSON.stringify(actionIds) === JSON.stringify([
   'topbar-action-mode', 'topbar-action-auto', 'topbar-action-experts',
-  'topbar-action-menu', 'topbar-action-copilot', 'topbar-action-replay',
+  'topbar-action-menu', 'topbar-action-copilot', 'topbar-action-history',
 ]), JSON.stringify(actionIds));
 for (const forbidden of ['📊', 't(\'ws.runs.open\')', 't(\'dashboard.toggle\')', 't(\'ws.settings.open\')', 'trajectory.open', 'onToggleDashboard', 'onToggleObservability', 'onOpenSettings', 'onOpenRuns']) {
   check('topbar source has no ' + forbidden, !topbar.includes(forbidden));

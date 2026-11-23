@@ -1768,6 +1768,14 @@
     "ws.wal.noDetail": "—",
     "ws.replay.open": "载入回放",
     "ws.replay.loading": "载入中…",
-    "ws.wal.globalSeq": "全局行号"
+    "ws.wal.globalSeq": "全局行号",
+    "ws.wal.detail": "详情",
+    "ws.wal.detailTitle": "变更详情",
+    "ws.wal.detailChanged": "变化的字段",
+    "ws.wal.detailPayload": "原始记录",
+    "ws.wal.seq": "项目内序号",
+    "ws.wal.field": "字段",
+    "ws.wal.before": "变更前",
+    "ws.wal.after": "变更后"
   }
 }

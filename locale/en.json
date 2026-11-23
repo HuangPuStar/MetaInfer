@@ -1768,6 +1768,14 @@
     "ws.wal.noDetail": "—",
     "ws.replay.open": "Load replay",
     "ws.replay.loading": "Loading…",
-    "ws.wal.globalSeq": "Global row id"
+    "ws.wal.globalSeq": "Global row id",
+    "ws.wal.detail": "Details",
+    "ws.wal.detailTitle": "Change details",
+    "ws.wal.detailChanged": "Changed fields",
+    "ws.wal.detailPayload": "Raw record",
+    "ws.wal.seq": "Project seq",
+    "ws.wal.field": "Field",
+    "ws.wal.before": "Before",
+    "ws.wal.after": "After"
   }
 }

@@ -102,8 +102,9 @@ const host = window.document.createElement('div');
 window.document.body.appendChild(host);
 const root = createRoot(host);
 let selected = null;
+let detailed = null;
 await React.act(async () => {
-  root.render(React.createElement(WalLogPanel, { projectId: 'p1', onSelect: (id) => { selected = id; }, t }));
+  root.render(React.createElement(WalLogPanel, { projectId: 'p1', onSelect: (id) => { selected = id; }, onDetail: (entry) => { detailed = entry; }, t }));
   await wait(120);
 });
 check('opening the panel loads the newest page unprompted',
@@ -150,6 +151,15 @@ check('the range and node filters are sent to the host',
   calls.some((call) => call.params.fromSeq === '55' && call.params.toSeq === '99' && call.params.nodeId === 'n-0002'),
   JSON.stringify(calls.slice(-2)));
 
+// the summary is clipped in the table, so every row offers the full record
+const detailButton = [...host.querySelectorAll('.rl-wal-summary-btn')][0];
+check('each row has a clickable summary for the full change', detailButton !== undefined);
+await React.act(async () => { detailButton.click(); await wait(20); });
+check('clicking a row summary asks for the detail dialog',
+  detailed !== null && detailed.seq === 101, JSON.stringify(detailed));
+const detailButtons = [...host.querySelectorAll('.rl-link-btn')].filter((button) => (button.textContent ?? '') === 'ws.wal.detail');
+check('the row also carries an explicit details button', detailButtons.length === 3, String(detailButtons.length));
+
 // node link selects the node
 const nodeLink = [...host.querySelectorAll('.rl-link-btn')].find((button) => (button.textContent ?? '') === 'n-0001');
 await React.act(async () => { nodeLink.click(); await wait(20); });
@@ -162,6 +172,39 @@ check('a host error is reported, not shown as an empty log',
   (host.querySelector('[role="alert"]')?.textContent ?? '') !== '', host.querySelector('[role="alert"]')?.textContent ?? '(none)');
 await React.act(async () => { root.unmount(); });
 host.remove();
+
+// --- the detail dialog -------------------------------------------------------
+{
+  const Detail = mod.components?.WalDetailDialog ?? mod.__components.WalDetailDialog;
+  const detailHost = window.document.createElement('div');
+  window.document.body.appendChild(detailHost);
+  const detailRoot = createRoot(detailHost);
+  const entry = {
+    seq: 900, projectSeq: 42, nodeId: 'n-0007', kind: 'node.status', at: 1_700_000_000_000,
+    payload: { changed: ['status', 'rev'], before: { status: 'planned', rev: 3 }, after: { status: 'completed', rev: 4 } },
+  };
+  let picked = null;
+  await React.act(async () => {
+    detailRoot.render(React.createElement(Detail, {
+      entry, t, onClose: () => {}, onSelectNode: (id) => { picked = id; },
+    }));
+    await wait(40);
+  });
+  check('the detail dialog shows both sequences and the kind',
+    (detailHost.textContent ?? '').includes('42') && (detailHost.textContent ?? '').includes('900')
+    && (detailHost.textContent ?? '').includes('node.status'));
+  check('the detail dialog shows the before/after table',
+    [...detailHost.querySelectorAll('.rl-wal-diff-row')].length === 3,
+    String(detailHost.querySelectorAll('.rl-wal-diff-row').length));
+  check('the detail dialog shows the complete raw payload, not an ellipsis',
+    (detailHost.querySelector('[data-testid="wal-detail-json"]')?.textContent ?? '').includes('"completed"'),
+    (detailHost.querySelector('[data-testid="wal-detail-json"]')?.textContent ?? '').slice(0, 60));
+  const nodeButton = [...detailHost.querySelectorAll('.rl-link-btn')][0];
+  await React.act(async () => { nodeButton.click(); await wait(20); });
+  check('the dialog can jump to the node', picked === 'n-0007', String(picked));
+  await React.act(async () => { detailRoot.unmount(); });
+  detailHost.remove();
+}
 
 // --- the history module ------------------------------------------------------
 const modalHost = window.document.createElement('div');

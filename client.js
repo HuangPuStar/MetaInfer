@@ -1930,8 +1930,15 @@ window.__ModuleLoader__.load({
       "ws.usage.output": "输出 {count}",
       "ws.usage.title": "Token 用量",
       "ws.usage.total": "总计 {count}",
+      "ws.wal.after": "变更后",
       "ws.wal.at": "时间",
+      "ws.wal.before": "变更前",
+      "ws.wal.detail": "详情",
+      "ws.wal.detailChanged": "变化的字段",
+      "ws.wal.detailPayload": "原始记录",
+      "ws.wal.detailTitle": "变更详情",
       "ws.wal.empty": "该区间没有变更记录",
+      "ws.wal.field": "字段",
       "ws.wal.fromSeq": "起始 seq（不含）",
       "ws.wal.globalSeq": "全局行号",
       "ws.wal.kind": "类型",
@@ -1942,6 +1949,7 @@ window.__ModuleLoader__.load({
       "ws.wal.node": "节点",
       "ws.wal.nodeId": "节点 ID",
       "ws.wal.query": "查询",
+      "ws.wal.seq": "项目内序号",
       "ws.wal.statusLine": "最新 seq {latest} · 本页 {count} 条",
       "ws.wal.summary": "变更",
       "ws.wal.toSeq": "结束 seq（含）",
@@ -3698,8 +3706,15 @@ window.__ModuleLoader__.load({
       "ws.usage.output": "output {count}",
       "ws.usage.title": "Token usage",
       "ws.usage.total": "total {count}",
+      "ws.wal.after": "After",
       "ws.wal.at": "Time",
+      "ws.wal.before": "Before",
+      "ws.wal.detail": "Details",
+      "ws.wal.detailChanged": "Changed fields",
+      "ws.wal.detailPayload": "Raw record",
+      "ws.wal.detailTitle": "Change details",
       "ws.wal.empty": "No changes in this range",
+      "ws.wal.field": "Field",
       "ws.wal.fromSeq": "From seq (exclusive)",
       "ws.wal.globalSeq": "Global row id",
       "ws.wal.kind": "Kind",
@@ -3710,6 +3725,7 @@ window.__ModuleLoader__.load({
       "ws.wal.node": "Node",
       "ws.wal.nodeId": "Node id",
       "ws.wal.query": "Query",
+      "ws.wal.seq": "Project seq",
       "ws.wal.statusLine": "latest seq {latest} · {count} rows",
       "ws.wal.summary": "Change",
       "ws.wal.toSeq": "To seq (inclusive)",
@@ -4267,6 +4283,15 @@ window.__ModuleLoader__.load({
       '.rl-wal-row-head { position: sticky; top: 0; z-index: 1; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-tertiary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }',
       '.rl-wal-seq { font-family: var(--dsw-alias-font-mono, monospace); color: var(--dsw-alias-label-secondary); }',
       '.rl-wal-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-secondary); }',
+      '.rl-wal-summary-btn { display: block; width: 100%; padding: 0; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }',
+      '.rl-wal-summary-btn:hover { color: var(--dsw-alias-label-primary); text-decoration: underline; }',
+      '.rl-wal-row { grid-template-columns: 64px 132px 118px 96px minmax(0, 1fr) 44px; }',
+      '.rl-wal-diff { display: flex; flex-direction: column; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; overflow: hidden; }',
+      '.rl-wal-diff-row { display: grid; grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding: 5px 10px; border-top: 0.5px solid color-mix(in srgb, var(--dsw-alias-border-l2) 60%, transparent); font-size: 12px; word-break: break-word; }',
+      '.rl-wal-diff-row:first-child { border-top: 0; }',
+      '.rl-wal-diff-head { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
+      '.rl-wal-diff-field { font-family: var(--dsw-alias-font-mono, monospace); color: var(--dsw-alias-label-secondary); }',
+      '.rl-wal-json { max-height: 260px; margin: 0; padding: 10px; overflow: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); font-family: var(--dsw-alias-font-mono, monospace); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }',
       '.rl-history-replay { display: flex; flex-direction: column; gap: 10px; }',
       '.rl-modal-foot-note { flex: 1 1 auto; margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 16px; }',
       '.rl-tabs { display: inline-flex; gap: 2px; padding: 2px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; align-self: flex-start; }',
@@ -10578,6 +10603,95 @@ window.__ModuleLoader__.load({
       'node.created', 'node.status', 'node.priority', 'node.title', 'node.updated', 'node.removed', 'node.snapshot',
     ]);
 
+    /**
+     * Full change dialog.
+     *
+     * The table has one line per entry, so a multi-field change is necessarily
+     * clipped there; this dialog shows the whole record: identity, the before/after
+     * table for the fields that changed, and the raw payload.
+     */
+    function WalDetailDialog({ entry, t, onClose, onSelectNode }) {
+      if (entry === null || entry === undefined) return null;
+      const payload = asObject(entry.payload);
+      const before = asObject(payload.before);
+      const after = asObject(payload.after);
+      const changed = asArray(payload.changed).map((value) => firstString(value)).filter((value) => value !== '');
+      const fieldValue = (source, field) => {
+        const value = source[field];
+        if (value === undefined || value === null || value === '') return '—';
+        return String(value);
+      };
+      return h(
+        'div',
+        { className: 'rl-overlay-layer rl-overlay-layer-confirm', 'data-testid': 'wal-detail' },
+        h(
+          'div',
+          { className: 'rl-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('ws.wal.detailTitle') },
+          h(
+            'div',
+            { className: 'rl-modal-head' },
+            h('h2', { className: 'rl-modal-title' }, t('ws.wal.detailTitle')),
+            h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.window.close'), onClick: onClose }),
+          ),
+          h(
+            'div',
+            { className: 'rl-modal-body' },
+            h(
+              'div',
+              { className: 'rl-info-grid' },
+              h(LabInfoRow, { label: t('ws.wal.seq'), value: String(entry.projectSeq ?? entry.seq ?? ''), mono: true }),
+              h(LabInfoRow, { label: t('ws.wal.globalSeq'), value: String(entry.seq ?? ''), mono: true }),
+              h(LabInfoRow, { label: t('ws.wal.kind'), value: firstString(entry.kind), mono: true }),
+              h(LabInfoRow, { label: t('ws.wal.at'), value: formatDateTime(Number(entry.at) || 0, t) }),
+              firstString(entry.nodeId) === ''
+                ? null
+                : h('div', { className: 'rl-info-row' },
+                    h('span', { className: 'rl-info-label' }, t('ws.wal.node')),
+                    h('button', {
+                      type: 'button',
+                      className: 'rl-link-btn',
+                      onClick: () => onSelectNode(firstString(entry.nodeId)),
+                    }, firstString(entry.nodeId))),
+            ),
+            changed.length > 0
+              ? h(
+                  'div',
+                  { className: 'rl-section' },
+                  h('h3', { className: 'rl-section-title' }, t('ws.wal.detailChanged')),
+                  h(
+                    'div',
+                    { className: 'rl-wal-diff', role: 'table' },
+                    h('div', { className: 'rl-wal-diff-row rl-wal-diff-head', role: 'row' },
+                      h('span', { role: 'columnheader' }, t('ws.wal.field')),
+                      h('span', { role: 'columnheader' }, t('ws.wal.before')),
+                      h('span', { role: 'columnheader' }, t('ws.wal.after'))),
+                    changed.map((field) => h(
+                      'div',
+                      { key: 'diff-' + field, className: 'rl-wal-diff-row', role: 'row' },
+                      h('span', { role: 'cell', className: 'rl-wal-diff-field' }, field),
+                      h('span', { role: 'cell' }, fieldValue(before, field)),
+                      h('span', { role: 'cell' }, fieldValue(after, field)),
+                    )),
+                  ),
+                )
+              : null,
+            h(
+              'div',
+              { className: 'rl-section' },
+              h('h3', { className: 'rl-section-title' }, t('ws.wal.detailPayload')),
+              h('pre', { className: 'rl-wal-json', 'data-testid': 'wal-detail-json' },
+                JSON.stringify(payload, null, 2)),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'rl-modal-foot' },
+            h(LabButton, { label: t('ws.window.close'), onClick: onClose }),
+          ),
+        ),
+      );
+    }
+
     /** One-line summary of a WAL payload, for the results table. */
     function walSummaryOf(entry, t) {
       const payload = asObject(entry?.payload);
@@ -10608,7 +10722,7 @@ window.__ModuleLoader__.load({
      * programmatically; this panel is the same query surface for a person, with the
      * seq range, filters and cursor paging exposed directly.
      */
-    function WalLogPanel({ projectId, onSelect, t }) {
+    function WalLogPanel({ projectId, onSelect, onDetail, t }) {
       const [fromSeq, setFromSeq] = React.useState('0');
       const [toSeq, setToSeq] = React.useState('');
       const [nodeId, setNodeId] = React.useState('');
@@ -10732,6 +10846,7 @@ window.__ModuleLoader__.load({
             h('span', { role: 'columnheader' }, t('ws.wal.kind')),
             h('span', { role: 'columnheader' }, t('ws.wal.node')),
             h('span', { role: 'columnheader' }, t('ws.wal.summary')),
+            h('span', { role: 'columnheader' }, ''),
           ),
           rows.map((entry) => h(
             'div',
@@ -10751,7 +10866,17 @@ window.__ModuleLoader__.load({
                     className: 'rl-link-btn',
                     onClick: () => onSelect(firstString(entry.nodeId)),
                   }, firstString(entry.nodeId))),
-            h('span', { role: 'cell', className: 'rl-wal-summary' }, walSummaryOf(entry, t)),
+            h('button', {
+              type: 'button',
+              className: 'rl-wal-summary rl-wal-summary-btn',
+              title: t('ws.wal.detail'),
+              onClick: () => onDetail(entry),
+            }, walSummaryOf(entry, t)),
+            h('button', {
+              type: 'button',
+              className: 'rl-link-btn',
+              onClick: () => onDetail(entry),
+            }, t('ws.wal.detail')),
           )),
         ),
       );
@@ -11401,6 +11526,7 @@ window.__ModuleLoader__.load({
       const [railOpen, setRailOpen] = React.useState(false);
       const [historyOpen, setHistoryOpen] = React.useState(false);
       const [historyTab, setHistoryTab] = React.useState('wal');
+      const [walDetail, setWalDetail] = React.useState(null);
       const [railBox, setRailBox] = React.useState({ x: 12, y: 64, w: 320, h: 460 });
       const windowZRef = React.useRef(20);
       const openNodeWindow = React.useCallback((nodeId) => {
@@ -12170,22 +12296,7 @@ window.__ModuleLoader__.load({
             onSuccessor: openSuccessor,
             onOpenMergeCreate: openMergeCreate,
             onOpenDetail: openNodeWindow,
-            replayFooter: replayOpen ? h(ReplayBar, {
-              data: replayData ?? { startAt: replayAt, endAt: replayAt },
-              at: replayAt,
-              playing: replayPlaying,
-              loading: replayLoading,
-              error: replayError,
-              onChange: (value) => { setReplayAt(value); setReplayPlaying(false); },
-              onTogglePlay: () => {
-                const startAt = Number(replayData?.startAt) || replayAt;
-                const endAt = Number(replayData?.endAt) || replayAt;
-                if (replayAt >= endAt) setReplayAt(startAt);
-                setReplayPlaying((value) => !value);
-              },
-              onClose: closeReplay,
-              t,
-            }) : null,
+
             t,
           }),
         );
@@ -12321,7 +12432,8 @@ window.__ModuleLoader__.load({
           activeTab,
           onSelectTab: selectTab,
           replayOpen,
-          onToggleReplay: openReplay,
+          onOpenHistory: () => setHistoryOpen(true),
+          historyOpen,
           onAutoStart: () => setAutoConfirmOpen(true),
           onAutoStop: stopAuto,
           onAutoResume: resumeAuto,
@@ -12492,13 +12604,28 @@ window.__ModuleLoader__.load({
             })
           : null,
         windowLayer,
+        h(WalDetailDialog, {
+          entry: walDetail,
+          t,
+          onClose: () => setWalDetail(null),
+          onSelectNode: (nodeId) => { setSelectedId(nodeId); setWalDetail(null); },
+        }),
         h(HistoryModal, {
           open: historyOpen,
           tab: historyTab,
           onTab: setHistoryTab,
-          onClose: () => setHistoryOpen(false),
+          onClose: () => {
+            setHistoryOpen(false);
+            setWalDetail(null);
+            if (replayOpen) closeReplay();
+          },
           t,
-          walPanel: h(WalLogPanel, { projectId, onSelect: setSelectedId, t }),
+          walPanel: h(WalLogPanel, {
+            projectId,
+            onSelect: setSelectedId,
+            onDetail: (entry) => setWalDetail(entry),
+            t,
+          }),
           replayPanel: h(
             'div',
             { className: 'rl-history-replay' },
@@ -12877,7 +13004,8 @@ window.__ModuleLoader__.load({
       activeTab,
       onSelectTab,
       replayOpen,
-      onToggleReplay,
+      onOpenHistory,
+  historyOpen,
       onAutoStart,
       onAutoStop,
       onAutoResume,
@@ -13023,12 +13151,14 @@ window.__ModuleLoader__.load({
               ariaLabel: t('ws.copilot.toggle'),
               onClick: onToggleCopilot,
             })),
-            h('span', { 'data-testid': 'topbar-action-replay' }, h(LabButton, {
+            // The clock is the History entry: replay lives inside that dialog now,
+            // so a separate bottom replay bar would be a second, staler control.
+            h('span', { 'data-testid': 'topbar-action-history' }, h(LabButton, {
               label: '◷',
-              variant: replayOpen === true ? 'primary' : 'ghost',
-              title: t('replay.toggle'),
-              ariaLabel: t('replay.toggle'),
-              onClick: onToggleReplay,
+              variant: historyOpen === true ? 'primary' : 'ghost',
+              title: t('ws.history.open'),
+              ariaLabel: t('ws.history.open'),
+              onClick: onOpenHistory,
             })),
           ),
         ),
@@ -13604,7 +13734,7 @@ window.__ModuleLoader__.load({
     }
     // #endregion dag-canvas-scene
 
-    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, onOpenDetail, rail, railOpen, onToggleRail, onOpenHistory, replayFooter, t }) {
+    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, onOpenDetail, rail, railOpen, onToggleRail, t }) {
       const hostRef = React.useRef(null);
       const canvasRef = React.useRef(null);
       const viewRef = React.useRef({ pan: { x: 0, y: 0 }, zoom: 1, dpr: 1, hoverId: null });
@@ -14036,12 +14166,6 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'rl-canvas-toolbar' },
-          typeof onOpenHistory === 'function' ? h(LabButton, {
-            label: t('ws.history.open'),
-            variant: 'ghost',
-            onClick: onOpenHistory,
-            title: t('ws.history.openHint'),
-          }) : null,
           typeof onToggleRail === 'function' ? h(LabButton, {
             label: t(railOpen === true ? 'ws.rail.hide' : 'ws.rail.show'),
             variant: railOpen === true ? 'primary' : 'ghost',
@@ -14055,13 +14179,7 @@ window.__ModuleLoader__.load({
         ),
         safeNodes.length > 0 ? h('div', { className: 'rl-canvas-hint' }, t('ws.canvas.hint')) : null,
         safeNodes.length === 0 ? h('div', { className: 'rl-canvas-empty' }, t('ws.canvas.empty')) : null,
-        replayFooter ? h('div', {
-          className: 'rl-canvas-replay',
-          onPointerDown: (event) => event?.stopPropagation(),
-          onPointerMove: (event) => event?.stopPropagation(),
-          onPointerUp: (event) => event?.stopPropagation(),
-          onClick: (event) => event?.stopPropagation(),
-        }, replayFooter) : null,
+
       );
     }
 
@@ -21855,6 +21973,7 @@ window.__ModuleLoader__.load({
         NodeInspector,
         NodeRail,
         WalLogPanel,
+        WalDetailDialog,
         HistoryModal,
         ProjectTabBar,
         ProjectTabPanel,
