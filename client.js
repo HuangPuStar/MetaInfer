@@ -11404,6 +11404,13 @@ window.__ModuleLoader__.load({
             onPointerMove: drag,
             onPointerUp: endDrag,
             onPointerCancel: endDrag,
+            // Double-clicking the title bar toggles collapse, the same gesture as a
+            // desktop window. Buttons keep their own click behaviour.
+            onDoubleClick: (event) => {
+              const target = event?.target;
+              if (target && typeof target.closest === 'function' && target.closest('button') !== null) return;
+              moveBy({ min: minimized !== true });
+            },
           },
           h('span', { className: 'rl-node-window-grip', 'aria-hidden': true }, '⠿'),
           h('span', { className: 'rl-node-window-title' }, title),

@@ -109,7 +109,7 @@ target.closest('.rl-rail-window, .rl-node-window, .rl-dag-menu, .rl-canvas-toolb
 | 半透明 + 背景模糊 | `background: bg-layer-1 @82%` + `backdrop-filter: blur(10px)` |
 | 拖动 | 标题栏 pointer 事件（按钮区域不触发） |
 | 缩放 | 右下角手柄，最小 320×200 |
-| 最小化 | `—` 折叠成标题条，`▢` 还原 |
+| 最小化 | `—` 折叠成标题条，`▢` 还原；**双击标题栏**同样切换（桌面窗口手势，按钮上的双击不触发） |
 | 关闭 | `✕` |
 | 置顶 | 点击窗口任意处（`onPointerDown`）→ 共用 z 计数器 +1 |
 | 可选 tab | `tabs` / `tab` / `onTab` |

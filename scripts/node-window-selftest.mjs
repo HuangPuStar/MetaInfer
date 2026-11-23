@@ -148,7 +148,33 @@ await React.act(async () => { host.querySelectorAll('.rl-node-window-btn')[0].cl
 await render();
 check('restoring brings the tabs back', host.querySelectorAll('.rl-node-window-tab').length === 5);
 
-// closing and focus
+// double-click on the title bar toggles collapse (desktop-window gesture)
+patches.length = 0;
+await React.act(async () => {
+  header.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  await wait(40);
+});
+check('double-clicking the title bar minimises the window',
+  patches.some((patch) => patch.min === true), JSON.stringify(patches));
+await render();
+patches.length = 0;
+const collapsedHeader = host.querySelector('.rl-node-window-head');
+await React.act(async () => {
+  collapsedHeader.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  await wait(40);
+});
+check('double-clicking again restores it', patches.some((patch) => patch.min === false), JSON.stringify(patches));
+await render();
+patches.length = 0;
+const minimizeButton = [...host.querySelectorAll('.rl-node-window-btn')][0];
+await React.act(async () => {
+  minimizeButton.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  await wait(40);
+});
+check('a double-click on a header button does not also toggle the window',
+  patches.every((patch) => patch.min === undefined), JSON.stringify(patches));
+
+// closing and focus// closing and focus
 await React.act(async () => {
   win.dispatchEvent(pointer('pointerdown', 300, 300));
   await wait(20);

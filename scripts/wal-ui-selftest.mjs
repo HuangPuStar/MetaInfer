@@ -254,6 +254,15 @@ check('history can be dragged', moved !== undefined && moved.x === 160 && moved.
 const historyMinimize = [...modalHost.querySelectorAll('[data-testid="history-modal"] .rl-node-window-btn')][0];
 await React.act(async () => { historyMinimize.click(); await wait(40); });
 check('history can be minimised', modalPatches.some((patch) => patch.min === true), JSON.stringify(modalPatches.slice(-2)));
+// the shared shell gives history the same double-click collapse
+modalPatches.length = 0;
+await React.act(async () => {
+  modalHost.querySelector('[data-testid="history-modal"] .rl-node-window-head')
+    .dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+  await wait(40);
+});
+check('double-clicking the history title bar collapses it',
+  modalPatches.some((patch) => patch.min === true), JSON.stringify(modalPatches));
 const closeButton = [...modalHost.querySelectorAll('[data-testid="history-modal"] .rl-node-window-btn')].pop();
 await React.act(async () => { closeButton.click(); await wait(20); });
 check('the modal closes', closed === 1);
