@@ -1326,6 +1326,56 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           updated += 1;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          // A collector agent can die for reasons unrelated to the widget's data
+          // (model transport faults, structured-output parse failures). Without a
+          // fallback the entire dashboard goes stale while the numbers are sitting
+          // in the project store, and every later refresh repeats the same death.
+          // When a fallback script is available, collect deterministically instead
+          // so a flaky model can never take the dashboard down with it.
+          const fallback = typeof config.fallbackScript === 'string' && config.fallbackScript.trim()
+            ? config.fallbackScript
+            : (process.env.DSH_DASHBOARD_FALLBACK_SCRIPT ?? '');
+          if (fallback.trim()) {
+            try {
+              const data = await runWidgetScript(fallback, project.repo.path);
+              widgets.push({
+                ...widget,
+                data,
+                updatedAt: Date.now(),
+                lastRefresh: {
+                  status: 'ok',
+                  at: Date.now(),
+                  agentSessionId: null,
+                  error: null,
+                  dataSource: 'script-fallback',
+                  fallbackReason: message,
+                },
+              });
+              updated += 1;
+              await store.appendEvent(project, 'dashboard/fallback_used', {
+                data: { widgetId: widget.id, reason: message },
+              });
+              continue;
+            } catch (fallbackError) {
+              const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+              errors.push({
+                widgetId: widget.id,
+                title: widget.title,
+                error: `${message}; fallback failed: ${fallbackMessage}`,
+                code: typeof error?.code === 'string' ? error.code : 'error',
+              });
+              widgets.push({
+                ...widget,
+                lastRefresh: {
+                  status: 'error',
+                  at: Date.now(),
+                  agentSessionId: null,
+                  error: `${message}; fallback failed: ${fallbackMessage}`,
+                },
+              });
+              continue;
+            }
+          }
           errors.push({
             widgetId: widget.id,
             title: widget.title,
