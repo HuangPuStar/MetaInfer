@@ -225,8 +225,10 @@ await writeF(path.join(worktree, 'results', 'torch-v1.json'), JSON.stringify(TRA
 await writeF(path.join(worktree, 'results', 'nested', 'torch-v2.json'), JSON.stringify(traceV2));
 await writeF(path.join(worktree, 'results', 'notes.json'), JSON.stringify({ hello: 'not a trace' }));
 const { gzipSync } = await import('node:zlib');
-// A real gzip stream wrapping a POSIX tar header, so the failure is the tar
-// check rather than a broken gzip.
+// Only *.json.gz is listed now; the bare json + tar bundle stay on disk to prove
+// they are filtered out (and that opening a tar still fails by name).
+await writeF(path.join(worktree, 'results', 'torch-a.json.gz'), gzipSync(Buffer.from(JSON.stringify(TRACE), 'utf8')));
+await writeF(path.join(worktree, 'results', 'nested', 'torch-b.json.gz'), gzipSync(Buffer.from(JSON.stringify(traceV2), 'utf8')));
 const tarHeader = Buffer.alloc(1024);
 tarHeader.write('ustar', 257, 'latin1');
 await writeF(path.join(worktree, 'results', 'trace.tar.gz'), gzipSync(tarHeader));
@@ -234,27 +236,31 @@ await mkdirP(path.join(worktree, 'node_modules', 'pkg'), { recursive: true });
 await writeF(path.join(worktree, 'node_modules', 'pkg', 'decoy.json'), JSON.stringify(TRACE));
 
 const candidates = envelope(await call('GET', tracePath, { search: `?view=candidates&projectId=${projectId}&nodeId=${node.id}` }));
-check('candidates lists every trace-looking file by extension',
-  candidates?.candidates?.length === 4, JSON.stringify(candidates?.candidates?.map((row) => row.relPath)));
-check('candidates keep the tar.gz bundle', candidates?.candidates?.some((row) => row.relPath.endsWith('trace.tar.gz') && row.needsExtraction === true));
+check('candidates list only *.json.gz',
+  candidates?.candidates?.length === 2 && candidates.candidates.every((row) => row.relPath.endsWith('.json.gz')),
+  JSON.stringify(candidates?.candidates?.map((row) => row.relPath)));
+check('candidates hide bare json and tar.gz bundles',
+  candidates?.candidates?.every((row) => !row.relPath.endsWith('.json') && !row.relPath.endsWith('.tar.gz')));
 check('candidates still skip node_modules',
   candidates?.candidates?.every((row) => !row.relPath.includes('node_modules')));
-check('a plain json artifact is listed without being parsed',
-  candidates?.candidates?.some((row) => row.relPath.endsWith('notes.json')));
 check('candidates carry a relative path and size',
   typeof candidates?.candidates?.[0]?.relPath === 'string' && candidates.candidates[0].size > 0);
 
+const openedGz = envelope(await call('POST', commandPath, {
+  body: { type: 'trace.open', projectId, nodeId: node.id, relPath: 'results/torch-a.json.gz' },
+}));
+check('a listed *.json.gz opens directly', openedGz?.counts?.kernels === 2, JSON.stringify(openedGz).slice(0, 200));
 const openedV1 = envelope(await call('POST', commandPath, {
-  body: { type: 'trace.open', projectId, nodeId: node.id, relPath: 'results/torch-v1.json' },
+  body: { type: 'trace.open', projectId, nodeId: node.id, relPath: 'results/torch-a.json.gz' },
 }));
 check('trace.open accepts a node-relative path', openedV1?.traceId?.startsWith('tr_') === true, JSON.stringify(openedV1).slice(0, 200));
 const openedV2 = envelope(await call('POST', commandPath, {
-  body: { type: 'trace.open', projectId, nodeId: node.id, relPath: 'results/nested/torch-v2.json' },
+  body: { type: 'trace.open', projectId, nodeId: node.id, relPath: 'results/nested/torch-b.json.gz' },
 }));
 check('two traces from one node can be open at once', openedV1?.traceId !== openedV2?.traceId);
 const listed = envelope(await call('GET', tracePath, { search: '' }));
 const listedRow = listed?.traces?.find((row) => row.traceId === openedV1?.traceId);
-check('an opened node trace keeps its provenance', listedRow?.nodeId === node.id && listedRow?.relPath === 'results/torch-v1.json');
+check('an opened node trace keeps its provenance', listedRow?.nodeId === node.id && listedRow?.relPath === 'results/torch-a.json.gz');
 const tarball = await call('POST', commandPath, {
   body: { type: 'trace.open', projectId, nodeId: node.id, relPath: 'results/trace.tar.gz' },
 });

@@ -25,19 +25,16 @@ import { TRACE_LIMITS } from './trace.js';
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.venv', '__pycache__', '.cache', 'build', 'dist']);
 /**
- * Trace-looking names, by extension only. Ordered most-specific first so a
- * `.json.gz` is not reported as a plain `.gz`.
+ * Only `*.json.gz` is listed (operator decision, 2026-11-23): that is the single
+ * container their experiments actually emit. Bare json, tar bundles and other
+ * containers are hidden on purpose — a shorter list is worth more than a list of
+ * files that cannot be indexed.
  */
-const CANDIDATE_EXT = /\.(json\.gz|tar\.gz|tgz|json|ndjson|trace|pt\.trace|gz)$/i;
+const CANDIDATE_EXT = /\.json\.gz$/i;
 
-/** Classify by name alone; the viewer validates on open. */
+/** Every candidate is a gzipped chrome trace; the viewer validates on open. */
 export function traceKindOf(name) {
-  const lower = String(name ?? '').toLowerCase();
-  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) return 'tar-gzip';
-  if (lower.endsWith('.json.gz') || lower.endsWith('.gz')) return 'gzip-json';
-  if (lower.endsWith('.json') || lower.endsWith('.ndjson')) return 'json';
-  if (lower.endsWith('.trace') || lower.endsWith('.pt.trace')) return 'trace';
-  return 'unknown';
+  return /\.json\.gz$/i.test(String(name ?? '')) ? 'gzip-json' : 'unknown';
 }
 
 const DEFAULT_MAX_FILES = 4000;
@@ -85,17 +82,13 @@ export async function listNodeTraces(root, options = {}) {
       // because opening it would exceed the trace budget anyway.
       if (!info.isFile() || info.size === 0 || info.size > TRACE_LIMITS.maxBytes) continue;
       const relPath = path.relative(base, absolute);
-      const kind = traceKindOf(entry.name);
       candidates.push({
         relPath,
         name: path.basename(relPath),
         size: info.size,
         mtimeMs: Math.trunc(info.mtimeMs),
-        gzip: /\.gz$/i.test(entry.name),
-        kind,
-        // tar bundles must be unpacked before the viewer can index them; the
-        // listing still shows them so the operator knows the trace exists.
-        needsExtraction: kind === 'tar-gzip',
+        gzip: true,
+        kind: 'gzip-json',
       });
     }
   }

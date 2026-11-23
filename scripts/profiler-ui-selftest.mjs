@@ -132,8 +132,8 @@ globalThis.fetch = async (url, init = {}) => {
       data = {
         projectId: 'p1', nodeId: parsed.searchParams.get('nodeId'), worktree: '/tmp/wt', scanned: 3, total: 2,
         candidates: [
-          { relPath: 'results/a.json', name: 'a.json', size: 2048, mtimeMs: 2, kind: 'chrome-trace', gzip: false },
-          { relPath: 'results/nested/b.json', name: 'b.json', size: 4096, mtimeMs: 1, kind: 'chrome-trace', gzip: false },
+          { relPath: 'results/a.json.gz', name: 'a.json.gz', size: 2048, mtimeMs: 2, kind: 'gzip-json', gzip: true },
+          { relPath: 'results/nested/b.json.gz', name: 'b.json.gz', size: 4096, mtimeMs: 1, kind: 'gzip-json', gzip: true },
         ],
       };
     } else if (view === 'compare') {
@@ -308,7 +308,7 @@ check('the inspector lists the node traces',
   nodeHost.querySelectorAll('[data-testid="node-traces"] .rl-trace-candidate').length === 2,
   nodeHost.textContent?.slice(0, 200));
 check('node trace rows keep the relative path',
-  (nodeHost.textContent ?? '').includes('results/nested/b.json'));
+  (nodeHost.textContent ?? '').includes('results/nested/b.json.gz'));
 
 const openedEvents = [];
 const onOpenTrace = (event) => openedEvents.push(event.detail);
