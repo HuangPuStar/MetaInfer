@@ -263,11 +263,64 @@ await React.act(async () => {
 check('Escape closes the context menu', host.querySelector('[data-testid="dag-context-menu"]') === null);
 
 
+// --- priority is offered only where dispatch is still possible ----------------
+const dispatchHost = window.document.createElement('div');
+window.document.body.appendChild(dispatchHost);
+const dispatchRoot = createRoot(dispatchHost);
+const dispatchNodes = [
+  { id: 'n-planned', title: 'queued', status: 'planned', parentId: null },
+  { id: 'n-done', title: 'finished', status: 'completed', parentId: null },
+  { id: 'n-child', title: 'child', status: 'completed', parentId: 'n-done' },
+];
+const dispatchLayout = {
+  positions: new Map([['n-planned', { x: 10, y: 10 }], ['n-done', { x: 10, y: 160 }], ['n-child', { x: 280, y: 160 }]]),
+  width: 560, height: 320,
+};
+const dispatchEdges = [{ from: 'n-done', to: 'n-child' }];
+await React.act(async () => {
+  dispatchRoot.render(React.createElement(DagCanvas, {
+    nodes: dispatchNodes, edges: dispatchEdges, layout: dispatchLayout, selectedId: null, now: Date.now(), busyKey: '',
+    onSelect: noop, onOpenNative: noop, onContinue: noop, onNodeAction: record('action'),
+    onProposalAction: noop, onRetryRequest: noop, onEscalate: noop,
+    onOpenTrace: noop, onOpenFiles: noop, onSuccessor: noop, onOpenMergeCreate: noop,
+    replayFooter: null, factsSlot: null, t: (key, vars) => (vars && vars.class ? key + ':' + vars.class : key),
+  }));
+  await wait(120);
+});
+await wait(60);
+const dispatchCanvas = dispatchHost.querySelector('[data-testid="dag-canvas"]');
+dispatchCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 1000, right: 1600, bottom: 1000, x: 0, y: 0 });
+const dZoom = Math.min((1600 - 96) / dispatchLayout.width, (1000 - 96) / dispatchLayout.height, 1);
+const dPan = { x: (1600 - dispatchLayout.width * dZoom) / 2, y: (1000 - dispatchLayout.height * dZoom) / 2 };
+const rightClickAt = async (x, y) => {
+  await React.act(async () => {
+    dispatchCanvas.dispatchEvent(new window.MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true,
+      clientX: (x + 30) * dZoom + dPan.x,
+      clientY: (y + 30) * dZoom + dPan.y,
+    }));
+    await wait(60);
+  });
+  return dispatchHost.querySelector('[data-testid="dag-context-menu"]');
+};
+const plannedMenu = await rightClickAt(10, 10);
+check('a planned node offers start and the priority submenu',
+  (plannedMenu?.textContent ?? '').includes('ws.menu.start') && (plannedMenu?.textContent ?? '').includes('ws.menu.priority'),
+  plannedMenu?.textContent ?? '');
+const doneMenu = await rightClickAt(10, 160);
+check('a completed node with a successor offers no priority submenu',
+  (doneMenu?.textContent ?? '').includes('ws.menu.priority') === false,
+  doneMenu?.textContent ?? '');
+check('a completed node still offers the merge action',
+  (doneMenu?.textContent ?? '').includes('ws.menu.createMerge'), doneMenu?.textContent ?? '');
+await React.act(async () => { dispatchRoot.unmount(); });
+
 // --- multi-level menu: the priority submenu ----------------------------------
 const prioHost = window.document.createElement('div');
 window.document.body.appendChild(prioHost);
 const prioRoot = createRoot(prioHost);
-const prioNodes = [{ id: 'n-prio', title: 'prio', status: 'completed', parentId: null, priority: { class: 'p2' } }];
+// Priority is offered only for dispatchable nodes, so this fixture is queued.
+const prioNodes = [{ id: 'n-prio', title: 'prio', status: 'planned', parentId: null, priority: { class: 'p2' } }];
 const prioLayout = { positions: new Map([['n-prio', { x: 10, y: 10 }]]), width: 400, height: 200 };
 await React.act(async () => {
   prioRoot.render(React.createElement(DagCanvas, {

@@ -1729,6 +1729,9 @@
     "priority.p1": "P1",
     "priority.p2": "P2",
     "priority.p3": "P3",
-    "priority.deferred": "Deferred"
+    "priority.deferred": "Deferred",
+    "ws.menu.start": "▶ Start node",
+    "ws.menu.cancel": "■ Cancel run",
+    "ws.menu.createMerge": "Create merge node"
   }
 }

@@ -1304,10 +1304,12 @@ window.__ModuleLoader__.load({
       "ws.log.openRun": "查看运行",
       "ws.log.title": "活动日志",
       "ws.menu.approve": "批准提案",
+      "ws.menu.cancel": "■ 取消运行",
       "ws.menu.clearSelection": "取消选中",
       "ws.menu.continue": "继续对话",
       "ws.menu.copyId": "复制节点 ID",
       "ws.menu.createChild": "创建子节点",
+      "ws.menu.createMerge": "创建合并节点",
       "ws.menu.escalate": "升级模型重试",
       "ws.menu.files": "查看文件",
       "ws.menu.fit": "适应视图",
@@ -1318,6 +1320,7 @@ window.__ModuleLoader__.load({
       "ws.menu.prioritySet": "设为 {class}",
       "ws.menu.reject": "拒绝提案",
       "ws.menu.retry": "重试",
+      "ws.menu.start": "▶ 启动节点",
       "ws.menu.trace": "查看 Profile 追踪",
       "ws.menu.zoomIn": "放大",
       "ws.menu.zoomOut": "缩小",
@@ -3033,10 +3036,12 @@ window.__ModuleLoader__.load({
       "ws.log.openRun": "View run",
       "ws.log.title": "Activity log",
       "ws.menu.approve": "Approve proposal",
+      "ws.menu.cancel": "■ Cancel run",
       "ws.menu.clearSelection": "Clear selection",
       "ws.menu.continue": "Continue conversation",
       "ws.menu.copyId": "Copy node id",
       "ws.menu.createChild": "Create child node",
+      "ws.menu.createMerge": "Create merge node",
       "ws.menu.escalate": "Escalate model",
       "ws.menu.files": "Browse files",
       "ws.menu.fit": "Fit view",
@@ -3047,6 +3052,7 @@ window.__ModuleLoader__.load({
       "ws.menu.prioritySet": "Set to {class}",
       "ws.menu.reject": "Reject proposal",
       "ws.menu.retry": "Retry",
+      "ws.menu.start": "▶ Start node",
       "ws.menu.trace": "View profile trace",
       "ws.menu.zoomIn": "Zoom in",
       "ws.menu.zoomOut": "Zoom out",
@@ -11608,6 +11614,7 @@ window.__ModuleLoader__.load({
             onOpenTrace: openNodeTrace,
             onOpenFiles: openNodeFiles,
             onSuccessor: openSuccessor,
+            onOpenMergeCreate: openMergeCreate,
             replayFooter: replayOpen ? h(ReplayBar, {
               data: replayData ?? { startAt: replayAt, endAt: replayAt },
               at: replayAt,
@@ -12833,6 +12840,11 @@ window.__ModuleLoader__.load({
         neighbours.get(edge.from).add(edge.to);
         neighbours.get(edge.to).add(edge.from);
       }
+      const childCount = new Map();
+      for (const edge of edges) {
+        if (!byId.has(edge.from) || !byId.has(edge.to)) continue;
+        childCount.set(edge.from, (childCount.get(edge.from) ?? 0) + 1);
+      }
       const sortedByX = items.slice().sort((a, b) => (a.x - b.x) || (a.y - b.y));
       const sortedByY = items.slice().sort((a, b) => (a.y - b.y) || (a.x - b.x));
       return {
@@ -12843,6 +12855,7 @@ window.__ModuleLoader__.load({
         segments,
         segmentsBySource: null,
         neighbours,
+        childCount,
         count: items.length,
       };
     }
@@ -12997,7 +13010,7 @@ window.__ModuleLoader__.load({
     }
     // #endregion dag-canvas-scene
 
-    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, replayFooter, factsSlot, t }) {
+    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, replayFooter, factsSlot, t }) {
       const hostRef = React.useRef(null);
       const canvasRef = React.useRef(null);
       const viewRef = React.useRef({ pan: { x: 0, y: 0 }, zoom: 1, dpr: 1, hoverId: null });
@@ -13268,8 +13281,17 @@ window.__ModuleLoader__.load({
           { key: 'trace', label: t('ws.menu.trace'), run: () => onOpenTrace(nodeId) },
           { key: 'native', label: t('ws.menu.native'), run: () => onOpenNative(nodeId, 'trajectory') },
         ];
+        if (status === 'planned') {
+          items.push({ key: 'start', label: t('ws.menu.start'), run: () => onNodeAction('node?.start', nodeId) });
+        }
+        if (status === 'running') {
+          items.push({ key: 'cancel', label: t('ws.menu.cancel'), run: () => onNodeAction('node?.cancel', nodeId) });
+        }
         if (status === 'completed' || status === 'running') {
           items.push({ key: 'continue', label: t('ws.menu.continue'), run: () => onContinue(nodeId) });
+        }
+        if (status === 'completed' && node !== null && nodeIsMergeOf(node) === false && typeof onOpenMergeCreate === 'function') {
+          items.push({ key: 'merge', label: t('ws.menu.createMerge'), run: () => onOpenMergeCreate(nodeId) });
         }
         if (status === 'proposed') {
           items.push({ key: 'approve', label: t('ws.menu.approve'), run: () => onProposalAction('approve', nodeId) });
@@ -13281,8 +13303,12 @@ window.__ModuleLoader__.load({
         if (status === 'failed') {
           items.push({ key: 'escalate', label: t('ws.menu.escalate'), run: () => onEscalate(nodeId) });
         }
-        // Priority is a submenu: step up/down plus an explicit class pick, and the
-        // menu renderer supports arbitrary nesting so more can be grouped later.
+        // Priority only reorders *dispatch*, so it is offered only for nodes that can
+        // still be dispatched. A node that already produced a successor (or is
+        // finished/failed) has nothing left to schedule — offering the submenu there
+        // was misleading.
+        const childCount = sceneRef.current?.childCount?.get(nodeId) ?? 0;
+        const dispatchable = (status === 'planned' || status === 'running') && childCount === 0;
         const currentPriority = node === null ? '' : nodePriorityClassOf(node);
         const priorityChildren = [
           {
@@ -13302,7 +13328,7 @@ window.__ModuleLoader__.load({
             run: () => onNodeAction('node?.priority', nodeId, { priority: { class: cls } }),
           })),
         ];
-        items.push({ key: 'priority', label: t('ws.menu.priority'), children: priorityChildren });
+        if (dispatchable) items.push({ key: 'priority', label: t('ws.menu.priority'), children: priorityChildren });
         items.push({ key: 'copy', label: t('ws.menu.copyId'), run: () => { void copyTextToClipboard(nodeId); } });
         return items;
       };
@@ -13970,85 +13996,7 @@ window.__ModuleLoader__.load({
               h('p', { className: 'rl-hint' }, t('ws.fleet.workerHint')),
             )
           : null,
-        h(
-          'div',
-          { className: 'rl-inspector-actions' },
-          status === 'proposed'
-            ? h(LabButton, {
-                label: busy ? t('ws.proposed.working') : t('ws.proposed.approve'),
-                variant: 'primary',
-                disabled: busy,
-                onClick: () => onProposalAction('approve', nodeKeyId),
-              })
-            : null,
-          status === 'proposed'
-            ? h(LabButton, {
-                label: t('ws.proposed.reject'),
-                disabled: busy,
-                onClick: () => onProposalAction('reject', nodeKeyId),
-              })
-            : null,
-          status === 'planned'
-            ? h(LabButton, {
-                label: busy ? t('ws.action.starting') : t('ws.action.start'),
-                variant: 'primary',
-                disabled: blocked,
-                onClick: () => onAction('node.start', nodeKeyId),
-              })
-            : null,
-          status === 'running'
-            ? h(LabButton, {
-                label: busy ? t('ws.action.cancelling') : t('ws.action.cancel'),
-                variant: 'primary',
-                disabled: busy,
-                onClick: () => onAction('node.cancel', nodeKeyId),
-              })
-            : null,
-          status === 'failed'
-            ? h(LabButton, {
-                label: busy ? t('ws.retry.busy') : t('ws.retry.action'),
-                variant: 'primary',
-                disabled: blocked,
-                onClick: () => onRetryRequest(nodeKeyId),
-              })
-            : null,
-          status === 'cancelled'
-            ? h(LabButton, {
-                label: busy ? t('ws.retry.busy') : t('ws.retry.cancelled'),
-                variant: 'primary',
-                disabled: blocked,
-                title: t('ws.retry.cancelledHint'),
-                onClick: () => onRetryRequest(nodeKeyId),
-              })
-            : null,
-          (status === 'failed' || (status === 'completed' && leafAndOpen))
-            ? h(LabButton, {
-                label: busy ? t('ws.escalate.busy') : t('ws.escalate.action'),
-                disabled: blocked,
-                title: t('ws.escalate.hint'),
-                onClick: () => onEscalate(nodeKeyId),
-              })
-            : null,
-          waiting ? h('p', { className: 'rl-hint rl-wait-hint' }, t('ws.cluster.waitHint')) : null,
-          nodeCanContinueOf(node, nodes)
-            ? h(LabButton, {
-                label: t('ws.native.continue'),
-                onClick: () => onContinue(nodeKeyId),
-              })
-            : null,
-          status === 'completed'
-            ? h(LabButton, {
-                label: t('ws.successor.action'),
-                onClick: () => onSuccessor(nodeKeyId),
-              })
-            : null,
-          status === 'completed' && !isMergeNode
-            ? h(LabButton, {
-                label: t('ws.merge.createAction'),
-                onClick: () => onOpenMergeCreate(nodeKeyId),
-              })
-            : null,
-        ),
+        waiting ? h('p', { className: 'rl-hint rl-wait-hint' }, t('ws.cluster.waitHint')) : null,
         (() => {
           const execution = asObject(node?.execution);
           const profile = firstString(execution.profile);
