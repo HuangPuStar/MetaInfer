@@ -80,14 +80,9 @@ for attempt in 1 2; do
     PLUG=$(curl -s -b /tmp/dsh-cj -H "Host: 10.8.160.18:3081" -H "x-metainfer-operator: $OPTOK" -o /dev/null -w '%{http_code}' "http://172.17.0.5:3081/api/metainfer-research-lab/health")
     PBODY=$(curl -s -b /tmp/dsh-cj -H "Host: 10.8.160.18:3081" "http://172.17.0.5:3081/api/metainfer-research-lab/health" -o /tmp/plugin-health.json -w '%{http_code}')
     log "plugin health http=$PBODY body=$(head -c 200 /tmp/plugin-health.json 2>/dev/null)"
-    # The plugin pauses auto on purpose after a host restart. Restarting is our
-    # action, not the operator's, so put the driver back the way we found it.
-    if [ "${RESUME_AUTO:-0}" = "1" ]; then
-      AR=$(curl -s -b /tmp/dsh-cj -H "Host: 10.8.160.18:3081" -H "x-metainfer-operator: $OPTOK" -H 'content-type: application/json' \
-        -X POST "http://172.17.0.5:3081/api/metainfer-research-lab/commands" \
-        -d "{\"type\":\"auto.start\",\"projectId\":\"${PROJECT_ID:-prj-eb229127}\"}" -o /tmp/auto-start.json -w '%{http_code}')
-      log "auto.start http=$AR body=$(head -c 160 /tmp/auto-start.json 2>/dev/null)"
-    fi
+    # The driver is never resumed automatically: a restart must not kick off
+    # experiments on its own. The plugin pauses auto after a host restart by
+    # design, and resuming is an explicit operator action.
     TR=$(curl -s -b /tmp/dsh-cj -H "Host: 10.8.160.18:3081" -H "x-metainfer-operator: $OPTOK" "http://172.17.0.5:3081/api/metainfer-research-lab/traces" -o /tmp/traces.json -w '%{http_code}')
     log "profiler traces http=$TR body=$(head -c 120 /tmp/traces.json 2>/dev/null)"
     PTR=$(curl -s -b /tmp/dsh-cj -H "Host: 10.8.160.18:3081" -H "x-metainfer-operator: $OPTOK" -o /tmp/trace-index.json -w '%{http_code}' \
