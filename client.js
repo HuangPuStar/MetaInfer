@@ -1933,6 +1933,7 @@ window.__ModuleLoader__.load({
       "ws.wal.at": "时间",
       "ws.wal.empty": "该区间没有变更记录",
       "ws.wal.fromSeq": "起始 seq（不含）",
+      "ws.wal.globalSeq": "全局行号",
       "ws.wal.kind": "类型",
       "ws.wal.latest": "最新",
       "ws.wal.limit": "每页",
@@ -3700,6 +3701,7 @@ window.__ModuleLoader__.load({
       "ws.wal.at": "Time",
       "ws.wal.empty": "No changes in this range",
       "ws.wal.fromSeq": "From seq (exclusive)",
+      "ws.wal.globalSeq": "Global row id",
       "ws.wal.kind": "Kind",
       "ws.wal.latest": "Latest",
       "ws.wal.limit": "Page size",
@@ -10734,7 +10736,11 @@ window.__ModuleLoader__.load({
           rows.map((entry) => h(
             'div',
             { key: 'wal-' + entry.seq, className: 'rl-wal-row', role: 'row' },
-            h('span', { className: 'rl-wal-seq', role: 'cell' }, String(entry.seq)),
+            h('span', {
+              className: 'rl-wal-seq',
+              role: 'cell',
+              title: t('ws.wal.globalSeq') + ' ' + String(entry.seq),
+            }, String(entry.projectSeq ?? entry.seq)),
             h('span', { role: 'cell' }, formatDateTime(Number(entry.at) || 0, t)),
             h('span', { role: 'cell' }, h('span', { className: 'rl-chip rl-chip-mono' }, firstString(entry.kind))),
             h('span', { role: 'cell' },

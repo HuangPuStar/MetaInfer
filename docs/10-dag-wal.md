@@ -30,7 +30,8 @@
 
 ```sql
 CREATE TABLE wal (
-  seq        INTEGER PRIMARY KEY AUTOINCREMENT, -- 严格递增、永不复用
+  seq        INTEGER PRIMARY KEY AUTOINCREMENT, -- 全局行号：严格递增、永不复用
+  project_seq INTEGER NOT NULL,                -- 项目内序号：每个项目从 1 开始
   project_id TEXT    NOT NULL,
   node_id    TEXT,
   kind       TEXT    NOT NULL,
@@ -39,12 +40,21 @@ CREATE TABLE wal (
   revision   INTEGER,                           -- 写入时的项目 revision
   payload    TEXT                               -- JSON：变更前后/快照
 );
-CREATE INDEX wal_project_seq  ON wal(project_id, seq);
+CREATE INDEX wal_project_seq    ON wal(project_id, project_seq);  -- 游标/区间走这条
+CREATE INDEX wal_project_global ON wal(project_id, seq);
 CREATE INDEX wal_project_node ON wal(project_id, node_id, seq);
 CREATE TABLE wal_meta (key TEXT PRIMARY KEY, value TEXT);  -- 回填标记
 ```
 
-`seq` 是 `AUTOINCREMENT`，所以**删行也不会复用**，可以安全地当作游标。
+两套编号，各有用途：
+
+| 列 | 含义 | 用途 |
+|---|---|---|
+| `project_seq` | **项目内**序号，每个项目从 1 开始，无空洞 | 人读、项目内游标（`fromSeq`/`cursor` 都走它） |
+| `seq` | **全局**行号，`AUTOINCREMENT`，永不复用 | 排序与审计；跨项目的绝对顺序 |
+
+为什么不是"一个项目一个文件"：那会让跨项目查询和归档变成 N 个文件的操作；单库 + 项目内序号
+既能保留全局顺序，也让每个项目的日志从 1 开始。两条都建了索引，查询不会退化。
 
 ## 3. 记录哪些事件
 
@@ -74,8 +84,8 @@ payload 形如：
 ## 4. 查询语义
 
 ```
-fromSeq  —— 排他下界：只返回 seq > fromSeq（"我处理到 42 了，给我之后的"）
-toSeq    —— 包含上界
+fromSeq  —— 排他下界：只返回 project_seq > fromSeq（"我处理到 42 了，给我之后的"）
+toSeq    —— 包含上界（project_seq）
 cursor   —— 上一页的 nextCursor（编码为 "w<seq>"，保持不透明以便将来换编码）
 limit    —— 1..1000，默认 100
 kinds    —— 逗号分隔或数组
@@ -88,8 +98,11 @@ order    —— asc（默认）/ desc
 ```json
 { "projectId": "prj-…", "entries": [ … ], "count": 100,
   "hasMore": true, "nextCursor": "w4231",
-  "latestSeq": 4300, "fromSeq": 4100, "toSeq": null }
+  "latestSeq": 4300, "latestGlobalSeq": 1_000_231,
+  "fromSeq": 4100, "toSeq": null }
 ```
+
+每行同时带 `projectSeq`（人读/游标）与 `seq`（全局行号，表格里作为 tooltip 显示）。
 
 典型用法（调度器）：
 
@@ -132,6 +145,7 @@ GET /api/metainfer-research-lab/wal?projectId=…&fromSeq=…&toSeq=…&nodeId=�
 - seq 严格递增、分页游标不重不漏、区间 `(from, to]`；
 - 按节点/按 kind 过滤；
 - 关库重开后数据仍在、seq 继续增长；
+- 两个项目共用一个库时各自从 1 开始，全局行号仍单调；
 - store 写入产生正确的 kind 序列与 before/after；
 - 老项目一次性回填且不重复；
 - HTTP `GET /wal` 的分页、区间、过滤。
@@ -159,3 +173,25 @@ WAL 不是只有程序能读。画布工具栏的「历史」按钮打开一个*
 
 测试：`scripts/wal-ui-selftest.mjs`（13 项）覆盖首屏自动加载、行渲染与摘要、kind 过滤、
 区间+节点过滤透传、节点跳转、错误态、弹窗双 tab 切换与关闭。
+
+## 9. 运维
+
+### 9.1 探针不得写入生产日志
+
+自检脚本会通过 `storeContext()` 打开内存存储；如果它不指定 WAL 文件，就会写进
+`<DSH_HOME>/metainfer-research-lab/wal.sqlite`。曾经因此让真实项目的序号从 67 开始
+（前 66 行是 `p`、`profiler-p`、`dispute-route-p` 等测试项目）。
+
+现在 `scripts/lib/memory-domain.mjs` 的 `storeContext()` 默认给每个探针进程一个
+`$TMPDIR/mirl-probe-wal-<pid>/wal.sqlite`，进程退出即删除；要覆盖就显式传
+`{ kernel: { walFile } }`。
+
+### 9.2 维护脚本
+
+```
+node scripts/wal-maintenance.mjs --purge-non-projects   # 清掉探针残留（project_id 非 prj-*）
+node scripts/wal-maintenance.mjs --renumber             # 按全局顺序重算 project_seq
+node scripts/wal-maintenance.mjs --file /path/to/wal.sqlite
+```
+
+两个开关都会打印每个项目的行数与 `project_seq` 区间，便于核对"是否从 1 开始"。

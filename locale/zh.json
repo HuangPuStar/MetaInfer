@@ -1767,6 +1767,7 @@
     "ws.wal.summary": "变更",
     "ws.wal.noDetail": "—",
     "ws.replay.open": "载入回放",
-    "ws.replay.loading": "载入中…"
+    "ws.replay.loading": "载入中…",
+    "ws.wal.globalSeq": "全局行号"
   }
 }

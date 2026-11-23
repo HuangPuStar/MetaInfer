@@ -868,7 +868,12 @@ export async function openStore(ctx, config = {}) {
     },
     walLatestSeq: (projectId) => {
       ensureWalSeed(projectId);
-      return { projectId, seq: wal.latestSeq(projectId), count: wal.count(projectId) };
+      return {
+        projectId,
+        seq: wal.latestSeq(projectId),
+        globalSeq: wal.latestGlobalSeq(projectId),
+        count: wal.count(projectId),
+      };
     },
     walKinds: () => [...WAL_KINDS],
     pageRuns,

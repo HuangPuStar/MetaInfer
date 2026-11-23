@@ -1767,6 +1767,7 @@
     "ws.wal.summary": "Change",
     "ws.wal.noDetail": "—",
     "ws.replay.open": "Load replay",
-    "ws.replay.loading": "Loading…"
+    "ws.replay.loading": "Loading…",
+    "ws.wal.globalSeq": "Global row id"
   }
 }

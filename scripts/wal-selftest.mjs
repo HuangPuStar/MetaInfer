@@ -171,6 +171,26 @@ check('seq continues after a restart', store.walLatestSeq(projectId).seq === bef
     filtered.data.entries.length > 0 && filtered.data.entries.every((entry) => entry.kind === 'node.status'));
 }
 
+// ---- per-project numbering ---------------------------------------------------
+{
+  const isoWal = path.join(root, 'wal-two-projects.sqlite');
+  const wal = createWal({ file: isoWal });
+  const a1 = wal.append({ projectId: 'pa', nodeId: 'n-1', kind: 'node.created' });
+  const b1 = wal.append({ projectId: 'pb', nodeId: 'n-1', kind: 'node.created' });
+  const a2 = wal.append({ projectId: 'pa', nodeId: 'n-2', kind: 'node.created' });
+  check('each project starts its own sequence at 1',
+    a1.projectSeq === 1 && b1.projectSeq === 1 && a2.projectSeq === 2,
+    JSON.stringify([a1, b1, a2]));
+  check('the global row id keeps growing across projects',
+    a1.seq === 1 && b1.seq === 2 && a2.seq === 3, JSON.stringify([a1.seq, b1.seq, a2.seq]));
+  check('queries use the project sequence',
+    wal.query({ projectId: 'pa' }).entries.map((entry) => entry.projectSeq).join(',') === '1,2'
+    && wal.query({ projectId: 'pb' }).entries.map((entry) => entry.projectSeq).join(',') === '1');
+  check('latestSeq is per project while the cursor still works',
+    wal.latestSeq('pa') === 2 && wal.latestSeq('pb') === 1 && wal.query({ projectId: 'pa', fromSeq: 1 }).entries.length === 1);
+  wal.close();
+}
+
 // ---- backfill for a project that predates the log ---------------------------
 const oldProject = 'wal-old';
 await store.saveProject({ id: oldProject, name: 'old', repo: { path: root, baseBranch: 'main' }, mode: 'manual', config: {}, counters: {} });

@@ -35,6 +35,7 @@ export const WAL_KINDS = Object.freeze([
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS wal (
   seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_seq INTEGER NOT NULL DEFAULT 0,
   project_id TEXT    NOT NULL,
   node_id    TEXT,
   kind       TEXT    NOT NULL,
@@ -43,7 +44,8 @@ CREATE TABLE IF NOT EXISTS wal (
   revision   INTEGER,
   payload    TEXT
 );
-CREATE INDEX IF NOT EXISTS wal_project_seq ON wal(project_id, seq);
+CREATE INDEX IF NOT EXISTS wal_project_seq ON wal(project_id, project_seq);
+CREATE INDEX IF NOT EXISTS wal_project_global ON wal(project_id, seq);
 CREATE INDEX IF NOT EXISTS wal_project_node ON wal(project_id, node_id, seq);
 CREATE TABLE IF NOT EXISTS wal_meta (
   key   TEXT PRIMARY KEY,
@@ -69,12 +71,37 @@ export function createWal(options = {}) {
   db.exec('PRAGMA busy_timeout = 5000');
   db.exec(SCHEMA);
 
+  // Migration: a database written before per-project numbering lacks the column.
+  const columns = db.prepare('PRAGMA table_info(wal)').all().map((row) => row.name);
+  if (!columns.includes('project_seq')) {
+    db.exec('ALTER TABLE wal ADD COLUMN project_seq INTEGER NOT NULL DEFAULT 0');
+    db.exec('DROP INDEX IF EXISTS wal_project_seq');
+    db.exec('CREATE INDEX IF NOT EXISTS wal_project_seq ON wal(project_id, project_seq)');
+  }
+  // Renumber any row that predates the column (or was written by an older build):
+  // within a project, project_seq follows the global order starting at 1.
+  db.exec(`UPDATE wal SET project_seq = (
+    SELECT COUNT(*) FROM wal AS older
+    WHERE older.project_id = wal.project_id AND older.seq <= wal.seq
+  ) WHERE project_seq = 0`);
+  for (const row of db.prepare('SELECT project_id, MAX(project_seq) AS seq FROM wal GROUP BY project_id').all()) {
+    db.prepare('INSERT INTO wal_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run('pseq:' + row.project_id, String(row.seq ?? 0));
+  }
+
   const insertStmt = db.prepare(
-    'INSERT INTO wal (project_id, node_id, kind, at, actor, revision, payload) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO wal (project_seq, project_id, node_id, kind, at, actor, revision, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  );
+  // Per-project counter: one row in wal_meta, bumped in the same statement so two
+  // writers cannot mint the same project_seq. It restarts at 1 for every project.
+  const nextProjectSeqStmt = db.prepare(
+    `INSERT INTO wal_meta (key, value) VALUES (?, '1')
+     ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)
+     RETURNING CAST(value AS INTEGER) AS seq`,
   );
   const metaGet = db.prepare('SELECT value FROM wal_meta WHERE key = ?');
   const metaSet = db.prepare('INSERT INTO wal_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
-  const latestStmt = db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM wal WHERE project_id = ?');
+  const latestStmt = db.prepare('SELECT COALESCE(MAX(project_seq), 0) AS seq, COALESCE(MAX(seq), 0) AS globalSeq FROM wal WHERE project_id = ?');
   const countStmt = db.prepare('SELECT COUNT(*) AS n FROM wal WHERE project_id = ?');
 
   function meta(key) {
@@ -90,7 +117,9 @@ export function createWal(options = {}) {
     if (typeof projectId !== 'string' || projectId === '') throw new Error('wal.append: projectId is required');
     if (typeof kind !== 'string' || kind === '') throw new Error('wal.append: kind is required');
     const at = now();
+    const projectSeq = Number(nextProjectSeqStmt.get('pseq:' + projectId)?.seq ?? 0);
     const result = insertStmt.run(
+      projectSeq,
       projectId,
       nodeId === null ? null : String(nodeId),
       kind,
@@ -99,7 +128,7 @@ export function createWal(options = {}) {
       revision === null ? null : Number(revision),
       payload === null ? null : JSON.stringify(payload),
     );
-    return { seq: Number(result.lastInsertRowid), at };
+    return { seq: Number(result.lastInsertRowid), projectSeq, at };
   }
 
   /** Append many entries atomically (used by the one-time backfill). */
@@ -123,6 +152,7 @@ export function createWal(options = {}) {
     }
     return {
       seq: Number(row.seq),
+      projectSeq: Number(row.project_seq ?? 0),
       projectId: row.project_id,
       nodeId: row.node_id,
       kind: row.kind,
@@ -164,21 +194,21 @@ export function createWal(options = {}) {
     if (cursorSeq !== null && order === 'asc') lower = Math.max(lower, cursorSeq);
     if (cursorSeq !== null && order === 'desc') {
       // Descending pages walk backwards from the cursor.
-      if (toSeq === null || cursorSeq < toSeq) params.push(cursorSeq);
-      if (toSeq === null || cursorSeq < toSeq) where.push('seq < ?');
+      where.push('project_seq < ?');
+      params.push(cursorSeq);
     }
-    if (lower > 0) { where.push('seq > ?'); params.push(lower); }
-    if (toSeq !== null) { where.push('seq <= ?'); params.push(toSeq); }
+    if (lower > 0) { where.push('project_seq > ?'); params.push(lower); }
+    if (toSeq !== null) { where.push('project_seq <= ?'); params.push(toSeq); }
     if (nodeId !== null) { where.push('node_id = ?'); params.push(nodeId); }
     if (kinds !== null) {
       where.push('kind IN (' + kinds.map(() => '?').join(', ') + ')');
       params.push(...kinds);
     }
-    const sql = `SELECT * FROM wal WHERE ${where.join(' AND ')} ORDER BY seq ${order.toUpperCase()} LIMIT ${limit + 1}`;
+    const sql = `SELECT * FROM wal WHERE ${where.join(' AND ')} ORDER BY project_seq ${order.toUpperCase()} LIMIT ${limit + 1}`;
     const rows = db.prepare(sql).all(...params).map(decode);
     const hasMore = rows.length > limit;
     const entries = hasMore ? rows.slice(0, limit) : rows;
-    const last = entries.length > 0 ? entries[entries.length - 1].seq : null;
+    const last = entries.length > 0 ? entries[entries.length - 1].projectSeq : null;
     return {
       projectId,
       order,
@@ -187,14 +217,22 @@ export function createWal(options = {}) {
       hasMore,
       nextCursor: hasMore && last !== null ? encodeCursor(last) : null,
       latestSeq: latestSeq(projectId),
+      latestGlobalSeq: latestGlobalSeq(projectId),
       fromSeq,
       toSeq,
     };
   }
 
+  /** Newest per-project sequence (the cursor a project-scoped consumer holds). */
   function latestSeq(projectId) {
     const row = latestStmt.get(projectId);
     return row === undefined ? 0 : Number(row.seq);
+  }
+
+  /** Newest global sequence (the row id in this database). */
+  function latestGlobalSeq(projectId) {
+    const row = latestStmt.get(projectId);
+    return row === undefined ? 0 : Number(row.globalSeq);
   }
 
   function count(projectId) {
@@ -237,7 +275,7 @@ export function createWal(options = {}) {
     try { db.close(); } catch { /* already closed */ }
   }
 
-  return { file, append, appendMany, query, latestSeq, count, ensureBackfill, close };
+  return { file, append, appendMany, query, latestSeq, latestGlobalSeq, count, ensureBackfill, close };
 }
 
 /** Cursor is the seq as a string; kept opaque so the encoding can change. */
