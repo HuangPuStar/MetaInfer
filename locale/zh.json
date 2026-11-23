@@ -1732,6 +1732,15 @@
     "priority.deferred": "延后",
     "ws.menu.start": "▶ 启动节点",
     "ws.menu.cancel": "■ 取消运行",
-    "ws.menu.createMerge": "创建合并节点"
+    "ws.menu.createMerge": "创建合并节点",
+    "ws.menu.detail": "打开详情窗口",
+    "ws.window.tab.summary": "概览",
+    "ws.window.tab.edit": "编辑",
+    "ws.window.tab.exec": "执行",
+    "ws.window.tab.report": "报告",
+    "ws.window.tab.stats": "统计",
+    "ws.window.minimize": "最小化",
+    "ws.window.restore": "还原",
+    "ws.window.close": "关闭"
   }
 }

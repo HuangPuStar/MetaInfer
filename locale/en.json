@@ -1732,6 +1732,15 @@
     "priority.deferred": "Deferred",
     "ws.menu.start": "▶ Start node",
     "ws.menu.cancel": "■ Cancel run",
-    "ws.menu.createMerge": "Create merge node"
+    "ws.menu.createMerge": "Create merge node",
+    "ws.menu.detail": "Open details",
+    "ws.window.tab.summary": "Summary",
+    "ws.window.tab.edit": "Edit",
+    "ws.window.tab.exec": "Execution",
+    "ws.window.tab.report": "Report",
+    "ws.window.tab.stats": "Stats",
+    "ws.window.minimize": "Minimize",
+    "ws.window.restore": "Restore",
+    "ws.window.close": "Close"
   }
 }

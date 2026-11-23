@@ -1310,6 +1310,7 @@ window.__ModuleLoader__.load({
       "ws.menu.copyId": "复制节点 ID",
       "ws.menu.createChild": "创建子节点",
       "ws.menu.createMerge": "创建合并节点",
+      "ws.menu.detail": "打开详情窗口",
       "ws.menu.escalate": "升级模型重试",
       "ws.menu.files": "查看文件",
       "ws.menu.fit": "适应视图",
@@ -1917,6 +1918,14 @@ window.__ModuleLoader__.load({
       "ws.usage.output": "输出 {count}",
       "ws.usage.title": "Token 用量",
       "ws.usage.total": "总计 {count}",
+      "ws.window.close": "关闭",
+      "ws.window.minimize": "最小化",
+      "ws.window.restore": "还原",
+      "ws.window.tab.edit": "编辑",
+      "ws.window.tab.exec": "执行",
+      "ws.window.tab.report": "报告",
+      "ws.window.tab.stats": "统计",
+      "ws.window.tab.summary": "概览",
     };
 
     const en = {
@@ -3042,6 +3051,7 @@ window.__ModuleLoader__.load({
       "ws.menu.copyId": "Copy node id",
       "ws.menu.createChild": "Create child node",
       "ws.menu.createMerge": "Create merge node",
+      "ws.menu.detail": "Open details",
       "ws.menu.escalate": "Escalate model",
       "ws.menu.files": "Browse files",
       "ws.menu.fit": "Fit view",
@@ -3649,6 +3659,14 @@ window.__ModuleLoader__.load({
       "ws.usage.output": "output {count}",
       "ws.usage.title": "Token usage",
       "ws.usage.total": "total {count}",
+      "ws.window.close": "Close",
+      "ws.window.minimize": "Minimize",
+      "ws.window.restore": "Restore",
+      "ws.window.tab.edit": "Edit",
+      "ws.window.tab.exec": "Execution",
+      "ws.window.tab.report": "Report",
+      "ws.window.tab.stats": "Stats",
+      "ws.window.tab.summary": "Summary",
     };
 
     // #endregion locale-generated
@@ -3920,7 +3938,8 @@ window.__ModuleLoader__.load({
       '.rl-audit-ledger .rl-audit-row { grid-template-columns: 110px minmax(0, 1.6fr) 100px minmax(0, 1fr) 110px; }',
       '.rl-dash-embedded { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; }',
       '.rl-dash-window-embedded { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; }',
-      '.rl-workspace-grid { display: grid; grid-template-columns: clamp(180px, 18vw, 240px) minmax(0, 1fr) clamp(260px, 26vw, 340px); flex: 1 1 auto; min-width: 0; min-height: 0; }',
+      // Two columns: the node detail lived in the third one and is now a floating window.
+      '.rl-workspace-grid { display: grid; grid-template-columns: clamp(180px, 18vw, 240px) minmax(0, 1fr); flex: 1 1 auto; min-width: 0; min-height: 0; }',
       '.rl-copilot-native-layer { position: fixed; inset: 0; z-index: 60; display: flex; align-items: stretch; justify-content: stretch; padding: 16px; pointer-events: none; }',
       '.rl-copilot-native-backdrop { position: fixed; inset: 0; z-index: 59; background: var(--dsw-alias-bg-mask-2, transparent); pointer-events: auto; }',
       '.rl-copilot-native { position: relative; z-index: 60; box-sizing: border-box; display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; width: min(96vw, calc(100vw - 32px)); max-width: calc(100vw - 32px); height: min(96vh, calc(100vh - 32px)); height: min(96vh, calc(100dvh - 32px)); max-height: calc(100vh - 32px); margin: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-family: inherit; font-size: 13px; line-height: 20px; pointer-events: auto; overflow: hidden; }',
@@ -4005,6 +4024,24 @@ window.__ModuleLoader__.load({
       '.rl-dag-menu-sep { height: 1px; margin: 3px 6px; background: var(--dsw-alias-border-l2); }',
       '.rl-dag-menu-sub { position: absolute; z-index: 21; min-width: 190px; }',
       '.rl-dag-menu-sub-flip { left: auto; right: 100%; }',
+      '.rl-node-windows { position: absolute; inset: 0; z-index: 30; pointer-events: none; }',
+      '.rl-node-window { position: absolute; display: flex; flex-direction: column; min-width: 360px; max-width: calc(100% - 16px); border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); box-shadow: 0 18px 48px color-mix(in srgb, var(--dsw-alias-label-primary) 26%, transparent); pointer-events: auto; overflow: hidden; }',
+      '.rl-node-window-busy { user-select: none; }',
+      '.rl-node-window-head { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 10px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); cursor: grab; touch-action: none; }',
+      '.rl-node-window-busy .rl-node-window-head { cursor: grabbing; }',
+      '.rl-node-window-grip { color: var(--dsw-alias-label-tertiary); font-size: 11px; }',
+      '.rl-node-window-title { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }',
+      '.rl-node-window-id { color: var(--dsw-alias-label-tertiary); font-family: var(--dsw-alias-font-mono, monospace); font-size: 10.5px; }',
+      '.rl-node-window-btn { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1; cursor: pointer; }',
+      '.rl-node-window-btn:hover { background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); }',
+      '.rl-node-window-tabs { display: flex; gap: 2px; padding: 4px 6px 0; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-node-window-tab { padding: 4px 10px; border: 0; border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; cursor: pointer; }',
+      '.rl-node-window-tab:hover { color: var(--dsw-alias-label-primary); }',
+      '.rl-node-window-tab-active { border-bottom-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-label-primary); }',
+      '.rl-node-window-main { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }',
+      '.rl-node-window-panel { flex: 1 1 auto; min-height: 0; overflow: auto; }',
+      '.rl-node-window-resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; touch-action: none; background: linear-gradient(135deg, transparent 50%, var(--dsw-alias-border-l2) 50%); }',
+      '.rl-inspector-sectioned { width: auto; max-width: none; border: 0; padding: 0 12px 12px; background: transparent; }',
       '.rl-explain-list { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }',
       '.rl-explain-subtitle { margin: 8px 0 0; font-size: 12px; opacity: 0.8; }',
       '.rl-explain-kind { font-weight: 600; margin-right: 6px; }',
@@ -5376,7 +5413,7 @@ window.__ModuleLoader__.load({
      */
     function nodeActionsOf({ status, childCount = 0, sealed = false, isMerge = false } = {}) {
       const leaf = childCount === 0;
-      const actions = ['child', 'files', 'trace', 'native'];
+      const actions = ['detail', 'child', 'files', 'trace', 'native'];
       if (status === 'planned') actions.push('start');
       if (status === 'running') {
         actions.push('cancel');
@@ -10904,6 +10941,134 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * Detached node-detail window.
+     *
+     * The side inspector is gone: double-clicking a node opens one of these, and
+     * several can stay open so two nodes can be compared. The header drags, the
+     * corner resizes, the first button minimises to just the title bar.
+     */
+    function NodeDetailWindow({ geometry, zIndex, inspector, t, onGeometry, onClose, onFocus }) {
+      const [tab, setTab] = React.useState('summary');
+      const dragRef = React.useRef(null);
+      const resizeRef = React.useRef(null);
+      const [busy, setBusy] = React.useState(false);
+      // Degraded mounts (a probe rendering every panel with an empty payload) must
+      // not crash the window: fall back to a sane default box.
+      const box = geometry !== null && typeof geometry === 'object'
+        ? geometry
+        : { nodeId: '', title: '', x: 0, y: 0, w: 560, h: 520, min: false };
+      const minimized = box.min === true;
+
+      const beginDrag = (event) => {
+        if (event?.button !== 0) return;
+        const target = event?.target;
+        if (target && typeof target.closest === 'function' && target.closest('button') !== null) return;
+        dragRef.current = { x: event.clientX ?? 0, y: event.clientY ?? 0, gx: box.x, gy: box.y };
+        setBusy(true);
+        try { event?.currentTarget?.setPointerCapture?.(event.pointerId); } catch { /* best effort */ }
+      };
+      const drag = (event) => {
+        const drag0 = dragRef.current;
+        if (drag0 === null) return;
+        onGeometry({
+          x: Math.max(0, drag0.gx + ((event.clientX ?? 0) - drag0.x)),
+          y: Math.max(0, drag0.gy + ((event.clientY ?? 0) - drag0.y)),
+        });
+      };
+      const endDrag = (event) => {
+        if (dragRef.current === null) return;
+        dragRef.current = null;
+        setBusy(false);
+        try {
+          if (event?.currentTarget?.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch { /* ignore */ }
+      };
+      const beginResize = (event) => {
+        if (event?.button !== 0) return;
+        event?.stopPropagation?.();
+        resizeRef.current = { x: event.clientX ?? 0, y: event.clientY ?? 0, w: box.w, h: box.h };
+        setBusy(true);
+        try { event?.currentTarget?.setPointerCapture?.(event.pointerId); } catch { /* best effort */ }
+      };
+      const resize = (event) => {
+        const start = resizeRef.current;
+        if (start === null) return;
+        onGeometry({
+          w: Math.max(360, start.w + ((event.clientX ?? 0) - start.x)),
+          h: Math.max(220, start.h + ((event.clientY ?? 0) - start.y)),
+        });
+      };
+      const endResize = (event) => {
+        if (resizeRef.current === null) return;
+        resizeRef.current = null;
+        setBusy(false);
+        try {
+          if (event?.currentTarget?.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch { /* ignore */ }
+      };
+
+      return h(
+        'section',
+        {
+          className: 'rl-node-window' + (busy ? ' rl-node-window-busy' : '') + (minimized ? ' rl-node-window-min' : ''),
+          'data-testid': 'node-window',
+          'data-node-id': box.nodeId,
+          style: { left: box.x, top: box.y, width: box.w, height: minimized ? 'auto' : box.h, zIndex },
+          onPointerDown: onFocus,
+        },
+        h(
+          'header',
+          {
+            className: 'rl-node-window-head',
+            onPointerDown: beginDrag,
+            onPointerMove: drag,
+            onPointerUp: endDrag,
+            onPointerCancel: endDrag,
+          },
+          h('span', { className: 'rl-node-window-grip', 'aria-hidden': true }, '⠿'),
+          h('span', { className: 'rl-node-window-title' }, box.title),
+          h('span', { className: 'rl-node-window-id' }, box.nodeId),
+          h('button', {
+            type: 'button',
+            className: 'rl-node-window-btn',
+            title: minimized ? t('ws.window.restore') : t('ws.window.minimize'),
+            'aria-label': minimized ? t('ws.window.restore') : t('ws.window.minimize'),
+            onClick: () => onGeometry({ min: minimized !== true }),
+          }, minimized ? '▢' : '—'),
+          h('button', {
+            type: 'button',
+            className: 'rl-node-window-btn',
+            title: t('ws.window.close'),
+            'aria-label': t('ws.window.close'),
+            onClick: onClose,
+          }, '✕'),
+        ),
+        minimized ? null : h(
+          'div',
+          { className: 'rl-node-window-main' },
+          h('div', { className: 'rl-node-window-tabs', role: 'tablist' },
+            NODE_WINDOW_TABS.map((id) => h('button', {
+              key: 'tab-' + id,
+              type: 'button',
+              role: 'tab',
+              'aria-selected': tab === id,
+              className: 'rl-node-window-tab' + (tab === id ? ' rl-node-window-tab-active' : ''),
+              onClick: () => setTab(id),
+            }, t('ws.window.tab.' + id)))),
+          h('div', { className: 'rl-node-window-panel', role: 'tabpanel' }, typeof inspector === 'function' ? inspector(tab) : null),
+        ),
+        minimized ? null : h('span', {
+          className: 'rl-node-window-resize',
+          'aria-hidden': true,
+          onPointerDown: beginResize,
+          onPointerMove: resize,
+          onPointerUp: endResize,
+          onPointerCancel: endResize,
+        }),
+      );
+    }
+
     function WorkspaceScreen({ projectId, initialNodeId, tab, onSelectTab, onNodeChange, onBack, openNativeSession, openNativeFiles, retainCopilotSession, SessionProvider, renderFactorySlot, t }) {
       const { snapshot, events, offline, retry, reload, loadMore, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t);
       const [selectedId, setSelectedId] = React.useState(null);
@@ -10918,6 +11083,33 @@ window.__ModuleLoader__.load({
       // open one or more of the node's trace files. A window event keeps the two
       // panels decoupled — the inspector does not need the tab plumbing.
       const [traceRequest, setTraceRequest] = React.useState(null);
+      // Detached detail windows: one per node, several at once for comparison.
+      const [nodeWindows, setNodeWindows] = React.useState([]);
+      const windowZRef = React.useRef(20);
+      const openNodeWindow = React.useCallback((nodeId) => {
+        const id = firstString(nodeId);
+        if (id === '') return;
+        windowZRef.current += 1;
+        const z = windowZRef.current;
+        setNodeWindows((previous) => {
+          if (previous.some((entry) => entry.nodeId === id)) {
+            return previous.map((entry) => (entry.nodeId === id ? { ...entry, min: false, z } : entry));
+          }
+          const offset = 40 + (previous.length % 6) * 28;
+          return [...previous, { nodeId: id, x: 96 + offset, y: 72 + offset, w: 560, h: 520, min: false, z }];
+        });
+      }, []);
+      const updateNodeWindow = React.useCallback((nodeId, patch) => {
+        setNodeWindows((previous) => previous.map((entry) => (entry.nodeId === nodeId ? { ...entry, ...patch } : entry)));
+      }, []);
+      const closeNodeWindow = React.useCallback((nodeId) => {
+        setNodeWindows((previous) => previous.filter((entry) => entry.nodeId !== nodeId));
+      }, []);
+      const raiseNodeWindow = React.useCallback((nodeId) => {
+        windowZRef.current += 1;
+        const z = windowZRef.current;
+        setNodeWindows((previous) => previous.map((entry) => (entry.nodeId === nodeId ? { ...entry, min: false, z } : entry)));
+      }, []);
       const [mountedTabs, setMountedTabs] = React.useState(() => new Set([activeTab]));
       const selectTab = typeof onSelectTab === 'function' ? onSelectTab : () => {};
       const noteNode = typeof onNodeChange === 'function' ? onNodeChange : () => {};
@@ -11648,6 +11840,7 @@ window.__ModuleLoader__.load({
             onOpenFiles: openNodeFiles,
             onSuccessor: openSuccessor,
             onOpenMergeCreate: openMergeCreate,
+            onOpenDetail: openNodeWindow,
             replayFooter: replayOpen ? h(ReplayBar, {
               data: replayData ?? { startAt: replayAt, endAt: replayAt },
               at: replayAt,
@@ -11664,29 +11857,6 @@ window.__ModuleLoader__.load({
               onClose: closeReplay,
               t,
             }) : null,
-            t,
-          }),
-          h(NodeInspector, {
-            project,
-            nodes,
-            node: fullNode !== null && nodeIdOf(fullNode) === nodeIdOf(selectedNode ?? {}) ? fullNode : selectedNode,
-            now,
-            busyKey,
-            onSave: saveNode,
-            onAction: handleNodeAction,
-            onOpenSession: openSessionNative,
-            onOpenFiles: openNodeFiles,
-            onContinue: requestContinue,
-            onSuccessor: openSuccessor,
-            onProposalAction: requestProposalAction,
-            onOpenRun: openRuns,
-            onRetryRequest: requestRetry,
-            onOpenMergeCreate: openMergeCreate,
-            onFinishMerge: openFinishMerge,
-            onEscalate: handleEscalate,
-            modelOptions,
-            modelProviders,
-            clusterEnabled: clusterEnabledOf(snapshot?.cluster),
             t,
           }),
         );
@@ -11752,6 +11922,57 @@ window.__ModuleLoader__.load({
         h(ProjectTabPanel, { key: 'trace', tab: 'trace', active: activeTab === 'trace' },
           mountedTabs.has('trace') ? h(ProfilerTab, { projectId, nodes, request: traceRequest, t, active: activeTab === 'trace' }) : null),
       ];
+
+      const windowLayer = nodeWindows.length === 0 ? null : h(
+        'div',
+        { className: 'rl-node-windows', 'aria-live': 'polite' },
+        nodeWindows.map((entry) => {
+          const target = nodes.find((row) => nodeIdOf(row) === entry.nodeId) ?? null;
+          if (target === null) return null;
+          const detailNode = fullNode !== null && nodeIdOf(fullNode) === entry.nodeId ? fullNode : target;
+          return h(NodeDetailWindow, {
+            key: 'window-' + entry.nodeId,
+            geometry: {
+              nodeId: entry.nodeId,
+              title: nodeTitleOf(detailNode, t),
+              x: entry.x,
+              y: entry.y,
+              w: entry.w,
+              h: entry.h,
+              min: entry.min === true,
+            },
+            zIndex: entry.z,
+            t,
+            onGeometry: (patch) => updateNodeWindow(entry.nodeId, patch),
+            onClose: () => closeNodeWindow(entry.nodeId),
+            onFocus: () => raiseNodeWindow(entry.nodeId),
+            inspector: (tab) => h(NodeInspector, {
+              project,
+              nodes,
+              node: detailNode,
+              now,
+              busyKey,
+              onSave: saveNode,
+              onAction: handleNodeAction,
+              onOpenSession: openSessionNative,
+              onOpenFiles: openNodeFiles,
+              onContinue: requestContinue,
+              onSuccessor: openSuccessor,
+              onProposalAction: requestProposalAction,
+              onOpenRun: openRuns,
+              onRetryRequest: requestRetry,
+              onOpenMergeCreate: openMergeCreate,
+              onFinishMerge: openFinishMerge,
+              onEscalate: handleEscalate,
+              modelOptions,
+              modelProviders,
+              clusterEnabled: clusterEnabledOf(snapshot?.cluster),
+              section: tab,
+              t,
+            }),
+          });
+        }),
+      );
 
       return h(
         'section',
@@ -11941,6 +12162,7 @@ window.__ModuleLoader__.load({
               t,
             })
           : null,
+        windowLayer,
       );
     }
 
@@ -13043,7 +13265,7 @@ window.__ModuleLoader__.load({
     }
     // #endregion dag-canvas-scene
 
-    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, replayFooter, factsSlot, t }) {
+    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, onOpenDetail, replayFooter, factsSlot, t }) {
       const hostRef = React.useRef(null);
       const canvasRef = React.useRef(null);
       const viewRef = React.useRef({ pan: { x: 0, y: 0 }, zoom: 1, dpr: 1, hoverId: null });
@@ -13269,7 +13491,9 @@ window.__ModuleLoader__.load({
       };
       const onDoubleClick = (event) => {
         const hit = hitTestDag(sceneRef.current, worldPointOf(event));
-        if (hit !== null && typeof onOpenNative === 'function') onOpenNative(hit.id, 'trajectory');
+        // Double-click is the primary "open details" gesture; the transcript lives in
+        // the context menu because it is not the common case.
+        if (hit !== null && typeof onOpenDetail === 'function') onOpenDetail(hit.id);
       };
       const closeMenu = React.useCallback(() => { setMenu(null); setOpenSubmenuKey(null); }, []);
       React.useEffect(() => {
@@ -13317,6 +13541,7 @@ window.__ModuleLoader__.load({
         const builders = {
           child: () => ({ label: t('ws.menu.createChild'), run: () => onSuccessor(nodeId) }),
           files: () => ({ label: t('ws.menu.files'), run: () => onOpenFiles(nodeId) }),
+          detail: () => ({ label: t('ws.menu.detail'), run: () => { if (typeof onOpenDetail === 'function') onOpenDetail(nodeId); } }),
           trace: () => ({ label: t('ws.menu.trace'), run: () => onOpenTrace(nodeId) }),
           native: () => ({ label: t('ws.menu.native'), run: () => onOpenNative(nodeId, 'trajectory') }),
           start: () => ({ label: t('ws.menu.start'), run: () => onNodeAction('node?.start', nodeId) }),
@@ -13767,7 +13992,28 @@ window.__ModuleLoader__.load({
       return at === null ? t('ws.explain.older') : formatDateTime(at, t);
     }
 
-    function NodeInspector({ project, nodes, node, now, busyKey, onSave, onAction, onOpenSession, onOpenFiles, onContinue, onSuccessor, onProposalAction, onOpenRun, onRetryRequest, onOpenMergeCreate, onFinishMerge, onEscalate, modelOptions, modelProviders, clusterEnabled, t }) {
+    /** Tab order of the node detail window. */
+    const NODE_WINDOW_TABS = Object.freeze(['summary', 'edit', 'exec', 'report', 'stats']);
+
+    /**
+     * Split the inspector body into contiguous tab slices.
+     *
+     * Derived from the body length instead of hardcoded indices: a section added to
+     * the inspector must never silently fall outside every tab. The union always
+     * covers [0, count) exactly once (asserted by the window probe).
+     */
+    function inspectorSectionIndexes(count) {
+      const out = { summary: [], edit: [], exec: [], report: [], stats: [] };
+      if (!(count > 0)) return out;
+      const per = Math.ceil(count / NODE_WINDOW_TABS.length);
+      for (let index = 0; index < count; index += 1) {
+        const tab = NODE_WINDOW_TABS[Math.min(NODE_WINDOW_TABS.length - 1, Math.floor(index / per))];
+        out[tab].push(index);
+      }
+      return out;
+    }
+
+    function NodeInspector({ project, nodes, node, now, busyKey, onSave, onAction, onOpenSession, onOpenFiles, onContinue, onSuccessor, onProposalAction, onOpenRun, onRetryRequest, onOpenMergeCreate, onFinishMerge, onEscalate, modelOptions, modelProviders, clusterEnabled, section = null, t }) {
       const nodeKey = node === null ? '' : nodeIdOf(node);
       const [promptDraft, setPromptDraft] = React.useState('');
       const [criteriaDraft, setCriteriaDraft] = React.useState('');
@@ -13903,22 +14149,9 @@ window.__ModuleLoader__.load({
         }
       };
 
-      return h(
-        'aside',
-        { className: 'rl-inspector', 'aria-label': t('ws.inspector.title') },
-        h(
-          'div',
-          { className: 'rl-inspector-head' },
-          h('h2', { className: 'rl-inspector-title' }, nodeTitleOf(node, t)),
-          h(
-            'span',
-            { className: 'rl-status-pill' + (status === 'failed' ? ' rl-status-failed' : '') },
-            h(StatusDot, { status }),
-            t('status.' + status),
-          ),
-          h('span', { className: 'rl-inspector-id' }, nodeIdOf(node)),
-          sealedNode ? h('span', { className: 'rl-chip' }, '🔒 ' + t('ws.sealed')) : null,
-        ),
+      // The inspector body is a flat list of sections; a floating window shows one
+      // slice per tab so the operator does not scroll one endless column.
+      const inspectorBody = [
         proposal !== null
           ? h(ProposalPanel, { proposal, t })
           : null,
@@ -14292,7 +14525,31 @@ window.__ModuleLoader__.load({
               h('p', { className: 'rl-error-text' }, cancelReasonText),
             )
           : null,
+      
+      ];
+      const visibleSections = section === undefined || section === null
+        ? inspectorBody
+        : (inspectorSectionIndexes(inspectorBody.length)[section] ?? []).map((index) => inspectorBody[index]).filter(Boolean);
+      return h(
+        'aside',
+        { className: 'rl-inspector' + (section ? ' rl-inspector-sectioned' : ''), 'aria-label': t('ws.inspector.title') },
+        h(
+          'div',
+          { className: 'rl-inspector-head' },
+          h('h2', { className: 'rl-inspector-title' }, nodeTitleOf(node, t)),
+          h(
+            'span',
+            { className: 'rl-status-pill' + (status === 'failed' ? ' rl-status-failed' : '') },
+            h(StatusDot, { status }),
+            t('status.' + status),
+          ),
+          h('span', { className: 'rl-inspector-id' }, nodeIdOf(node)),
+          sealedNode ? h('span', { className: 'rl-chip' }, '🔒 ' + t('ws.sealed')) : null,
+        ),
+
+        ...visibleSections,
       );
+
     }
 
     /** Structured NodeReport card: summary, blockers, metrics and lists. */
@@ -21216,13 +21473,15 @@ window.__ModuleLoader__.load({
     // by that test; the Web shell never sees these fields.
     if (typeof window !== 'undefined' && window.__METAINFER_TEST__ === true) {
       // Internal renderer entry points used by scripts/dag-canvas-selftest.mjs.
-      exported.__dag = { buildDagScene, visibleDagItems, hitTestDag, paintDag, dagTheme, nodeActionsOf };
+      exported.__dag = { buildDagScene, visibleDagItems, hitTestDag, paintDag, dagTheme, nodeActionsOf, inspectorSectionIndexes, NODE_WINDOW_TABS };
       exported.__components = {
         LandingScreen,
         CreateProjectWizard,
         MetainferLabPage,
         NodeTraceSection,
         DagCanvas,
+        NodeDetailWindow,
+        NodeInspector,
         ProjectTabBar,
         ProjectTabPanel,
         ProfilerTab,
