@@ -13333,7 +13333,15 @@ window.__ModuleLoader__.load({
               'aria-haspopup': children.length > 0 ? 'menu' : undefined,
               'aria-expanded': children.length > 0 ? open : undefined,
               className: 'rl-dag-menu-item' + (open ? ' rl-dag-menu-item-open' : ''),
-              onMouseEnter: () => { if (openSubmenuKey !== (children.length > 0 ? item.key : null)) setOpenSubmenuKey(children.length > 0 ? item.key : null); },
+              // Only a parent item may change the open level. Clearing it on a leaf
+              // hover closed the submenu the moment the pointer moved onto it.
+              onMouseEnter: () => {
+                if (children.length > 0) {
+                  if (openSubmenuKey !== item.key) setOpenSubmenuKey(item.key);
+                  return;
+                }
+                // Keep the current level open while moving inside it.
+              },
               onClick: (event) => {
                 if (children.length > 0) { event?.stopPropagation?.(); setOpenSubmenuKey(open ? null : item.key); return; }
                 closeMenu();

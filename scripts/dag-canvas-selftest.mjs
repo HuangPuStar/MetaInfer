@@ -303,7 +303,17 @@ check('clicking the priority entry opens a nested menu', submenu !== null);
 check('the nested menu steps up/down and picks a class',
   ['ws.menu.priorityRaise', 'ws.menu.priorityLower', 'ws.menu.prioritySet:priority.p0', 'ws.menu.prioritySet:priority.deferred']
     .every((label) => (submenu?.textContent ?? '').includes(label)), submenu?.textContent ?? '');
-const setP0 = [...(submenu?.querySelectorAll('.rl-dag-menu-item') ?? [])]
+// Hovering onto a submenu entry must not tear the submenu down (the reported bug).
+const raiseItem = [...(submenu?.querySelectorAll('.rl-dag-menu-item') ?? [])]
+  .find((button) => (button.textContent ?? '').includes('ws.menu.priorityRaise'));
+await React.act(async () => {
+  raiseItem.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true, relatedTarget: priorityItem }));
+  await wait(60);
+});
+check('hovering a submenu entry keeps the submenu open',
+  prioHost.querySelector('[data-testid="dag-context-submenu"]') !== null);
+const setP0 = [...(prioHost.querySelectorAll('.rl-dag-menu-item') ?? [])]
+  .filter((button) => (button.textContent ?? '').includes('ws.menu.prioritySet:priority.p0'))
   .find((button) => (button.textContent ?? '').includes('ws.menu.prioritySet:priority.p0'));
 await React.act(async () => { setP0.click(); await wait(60); });
 check('choosing a class dispatches node.priority with that class',
