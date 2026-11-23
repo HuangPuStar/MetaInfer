@@ -30,6 +30,7 @@ import { isNonBlockingSuccessor, runnableQueue, runnableSince } from './kernel/r
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
 import { PRIORITY_CLASSES, classBudgetOf } from './dispatch/reservation.js';
 import { DISPUTE_CLASS_MAP, DISPUTE_DEFAULT_ACTION, createDisputeRecord, disputeActorVerdict, disputeAuthorityVerdict, effectiveDispute, expireDisputeRecord, reopenDisputeRecord, resolveDisputeRecord } from './kernel/disputes.js';
+import { listNodeTraces, resolveNodeTracePath } from './profiler/node-traces.js';
 import { DEFAULT_ROTATION_DAYS, rotationPlan } from './experts/rotation.js';
 import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
 import { highReviewResolution, validateHighReviewRationale } from './high-review.js';
@@ -3334,6 +3335,29 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
    * disk is recreated from the node branch; a planned node gets its branch at
    * the recorded base commit. No experiment is started.
    */
+  /**
+   * Trace files produced inside one node's worktree (issue #94 follow-up: DAG →
+   * trace hop). Read-only: it enumerates, it never opens or writes.
+   */
+  async function nodeTraceCandidates(projectId, nodeId) {
+    const project = requireProject(projectId);
+    const node = requireNode(projectId, nodeId);
+    const worktree = node?.git?.worktreePath;
+    if (!worktree) throw new LabError('worktree_not_recorded', 'node has no recorded worktree path', 404);
+    const listing = await listNodeTraces(worktree);
+    return { projectId: project.id, nodeId: node.id, ...listing };
+  }
+
+  /** Resolve a node-relative trace path, refusing anything outside the worktree. */
+  function resolveNodeTrace(projectId, nodeId, relPath) {
+    requireProject(projectId);
+    const node = requireNode(projectId, nodeId);
+    const worktree = node?.git?.worktreePath;
+    if (!worktree) throw new LabError('worktree_not_recorded', 'node has no recorded worktree path', 404);
+    const absolute = resolveNodeTracePath(worktree, relPath);
+    return { absolute, node, relPath: String(relPath).trim() };
+  }
+
   async function ensureNodeWorktree(projectId, nodeId) {
     if (!runtime) throw new LabError('unavailable', 'runtime is not wired', 503);
     const project = requireProject(projectId);
@@ -6560,6 +6584,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     startDashboardScheduler,
     resolveWorktreeFile,
     getExecutionEvents,
+    nodeTraceCandidates,
+    resolveNodeTrace,
     createSuccessor,
     createMergeNode,
     finishMerge,

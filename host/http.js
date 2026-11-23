@@ -15,6 +15,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { publicView } from './kernel/actors.js';
 import { kernelDetail, queryKernels, queryTimeline } from './profiler/trace.js';
+import { compareTraces } from './profiler/compare.js';
 import { actionCatalog, buildActionPrompt, buildNodeTask } from './profiler/prompts.js';
 import { actorForSession } from './kernel/policy.js';
 
@@ -593,9 +594,31 @@ export function registerHttpRoutes(ctx, service, extras = {}) {
   route(`${PREFIX}/trace`, ['GET'], async (request) => {
     const params = query(request);
     const traceId = params.get('traceId');
+    const view = params.get('view') ?? 'summary';
+    // DAG → trace hop: enumerate the trace files a node's worktree produced, so
+    // the inspector can offer one click per file instead of asking for a path.
+    if (view === 'candidates') {
+      const projectId = params.get('projectId');
+      const nodeId = params.get('nodeId');
+      return ok(await service.nodeTraceCandidates(projectId, nodeId));
+    }
+    // Multi-trace comparison, aligned by kernel name; first id is the baseline.
+    if (view === 'compare') {
+      const ids = String(params.get('traceIds') ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
+      if (ids.length < 2) {
+        throw Object.assign(new Error('compare needs at least two traceIds'), { code: 'bad_request' });
+      }
+      const entries = ids.map((id) => {
+        const index = requireTrace(id);
+        return { index, nodeId: index.nodeId ?? null };
+      });
+      return ok(compareTraces(entries));
+    }
     if (!traceId) return ok({ traces: profiler ? profiler.list() : [] });
     const index = requireTrace(traceId);
-    const view = params.get('view') ?? 'summary';
     if (view === 'bytes') {
       // Raw trace bytes, handed to the embedded Perfetto UI. Same-origin read:
       // the browser fetches with its owner cookie, Perfetto parses in-browser.
@@ -698,6 +721,17 @@ export function registerHttpRoutes(ctx, service, extras = {}) {
     }
     if (type === 'trace.open') {
       const store = requireProfiler();
+      // Three ways in: a node-relative path (the DAG hop), an absolute Host path
+      // (power users), or inline content (the file picker).
+      if (typeof body.relPath === 'string' && body.relPath.trim() !== '') {
+        const resolved = service.resolveNodeTrace(body.projectId, body.nodeId, body.relPath);
+        const index = await store.openPath(resolved.absolute, {
+          nodeId: resolved.node.id,
+          projectId: body.projectId,
+          relPath: resolved.relPath,
+        });
+        return ok(store.summary(index.traceId));
+      }
       const index = typeof body.path === 'string' && body.path.trim() !== ''
         ? await store.openPath(body.path)
         : store.openContent(body.content, body.name);

@@ -1378,6 +1378,12 @@ window.__ModuleLoader__.load({
       "ws.node.parentPrefix": "来自 ",
       "ws.node.root": "根节点",
       "ws.nodeCount": "节点 {count}/{max}",
+      "ws.nodeTrace.compare": "对比所选",
+      "ws.nodeTrace.empty": "没有找到 trace 文件",
+      "ws.nodeTrace.hint": "这个节点产出的 trace 文件；可多选后并排对比",
+      "ws.nodeTrace.open": "打开",
+      "ws.nodeTrace.scanning": "正在扫描…",
+      "ws.nodeTrace.title": "Profile 追踪",
       "ws.obs.close": "关闭可观测性",
       "ws.obs.endpoints": "真实端点：/state /status /metrics /events /explain /intents /experts",
       "ws.obs.failures.count": "{count} 次",
@@ -1757,6 +1763,13 @@ window.__ModuleLoader__.load({
       "ws.trace.chatEmpty": "还没有与这个 trace 相关的对话。",
       "ws.trace.chooseFile": "选择本地 trace",
       "ws.trace.close": "关闭 trace",
+      "ws.trace.compareBusy": "正在对比…",
+      "ws.trace.compareClose": "关闭对比",
+      "ws.trace.compareDelta": "Δ",
+      "ws.trace.compareKernel": "Kernel",
+      "ws.trace.compareTitle": "多 trace 对比（第一个为基准）",
+      "ws.trace.compareTotal": "合计",
+      "ws.trace.compareTruncated": "仅显示前 {count} 行",
       "ws.trace.copied": "已复制 prompt",
       "ws.trace.copy": "复制 prompt",
       "ws.trace.copyFailed": "复制失败",
@@ -1779,10 +1792,16 @@ window.__ModuleLoader__.load({
       "ws.trace.menu": "Kernel 操作",
       "ws.trace.menuHint": "双击 span 打开右侧面板",
       "ws.trace.neighbours": "相邻 kernel",
+      "ws.trace.nodeCompare": "对比所选",
       "ws.trace.nodeCreate": "创建节点",
       "ws.trace.nodeCreated": "已创建节点 {id}",
+      "ws.trace.nodeEmpty": "这个节点的 worktree 里没有找到 trace 文件（torch.profiler 导出的 chrome trace）",
       "ws.trace.nodeFailed": "节点创建失败",
-      "ws.trace.nodeHint": "把该 kernel 的 fusion / 优化分析作为新的根节点加入待执行任务。",
+      "ws.trace.nodeHint": "选中节点后列出它 worktree 里的 trace 文件；勾选 2 个以上可并排对比",
+      "ws.trace.nodeOpen": "打开所选",
+      "ws.trace.nodePicker": "从 DAG 节点打开",
+      "ws.trace.nodePickerEmpty": "选择一个节点…",
+      "ws.trace.nodeScanning": "正在扫描该节点的 trace 文件…",
       "ws.trace.nodeTitle": "创建任务节点",
       "ws.trace.notFound": "trace 已过期或被关闭",
       "ws.trace.open": "打开",
@@ -3032,6 +3051,12 @@ window.__ModuleLoader__.load({
       "ws.node.parentPrefix": "from ",
       "ws.node.root": "Root node",
       "ws.nodeCount": "Nodes {count}/{max}",
+      "ws.nodeTrace.compare": "Compare selected",
+      "ws.nodeTrace.empty": "No trace files found",
+      "ws.nodeTrace.hint": "Trace files produced by this node; select several to compare them",
+      "ws.nodeTrace.open": "Open",
+      "ws.nodeTrace.scanning": "Scanning…",
+      "ws.nodeTrace.title": "Profile traces",
       "ws.obs.close": "Close observability",
       "ws.obs.endpoints": "real endpoints: /state /status /metrics /events /explain /intents /experts",
       "ws.obs.failures.count": "{count}×",
@@ -3411,6 +3436,13 @@ window.__ModuleLoader__.load({
       "ws.trace.chatEmpty": "No conversation about this trace yet.",
       "ws.trace.chooseFile": "Choose local trace",
       "ws.trace.close": "Close trace",
+      "ws.trace.compareBusy": "Comparing…",
+      "ws.trace.compareClose": "Close comparison",
+      "ws.trace.compareDelta": "Δ",
+      "ws.trace.compareKernel": "Kernel",
+      "ws.trace.compareTitle": "Trace comparison (first one is the baseline)",
+      "ws.trace.compareTotal": "Total",
+      "ws.trace.compareTruncated": "Showing the first {count} rows",
       "ws.trace.copied": "Prompt copied",
       "ws.trace.copy": "Copy prompt",
       "ws.trace.copyFailed": "Copy failed",
@@ -3433,10 +3465,16 @@ window.__ModuleLoader__.load({
       "ws.trace.menu": "Kernel actions",
       "ws.trace.menuHint": "Double-click a span to open the side panel",
       "ws.trace.neighbours": "Neighbour kernels",
+      "ws.trace.nodeCompare": "Compare selected",
       "ws.trace.nodeCreate": "Create node",
       "ws.trace.nodeCreated": "Created node {id}",
+      "ws.trace.nodeEmpty": "No trace files found in this node worktree (torch.profiler chrome traces)",
       "ws.trace.nodeFailed": "Node creation failed",
-      "ws.trace.nodeHint": "Add this kernel's fusion / optimisation analysis as a new root node in the task queue.",
+      "ws.trace.nodeHint": "Lists the trace files in that node worktree; select two or more to compare",
+      "ws.trace.nodeOpen": "Open selected",
+      "ws.trace.nodePicker": "Open from a DAG node",
+      "ws.trace.nodePickerEmpty": "Pick a node…",
+      "ws.trace.nodeScanning": "Scanning this node for trace files…",
       "ws.trace.nodeTitle": "Create a task node",
       "ws.trace.notFound": "This trace expired or was closed",
       "ws.trace.open": "Open",
@@ -4281,6 +4319,25 @@ window.__ModuleLoader__.load({
       '.rl-trace-openbar .rl-input { width: clamp(220px, 38vw, 520px); }',
       '.rl-trace-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }',
       '.rl-trace-sep { color: var(--dsw-alias-label-tertiary); }',
+      '.rl-trace-picker { display: flex; flex-direction: column; gap: 6px; flex: none; padding: 8px 10px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-picker-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }',
+      '.rl-trace-node-select { max-width: min(420px, 46vw); }',
+      '.rl-trace-candidates { display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow: auto; }',
+      '.rl-trace-candidate { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; font-size: 11.5px; color: var(--dsw-alias-label-secondary); cursor: pointer; }',
+      '.rl-trace-candidate:hover { background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-trace-candidate-on { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }',
+      '.rl-trace-candidate-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--dsw-alias-font-mono, monospace); }',
+      '.rl-trace-candidate-actions, .rl-node-traces-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }',
+      '.rl-node-traces-list { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; }',
+      '.rl-trace-compare { display: flex; flex-direction: column; gap: 8px; flex: none; padding: 10px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-compare-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }',
+      '.rl-trace-compare-totals { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }',
+      '.rl-trace-compare-table-wrap { max-height: 320px; overflow: auto; }',
+      '.rl-trace-compare-table { width: 100%; border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; }',
+      '.rl-trace-compare-table th, .rl-trace-compare-table td { padding: 4px 8px; text-align: right; border-bottom: 0.5px solid var(--dsw-alias-border-l2); white-space: nowrap; }',
+      '.rl-trace-compare-table th:first-child, .rl-trace-compare-table td:first-child { text-align: left; }',
+      '.rl-trace-compare-name { max-width: 420px; overflow: hidden; text-overflow: ellipsis; font-family: var(--dsw-alias-font-mono, monospace); }',
+      '.rl-trace-compare-fast { color: var(--dsw-alias-label-primary); font-weight: 600; }',
       '.rl-trace-summary { display: flex; align-items: baseline; gap: 10px; flex: none; flex-wrap: wrap; color: var(--dsw-alias-label-secondary); font-size: 12px; }',
       '.rl-trace-summary strong { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 600; }',
       '.rl-trace-grid { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 30vw, 380px); gap: 12px; flex: 1 1 auto; min-height: 0; }',
@@ -4800,6 +4857,16 @@ window.__ModuleLoader__.load({
       },
       openTrace(payload, t) {
         return requestJson(ROUTES.commands, { method: 'POST', body: Object.assign({ type: 'trace.open' }, asObject(payload)) }, t);
+      },
+      /** Trace files a DAG node produced (read-only; the Host scans the worktree). */
+      fetchTraceCandidates(projectId, nodeId, t) {
+        const search = new URLSearchParams({ view: 'candidates', projectId, nodeId });
+        return requestJson(ROUTES.trace + '?' + search.toString(), {}, t);
+      },
+      /** Multi-trace comparison aligned by kernel name; first id is the baseline. */
+      fetchTraceCompare(traceIds, t) {
+        const search = new URLSearchParams({ view: 'compare', traceIds: traceIds.join(',') });
+        return requestJson(ROUTES.trace + '?' + search.toString(), {}, t);
       },
       fetchChat(projectId, signal, t) {
         return requestJson(ROUTES.chat + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
@@ -9387,6 +9454,87 @@ window.__ModuleLoader__.load({
       try { return type + ' · ' + JSON.stringify(data).slice(0, 1200); } catch { return type; }
     }
 
+    /**
+     * DAG node -> profiling traces (issue #94 follow-up).
+     *
+     * The inspector lists the trace files this node's worktree produced and lets
+     * the operator open one, or several at once for the comparison table. Opening
+     * is a window event so this panel stays decoupled from the tab plumbing; the
+     * Workspace switches to the Profiler tab and forwards the paths.
+     */
+    function NodeTraceSection({ node, t }) {
+      const projectId = firstString(node?.projectId);
+      const nodeId = firstString(node?.id);
+      const [state, setState] = React.useState({ nodeId: '', rows: [], busy: false, error: '' });
+      const [picked, setPicked] = React.useState([]);
+      React.useEffect(() => {
+        if (projectId === '' || nodeId === '') return undefined;
+        let cancelled = false;
+        setState({ nodeId, rows: [], busy: true, error: '' });
+        setPicked([]);
+        (async () => {
+          try {
+            const data = await api.fetchTraceCandidates(projectId, nodeId, t);
+            if (cancelled) return;
+            setState({ nodeId, rows: asArray(asObject(data).candidates), busy: false, error: '' });
+          } catch (reason) {
+            if (cancelled) return;
+            setState({ nodeId, rows: [], busy: false, error: describeError(reason, t) });
+          }
+        })();
+        return () => { cancelled = true; };
+      }, [projectId, nodeId, t]);
+
+      const openTraces = (relPaths) => {
+        const paths = asArray(relPaths).map((value) => firstString(value)).filter((value) => value !== '');
+        if (paths.length === 0 || typeof window === 'undefined') return;
+        // CustomEvent is not a Node global; take it from the window the panel runs in.
+        const Ctor = typeof window.CustomEvent === 'function' ? window.CustomEvent : null;
+        if (Ctor === null) return;
+        window.dispatchEvent(new Ctor('metainfer:open-trace', {
+          detail: { projectId, nodeId, relPaths: paths, at: Date.now() },
+        }));
+      };
+
+      const rows = state.rows;
+      return h('div', { className: 'rl-section rl-node-traces', 'data-testid': 'node-traces' },
+        h('h3', { className: 'rl-section-title' }, t('ws.nodeTrace.title')),
+        h('p', { className: 'rl-hint' }, t('ws.nodeTrace.hint')),
+        state.busy === true ? h(LabLoading, { label: t('ws.nodeTrace.scanning') }) : null,
+        state.error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, state.error) : null,
+        state.busy !== true && state.error === '' && rows.length === 0
+          ? h('p', { className: 'rl-hint' }, t('ws.nodeTrace.empty'))
+          : null,
+        rows.length === 0 ? null : h('div', { className: 'rl-node-traces-list' },
+          rows.map((row) => {
+            const entry = asObject(row);
+            const relPath = firstString(entry.relPath);
+            const checked = picked.indexOf(relPath) >= 0;
+            return h('label', { key: 'node-trace-' + relPath, className: 'rl-trace-candidate' + (checked ? ' rl-trace-candidate-on' : '') },
+              h('input', {
+                type: 'checkbox',
+                checked,
+                'aria-label': relPath,
+                onChange: () => setPicked((previous) => (previous.indexOf(relPath) >= 0
+                  ? previous.filter((value) => value !== relPath)
+                  : [...previous, relPath])),
+              }),
+              h('span', { className: 'rl-trace-candidate-name', title: relPath }, relPath),
+              h('span', { className: 'rl-trace-kmeta' }, formatTraceBytes(numberOr(entry.size, 0))));
+          })),
+        rows.length === 0 ? null : h('div', { className: 'rl-node-traces-actions' },
+          h(LabButton, {
+            label: t('ws.nodeTrace.open'),
+            onClick: () => openTraces(picked.length > 0 ? picked : [firstString(asObject(rows[0]).relPath)]),
+          }),
+          h(LabButton, {
+            label: t('ws.nodeTrace.compare'),
+            variant: 'primary',
+            disabled: picked.length < 2,
+            onClick: () => openTraces(picked),
+          })));
+    }
+
     /** Live/persisted trace of one external execution run. */
     function ExecutionTraceSection({ node, t }) {
       const run = asObject(node?.executionRun);
@@ -10459,9 +10607,27 @@ window.__ModuleLoader__.load({
       const [successorNodeId, setSuccessorNodeId] = React.useState(null);
       const [runsOpen, setRunsOpen] = React.useState(false);
       const activeTab = normalizeLabTab(tab);
+      // Cross-panel bridge: the node inspector (DAG tab) asks the Profiler tab to
+      // open one or more of the node's trace files. A window event keeps the two
+      // panels decoupled — the inspector does not need the tab plumbing.
+      const [traceRequest, setTraceRequest] = React.useState(null);
       const [mountedTabs, setMountedTabs] = React.useState(() => new Set([activeTab]));
       const selectTab = typeof onSelectTab === 'function' ? onSelectTab : () => {};
       const noteNode = typeof onNodeChange === 'function' ? onNodeChange : () => {};
+      React.useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const onOpenTrace = (event) => {
+          const detail = asObject(event?.detail);
+          const projectIdOfRequest = firstString(detail.projectId);
+          const nodeIdOfRequest = firstString(detail.nodeId);
+          const relPaths = asArray(detail.relPaths).map((value) => firstString(value)).filter((value) => value !== '');
+          if (projectIdOfRequest === '' || nodeIdOfRequest === '' || relPaths.length === 0) return;
+          setTraceRequest({ projectId: projectIdOfRequest, nodeId: nodeIdOfRequest, relPaths, at: Date.now() });
+          selectTab('trace');
+        };
+        window.addEventListener('metainfer:open-trace', onOpenTrace);
+        return () => window.removeEventListener('metainfer:open-trace', onOpenTrace);
+      }, [selectTab]);
       React.useEffect(() => {
         setMountedTabs((previous) => previous.has(activeTab) ? previous : new Set([...previous, activeTab]));
       }, [activeTab]);
@@ -11259,7 +11425,7 @@ window.__ModuleLoader__.load({
         h(ProjectTabPanel, { key: 'audit', tab: 'audit', active: activeTab === 'audit' },
           mountedTabs.has('audit') ? h(AuditTab, { projectId, nodes, onOpenNode: (nodeId) => { setSelectedId(nodeId); noteNode(nodeId); selectTab('dag'); }, t }) : null),
         h(ProjectTabPanel, { key: 'trace', tab: 'trace', active: activeTab === 'trace' },
-          mountedTabs.has('trace') ? h(ProfilerTab, { projectId, t, active: activeTab === 'trace' }) : null),
+          mountedTabs.has('trace') ? h(ProfilerTab, { projectId, nodes, request: traceRequest, t, active: activeTab === 'trace' }) : null),
       ];
 
       return h(
@@ -13194,6 +13360,7 @@ window.__ModuleLoader__.load({
           );
         })(),
         h(ExecutionTraceSection, { node, t }),
+        h(NodeTraceSection, { node, t }),
         h(NativeSessionPanel, { node, onOpenSession: (sessionId, view) => onOpenSession(sessionId, view, nodeKeyId), onOpenFiles: () => onOpenFiles(nodeKeyId), t }),
         isMergeNode
           ? h(MergeSection, { node, nodes, busy, onFinish: () => onFinishMerge(nodeKeyId), t })
@@ -17623,6 +17790,23 @@ window.__ModuleLoader__.load({
     const TRACE_VIEW_FILL = 0.9;
 
     /** `1.234 ms` style duration; traces are recorded in microseconds. */
+    /** Human byte size for a trace file candidate. */
+    function formatTraceBytes(value) {
+      const bytes = numberOr(value, 0);
+      if (bytes <= 0) return '0 B';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+
+    /** Signed percentage for the comparison table; '±0' reads better than '+0'. */
+    function formatDeltaPct(value) {
+      const pct = Number(value);
+      if (!Number.isFinite(pct) || pct === 0) return '±0%';
+      return (pct > 0 ? '+' : '') + (Math.round(pct * 10) / 10) + '%';
+    }
+
     function formatTraceMicros(value) {
       const number = Number(value);
       if (!Number.isFinite(number)) return '—';
@@ -17652,9 +17836,17 @@ window.__ModuleLoader__.load({
      * the nine Agent actions run from the rail. Selecting a kernel in the rail
      * zooms Perfetto to that slice via the documented postMessage API.
      */
-    function ProfilerTab({ projectId, t, active }) {
+    function ProfilerTab({ projectId, t, active, nodes = [], request = null }) {
       const tr = typeof t === 'function' ? t : (key) => key;
       const [traces, setTraces] = React.useState([]);
+      // Multi-trace comparison: at most three columns stay legible, and the first
+      // opened trace is the baseline every delta is measured against.
+      const [compareIds, setCompareIds] = React.useState([]);
+      const [compare, setCompare] = React.useState(null);
+      const [compareBusy, setCompareBusy] = React.useState(false);
+      const [candidates, setCandidates] = React.useState({ nodeId: '', rows: [], error: '', busy: false });
+      const [candidateNode, setCandidateNode] = React.useState('');
+      const [pickedCandidates, setPickedCandidates] = React.useState([]);
       const [traceId, setTraceId] = React.useState('');
       const [summary, setSummary] = React.useState(null);
       const [phase, setPhase] = React.useState('idle');
@@ -18039,6 +18231,177 @@ window.__ModuleLoader__.load({
         window.open(api.traceBytesUrl(traceId), '_blank', 'noopener');
       };
 
+      // --- DAG node -> trace hop, and multi-trace comparison -----------------
+      const loadCandidates = React.useCallback(async (nodeId) => {
+        const wanted = firstString(nodeId);
+        if (wanted === '') return;
+        setCandidates({ nodeId: wanted, rows: [], error: '', busy: true });
+        try {
+          const data = await api.fetchTraceCandidates(projectId, wanted, tr);
+          if (!aliveRef.current) return;
+          setCandidates({ nodeId: wanted, rows: asArray(asObject(data).candidates), error: '', busy: false });
+        } catch (reason) {
+          if (!aliveRef.current) return;
+          setCandidates({ nodeId: wanted, rows: [], error: describeError(reason, tr), busy: false });
+        }
+      }, [projectId, tr]);
+
+      const loadCompare = React.useCallback(async (ids) => {
+        const list = asArray(ids).map((value) => firstString(value)).filter((value) => value !== '');
+        if (list.length < 2) {
+          setCompare(null);
+          return;
+        }
+        setCompareBusy(true);
+        try {
+          const data = await api.fetchTraceCompare(list, tr);
+          if (!aliveRef.current) return;
+          setCompare(asObject(data));
+        } catch (reason) {
+          if (!aliveRef.current) return;
+          setCompare(null);
+          setActionError(describeError(reason, tr));
+        } finally {
+          if (aliveRef.current) setCompareBusy(false);
+        }
+      }, [tr]);
+
+      /** Open every selected node trace; two or more land in the compare table. */
+      const openNodeTraces = React.useCallback(async (nodeId, relPaths) => {
+        const paths = asArray(relPaths).map((value) => firstString(value)).filter((value) => value !== '');
+        if (paths.length === 0) return;
+        setPhase('loading');
+        setError('');
+        const openedIds = [];
+        try {
+          for (const relPath of paths) {
+            const data = await api.openTrace({ projectId, nodeId, relPath }, tr);
+            const id = firstString(asObject(data).traceId);
+            if (id !== '') openedIds.push(id);
+          }
+        } catch (reason) {
+          if (!aliveRef.current) return;
+          setPhase('error');
+          setError(describeError(reason, tr));
+          return;
+        }
+        if (!aliveRef.current) return;
+        await loadTraces();
+        if (openedIds.length > 0) await refreshTrace(openedIds[openedIds.length - 1]);
+        setCompareIds(openedIds);
+        if (openedIds.length > 1) await loadCompare(openedIds);
+        else setCompare(null);
+      }, [projectId, tr, loadTraces, refreshTrace, loadCompare]);
+
+      // The Workspace bridge forwards "open these node traces" from the inspector.
+      React.useEffect(() => {
+        if (!request || typeof request !== 'object') return;
+        const nodeId = firstString(request.nodeId);
+        if (nodeId === '') return;
+        setCandidateNode(nodeId);
+        void loadCandidates(nodeId);
+        void openNodeTraces(nodeId, request.relPaths);
+        // request.at makes a repeated selection of the same node files re-open.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [request?.at]);
+
+      React.useEffect(() => {
+        if (candidateNode === '') return;
+        void loadCandidates(candidateNode);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [candidateNode]);
+
+      const toggleCandidate = (relPath) => {
+        setPickedCandidates((previous) => (previous.indexOf(relPath) >= 0
+          ? previous.filter((value) => value !== relPath)
+          : [...previous, relPath]));
+      };
+
+      const nodeTracePicker = h('div', { className: 'rl-trace-picker', 'data-testid': 'trace-node-picker' },
+        h('div', { className: 'rl-trace-picker-head' },
+          h('span', { className: 'rl-section-title' }, tr('ws.trace.nodePicker')),
+          h('select', {
+            className: 'rl-select rl-trace-node-select',
+            value: candidateNode,
+            'aria-label': tr('ws.trace.nodePicker'),
+            onChange: (event) => { setCandidateNode(firstString(event?.target?.value)); setPickedCandidates([]); },
+          },
+          h('option', { value: '' }, tr('ws.trace.nodePickerEmpty')),
+          asArray(nodes).slice(0, 300).map((row) => {
+            const id = firstString(asObject(row).id);
+            const title = firstString(asObject(row).title) || id;
+            return h('option', { key: 'node-' + id, value: id }, id + ' · ' + title.slice(0, 60));
+          })),
+          h('span', { className: 'rl-hint' }, tr('ws.trace.nodeHint'))),
+        candidates.error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, candidates.error) : null,
+        candidates.busy === true ? h(LabLoading, { label: tr('ws.trace.nodeScanning') }) : null,
+        candidates.busy !== true && candidateNode !== '' && candidates.rows.length === 0 && candidates.error === ''
+          ? h('p', { className: 'rl-hint' }, tr('ws.trace.nodeEmpty'))
+          : null,
+        candidates.rows.length === 0 ? null : h('div', { className: 'rl-trace-candidates' },
+          candidates.rows.map((row) => {
+            const entry = asObject(row);
+            const relPath = firstString(entry.relPath);
+            const picked = pickedCandidates.indexOf(relPath) >= 0;
+            return h('label', { key: 'cand-' + relPath, className: 'rl-trace-candidate' + (picked ? ' rl-trace-candidate-on' : '') },
+              h('input', {
+                type: 'checkbox',
+                checked: picked,
+                onChange: () => toggleCandidate(relPath),
+                'aria-label': relPath,
+              }),
+              h('span', { className: 'rl-trace-candidate-name' }, relPath),
+              h('span', { className: 'rl-trace-kmeta' }, formatTraceBytes(numberOr(entry.size, 0))));
+          }),
+          h('div', { className: 'rl-trace-candidate-actions' },
+            h(LabButton, {
+              label: tr('ws.trace.nodeOpen'),
+              onClick: () => { void openNodeTraces(candidateNode, pickedCandidates.length > 0 ? pickedCandidates : [firstString(asObject(candidates.rows[0]).relPath)]); },
+              disabled: candidateNode === '' || candidates.rows.length === 0,
+            }),
+            h(LabButton, {
+              label: tr('ws.trace.nodeCompare'),
+              variant: 'primary',
+              onClick: () => { void openNodeTraces(candidateNode, pickedCandidates); },
+              disabled: pickedCandidates.length < 2,
+            }))));
+
+      const comparePanel = compare === null ? null : (() => {
+        const columns = asArray(compare.columns).map((column) => asObject(column));
+        const totals = asArray(compare.totals).map((total) => asObject(total));
+        const rows = asArray(compare.rows).map((row) => asObject(row));
+        return h('div', { className: 'rl-trace-compare', 'data-testid': 'trace-compare' },
+          h('div', { className: 'rl-trace-compare-head' },
+            h('span', { className: 'rl-section-title' }, tr('ws.trace.compareTitle')),
+            compareBusy ? h(LabLoading, { label: tr('ws.trace.compareBusy') }) : null,
+            h(LabButton, { label: tr('ws.trace.compareClose'), variant: 'ghost', onClick: () => { setCompare(null); setCompareIds([]); } })),
+          h('div', { className: 'rl-trace-compare-totals' },
+            h('span', { className: 'rl-hint' }, tr('ws.trace.compareTotal')),
+            totals.map((total, index) => h('span', { key: 'total-' + index, className: 'rl-trace-chip' },
+              firstString(total.name) + (index === 0 ? ' (基准)' : '') + ' · ' + formatTraceMicros(numberOr(total.totalKernelUs, 0))
+              + (index === 0 ? '' : ' · ' + formatDeltaPct(numberOr(total.deltaPct, 0)))))),
+          h('div', { className: 'rl-trace-compare-table-wrap' },
+            h('table', { className: 'rl-trace-compare-table' },
+              h('thead', null,
+                h('tr', null,
+                  h('th', null, tr('ws.trace.compareKernel')),
+                  columns.map((column, index) => h('th', { key: 'col-' + index }, firstString(column.name) || firstString(column.traceId))),
+                  h('th', null, tr('ws.trace.compareDelta')))),
+              h('tbody', null,
+                rows.map((row, rowIndex) => {
+                  const cells = asArray(row.perTrace);
+                  const deltas = asArray(row.deltaPct);
+                  return h('tr', { key: 'row-' + rowIndex },
+                    h('td', { className: 'rl-trace-compare-name', title: firstString(row.name) }, firstString(row.name)),
+                    cells.map((cell, index) => h('td', {
+                      key: 'cell-' + index,
+                      className: index === numberOr(row.fastest, -1) ? 'rl-trace-compare-fast' : '',
+                    }, formatTraceMicros(numberOr(asObject(cell).sumUs, 0)))),
+                    h('td', null, cells.length > 1 ? formatDeltaPct(numberOr(deltas[1], 0)) : '—'));
+                })))), 
+          compare.truncated === true ? h('p', { className: 'rl-hint' }, tr('ws.trace.compareTruncated', { count: numberOr(compare.rowCount, 0) })) : null);
+      })();
+
       const controls = h('div', { className: 'rl-trace-openbar' },
         h(LabButton, { label: tr('ws.trace.chooseFile'), variant: 'primary', onClick: () => {
           if (typeof document === 'undefined') return;
@@ -18257,7 +18620,9 @@ window.__ModuleLoader__.load({
             h('p', { className: 'rl-hint' }, tr('ws.trace.subtitle'))),
           h(LabButton, { label: tr('ws.trace.refresh'), variant: 'ghost', onClick: () => { if (traceId !== '') void refreshTrace(traceId); else void loadTraces(); } })),
         controls,
+        nodeTracePicker,
         recentTraces,
+        comparePanel,
         error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, error) : null,
         phase === 'loading' ? h(LabLoading, { label: tr('ws.trace.loading') }) : null,
         phase === 'idle' && traces.length === 0 ? h('p', { className: 'rl-hint' }, tr('ws.trace.empty')) : null,
@@ -20148,6 +20513,7 @@ window.__ModuleLoader__.load({
       exported.__components = {
         LandingScreen,
         MetainferLabPage,
+        NodeTraceSection,
         ProjectTabBar,
         ProjectTabPanel,
         ProfilerTab,

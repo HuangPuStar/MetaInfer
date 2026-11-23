@@ -24,6 +24,7 @@ globalThis.localStorage = window.localStorage;
 globalThis.HTMLElement = window.HTMLElement;
 globalThis.Node = window.Node;
 globalThis.MessageEvent = window.MessageEvent;
+globalThis.CustomEvent = window.CustomEvent;
 globalThis.getComputedStyle = window.getComputedStyle.bind(window);
 globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
@@ -116,7 +117,7 @@ globalThis.fetch = async (url, init = {}) => {
   let data = {};
   if (method === 'POST' && parsed.pathname.endsWith('/commands')) {
     const body = JSON.parse(String(init.body ?? '{}'));
-    if (body.type === 'trace.open') data = { traceId: 'tr_1' };
+    if (body.type === 'trace.open') data = { traceId: body.relPath && body.relPath.includes('b.json') ? 'tr_2' : 'tr_1' };
     else if (body.type === 'trace.close') data = { closed: true };
     else if (body.type === 'project.chat') {
       chatMessages = [...chatMessages, { role: 'user', text: body.text, at: 1 }, { role: 'assistant', text: 'answer about the kernel', at: 2 }];
@@ -127,11 +128,37 @@ globalThis.fetch = async (url, init = {}) => {
     }
   } else if (parsed.pathname.endsWith('/trace')) {
     const traceId = parsed.searchParams.get('traceId');
-    if (!traceId) data = { traces: [{ traceId: 'tr_1', name: 'torch-demo.json' }] };
+    if (view === 'candidates') {
+      data = {
+        projectId: 'p1', nodeId: parsed.searchParams.get('nodeId'), worktree: '/tmp/wt', scanned: 3, total: 2,
+        candidates: [
+          { relPath: 'results/a.json', name: 'a.json', size: 2048, mtimeMs: 2, kind: 'chrome-trace', gzip: false },
+          { relPath: 'results/nested/b.json', name: 'b.json', size: 4096, mtimeMs: 1, kind: 'chrome-trace', gzip: false },
+        ],
+      };
+    } else if (view === 'compare') {
+      data = {
+        columns: [
+          { traceId: 'tr_1', name: 'a.json', nodeId: 'n-1' },
+          { traceId: 'tr_2', name: 'b.json', nodeId: 'n-1' },
+        ],
+        totals: [
+          { traceId: 'tr_1', name: 'a.json', nodeId: 'n-1', totalKernelUs: 500, kernelCount: 2, deltaPct: 0 },
+          { traceId: 'tr_2', name: 'b.json', nodeId: 'n-1', totalKernelUs: 900, kernelCount: 2, deltaPct: 80 },
+        ],
+        rows: [
+          { name: 'ampere_sgemm_128x64_nn', perTrace: [{ traceId: 'tr_1', count: 1, sumUs: 400 }, { traceId: 'tr_2', count: 1, sumUs: 800 }], deltaPct: [0, 100], fastest: 0, peakUs: 800 },
+          { name: 'vectorized_elementwise', perTrace: [{ traceId: 'tr_1', count: 1, sumUs: 100 }, { traceId: 'tr_2', count: 1, sumUs: 100 }], deltaPct: [0, 0], fastest: 0, peakUs: 100 },
+        ],
+        rowCount: 2,
+        truncated: false,
+      };
+    } else if (!traceId) data = { traces: [{ traceId: 'tr_1', name: 'torch-demo.json' }] };
     else if (view === 'summary') data = SUMMARY;
     else if (view === 'kernels') data = KERNELS;
     else if (view === 'kernel') data = { detail: DETAIL, actions: ACTIONS };
     else if (view === 'prompt') data = { prompt: `PROMPT:${parsed.searchParams.get('action')}:${parsed.searchParams.get('kernel')}` };
+
   } else if (parsed.pathname.endsWith('/chat')) {
     data = { projectId: 'p1', messages: chatMessages };
   }
@@ -264,9 +291,101 @@ check('a slice selected inside Perfetto opens that kernel in the rail',
   calls.some((call) => call.path.includes('view=kernel') && call.path.includes('kernel=0'))
   && (host.querySelector('[data-testid="trace-detail"]')?.textContent ?? '').includes('ampere_sgemm_128x64_nn'));
 
+
+// --- DAG node -> trace hop + multi-trace comparison ---------------------------
+const NodeTraceSection = module.__components.NodeTraceSection;
+assert.equal(typeof NodeTraceSection, 'function', 'NodeTraceSection is exported for the jsdom test');
+
+const nodeHost = window.document.createElement('div');
+window.document.body.appendChild(nodeHost);
+const nodeRoot = createRoot(nodeHost);
+const node = { id: 'n-1', projectId: 'p1', title: 'n1 · demo' };
+await React.act(async () => {
+  nodeRoot.render(React.createElement(NodeTraceSection, { node, t }));
+  await wait(120);
+});
+check('the inspector lists the node traces',
+  nodeHost.querySelectorAll('[data-testid="node-traces"] .rl-trace-candidate').length === 2,
+  nodeHost.textContent?.slice(0, 200));
+check('node trace rows keep the relative path',
+  (nodeHost.textContent ?? '').includes('results/nested/b.json'));
+
+const openedEvents = [];
+const onOpenTrace = (event) => openedEvents.push(event.detail);
+window.addEventListener('metainfer:open-trace', onOpenTrace);
+const nodeBoxes = [...nodeHost.querySelectorAll('input[type="checkbox"]')];
+await React.act(async () => {
+  nodeBoxes[0].click();
+  nodeBoxes[1].click();
+  await wait(40);
+});
+const compareButton = [...nodeHost.querySelectorAll('button')].find((button) => (button.textContent ?? '').includes('ws.nodeTrace.compare'));
+check('the compare button unlocks after two picks', Boolean(compareButton) && compareButton.disabled === false);
+await React.act(async () => {
+  compareButton.click();
+  await wait(60);
+});
+check('the inspector dispatches the node trace request',
+  openedEvents.length === 1 && openedEvents[0].nodeId === 'n-1' && openedEvents[0].relPaths.length === 2,
+  JSON.stringify(openedEvents));
+window.removeEventListener('metainfer:open-trace', onOpenTrace);
+
+// The picker inside the Profiler tab lists nodes and compares the opened traces.
+const pickerHost = window.document.createElement('div');
+window.document.body.appendChild(pickerHost);
+const pickerRoot = createRoot(pickerHost);
+await React.act(async () => {
+  pickerRoot.render(React.createElement(ProfilerTab, {
+    projectId: 'p1', t, active: true,
+    nodes: [{ id: 'n-1', title: 'n1 · demo' }, { id: 'n-2', title: 'n2 · other' }],
+  }));
+  await wait(120);
+});
+const pickerSelect = pickerHost.querySelector('.rl-trace-node-select');
+check('the profiler exposes a DAG node picker', pickerSelect !== null);
+check('the picker lists the project nodes', pickerSelect?.querySelectorAll('option').length === 3);
+await React.act(async () => {
+  pickerSelect.value = 'n-1';
+  pickerSelect.dispatchEvent(new window.Event('change', { bubbles: true }));
+  await wait(120);
+});
+const pickerBoxes = [...pickerHost.querySelectorAll('.rl-trace-candidates input[type="checkbox"]')];
+check('picking a node loads its trace candidates', pickerBoxes.length === 2, pickerHost.textContent?.slice(0, 200));
+await React.act(async () => {
+  pickerBoxes[0].click();
+  pickerBoxes[1].click();
+  await wait(40);
+});
+const pickerCompare = [...pickerHost.querySelectorAll('button')]
+  .find((button) => (button.textContent ?? '').includes('ws.trace.nodeCompare'));
+check('the profiler compare button unlocks after two picks', Boolean(pickerCompare) && pickerCompare.disabled === false);
+await React.act(async () => {
+  pickerCompare.click();
+  await wait(160);
+});
+const compareTable = pickerHost.querySelector('[data-testid="trace-compare"]');
+check('the comparison table renders after opening two traces', compareTable !== null, pickerHost.textContent?.slice(0, 300));
+check('the comparison table aligns kernels by name',
+  (compareTable?.textContent ?? '').includes('ampere_sgemm_128x64_nn')
+  && (compareTable?.textContent ?? '').includes('vectorized_elementwise'));
+check('the comparison table marks the faster column',
+  compareTable?.querySelectorAll('.rl-trace-compare-fast').length >= 1);
+check('the comparison table reports the delta',
+  (compareTable?.textContent ?? '').includes('+100%'), compareTable?.textContent?.slice(0, 300));
+
+// Tear the mounted trees down: ProfilerTab keeps a Perfetto PING interval and a
+// jsdom document keeps handles, so the probe must stop them before exiting.
+await React.act(async () => {
+  root.unmount();
+  nodeRoot.unmount();
+  pickerRoot.unmount();
+});
+dom.window.close();
+
 if (failures.length > 0) {
   console.error(`\nprofiler-ui-selftest: ${failures.length} check(s) failed`);
   for (const failure of failures) console.error(' - ' + failure);
   process.exit(1);
 }
 console.log('\nprofiler-ui-selftest: all checks passed');
+process.exit(0);

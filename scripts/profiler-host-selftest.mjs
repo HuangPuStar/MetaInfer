@@ -210,6 +210,60 @@ check('a missing asset answers 404', missingRes.statusCode === 404);
 const traversalRes = await perfettoCall('/metainfer/perfetto/../../etc/passwd');
 check('a traversal attempt is refused', traversalRes.statusCode === 400 || traversalRes.statusCode === 404);
 
+
+// 5. DAG → trace hop: enumerate the node worktree, open by relative path, compare.
+const { mkdir: mkdirP, writeFile: writeF } = await import('node:fs/promises');
+const nodeRow = envelope(await call('GET', '/api/metainfer-research-lab/state', { search: `?projectId=${projectId}` }))
+  ?.nodes?.find((row) => row?.id === node.id);
+const worktree = nodeRow?.git?.worktreePath;
+check('the created node records a worktree', typeof worktree === 'string' && worktree !== '', String(worktree));
+const traceV2 = JSON.parse(JSON.stringify(TRACE));
+traceV2.traceEvents[2].dur = 800; // same kernel, twice as slow => +100%
+traceV2.traceEvents[3].dur = 300;
+await mkdirP(path.join(worktree, 'results', 'nested'), { recursive: true });
+await writeF(path.join(worktree, 'results', 'torch-v1.json'), JSON.stringify(TRACE));
+await writeF(path.join(worktree, 'results', 'nested', 'torch-v2.json'), JSON.stringify(traceV2));
+await writeF(path.join(worktree, 'results', 'notes.json'), JSON.stringify({ hello: 'not a trace' }));
+await mkdirP(path.join(worktree, 'node_modules', 'pkg'), { recursive: true });
+await writeF(path.join(worktree, 'node_modules', 'pkg', 'decoy.json'), JSON.stringify(TRACE));
+
+const candidates = envelope(await call('GET', tracePath, { search: `?view=candidates&projectId=${projectId}&nodeId=${node.id}` }));
+check('candidates lists the node traces', candidates?.candidates?.length === 2, JSON.stringify(candidates).slice(0, 300));
+check('candidates skip non-trace json and node_modules',
+  candidates?.candidates?.every((row) => !row.relPath.includes('node_modules') && !row.relPath.endsWith('notes.json')));
+check('candidates carry a relative path and size',
+  typeof candidates?.candidates?.[0]?.relPath === 'string' && candidates.candidates[0].size > 0);
+
+const openedV1 = envelope(await call('POST', commandPath, {
+  body: { type: 'trace.open', projectId, nodeId: node.id, relPath: 'results/torch-v1.json' },
+}));
+check('trace.open accepts a node-relative path', openedV1?.traceId?.startsWith('tr_') === true, JSON.stringify(openedV1).slice(0, 200));
+const openedV2 = envelope(await call('POST', commandPath, {
+  body: { type: 'trace.open', projectId, nodeId: node.id, relPath: 'results/nested/torch-v2.json' },
+}));
+check('two traces from one node can be open at once', openedV1?.traceId !== openedV2?.traceId);
+const listed = envelope(await call('GET', tracePath, { search: '' }));
+const listedRow = listed?.traces?.find((row) => row.traceId === openedV1?.traceId);
+check('an opened node trace keeps its provenance', listedRow?.nodeId === node.id && listedRow?.relPath === 'results/torch-v1.json');
+const escaped = await call('POST', commandPath, {
+  body: { type: 'trace.open', projectId, nodeId: node.id, relPath: '../../../etc/passwd' },
+});
+check('a traversal relPath is refused', escaped.ok === false && escaped.error?.code === 'bad_request', JSON.stringify(escaped).slice(0, 200));
+
+const compare = envelope(await call('GET', tracePath, {
+  search: `?view=compare&traceIds=${openedV1.traceId},${openedV2.traceId}`,
+}));
+check('compare returns both columns', compare?.columns?.length === 2 && compare?.totals?.length === 2, JSON.stringify(compare).slice(0, 300));
+const faster = compare?.totals?.[0]?.totalKernelUs ?? 0;
+const slower = compare?.totals?.[1]?.totalKernelUs ?? 0;
+check('compare totals describe the doubled trace', slower > faster, JSON.stringify(compare?.totals));
+check('compare reports the total delta as a percentage', typeof compare?.totals?.[1]?.deltaPct === 'number' && compare.totals[1].deltaPct > 0);
+const sgemm = compare?.rows?.find((row) => row.name === 'ampere_sgemm_128x64_nn');
+check('compare aligns rows by kernel name', Boolean(sgemm) && sgemm.perTrace.length === 2, JSON.stringify(compare?.rows?.slice(0, 2)));
+check('compare marks the fastest column per row', sgemm?.fastest === 0 && sgemm?.deltaPct?.[1] === 100, JSON.stringify(sgemm?.deltaPct));
+const oneTrace = await call('GET', tracePath, { search: `?view=compare&traceIds=${openedV1.traceId}` });
+check('compare needs at least two traces', oneTrace.ok === false && oneTrace.error?.code === 'bad_request');
+
 await rm(root, { recursive: true, force: true });
 await rm(perfettoRoot, { recursive: true, force: true });
 if (failed > 0) {

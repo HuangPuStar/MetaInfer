@@ -15,7 +15,8 @@ import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { TRACE_LIMITS, parseTraceDocument, traceSummary } from './trace.js';
 
-const MAX_TRACES = 3;
+// Enough for a meaningful A/B/C comparison of the same kernel family.
+const MAX_TRACES = 8;
 /** Total raw-bytes budget for opened traces (the parsed index is extra). */
 const MAX_RAW_BYTES = 512 * 1024 * 1024;
 
@@ -75,7 +76,7 @@ export function createProfilerStore(options = {}) {
    * Load a trace from an absolute path on the Host machine.
    * @param {string} filePath
    */
-  async function openPath(filePath) {
+  async function openPath(filePath, meta = {}) {
     const resolved = path.resolve(String(filePath ?? ''));
     if (!path.isAbsolute(resolved)) {
       throw Object.assign(new Error('trace path must be absolute'), { code: 'bad_request' });
@@ -106,6 +107,11 @@ export function createProfilerStore(options = {}) {
     // Keep the exact bytes: the Client hands them to the embedded Perfetto UI,
     // which parses the trace itself (issue #94 follow-up: standard viewer).
     index.rawBytes = bytes;
+    // Provenance for the DAG → trace hop: which node (and which relative file)
+    // produced this trace. Purely informational; the viewer never writes it back.
+    index.nodeId = typeof meta.nodeId === 'string' && meta.nodeId ? meta.nodeId : null;
+    index.projectId = typeof meta.projectId === 'string' && meta.projectId ? meta.projectId : null;
+    index.relPath = typeof meta.relPath === 'string' && meta.relPath ? meta.relPath : null;
     return remember(index);
   }
 
@@ -140,6 +146,9 @@ export function createProfilerStore(options = {}) {
         traceId: index.traceId,
         name: index.name,
         sourcePath: index.sourcePath,
+        nodeId: index.nodeId ?? null,
+        projectId: index.projectId ?? null,
+        relPath: index.relPath ?? null,
         createdAt: index.createdAt,
         window: index.window,
         counts: index.counts,
