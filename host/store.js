@@ -21,6 +21,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import { createEventArchive } from './kernel/eventlog.js';
+import { WAL_KINDS, createWal, describeNodeChange } from './wal.js';
 import { configureActorKeyStore, flushActorKeyStore, migrateProjectActorKeys } from './kernel/actors.js';
 
 /**
@@ -194,6 +195,26 @@ export async function openStore(ctx, config = {}) {
       return write;
     },
   });
+  // DAG write-ahead log: durable, monotonic, queryable by cursor/range. Kept next
+  // to the event archive so the operator finds all audit trails in one place.
+  const wal = createWal({
+    file: cfg?.kernel?.walFile ?? path.join(dshHome(), 'metainfer-research-lab', 'wal.sqlite'),
+  });
+  /**
+   * Seed the log the first time a project that predates it is asked about.
+   * Idempotent: `ensureBackfill` records a per-project marker in `wal_meta`.
+   */
+  function ensureWalSeed(projectId) {
+    try {
+      if (wal.latestSeq(projectId) > 0) return;
+      // indexFor() builds the projection on demand; without it a freshly opened
+      // store would skip seeding because no read had touched the project yet.
+      const entry = indexFor(projectId);
+      wal.ensureBackfill(projectId, [...entry.nodes.values()]);
+    } catch (error) {
+      console.warn('[metainfer-lab] wal seed failed:', error?.message ?? error);
+    }
+  }
   const archive = createEventArchive({
     root: cfg?.kernel?.eventArchiveRoot ?? path.join(dshHome(), 'metainfer-research-lab', 'eventlog'),
     hotEvents: cfg?.kernel?.hotEvents ?? 50_000,
@@ -455,6 +476,19 @@ export async function openStore(ctx, config = {}) {
     }
     insertSorted(entry.nodeOrder, node, nodeCompare);
     recordChange(projectId, node.id, previous ? 'node.updated' : 'node.created', node.status, node.rev);
+    try {
+      const change = describeNodeChange(previous, node);
+      wal.append({
+        projectId,
+        nodeId: node.id,
+        kind: change.kind,
+        revision: getProject(projectId)?.revision ?? null,
+        payload: change.payload,
+      });
+    } catch (error) {
+      // The log must never block the write path; a failure is reported, not thrown.
+      console.warn('[metainfer-lab] wal append failed:', error?.message ?? error);
+    }
     notifyNode(projectId, node, previous ? 'node.updated' : 'node.created');
     return tables.nodes.put(key, node);
   }
@@ -468,6 +502,17 @@ export async function openStore(ctx, config = {}) {
     const at = entry.nodeOrder.findIndex((candidate) => candidate.id === nodeId);
     if (at >= 0) entry.nodeOrder.splice(at, 1);
     recordChange(projectId, nodeId, 'node.removed', null, null);
+    try {
+      wal.append({
+        projectId,
+        nodeId,
+        kind: 'node.removed',
+        revision: getProject(projectId)?.revision ?? null,
+        payload: previous ? { status: previous.status ?? null, title: previous.title ?? '' } : null,
+      });
+    } catch (error) {
+      console.warn('[metainfer-lab] wal append failed:', error?.message ?? error);
+    }
     notifyNode(projectId, { id: nodeId }, 'node.removed');
     return tables.nodes.delete(nodeStorageKey(projectId, nodeId));
   }
@@ -813,6 +858,19 @@ export async function openStore(ctx, config = {}) {
     listEvents,
     pageEvents,
     changesSince,
+    /**
+     * Read the DAG write-ahead log.
+     * `fromSeq` is exclusive (cursor semantics); `toSeq` is inclusive.
+     */
+    walQuery: (input = {}) => {
+      ensureWalSeed(input.projectId);
+      return wal.query(input);
+    },
+    walLatestSeq: (projectId) => {
+      ensureWalSeed(projectId);
+      return { projectId, seq: wal.latestSeq(projectId), count: wal.count(projectId) };
+    },
+    walKinds: () => [...WAL_KINDS],
     pageRuns,
     maxEventSeq,
     saveRun,
@@ -826,6 +884,7 @@ export async function openStore(ctx, config = {}) {
     },
     listActorKeys: () => [...tables.actor_keys.entries()].map(([, value]) => ({ ...value })),
     close: async () => {
+      try { wal.close(); } catch { /* already closed */ }
       await flushActorKeyStore();
       if (actorKeyWrites.size > 0) await Promise.allSettled([...actorKeyWrites]);
       return domain.close();

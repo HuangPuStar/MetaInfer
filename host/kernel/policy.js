@@ -49,6 +49,8 @@ export const ACTION_CATALOG = Object.freeze({
   explain_node: 'read',
   trace_explain: 'read',
   changes_since: 'read',
+  wal_query: 'read',
+  wal_latest: 'read',
   nodes_page: 'read',
   events_page: 'read',
   runs_page: 'read',

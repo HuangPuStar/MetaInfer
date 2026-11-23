@@ -999,6 +999,41 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return publicView(store.changesSince(projectId, sinceRevision));
   }
 
+  /**
+   * Read the DAG write-ahead log.
+   *
+   * A consumer keeps the `seq` of the last entry it applied and calls this with
+   * `fromSeq` = that seq: the reply is exactly the changes since its position, in
+   * order, page by page (`cursor`/`nextCursor`) or bounded (`fromSeq`..`toSeq`).
+   */
+  function walQuery(input = {}) {
+    const projectId = requireProject(input?.projectId).id;
+    const limit = Number(input?.limit);
+    const fromSeq = Number(input?.fromSeq);
+    const toSeq = Number(input?.toSeq);
+    const nodeId = typeof input?.nodeId === 'string' && input.nodeId !== '' ? input.nodeId : null;
+    const kinds = Array.isArray(input.kinds)
+      ? input.kinds.filter((kind) => typeof kind === 'string' && kind !== '')
+      : (typeof input?.kinds === 'string' && input.kinds !== '' ? input.kinds.split(',').map((kind) => kind.trim()).filter(Boolean) : null);
+    const result = publicView(store.walQuery({
+      projectId,
+      fromSeq: Number.isFinite(fromSeq) ? fromSeq : 0,
+      toSeq: Number.isFinite(toSeq) ? toSeq : null,
+      nodeId,
+      kinds,
+      limit: Number.isFinite(limit) && limit > 0 ? limit : 100,
+      cursor: typeof input?.cursor === 'string' ? input.cursor : null,
+      order: input?.order === 'desc' ? 'desc' : 'asc',
+    }));
+    return { ...result, kinds: store.walKinds() };
+  }
+
+  /** Cursor helper: the newest seq (and total entries) for a project. */
+  function walLatest(projectId) {
+    const project = requireProject(projectId);
+    return publicView(store.walLatestSeq(project.id));
+  }
+
   const dashboardRuns = new Map();
   const dashboardChatRuns = new Map();
 
@@ -6464,6 +6499,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     }
     if (action === 'state') return getState(input?.projectId, input?.sinceRevision, { full: input?.full === true });
     if (action === 'changes_since') return changesSince(input?.projectId, input?.sinceRevision);
+    if (action === 'wal_query') return walQuery(input);
+    if (action === 'wal_latest') return walLatest(input?.projectId);
     if (action === 'get_node') return getNode(input?.projectId, input?.nodeId);
     if (action === 'update_project') return updateProject(input?.projectId, input ?? {});
     if (action === 'update_node') return updateNode(input?.projectId, input?.nodeId, input ?? {}, actor);
@@ -6692,6 +6729,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     startDashboardScheduler,
     resolveWorktreeFile,
     getExecutionEvents,
+    walQuery,
+    walLatest,
     nodeTraceIndex,
     nodeTraceCandidates,
     resolveNodeTrace,

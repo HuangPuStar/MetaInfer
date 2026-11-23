@@ -88,10 +88,12 @@ export const ROUTE_POLICY = Object.freeze([
   // Issue #94: the profiling viewer reads one opened trace. Mutations (open,
   // close, node creation) stay on POST /commands so this stays a pure read.
   Object.freeze({ method: 'GET', path: `${PREFIX}/trace`, policy: 'read-only' }),
+  // DAG write-ahead log: cursor/range reads for schedulers and dashboards.
+  Object.freeze({ method: 'GET', path: `${PREFIX}/wal`, policy: 'read-only' }),
 ]);
 
 const ROUTE_POLICY_BY_KEY = new Map(ROUTE_POLICY.map((row) => [`${row.method} ${row.path}`, row]));
-if (ROUTE_POLICY.length !== 54 || ROUTE_POLICY_BY_KEY.size !== ROUTE_POLICY.length) {
+if (ROUTE_POLICY.length !== 55 || ROUTE_POLICY_BY_KEY.size !== ROUTE_POLICY.length) {
   throw new Error(`HTTP route policy must contain exactly ${ROUTE_POLICY.length} unique method+path pairs`);
 }
 
@@ -652,6 +654,23 @@ export function registerHttpRoutes(ctx, service, { operatorAuthority = null, pro
 
   // Issue #94: read one opened profiling trace. Opening/closing and node
   // materialisation stay on POST /commands, so this route cannot mutate state.
+  // DAG WAL: append-only change log with a monotonic seq. `fromSeq` is exclusive
+  // (pass the last seq you applied), `toSeq` inclusive; `cursor`/`limit` page it.
+  route(`${PREFIX}/wal`, ['GET'], async (request) => {
+    const params = query(request);
+    const numberOrUndefined = (value) => (value === null || value === '' ? undefined : Number(value));
+    return ok(service.walQuery({
+      projectId: params.get('projectId'),
+      fromSeq: numberOrUndefined(params.get('fromSeq')),
+      toSeq: numberOrUndefined(params.get('toSeq')),
+      nodeId: params.get('nodeId') ?? undefined,
+      kinds: params.get('kinds') === null ? undefined : params.get('kinds'),
+      limit: numberOrUndefined(params.get('limit')),
+      cursor: params.get('cursor') ?? undefined,
+      order: params.get('order') === 'desc' ? 'desc' : 'asc',
+    }));
+  });
+
   route(`${PREFIX}/trace`, ['GET'], async (request) => {
     const params = query(request);
     const traceId = params.get('traceId');
