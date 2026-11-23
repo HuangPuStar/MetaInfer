@@ -24,7 +24,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
 
-globalThis.__METAINFER_OPERATOR_TOKEN__ = 'project-pages-token';
+delete globalThis.__METAINFER_OPERATOR_TOKEN__;
 window.__METAINFER_TEST__ = true;
 
 const failures = [];
@@ -91,6 +91,12 @@ const events = [
 const commands = [];
 globalThis.fetch = async (url, options = {}) => {
   const text = String(url);
+  if (text.endsWith('/operator/credential')) {
+    assert.equal(new Headers(options.headers).get('x-metainfer-bootstrap'), '1');
+    assert.equal(options.cache, 'no-store');
+    const payload = { ok: true, data: { token: 'project-pages-token', issuedAt: 1700000000 } };
+    return { ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload) };
+  }
   let payload = {};
   if (text.includes('/copilot')) payload = { projectId: 'p1', sessionId: 'sess-copilot', sessions: [{ id: 'sess-copilot', title: 'Investigate cache', updatedAt: 1700000500000 }] };
   else if (text.includes('/runs')) payload = { runs: [{ id: 'run-1', role: 'advisor', status: 'completed', sessionId: 'sess-run', startedAt: 1700000000000 }, { id: 'run-2', role: 'worker', status: 'failed', errorCode: 'timeout', errorDetail: 'worker timed out', endedAt: 1700000600000 }], cycles: [] };

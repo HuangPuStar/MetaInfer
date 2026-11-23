@@ -61,11 +61,13 @@ export async function dispatchRound({
       kind: 'start',
       nodeId: node.id,
       lease: result.lease,
-      basis: node.rev ?? 0,
+      basis: Number.isSafeInteger(result.basis) ? result.basis : node.rev ?? 0,
       reason: reasonFor(node, started + 1),
       idempotencyKey: `start:${request.requestId}`,
     });
-    if (decision.ok) {
+    if (decision.startOutcome && decision.startOutcome.status !== 'started') {
+      skipped.push({ nodeId: node.id, status: decision.startOutcome.status, reason: decision.startOutcome.code ?? decision.code });
+    } else if (decision.ok) {
       started += 1;
       startedNodeIds.push(node.id);
     } else {

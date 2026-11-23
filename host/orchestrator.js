@@ -10,7 +10,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { LabError } from './git-engine.js';
 import { cleanModelRef, validateModelSelection } from './models.js';
-import { resolveExecutionProfile } from './execution.js';
+import { executionSnapshot, resolveExecutionProfile } from './execution.js';
+import { startOutcomeOf } from './dispatch/types.js';
+import { startActivation } from './subagent-compat.js';
+import { sandboxProfileOf } from './sandbox-state.js';
 import { newSessionId } from './store.js';
 import { buildAdvisorSnapshot, buildSchedulerSnapshot, promptHash } from './snapshot.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_SCHEDULER_PROMPT } from './prompts.js';
@@ -1142,33 +1145,53 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
   async function ensureController(project) {
     const existing = ctx.agents.get(project.controllerSessionId);
     if (existing) return existing;
-    // Reviewer panels call this concurrently for the same controller session.
-    if (controllerLocks.has(project.controllerSessionId)) return controllerLocks.get(project.controllerSessionId);
+    // Reviewer panels call this concurrently for the same project.
+    if (controllerLocks.has(project.id)) return controllerLocks.get(project.id);
     const promise = (async () => {
       const setup = async (agentCtx) => {
         await ctx.agentPresets.mount(agentCtx, 'lab-controller');
       };
       const model = roleModel(project, 'controller');
+      let sessionId = project.controllerSessionId;
+      let handle = null;
       try {
-        const handle = await ctx.agents.resume({ resumeSessionId: project.controllerSessionId, setup });
-        controllerHandles.set(project.controllerSessionId, handle);
-        return handle.agent;
+        handle = await ctx.agents.resume({ resumeSessionId: sessionId, setup });
+        // DSH ≥0.2.2-rc.5 refuses children under a delegated (`origin: subagent`)
+        // session resumed in a new host process: it has no active runtime owner.
+        // Older builds expose no rootOf and accept the resumed handle as before.
+        if (typeof ctx.subagents.rootOf === 'function') {
+          try {
+            ctx.subagents.rootOf(handle.agent);
+          } catch {
+            handle = null;
+          }
+        }
       } catch {
-        const handle = await ctx.agents.create({
-          sessionId: project.controllerSessionId,
-          meta: { cwd: project.repo.path, origin: 'subagent', agentPreset: 'lab-controller' },
+        handle = null;
+      }
+      if (handle === null) {
+        // Mint a fresh root controller (no `origin`) so it can own its subagent tree
+        // in this process, and persist it for later host starts.
+        sessionId = newSessionId();
+        handle = await ctx.agents.create({
+          sessionId,
+          meta: { cwd: project.repo.path, agentPreset: 'lab-controller' },
           agentOptions: model,
           setup,
         });
-        controllerHandles.set(project.controllerSessionId, handle);
-        return handle.agent;
+        await commitMutations(project.id, [{
+          op: 'project.update',
+          set: { controllerSessionId: sessionId },
+        }], { causeId: `controller:${project.id}` });
       }
+      controllerHandles.set(sessionId, handle);
+      return handle.agent;
     })();
-    controllerLocks.set(project.controllerSessionId, promise);
+    controllerLocks.set(project.id, promise);
     try {
       return await promise;
     } finally {
-      controllerLocks.delete(project.controllerSessionId);
+      controllerLocks.delete(project.id);
     }
   }
 
@@ -1226,7 +1249,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     let childAgent = null;
     let offChildError = null;
     try {
-      activation = await ctx.subagents.startActivation({
+      activation = await startActivation(ctx, {
         provider: 'spawn',
         label: `mirl-${role}${options.lens ? `-${options.lens.slice(0, 20)}` : ''}/${project.id}`,
         delivery: 'caller',
@@ -1496,6 +1519,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       execution = resolveExecutionProfile(project, {
         executionProfile: proposal?.executionProfile ?? source?.execution?.profile,
         taskType: proposal?.taskType ?? source?.taskType,
+        inheritExecution: source?.execution ?? parent.execution,
         // A wrong profile name in a suggestion is not a reason to throw the
         // experiment away; it falls back to the project default and the cycle
         // records the correction.
@@ -1594,15 +1618,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
       ...(meta.expected ? { expected: meta.expected, expectedBaseline: meta.expectedBaseline ?? null } : {}),
       ...(spec.model ? { model: spec.model } : {}),
-      execution: spec.execution
-        ? {
-            profile: spec.execution.profile,
-            driver: spec.execution.driver,
-            ...(spec.execution.model ? { model: spec.execution.model } : {}),
-            ...(spec.execution.reasoningEffort ? { reasoningEffort: spec.execution.reasoningEffort } : {}),
-            ...(spec.execution.codexPath ? { codexPath: spec.execution.codexPath } : {}),
-          }
-        : { profile: 'dsh', driver: 'dsh' },
+      execution: executionSnapshot(spec.execution ?? resolveExecutionProfile(project, { inheritExecution: parent.execution })),
       taskType: spec.execution?.taskType ?? '',
       needs: spec.needs ?? {},
       timeboxMs: spec.timeboxMinutes * 60_000,
@@ -1660,6 +1676,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
 
   /** Create a planned child from a completed parent, commit and seal the parent. */
   async function createChild(project, parent, spec, meta) {
+    parent = structuredClone(parent);
     const now = Date.now();
     let head = parent.git?.headCommit ?? null;
     const commit = await git.commitWorktree(project, parent, `dshex(${parent.id}): ${parent.title} (seal)`);
@@ -1688,15 +1705,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
       ...(meta.expected ? { expected: meta.expected, expectedBaseline: meta.expectedBaseline ?? null } : {}),
       ...(spec.model ? { model: spec.model } : {}),
-      execution: spec.execution
-        ? {
-            profile: spec.execution.profile,
-            driver: spec.execution.driver,
-            ...(spec.execution.model ? { model: spec.execution.model } : {}),
-            ...(spec.execution.reasoningEffort ? { reasoningEffort: spec.execution.reasoningEffort } : {}),
-            ...(spec.execution.codexPath ? { codexPath: spec.execution.codexPath } : {}),
-          }
-        : { profile: 'dsh', driver: 'dsh' },
+      execution: executionSnapshot(spec.execution ?? resolveExecutionProfile(project, { inheritExecution: parent.execution })),
       taskType: spec.execution?.taskType ?? '',
       needs: spec.needs ?? {},
       timeboxMs: spec.timeboxMinutes * 60_000,
@@ -2095,7 +2104,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
   }
 
   async function applySchedulerOutput(projectId, cycle, output) {
-    const applied = { startedNodeIds: [], rejected: [] };
+    const applied = { startedNodeIds: [], rejected: [], skipped: [] };
     if (!output || typeof output !== 'object') {
       applied.rejected.push({ reason: 'scheduler run had no structured output' });
       return applied;
@@ -2109,8 +2118,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         continue;
       }
       try {
-        await runtime.start(projectId, nodeId);
-        applied.startedNodeIds.push(nodeId);
+        const launchContext = structuredClone(planned);
+        const result = await runtime.start(projectId, nodeId);
+        const outcome = startOutcomeOf(result, store.getNode(projectId, nodeId), launchContext);
+        if (outcome.status === 'started') applied.startedNodeIds.push(nodeId);
+        else applied.skipped.push({ nodeId, status: outcome.status, reason: outcome.code ?? outcome.status });
       } catch (error) {
         applied.rejected.push({ nodeId, reason: error instanceof Error ? error.message : String(error) });
         if (error instanceof LabError && error.code === 'project_not_found') break;
@@ -2638,6 +2650,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         } else {
           const applied = await applySchedulerOutput(projectId, cycle, record.output);
           cycle.startedNodeIds.push(...applied.startedNodeIds);
+          cycle.skipped.push(...applied.skipped.map((row) => ({ stage: 'scheduler', ...row })));
           record.startedNodeIds = applied.startedNodeIds;
           record.rejected = applied.rejected;
           await saveRun(projectId, record, 'run/updated', { started: applied.startedNodeIds.length });
@@ -2724,6 +2737,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       const execution = resolveExecutionProfile(project, {
         executionProfile: input?.executionProfile,
         taskType: input?.taskType,
+        inheritExecution: parent.execution,
       });
       const node = await createChild(project, parent, {
         title,
@@ -2823,6 +2837,9 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       const parents = ids.map((id) => nodes.find((node) => node.id === id));
       if (parents.some((parent) => !parent)) {
         throw new LabError('node_not_found', 'one or more merge parents do not exist', 404);
+      }
+      if (execution.sandboxProfile !== undefined || parents.some((parent) => sandboxProfileOf(parent) !== null || parent.sandbox?.backend === 'opensandbox')) {
+        throw new LabError('not_supported', 'sandbox merge is not supported in this integration phase', 400);
       }
       if (parents.some((parent) => parent.status !== 'completed')) {
         throw new LabError('merge_parent_not_ready', 'all merge parents must be completed', 409);

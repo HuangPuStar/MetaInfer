@@ -3,8 +3,11 @@
  * The Host plugin runs unsandboxed by design (documented trust boundary); the
  * worker agents never run git write commands.
  */
-import { mkdir, readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, rm, stat } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
+import { dshHome } from './store.js';
 
 /** Structured business error carrying a stable code for HTTP envelopes. */
 export class LabError extends Error {
@@ -29,25 +32,101 @@ const GIT_LIMITS = {
   graceMs: 2000,
 };
 
+/** Automatic Git installation runs outside the short-lived command budget. */
+const GIT_INSTALL_TIMEOUT_MS = 15 * 60_000;
+const GIT_DOWNLOAD_URL = 'https://git-scm.com/downloads';
+const GIT_IDENTITY = Object.freeze({ name: 'MetaInfer Research Lab', email: 'metainfer@localhost' });
+const REPOS_SUBDIR = ['metainfer-research-lab', 'repos'];
+
+/** Installer executables, kept here so every host reports the same command. */
+function gitInstallSpec(platform) {
+  if (platform === 'win32') {
+    return {
+      manager: 'winget',
+      command: 'winget install --id Git.Git -e --source winget',
+      argv: [
+        'winget', 'install', '--id', 'Git.Git', '--exact', '--source', 'winget',
+        '--silent', '--disable-interactivity',
+        '--accept-package-agreements', '--accept-source-agreements',
+      ],
+    };
+  }
+  if (platform === 'darwin') {
+    return { manager: 'brew', command: 'brew install git', argv: ['brew', 'install', 'git'] };
+  }
+  if (platform === 'linux') {
+    // `-n` fails instead of prompting; a password-protected sudo cannot run here.
+    return { manager: 'apt-get', command: 'sudo apt-get install -y git', argv: ['sudo', '-n', 'apt-get', 'install', '-y', 'git'] };
+  }
+  return null;
+}
+
+/** Well-known Git locations for shells whose PATH the Host process did not inherit. */
+const GIT_CANDIDATES = Object.freeze({
+  win32: [
+    'C:\\Program Files\\Git\\cmd\\git.exe',
+    'C:\\Program Files (x86)\\Git\\cmd\\git.exe',
+    path.join(homedir(), 'AppData', 'Local', 'Programs', 'Git', 'cmd', 'git.exe'),
+  ],
+  darwin: ['/opt/homebrew/bin/git', '/usr/local/bin/git', '/usr/bin/git'],
+  linux: ['/usr/bin/git', '/usr/local/bin/git', '/bin/git'],
+});
+
+/** @returns {string} last non-empty stderr/stdout line, for compact messages. */
+function lastLine(text) {
+  const lines = String(text ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
+  return lines.length > 0 ? lines[lines.length - 1] : '';
+}
+
+/** @returns {boolean} whether the input is a remote repository URL. */
+function isRemoteUrl(value) {
+  return /^(https?:\/\/|ssh:\/\/|git:\/\/|file:\/\/|git@[^:/\s]+:)/i.test(value);
+}
+
+/** Strip credentials from anything echoed back to the browser. */
+function redactUrl(text) {
+  return String(text ?? '').replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, '$1***@');
+}
+
+/** A readable, collision-resistant cache directory name for one remote URL. */
+function cacheDirName(url) {
+  const digest = createHash('sha256').update(url).digest('hex').slice(0, 12);
+  const readable = url
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+    .replace(/^git@/, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'repo';
+  return `${readable}-${digest}`;
+}
+
+
 /**
  * Create the GitEngine bound to one Host context.
  * @param ctx Cordis context with `subprocess` injected.
+ * @param {{platform?: string, reposRoot?: string, gitExecutable?: string}} [options]
+ *   test seams: the platform decides the installer, the cache root keeps tests
+ *   out of the real DSH home, and the executable lets a test hide Git.
  */
-export function createGitEngine(ctx) {
+export function createGitEngine(ctx, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const reposRoot = options.reposRoot ?? path.join(dshHome(), ...REPOS_SUBDIR);
+  let gitExecutable = options.gitExecutable ?? 'git';
+
   /**
-   * Run git with a bounded deadline and collected output.
-   * @param {string[]} args git arguments (without the leading "git").
+   * Run one process with a bounded deadline and collected output.
+   * @param {string[]} argv executable and arguments.
    * @param {{cwd: string, timeoutMs?: number}} options
    * @returns {Promise<{code: number|null, stdout: string, stderr: string, timedOut: boolean}>}
    */
-  async function runGit(args, options) {
+  async function runProcess(argv, options) {
     const cwd = options?.cwd ?? process.cwd();
     const timeoutMs = options?.timeoutMs ?? 20_000;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error(`git timeout after ${timeoutMs}ms`)), timeoutMs);
+    const timer = setTimeout(() => controller.abort(new Error(`command timeout after ${timeoutMs}ms`)), timeoutMs);
     try {
       const handle = ctx.subprocess.spawn({
-        argv: ['git', ...args],
+        argv,
         cwd,
         stdio: {
           stdin: 'ignore',
@@ -76,6 +155,16 @@ export function createGitEngine(ctx) {
     }
   }
 
+  /**
+   * Run git with a bounded deadline and collected output.
+   * @param {string[]} args git arguments (without the leading "git").
+   * @param {{cwd: string, timeoutMs?: number}} options
+   * @returns {Promise<{code: number|null, stdout: string, stderr: string, timedOut: boolean}>}
+   */
+  async function runGit(args, options) {
+    return runProcess([gitExecutable, ...args], options);
+  }
+
   async function gitText(args, options) {
     const result = await runGit(args, options);
     if (result.code !== 0) {
@@ -85,20 +174,68 @@ export function createGitEngine(ctx) {
   }
 
   /**
-   * Validate a repository path and return the info needed by the wizard.
-   * @param {unknown} rawPath absolute path supplied by the user.
-   * @returns {Promise<object>} repository facts.
+   * Read the version of one executable, or null when it cannot run.
+   * @param {string} executable
+   * @returns {Promise<string|null>}
    */
-  async function validateRepo(rawPath) {
-    const candidate = typeof rawPath === 'string' ? rawPath.trim() : '';
-    if (!candidate) throw new LabError('bad_path', 'repoPath is required', 400);
-    if (!path.isAbsolute(candidate)) throw new LabError('bad_path', 'repoPath must be an absolute path', 400);
+  async function versionOf(executable) {
+    const result = await runProcess([executable, '--version'], { cwd: tmpdir(), timeoutMs: 10_000 });
+    if (result.code !== 0) return null;
+    const match = /git version\s+(\S+)/i.exec(result.stdout.trim());
+    return match ? match[1] : (result.stdout.trim() || 'unknown');
+  }
 
-    const top = await runGit(['-C', candidate, 'rev-parse', '--show-toplevel'], { cwd: candidate });
-    if (top.code !== 0) {
-      throw new LabError('not_git', top.stderr.trim() || 'not a git repository', 422);
+  /**
+   * Locate Git: PATH first, then the well-known install locations. The Host
+   * process may have started before Git was installed, so every call re-probes.
+   * @returns {Promise<string|null>} version when Git is usable.
+   */
+  async function detectGit() {
+    const direct = await versionOf(gitExecutable);
+    if (direct !== null) return direct;
+    for (const candidate of GIT_CANDIDATES[platform] ?? []) {
+      const version = await versionOf(candidate);
+      if (version !== null) {
+        gitExecutable = candidate;
+        return version;
+      }
     }
-    const repoRoot = top.stdout.trim();
+    return null;
+  }
+
+  /** @returns {Promise<string>} Git version, or a `git_missing` LabError. */
+  async function requireGit() {
+    const version = await detectGit();
+    if (version === null) {
+      throw new LabError('git_missing', 'Git is not installed or not on PATH', 422);
+    }
+    return version;
+  }
+
+  /**
+   * Host facts for the wizard: whether Git is usable and how to install it.
+   * @returns {Promise<object>}
+   */
+  async function gitInfo() {
+    const version = await detectGit();
+    const spec = gitInstallSpec(platform);
+    return {
+      available: version !== null,
+      version,
+      platform,
+      manager: spec === null ? null : spec.manager,
+      installCommand: spec === null ? null : spec.command,
+      downloadUrl: GIT_DOWNLOAD_URL,
+    };
+  }
+
+  /**
+   * Return the facts the wizard needs for an already prepared repository.
+   * @param {string} repoRoot absolute repository root.
+   * @param {object} [extra] caller-specific fields (`prepared`, `remote`, ...).
+   * @returns {Promise<object>}
+   */
+  async function describeRepo(repoRoot, extra = {}) {
     const bare = await gitText(['-C', repoRoot, 'rev-parse', '--is-bare-repository'], { cwd: repoRoot });
     if (bare === 'true') throw new LabError('bare', 'bare repositories are not supported', 422);
 
@@ -118,7 +255,10 @@ export function createGitEngine(ctx) {
     }
     if (!defaultBranch) throw new LabError('no_commits', 'repository has no branch to start from', 422);
 
-    const baseCommit = await gitText(['-C', repoRoot, 'rev-parse', '--verify', `${defaultBranch}^{commit}`], { cwd: repoRoot });
+    // `--quiet` makes an unborn HEAD a plain non-zero exit; without it Git
+    // prints "fatal: Needed a single revision", which is not a usable message.
+    const head = await runGit(['-C', repoRoot, 'rev-parse', '--quiet', '--verify', `${defaultBranch}^{commit}`], { cwd: repoRoot });
+    if (head.code !== 0) throw new LabError('no_commits', 'repository has no commits yet', 422);
     const status = await runGit(['-C', repoRoot, 'status', '--porcelain'], { cwd: repoRoot });
 
     return {
@@ -126,9 +266,206 @@ export function createGitEngine(ctx) {
       gitDir,
       branches,
       defaultBranch,
-      baseCommit,
+      baseCommit: head.stdout.trim(),
       dirty: status.code === 0 && status.stdout.trim().length > 0,
+      ...extra,
     };
+  }
+
+  /**
+   * Validate a repository path and return the info needed by the wizard.
+   * Read-only: it never initialises or clones anything.
+   * @param {unknown} rawPath absolute path supplied by the user.
+   * @returns {Promise<object>} repository facts.
+   */
+  async function validateRepo(rawPath) {
+    const candidate = typeof rawPath === 'string' ? rawPath.trim() : '';
+    if (!candidate) throw new LabError('bad_path', 'repoPath is required', 400);
+    if (!path.isAbsolute(candidate)) throw new LabError('bad_path', 'repoPath must be an absolute path', 400);
+    await requireGit();
+
+    const top = await runGit(['-C', candidate, 'rev-parse', '--show-toplevel'], { cwd: candidate });
+    if (top.code !== 0) {
+      throw new LabError('not_git', top.stderr.trim() || 'not a git repository', 422);
+    }
+    return describeRepo(top.stdout.trim(), { prepared: 'existing' });
+  }
+
+  /** @returns {boolean} whether HEAD resolves to a commit. */
+  async function hasCommit(repoRoot) {
+    const head = await runGit(['-C', repoRoot, 'rev-parse', '--quiet', '--verify', 'HEAD'], { cwd: repoRoot });
+    return head.code === 0;
+  }
+
+  /**
+   * Give a freshly created (or freshly cloned, empty) repository an initial
+   * commit so the wizard has a base commit to branch from. User identity is
+   * never written to a global config: unset values become per-command flags.
+   * @param {string} repoRoot
+   * @returns {Promise<boolean>} whether a commit was created.
+   */
+  async function ensureInitialCommit(repoRoot) {
+    if (await hasCommit(repoRoot)) return false;
+
+    const status = await runGit(['-C', repoRoot, 'status', '--porcelain'], { cwd: repoRoot });
+    if (status.code !== 0) throw new LabError('repo_init_failed', status.stderr.trim() || 'git status failed', 422);
+    if (status.stdout.trim() !== '') {
+      const add = await runGit(['-C', repoRoot, 'add', '-A'], { cwd: repoRoot, timeoutMs: 120_000 });
+      if (add.code !== 0) throw new LabError('repo_init_failed', add.stderr.trim() || 'git add failed', 422);
+    }
+
+    const identity = [];
+    const userName = await runGit(['-C', repoRoot, 'config', '--get', 'user.name'], { cwd: repoRoot });
+    if (userName.code !== 0) identity.push('-c', `user.name=${GIT_IDENTITY.name}`);
+    const userEmail = await runGit(['-C', repoRoot, 'config', '--get', 'user.email'], { cwd: repoRoot });
+    if (userEmail.code !== 0) identity.push('-c', `user.email=${GIT_IDENTITY.email}`);
+
+    const commit = await runGit(
+      [
+        '-C', repoRoot, ...identity, '-c', 'commit.gpgsign=false',
+        'commit', '--no-verify', '--allow-empty', '-m', 'Initialize MetaInfer project',
+      ],
+      { cwd: repoRoot, timeoutMs: 120_000 },
+    );
+    if (commit.code !== 0) throw new LabError('repo_init_failed', commit.stderr.trim() || 'git commit failed', 422);
+    return true;
+  }
+
+  /**
+   * Initialise a local directory in place (and commit its current files).
+   * @param {string} candidate absolute directory path.
+   * @returns {Promise<object>}
+   */
+  async function prepareLocal(candidate) {
+    let info = null;
+    try { info = await stat(candidate); } catch { info = null; }
+    if (info === null) throw new LabError('repo_not_found', `directory not found: ${candidate}`, 404);
+    if (!info.isDirectory()) throw new LabError('bad_path', 'repoPath must be a directory', 400);
+
+    const bare = await runGit(['-C', candidate, 'rev-parse', '--is-bare-repository'], { cwd: candidate });
+    if (bare.code === 0 && bare.stdout.trim() === 'true') {
+      throw new LabError('bare', 'bare repositories are not supported', 422);
+    }
+
+    const top = await runGit(['-C', candidate, 'rev-parse', '--show-toplevel'], { cwd: candidate });
+    let prepared = 'existing';
+    if (top.code !== 0) {
+      const init = await runGit(['init', candidate], { cwd: candidate, timeoutMs: 60_000 });
+      if (init.code !== 0) throw new LabError('repo_init_failed', init.stderr.trim() || 'git init failed', 422);
+      prepared = 'local-init';
+    }
+    const repoRoot = await gitText(['-C', candidate, 'rev-parse', '--show-toplevel'], { cwd: candidate });
+    const initialized = await ensureInitialCommit(repoRoot);
+    return describeRepo(repoRoot, { prepared, initialized, remote: null });
+  }
+
+  /**
+   * Clone a remote URL into the managed cache (or reuse an existing clone).
+   * @param {string} url http(s), ssh, git or file URL.
+   * @returns {Promise<object>}
+   */
+  async function prepareRemote(url) {
+    const target = path.join(reposRoot, cacheDirName(url));
+    await mkdir(reposRoot, { recursive: true });
+
+    let present = false;
+    try { present = (await stat(target)).isDirectory(); } catch { present = false; }
+    if (present) {
+      const top = await runGit(['-C', target, 'rev-parse', '--show-toplevel'], { cwd: target });
+      if (top.code !== 0) {
+        throw new LabError('remote_cache_invalid', `cached clone is not a git repository: ${target}`, 409);
+      }
+      const initialized = await ensureInitialCommit(target);
+      return describeRepo(target, { prepared: 'remote-cache', remote: url, initialized });
+    }
+
+    const clone = await runGit(['clone', '--', url, target], { cwd: reposRoot, timeoutMs: 300_000 });
+    if (clone.code !== 0) {
+      // A half-written clone would poison the next attempt (it would look like a
+      // corrupt cache); the directory is ours, so remove it before reporting.
+      await rm(target, { recursive: true, force: true });
+      throw new LabError(
+        'remote_clone_failed',
+        redactUrl(clone.stderr.trim() || `git clone ${url} failed`),
+        422,
+      );
+    }
+    const initialized = await ensureInitialCommit(target);
+    return describeRepo(target, { prepared: 'remote-clone', remote: url, initialized });
+  }
+
+  /**
+   * Accept a repository exactly as a user picked it: an existing local
+   * directory (initialised when needed) or a remote URL (cloned and cached).
+   * @param {unknown} input string path/URL or `{repoPath|path|url}`.
+   * @returns {Promise<object>} repository facts plus `prepared`/`initialized`.
+   */
+  async function prepareRepo(input) {
+    let candidate = '';
+    if (typeof input === 'string') candidate = input.trim();
+    else if (input !== null && typeof input === 'object') {
+      for (const key of ['repoPath', 'path', 'url']) {
+        const value = input[key];
+        if (typeof value === 'string' && value.trim() !== '') { candidate = value.trim(); break; }
+      }
+    }
+    if (!candidate) throw new LabError('bad_path', 'repoPath is required', 400);
+    await requireGit();
+
+    if (isRemoteUrl(candidate)) return prepareRemote(candidate);
+    if (!path.isAbsolute(candidate)) {
+      // `github.com/owner/repo` is a common half-typed URL, not a local path.
+      if (/^[^\s/\\]+(\.[^\s/\\]+)+[/\\]/.test(candidate)) {
+        throw new LabError('remote_invalid', 'use https://, ssh:// or git@host:owner/repo for a remote repository', 400);
+      }
+      throw new LabError('bad_path', 'repoPath must be an absolute path', 400);
+    }
+    return prepareLocal(candidate);
+  }
+
+  /**
+   * Install Git through the platform package manager. Requires explicit
+   * consent in the request body; the Host never installs software silently.
+   * @param {{confirmed?: boolean}} input
+   * @returns {Promise<{installed: boolean, alreadyPresent: boolean, version: string}>}
+   */
+  async function installGit(input) {
+    const confirmed = input !== null && typeof input === 'object' ? input.confirmed === true : false;
+    if (!confirmed) {
+      throw new LabError('git_install_unconfirmed', 'Git installation requires explicit confirmation', 400);
+    }
+    const current = await detectGit();
+    if (current !== null) return { installed: true, alreadyPresent: true, version: current };
+
+    const spec = gitInstallSpec(platform);
+    if (spec === null) {
+      throw new LabError(
+        'git_install_unsupported',
+        `automatic Git installation is not supported on ${platform}; install Git from ${GIT_DOWNLOAD_URL}`,
+        501,
+      );
+    }
+    const result = await runProcess(spec.argv, { cwd: tmpdir(), timeoutMs: GIT_INSTALL_TIMEOUT_MS });
+    if (result.code !== 0) {
+      const detail = lastLine(result.stderr || result.stdout);
+      if (result.code === null || /not found|ENOENT|not recognized|command not found/i.test(detail)) {
+        throw new LabError(
+          'git_install_unsupported',
+          `${spec.manager} is not available${detail ? `: ${detail}` : ''}; install Git from ${GIT_DOWNLOAD_URL}`,
+          501,
+        );
+      }
+      throw new LabError(
+        'git_install_failed',
+        `${spec.manager} exited with code ${result.code}${detail ? `: ${detail}` : ''}`,
+        502,
+      );
+    }
+    const version = await detectGit();
+    if (version === null) {
+      throw new LabError('git_install_failed', 'Git was installed but is not reachable from the Host process; restart DSH and retry', 502);
+    }
+    return { installed: true, alreadyPresent: false, version };
   }
 
   /**
@@ -372,6 +709,9 @@ export function createGitEngine(ctx) {
   return {
     runGit,
     validateRepo,
+    prepareRepo,
+    gitInfo,
+    installGit,
     resolveBranch,
     ensureWorktree,
     removeWorktree,

@@ -8,8 +8,9 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const rootDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = await readFile(path.join(rootDir, 'client.js'), 'utf8');
 
 function rule(selector) {

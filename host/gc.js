@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_GC_PROMPT } from './prompts.js';
 import { assertModelSchema } from './schema-check.js';
+import { startActivation } from './subagent-compat.js';
 
 /**
  * GC (after-care) runner: after a deterministic termination, spawn one cheap
@@ -109,7 +110,7 @@ export function createGcRunner({ ctx, store, orchestrator, kernel }) {
       let activation;
       try {
         assertModelSchema(GC_SCHEMA, 'gc');
-        activation = await ctx.subagents.startActivation({
+        activation = await startActivation(ctx, {
           provider: 'spawn',
           label: `mirl-gc/${projectId}/${nodeId}`,
           delivery: 'caller',

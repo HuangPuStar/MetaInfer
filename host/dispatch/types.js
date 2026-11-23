@@ -1,3 +1,5 @@
+import { sandboxProfileOf } from '../sandbox-state.js';
+import { executionFingerprint } from '../execution.js';
 /**
  * Dispatcher contracts (WP P3.1). JSDoc only; this module exports validators.
  *
@@ -103,4 +105,29 @@ export function validateDecision(decision) {
 /** Stable request id for one node attempt, so retries never reuse a lease. */
 export function leaseRequestId(projectId, node) {
   return `${projectId}:${node.id}:${node.attempt ?? node.attempts?.length ?? 0}`;
+}
+
+/** Normalize the Host runtime result; only a positive started outcome counts. */
+export function startOutcomeOf(result, node, originalNode = node) {
+  const boundary = (value) => sandboxProfileOf(value) !== null || value?.sandbox?.backend === 'opensandbox'
+    || value?.admission?.broker === 'sandbox-admission' || Boolean(value?.sandboxGate)
+    || Object.hasOwn(value?.execution ?? {}, 'sandboxProfile');
+  const sandboxed = boundary(originalNode) || boundary(node);
+  let sameBoundary = !sandboxed;
+  if (sandboxed && node && originalNode && node.id === originalNode.id && node.projectId === originalNode.projectId) {
+    try {
+      sameBoundary = sandboxProfileOf(originalNode) !== null
+        && sandboxProfileOf(node) === sandboxProfileOf(originalNode)
+        && executionFingerprint(node.execution) === executionFingerprint(originalNode.execution);
+    } catch { sameBoundary = false; }
+  }
+  const outcome = result?.startOutcome;
+  if (!outcome && !sandboxed) return { status: 'started' }; // legacy local runtime
+  const identity = Number.isInteger(outcome?.attempt) && outcome.attempt > 0
+    && typeof outcome.sessionId === 'string' && outcome.sessionId.length > 0
+    && (!sandboxed || (sameBoundary && outcome.attempt === node.currentAttempt && outcome.sessionId === node.sessionId));
+  if (outcome?.status === 'started' && (!sandboxed || identity)) return { ...outcome };
+  if (outcome?.status === 'queued' && (!sandboxed || (identity && outcome.code === 'NO_CAPACITY' && outcome.verifiedClean === true))) return { ...outcome };
+  if (outcome?.status === 'held') return { ...outcome, retryable: false };
+  return { status: 'held', code: 'INVALID_START_OUTCOME', retryable: false };
 }

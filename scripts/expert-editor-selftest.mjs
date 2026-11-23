@@ -24,7 +24,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
 
-globalThis.__METAINFER_OPERATOR_TOKEN__ = 'expert-editor-token';
+delete globalThis.__METAINFER_OPERATOR_TOKEN__;
 window.__METAINFER_TEST__ = true;
 
 const failures = [];
@@ -106,6 +106,12 @@ let commandPayload = null;
 let fetchCount = 0;
 globalThis.fetch = async (url, options = {}) => {
   const text = String(url);
+  if (text.endsWith('/operator/credential')) {
+    assert.equal(new Headers(options.headers).get('x-metainfer-bootstrap'), '1');
+    assert.equal(options.cache, 'no-store');
+    const payload = { ok: true, data: { token: 'expert-editor-token', issuedAt: 1700000000 } };
+    return { ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload) };
+  }
   requests.push({ url: text, body: options.body });
   if (text.includes('/models')) {
     const payload = {

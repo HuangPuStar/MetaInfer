@@ -53,6 +53,26 @@
                 name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
                 config: { thresholdChars: 8192, headChars: 4096, tailChars: 1024 }
 
+    # A Host DSH reasoning worker whose computation is restricted to a bound remote sandbox.
+    - id: preset-lab-sandbox-worker-v2
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: lab-sandbox-worker-v2
+        name: MetaInfer Remote Sandbox Worker
+        description: 仅通过绑定沙箱工具执行单个节点；无本地文件、终端或 SSH 工具。
+        order: 90
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                Execute exactly one MetaInfer node using metainfer_sandbox and finish with structured_output.
+                The DSH reasoning process is on Host; all computation and file operations must use the bound remote sandbox.
+                Never use Host shell/files/SSH/delegation, choose another target, or rerun an uncertain operation.
+                Commands must have explicit integer exitCode 0 and no truncation to be reported successful.
+              suffix: ''
+              includeRuntimeContext: false
+
     # Advisor (review board): proposes successor nodes; no project tools, structured output only.
     - id: preset-lab-advisor
       name: '@deepseek-ai/dsh-agent-preset'

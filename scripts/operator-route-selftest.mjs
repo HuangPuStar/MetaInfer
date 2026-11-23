@@ -43,9 +43,14 @@ const service = new Proxy({ verifyOperatorToken: (token) => authority.verify(tok
 
 const routes = new Map();
 const registrations = [];
+const browserPeer = { principal: { kind: 'owner' } };
+const apiPeer = { principal: { kind: 'owner' } };
+let peerMode = 'browser';
 const dispose = registerHttpRoutes({
   effect: () => {},
   connection: {
+    browserPeer,
+    admit: () => peerMode === 'anonymous' ? { rejection: 401 } : { peer: peerMode === 'api' ? apiPeer : browserPeer },
     fetch: {
       register({ path, methods, fetch }) {
         registrations.push({ path, methods });
@@ -54,12 +59,13 @@ const dispose = registerHttpRoutes({
       },
     },
   },
-}, service);
+}, service, { operatorAuthority: authority });
 
-const request = async (entry, { token = null, body } = {}) => {
+const request = async (entry, { token = null, body, bootstrap = false } = {}) => {
   const handler = routes.get(`${entry.method} ${entry.path}`);
   assert.ok(handler, `registered handler for ${entry.method} ${entry.path}`);
   const headers = { accept: 'application/json' };
+  if (bootstrap) headers['x-metainfer-bootstrap'] = '1';
   if (token !== null) headers['x-metainfer-operator'] = token;
   if (body !== undefined) headers['content-type'] = 'application/json';
   const response = await handler(new Request('http://local' + entry.path, {
@@ -76,8 +82,8 @@ const tokenBody = (entry) => {
   return {};
 };
 
-check('the policy table has exactly 48 unique method+path rows',
-  ROUTE_POLICY.length === 49 && new Set(ROUTE_POLICY.map((row) => `${row.method} ${row.path}`)).size === 49,
+check('the policy table has exactly 53 unique method+path rows',
+  ROUTE_POLICY.length === 53 && new Set(ROUTE_POLICY.map((row) => `${row.method} ${row.path}`)).size === 53,
   JSON.stringify({ rows: ROUTE_POLICY.length }));
 
 const registeredPairs = registrations.flatMap((row) => row.methods.map((method) => `${method} ${row.path}`)).sort();
@@ -89,6 +95,7 @@ check('every registered method+path pair is declared, and every declaration is r
 let tokenRows = 0;
 let readRows = 0;
 let refusedRows = 0;
+let bootstrapRows = 0;
 for (const entry of ROUTE_POLICY) {
   const key = `${entry.method} ${entry.path}`;
   if (entry.policy === 'read-only') {
@@ -112,6 +119,24 @@ for (const entry of ROUTE_POLICY) {
       JSON.stringify({ absent, withToken, calls: calls.length - before }));
     continue;
   }
+  if (entry.policy === 'owner-bootstrap') {
+    bootstrapRows += 1;
+    const before = calls.length;
+    const missingHeader = await request(entry);
+    peerMode = 'api';
+    const otherOwner = await request(entry, { bootstrap: true });
+    peerMode = 'anonymous';
+    const anonymous = await request(entry, { bootstrap: true });
+    peerMode = 'browser';
+    const accepted = await request(entry, { bootstrap: true });
+    check('owner-bootstrap rejects missing custom header and independent API owners',
+      missingHeader.ok === false && otherOwner.ok === false && anonymous.ok === false
+      && !missingHeader.data?.token && !otherOwner.data?.token && !anonymous.data?.token);
+    check('owner-bootstrap returns only the current browser authority without running a domain action',
+      accepted.ok === true && authority.verify(accepted.data?.token).ok === true
+      && calls.length === before && Object.keys(accepted.data).sort().join(',') === 'issuedAt,token');
+    continue;
+  }
   if (entry.policy !== 'operator-token') {
     check(`unknown policy for ${key}`, false, entry.policy);
     continue;
@@ -133,8 +158,8 @@ for (const entry of ROUTE_POLICY) {
 }
 
 check('the inventory actually includes every policy kind',
-  tokenRows > 0 && readRows > 0 && refusedRows === 1,
-  JSON.stringify({ tokenRows, readRows, refusedRows }));
+  tokenRows > 0 && readRows > 0 && refusedRows === 1 && bootstrapRows === 1,
+  JSON.stringify({ tokenRows, readRows, refusedRows, bootstrapRows }));
 
 // Body-supplied actors are data, not credentials: the same forged actor body
 // still returns actor_required without a token, and the accepted token call
@@ -148,13 +173,13 @@ check('a body actor still does not authenticate /preemption/appeal',
 check('operatorRequired carries code, message and nextStep as one actionable envelope',
   bodyNoToken.error?.code === 'actor_required'
   && typeof bodyNoToken.error?.message === 'string' && bodyNoToken.error.message.trim() !== ''
-  && typeof bodyNoToken.error?.nextStep === 'string' && /reload/i.test(bodyNoToken.error.nextStep),
+  && typeof bodyNoToken.error?.nextStep === 'string' && /credential/i.test(bodyNoToken.error.nextStep) && /manually/i.test(bodyNoToken.error.nextStep),
   JSON.stringify(bodyNoToken.error ?? null));
 const commandRoute = ROUTE_POLICY.find((row) => row.method === 'POST' && row.path.endsWith('/commands'));
 const commandNoToken = await request(commandRoute, { body: { type: 'expert_drain', projectId: 'p' } });
 check('the expert_drain command route returns the same actionable credential envelope',
   commandNoToken.ok === false && commandNoToken.error?.code === 'actor_required'
-  && typeof commandNoToken.error?.nextStep === 'string' && /reload/i.test(commandNoToken.error.nextStep),
+  && typeof commandNoToken.error?.nextStep === 'string' && /credential/i.test(commandNoToken.error.nextStep) && /manually/i.test(commandNoToken.error.nextStep),
   JSON.stringify(commandNoToken));
 const bodyWithToken = await request(appeal, { token: authority.token, body: bodyActor });
 const appealCall = calls[calls.length - 1];

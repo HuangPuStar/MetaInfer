@@ -22,6 +22,7 @@ const PREFIX = '/api/metainfer-research-lab';
  * One explicit policy for every HTTP method+path pair. This table is the
  * reviewable inventory: `read-only` routes never mint an actor,
  * `operator-token` routes require the Host-issued signed browser credential,
+ * `owner-bootstrap` returns a current credential only to the admitted browser Peer,
  * and `refused` routes are registered only to return a named refusal.
  *
  * The registration wrapper below checks every pair at apply time, so a new
@@ -29,9 +30,13 @@ const PREFIX = '/api/metainfer-research-lab';
  */
 export const ROUTE_POLICY = Object.freeze([
   Object.freeze({ method: 'GET', path: `${PREFIX}/health`, policy: 'read-only' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/operator/credential`, policy: 'owner-bootstrap' }),
   Object.freeze({ method: 'GET', path: `${PREFIX}/projects`, policy: 'read-only' }),
   Object.freeze({ method: 'POST', path: `${PREFIX}/projects`, policy: 'operator-token' }),
   Object.freeze({ method: 'GET', path: `${PREFIX}/repo`, policy: 'read-only' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/repo/prepare`, policy: 'operator-token' }),
+  Object.freeze({ method: 'GET', path: `${PREFIX}/git`, policy: 'read-only' }),
+  Object.freeze({ method: 'POST', path: `${PREFIX}/git/install`, policy: 'operator-token' }),
   Object.freeze({ method: 'GET', path: `${PREFIX}/state`, policy: 'read-only' }),
   Object.freeze({ method: 'GET', path: `${PREFIX}/status`, policy: 'read-only' }),
   Object.freeze({ method: 'GET', path: `${PREFIX}/metrics`, policy: 'read-only' }),
@@ -80,7 +85,7 @@ export const ROUTE_POLICY = Object.freeze([
 ]);
 
 const ROUTE_POLICY_BY_KEY = new Map(ROUTE_POLICY.map((row) => [`${row.method} ${row.path}`, row]));
-if (ROUTE_POLICY.length !== 49 || ROUTE_POLICY_BY_KEY.size !== ROUTE_POLICY.length) {
+if (ROUTE_POLICY.length !== 53 || ROUTE_POLICY_BY_KEY.size !== ROUTE_POLICY.length) {
   throw new Error(`HTTP route policy must contain exactly ${ROUTE_POLICY.length} unique method+path pairs`);
 }
 
@@ -152,13 +157,44 @@ function stripBodyActors(value) {
   return out;
 }
 
+// Bootstrap uses the documented Connection admission API, not a caller-supplied
+// owner flag. API /connect peers are owners too but are not the browser Peer.
+function bootstrapResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { ...JSON_HEADERS, pragma: 'no-cache', 'x-content-type-options': 'nosniff' },
+  });
+}
+
+function bootstrapFailure(code, status) {
+  return bootstrapResponse({ ok: false, error: { code, message: 'operator credential requires the authenticated browser connection' } }, status);
+}
+
+function browserBootstrapRefusal(request, connection) {
+  if (request.headers.get('x-metainfer-bootstrap') !== '1') {
+    return bootstrapFailure('operator_browser_required', 403);
+  }
+  try {
+    if (typeof connection?.admit !== 'function' || !connection.browserPeer) {
+      return bootstrapFailure('operator_unavailable', 503);
+    }
+    const admission = connection.admit(request);
+    if (admission?.peer !== connection.browserPeer || admission.peer?.principal?.kind !== 'owner') {
+      return bootstrapFailure('operator_browser_required', admission?.rejection === 401 ? 401 : 403);
+    }
+    return null;
+  } catch {
+    return bootstrapFailure('operator_unavailable', 503);
+  }
+}
+
 function operatorRequired() {
   return json({
     ok: false,
     error: publicView({
       code: 'actor_required',
       message: 'this route requires the Host-issued operator token',
-      nextStep: 'reload the owner page so the Host can inject the operator token',
+      nextStep: 'acquire the current operator credential through the authenticated browser connection, then repeat the operation manually',
     }),
   });
 }
@@ -216,7 +252,7 @@ async function readJsonBody(request) {
  * @param ctx Cordis context with `connection` injected.
  * @param service the `metainferLab` Host service.
  */
-export function registerHttpRoutes(ctx, service) {
+export function registerHttpRoutes(ctx, service, { operatorAuthority = null } = {}) {
   const disposers = [];
 
   const route = (path, methods, handler) => {
@@ -236,6 +272,10 @@ export function registerHttpRoutes(ctx, service) {
             const entry = ROUTE_POLICY_BY_KEY.get(`${method} ${path}`);
             if (!entry) return fail(Object.assign(new Error(`HTTP route ${method} ${path} has no policy row`), { code: 'forbidden_action' }));
             if (entry.policy === 'refused') return refusedRoute(entry);
+            if (entry.policy === 'owner-bootstrap') {
+              const rejection = browserBootstrapRefusal(request, ctx.connection);
+              if (rejection) return rejection;
+            }
             let actor = null;
             if (entry.policy === 'operator-token') {
               actor = operatorActor(request, service);
@@ -252,6 +292,14 @@ export function registerHttpRoutes(ctx, service) {
 
   route(`${PREFIX}/health`, ['GET'], async () => ok(await service.health()));
 
+  route(`${PREFIX}/operator/credential`, ['GET'], async () => {
+    if (typeof operatorAuthority?.token !== 'string' || !operatorAuthority.token
+      || !Number.isFinite(operatorAuthority.issuedAt)) {
+      return bootstrapFailure('operator_unavailable', 503);
+    }
+    return bootstrapResponse({ ok: true, data: { token: operatorAuthority.token, issuedAt: operatorAuthority.issuedAt } });
+  });
+
   route(`${PREFIX}/projects`, ['GET', 'POST'], async (request) => {
     if (request.method === 'GET') {
       const projects = await service.listProjects();
@@ -265,6 +313,20 @@ export function registerHttpRoutes(ctx, service) {
   route(`${PREFIX}/repo`, ['GET'], async (request) => {
     const repoPath = query(request).get('path');
     return ok(await service.validateRepo(repoPath));
+  });
+
+  // The wizard validates and prepares in one click: the service initialises a
+  // plain directory or clones a URL, so the user never runs git by hand.
+  route(`${PREFIX}/repo/prepare`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    return ok(await service.prepareRepo(body));
+  });
+
+  route(`${PREFIX}/git`, ['GET'], async () => ok(await service.gitStatus()));
+
+  route(`${PREFIX}/git/install`, ['POST'], async (request) => {
+    const body = await readJsonBody(request);
+    return ok(await service.installGit(body));
   });
 
   route(`${PREFIX}/state`, ['GET'], async (request) => {

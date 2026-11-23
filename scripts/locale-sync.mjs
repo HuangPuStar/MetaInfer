@@ -7,8 +7,9 @@
  */
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const START = '    // #region locale-generated — source of truth: locale/{en,zh}.json; run npm run locale:sync';
 const END = '    // #endregion locale-generated';
 

@@ -1,3 +1,4 @@
+import { sandboxAdmissionBlock } from '../sandbox-state.js';
 /**
  * The single definition of "runnable" (design decision B8, QA doc Q5).
  *
@@ -36,6 +37,7 @@ export function runnableBlockReason(node, now = Date.now()) {
   if (!node || node.archivedAt) return RUNNABLE_BLOCK.ARCHIVED;
   if (node.status !== 'planned') return RUNNABLE_BLOCK.NOT_PLANNED;
   if (node.claim) return RUNNABLE_BLOCK.CLAIMED;
+  if (sandboxAdmissionBlock(node)) return RUNNABLE_BLOCK.HELD;
   if (Number(node.deferUntil) > now) return RUNNABLE_BLOCK.DEFERRED;
   if (!isDispatchableClass(node.priority)) return RUNNABLE_BLOCK.DEFERRED;
   if (node.dispatchHold && Number(node.dispatchHold.untilMs) > now) return RUNNABLE_BLOCK.HELD;
@@ -155,7 +157,7 @@ export function runnableSummary(nodes, options = {}) {
     claimed: all.filter((node) => node?.status === 'planned' && node.claim).length,
     held: all.filter((node) => node?.status === 'planned' && !node.claim
       && isDispatchableClass(node.priority)
-      && Number(node.dispatchHold?.untilMs) > now).length,
+      && (sandboxAdmissionBlock(node) || Number(node.dispatchHold?.untilMs) > now)).length,
     remainingMs,
     gpu,
   };

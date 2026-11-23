@@ -43,8 +43,8 @@ export async function ensureTrajectoryBackend(logger) {
     || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   // A missing root used to reach spawn() and throw ENOENT, which killed the whole
   // Host process. Degrade to "no backend" instead of crashing the web server.
-  if (!existsSync(root)) {
-    logger?.warn?.(`trajectory backend root does not exist: ${root}`);
+  if (!existsSync(root) || !existsSync(path.join(root, 'metainfer', 'server'))) {
+    logger?.warn?.(`trajectory backend platform tree not found under ${root}`);
     return { owned: false, process: null, root };
   }
   const nodeId = process.env.METAINFER_NODE_ID || await firstNode(root);

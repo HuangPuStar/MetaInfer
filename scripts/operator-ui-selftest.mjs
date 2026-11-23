@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * B22 end-to-end operator path: the Host-issued token is injected into the
- * page, the DisputeTable buttons POST it through the real HTTP route, and the
- * real LabService resolves the dispute. No fake fetch envelope: the only mock
- * is the carrier registry that connects the DOM request to route.fetch().
+ * Operator path through real HTTP routes and LabService. The browser obtains
+ * its token from bootstrap, then the DisputeTable sends it through the real
+ * resolve route. Only the carrier/admission registry and in-memory domain are
+ * fixtures; this is not a real Desktop connection or a user-project mutation.
  */
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -17,7 +18,9 @@ import { createOperatorAuthority } from '../host/operator-token.js';
 import { memoryDomain, storeContext } from './lib/memory-domain.mjs';
 
 let failed = 0;
+let checks = 0;
 function check(name, condition, detail = '') {
+  checks += 1;
   if (condition) console.log(`ok   ${name}`);
   else { failed += 1; console.log(`FAIL ${name}${detail ? ` — ${detail}` : ''}`); }
 }
@@ -46,7 +49,7 @@ const service = createLabService({
 });
 const health = await service.health();
 check('health exposes the operator issue time without the token',
-  health.operatorIssuedAt === authority.issuedAt,
+  health.operatorIssuedAt === authority.issuedAt && !JSON.stringify(health).includes(authority.token),
   JSON.stringify({ health: health.operatorIssuedAt, authority: authority.issuedAt }));
 const raiser = { agent: { session: { id: 'operator-ui-raiser' } } };
 const opened = await service.openDispute(projectId, {
@@ -58,9 +61,15 @@ const opened = await service.openDispute(projectId, {
 assert.equal(opened.ok, true, JSON.stringify(opened));
 
 const routes = [];
+const browserPeer = { principal: { kind: 'owner' } };
+let browserAllowed = false;
 const disposeRoutes = registerHttpRoutes({
-  connection: { fetch: { register(route) { routes.push(route); return () => Promise.resolve(); } } },
-}, service);
+  connection: {
+    browserPeer,
+    admit() { return browserAllowed ? { peer: browserPeer } : { rejection: 403 }; },
+    fetch: { register(route) { routes.push(route); return () => Promise.resolve(); } },
+  },
+}, service, { operatorAuthority: authority });
 
 const requests = [];
 globalThis.fetch = async (url, init = {}) => {
@@ -110,7 +119,9 @@ module.apply({
   slots: { inject() { return noop; }, register(config, component) { return { config, component }; } },
   sessions: {}, uiWorkspace: {}, layout: {}, sidebarRight: {},
 });
-const base = { t: (key) => key, projectId, nodes: [], edges: [], resources: {}, revision: 1 };
+const dictionary = JSON.parse(await readFile(new URL('../locale/zh.json', import.meta.url), 'utf8')).keys;
+const t = (key) => dictionary[key] ?? key;
+const base = { t, projectId, nodes: [], edges: [], resources: {}, revision: 1 };
 
 class Boundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
@@ -144,81 +155,81 @@ async function mount() {
   return { host, root };
 }
 
-// No injected credential => no dead buttons, explicit notice.
+// Bootstrap denial hides controls but preserves readable dispute content.
 delete globalThis.__METAINFER_OPERATOR_TOKEN__;
 {
   const view = await mount();
   const text = view.host.textContent ?? '';
-  check('without an operator token the dispute controls are hidden and explained',
+  check('bootstrap denial hides dispute controls with a localized explanation',
     !text.includes('Keep current') && !text.includes('Apply change')
-    && text.includes('ws.operator.missing'),
-    text.slice(0, 700));
+    && text.includes(t('ws.operator.missing')), text.slice(0, 700));
   await React.act(async () => view.root.unmount());
   view.host.remove();
-  const bannerText = (key) => ({
-    'ws.operator.missing': '当前页面没有写权限凭据（多半是 Host 重启前打开的旧页面），请刷新页面后重试',
-    'ws.operator.reload': '刷新',
-  }[key] ?? key);
-  const banner = await mountBanner(bannerText);
+  const banner = await mountBanner(t);
   const bannerBody = banner.host.textContent ?? '';
-  check('the missing-credential banner is persistent, localised and offers Reload',
-    bannerBody.includes('当前页面没有写权限凭据') && bannerBody.includes('刷新')
+  check('the persistent localized banner offers Retry and manual Reload',
+    bannerBody.includes(t('ws.operator.missing')) && bannerBody.includes(t('common.retry'))
+    && bannerBody.includes(t('ws.operator.reload'))
     && banner.host.querySelector('[data-testid="operator-credential-banner"]') !== null,
     bannerBody.slice(0, 700));
   await React.act(async () => banner.root.unmount());
   banner.host.remove();
 }
 
-// A stale page (token from an older Host process) reloads exactly once; a
-// second failure keeps the banner instead of looping.
+// Stale compatibility values are never an authority or an automatic reload
+// trigger. Persistent failure beyond the former cooldown still cannot reload.
 {
   const savedLocation = globalThis.location;
+  const savedNow = Date.now;
   let reloads = 0;
   globalThis.location = { reload: () => { reloads += 1; } };
-  globalThis.__METAINFER_OPERATOR_TOKEN__ = authority.token;
-  globalThis.__METAINFER_OPERATOR_ISSUED_AT__ = String(authority.issuedAt - 60);
-  window.sessionStorage.removeItem('metainfer:operator-reload');
-  const stale = await mountBanner((key) => ({
-    'ws.operator.missing': '当前页面没有写权限凭据（多半是 Host 重启前打开的旧页面），请刷新页面后重试',
-    'ws.operator.reload': '刷新',
-  }[key] ?? key));
-  check('a stale page performs exactly one automatic reload',
-    reloads === 1 && (stale.host.textContent ?? '').includes('当前页面没有写权限凭据'),
-    JSON.stringify({ reloads, text: (stale.host.textContent ?? '').slice(0, 500) }));
+  globalThis.__METAINFER_OPERATOR_TOKEN__ = 'synthetic-old-authority';
+  globalThis.__METAINFER_OPERATOR_ISSUED_AT__ = String(authority.issuedAt);
+  Date.now = () => 1700000000000;
+  const stale = await mountBanner(t);
+  check('a rejected stale compatibility credential never triggers reload',
+    reloads === 0 && !globalThis.__METAINFER_OPERATOR_TOKEN__
+    && (stale.host.textContent ?? '').includes(t('ws.operator.missing')));
   await React.act(async () => stale.root.unmount());
   stale.host.remove();
-  const retry = await mountBanner((key) => key);
-  check('after the one reload, the failure is a persistent banner rather than a loop',
-    reloads === 1 && retry.host.querySelector('[data-testid="operator-credential-banner"]') !== null
-    && window.sessionStorage.getItem('metainfer:operator-reload') !== null,
-    JSON.stringify({ reloads, text: (retry.host.textContent ?? '').slice(0, 500) }));
+  Date.now = () => 1700000010001;
+  const retry = await mountBanner(t);
+  check('failure after 10000ms and remount remains visible without reload or storage markers',
+    reloads === 0 && retry.host.querySelector('[data-testid="operator-credential-banner"]') !== null
+    && window.sessionStorage.getItem('metainfer:operator-reload') === null);
   await React.act(async () => retry.root.unmount());
   retry.host.remove();
-  window.sessionStorage.removeItem('metainfer:operator-reload');
-  delete globalThis.__METAINFER_OPERATOR_ISSUED_AT__;
+  Date.now = savedNow;
   if (savedLocation === undefined) delete globalThis.location;
   else globalThis.location = savedLocation;
 }
 
-// Real injected credential => click, real route, real service, resolved row.
-globalThis.__METAINFER_OPERATOR_TOKEN__ = authority.token;
-window.__METAINFER_OPERATOR_TOKEN__ = authority.token;
+// Successful bootstrap, with no hand-seeded token, enables a real route click.
+for (const target of [globalThis, window]) {
+  delete target.__METAINFER_OPERATOR_TOKEN__;
+  delete target.__METAINFER_OPERATOR_ISSUED_AT__;
+}
+browserAllowed = true;
 const beforeButtons = requests.length;
 {
   const view = await mount();
   const text = view.host.textContent ?? '';
-  check('with an operator token the dispute shows working controls', text.includes('Keep current'), text.slice(0, 700));
+  check('successful bootstrap without a global token enables dispute controls', text.includes('Keep current'), text.slice(0, 700));
   const button = [...view.host.querySelectorAll('button')].find((candidate) => (candidate.textContent ?? '').includes('Keep current'));
   check('the Keep current control exists', Boolean(button));
   if (button) {
     await React.act(async () => { button.click(); await new Promise((resolve) => setTimeout(resolve, 100)); });
   }
+  const bootstrap = requests.slice(beforeButtons).filter((request) => request.path.endsWith('/operator/credential'));
+  check('the UI obtains a fresh credential through the real owner-bootstrap route',
+    bootstrap.length >= 2 && bootstrap.every((request) => request.headers['x-metainfer-bootstrap'] === '1'));
+  check('bootstrap never requires the old operator header', bootstrap.every((request) => !request.headers['x-metainfer-operator']));
   const actions = requests.slice(beforeButtons).filter((request) => request.path.endsWith('/arbitrate') && request.method === 'POST');
   const listed = service.listDisputes(projectId);
   const record = listed.disputes.find((row) => row.id === opened.dispute.id);
   check('clicking Keep current sends a real POST with the operator header',
     actions.length === 1 && actions[0].headers['x-metainfer-operator'] === authority.token,
-    JSON.stringify(actions));
+    JSON.stringify({ actions: actions.length }));
   check('the real service resolves the dispute and records the operator actor',
     record?.status === 'resolved' && record?.resolution === 'keep_current' && record?.resolvedBy?.id === 'operator',
     JSON.stringify(record));
@@ -230,7 +241,7 @@ const beforeButtons = requests.length;
   view.host.remove();
 }
 
-// A forged body without the injected header stays rejected; and it must not
+// A forged body without the operator header stays rejected; and it must not
 // mutate the newly opened dispute.
 const second = await service.openDispute(projectId, {
   type: 'fact_conflict', target: { nodeId: 'root' }, rationale: 'forged body probe',
@@ -251,7 +262,7 @@ const forgedResponse = await resolveRoute.fetch(new Request('http://localhost/ap
 }));
 const forged = await forgedResponse.json();
 const afterForged = service.listDisputes(projectId).disputes.find((row) => row.id === second.dispute.id);
-check('a forged body without the injected header is rejected and mutates nothing',
+check('a forged body without the operator header is rejected and mutates nothing',
   forged.ok === false && forged.error?.code === 'actor_required' && afterForged?.status === 'pending',
   JSON.stringify(forged));
 
@@ -261,4 +272,5 @@ if (failed > 0) {
   console.error(`operator-ui-selftest: ${failed} check(s) failed`);
   process.exit(1);
 }
-console.log('operator-ui-selftest: all checks passed');
+window.close();
+console.log(`operator-ui-selftest: all ${checks} checks passed`);

@@ -6,6 +6,7 @@
  * the ProjectStore. Killing on timeout is plain Host code — never an Agent.
  */
 import { readFile, readdir, readlink } from 'node:fs/promises';
+import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
 import { LabError } from './git-engine.js';
 import {
@@ -16,8 +17,10 @@ import {
   validateModelSelection,
 } from './models.js';
 import { isDshExecution, EXECUTION_DRIVERS } from './execution.js';
+import { holdsResources, sandboxAdmissionBlock } from './sandbox-state.js';
 import { ExecutionLog, executionLogPath } from './execution-log.js';
 import { newSessionId } from './store.js';
+import { startActivation } from './subagent-compat.js';
 import { prepareRemoteRun } from './remote-run.js';
 import { DEFAULT_MERGE_PROMPT, DEFAULT_WORKER_PREFIX, WORKER_RULES } from './prompts.js';
 import { applyPredictionToNode } from './kernel/prediction.js';
@@ -263,12 +266,322 @@ async function terminatePids(pids) {
 /**
  * @param {{ctx: object, store: object, git: object}} deps
  */
-export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }) {
+export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, sandboxFactory, sandboxBackend, sandboxAdmission, hostAdmission }) {
   const active = new Map(); // key -> entry
   const deadlines = new Map(); // key -> epoch ms
   const pendingFollowUps = new Map(); // sessionId -> pending record
   const anchorHandles = new Map(); // sessionId -> AgentHandle
   const lifetime = new AbortController();
+  const sandboxRuntime = sandboxFactory ? sandboxFactory({ ctx, store, kernel, git,
+    backend: sandboxBackend, admission: sandboxAdmission, onTerminated,
+    worker: { select: (project, node) => resolveNodeSelection(project, node, 'worker'),
+      options: selectionToAgentOptions, schema: NODE_REPORT_SCHEMA, normalize: normalizeNodeReport,
+      anchor: ensureAnchor, releaseAnchor: disposeAnchor, usage: sessionUsage } }) : null;
+
+  function needsSandbox(node) {
+    return Boolean(node && ((node.execution && Object.hasOwn(node.execution, 'sandboxProfile'))
+      || node.sandbox?.backend === 'opensandbox' || node.admission?.broker === 'sandbox-admission' || node.sandboxGate));
+  }
+  function sandboxLane() {
+    if (!sandboxRuntime) throw new LabError('sandbox_unavailable', 'Sandbox execution is not connected; do not run this node locally.', 409);
+    return sandboxRuntime;
+  }
+  function rejectSandboxOperation(node, action) {
+    if (needsSandbox(node)) throw new LabError('sandbox_not_supported', `Sandbox ${action} is not supported; use an explicitly isolated successor after cleanup.`, 409);
+  }
+  async function retrySandbox(projectId, nodeId, options) {
+    if (options.model || options.upgrade === true) throw new LabError('sandbox_not_supported', 'Sandbox model escalation is not supported in place.', 409);
+    await store.withProjectLock(projectId, async () => {
+      const project = structuredClone(requireProject(projectId)), node = structuredClone(requireNode(projectId, nodeId));
+      if (!['failed', 'cancelled'].includes(node.status)) throw new LabError('node_not_retryable', 'Sandbox retry requires a failed or cancelled node.', 409);
+      const binding = node.sandbox;
+      if (sandboxAdmissionBlock(node) || node.admission || node.claim
+        || (binding && (binding.verifiedClean !== true || !['released', 'noCapacity'].includes(binding.state)))) {
+        throw new LabError('sandbox_held', 'Sandbox result or cleanup is unresolved; reconcile it before retry.', 409);
+      }
+      if (Number.isInteger(options.expectedRevision) && options.expectedRevision !== project.revision) throw new LabError('stale_basis', 'project revision changed since authorization', 409);
+      const basis = node.rev ?? 0;
+      node.status = 'planned'; node.deadlineAt = null; node.report = null;
+      delete node.error; delete node.termination; delete node.resourcesHeld; delete node.resourceWait;
+      node.timestamps = { ...(node.timestamps ?? {}), lastActivityAt: Date.now() };
+      const result = await store.withWritePermit(() => kernel.executor.commitLocked(projectId, {
+        actor: { kind: 'system', id: 'sandbox-retry' }, expectedProjectRevision: project.revision, basis,
+        mutations: [{ op: 'node.put', nodeId, node, eventType: 'node/retried', eventData: { freshSandboxAttemptRequired: true } }],
+      }));
+      if (!result.ok) throw new LabError(result.code ?? 'commit_failed', result.message ?? 'Sandbox retry commit failed', 409);
+    });
+    return sandboxLane().start(projectId, nodeId, options);
+  }
+
+  // The optional Host-budget lane owns its handles, not a second durable store.
+  // Legacy callers below are unchanged when hostAdmission is absent.
+  const hostCopy = structuredClone;
+  const hostScope = node => ({
+    currentAttempt: node.currentAttempt ?? 0, sessionId: node.sessionId, anchorSessionId: node.anchorSessionId,
+    execution: node.execution, needs: node.needs, timeboxMs: node.timeboxMs,
+    worktreePath: node.git?.worktreePath, branch: node.git?.branch,
+    lease: node.lease, claim: node.claim, admission: node.admission,
+    reservationId: node.hostBudgetReservation?.reservationId ?? node.hostBudgetReservation?.id,
+  });
+  function hostNode(entry, released = false) {
+    const node = hostCopy(requireNode(entry.projectId, entry.nodeId));
+    const scope = hostScope(node), expected = hostCopy(entry.owner);
+    if (released) {
+      for (const field of ['lease', 'claim', 'admission']) {
+        if (node[field] !== undefined) throw new LabError('host_budget_held', 'Host owner changed after cleanup', 409);
+        delete scope[field]; delete expected[field];
+      }
+      if (node.resourcesHeld !== undefined) throw new LabError('host_budget_held', 'Host resources remain held', 409);
+    }
+    if (needsSandbox(node) || !isDeepStrictEqual(scope, expected)) {
+      throw new LabError('host_budget_held', 'Host admission owner changed', 409);
+    }
+    return node;
+  }
+  function hostLive(entry) {
+    const node = hostNode(entry);
+    if (node.status !== 'running' || !['preparing', 'running', 'idle', 'finishing'].includes(entry.phase)) {
+      throw new LabError('host_budget_held', 'Host attempt is no longer executable', 409);
+    }
+    if (Date.now() >= node.deadlineAt) throw new LabError('host_deadline', 'Host admission deadline elapsed', 409);
+    return node;
+  }
+  function hostResult(entry, status, code) {
+    return { node: hostCopy(requireNode(entry.projectId, entry.nodeId)), revision: requireProject(entry.projectId).revision,
+      startOutcome: { status, attempt: entry.owner.currentAttempt, sessionId: entry.owner.sessionId ?? null,
+        ...(status === 'held' ? { retryable: false, code } : {}) } };
+  }
+  async function hostChange(entry, eventType, change, options = {}) {
+    const priorStatus = hostNode(entry).status, phase = entry.phase;
+    let written;
+    await store.withProjectLock(entry.projectId, async () => {
+      const project = hostCopy(requireProject(entry.projectId)), node = hostNode(entry);
+      if (node.status !== priorStatus || entry.phase !== phase) throw new LabError('host_budget_held', 'Host lifecycle changed while waiting for the project lock', 409);
+      if (Number.isInteger(options.expectedRevision) && options.expectedRevision !== project.revision) throw new LabError('stale_basis', 'project revision changed since authorization', 409);
+      const basis = node.rev ?? 0;
+      change(node, project);
+      written = hostCopy(node);
+      const mutations = [{ op: 'node.put', nodeId: node.id, node, eventType, ...(options.data ? { eventData: options.data } : {}) }];
+      if (options.cleaned) mutations.push({ op: 'event.record', nodeId: node.id, type: 'node/host_budget_cleaned', eventType: 'node/host_budget_cleaned', data: node.hostBudgetCleanup });
+      const result = await store.withWritePermit(() => kernel.executor.commitLocked(entry.projectId, {
+        actor: { kind: 'system', id: 'host-runtime' }, expectedProjectRevision: project.revision, basis, mutations, ...(options.causeId ? { causeId: options.causeId } : {}),
+      }));
+      if (result.ok !== true) throw new LabError(result.code ?? 'commit_failed', result.message ?? 'Host runtime commit failed', 409);
+    });
+    return written;
+  }
+  async function hostDisposeHandles(entry) {
+    const activation = entry.activation; entry.activation = null;
+    try { await activation?.dispose?.(); } finally { await disposeAnchor({ anchorSessionId: entry.owner.anchorSessionId }); }
+  }
+  async function hostTerminal(entry, status, details = {}) {
+    const requestedAt = details.requestedAt ?? Date.now(), payload = details.preemptionPayload ?? {};
+    const preemption = details.kind === 'preempted' ? { at: requestedAt, by: payload.by ?? 'dispatcher',
+      forNodeId: payload.forNodeId ?? null, reason: payload.reason ?? 'higher-priority work needed this slot',
+      causeId: payload.causeId ?? `preempt:${entry.nodeId}:${requestedAt}`,
+      appeal: { status: 'open', deadlineAt: Date.now() + 24 * 60 * 60_000, endpoint: '/api/metainfer-research-lab/preemption/appeal' } } : null;
+    let cleanup = details.cleanup;
+    hostNode(entry);
+    if (!cleanup) {
+      try { cleanup = await cleanupNodeRuntime(hostNode(entry)); }
+      catch (error) { cleanup = { verifiedClean: false, leftover: [failureMessage(error)] }; }
+    }
+    hostNode(entry);
+    let released = false;
+    try { released = (await hostAdmission.release(entry.projectId, entry.nodeId, hostCopy(entry.rawAdmissionLease)))?.released === true; }
+    catch { /* An unconfirmed raw release must retain all durable ownership. */ }
+    hostNode(entry);
+    const clean = cleanup.verifiedClean === true && released;
+    await hostChange(entry, preemption ? 'node/preempted' : status === 'completed' ? 'node/completed' : status === 'cancelled' ? 'node/cancelled' : 'node/failed', (n, project) => {
+      if (!['planned', 'running'].includes(n.status)) throw new LabError('host_budget_held', 'Host attempt is already terminal', 409);
+      if (status === 'completed') {
+        hostLive(entry); n.report = details.report; n.reportText = details.reportText ?? '';
+        if (details.head) n.git.headCommit = details.head;
+        if (details.merge) n.merge = details.merge;
+        applyPredictionToNode(n);
+      } else { n.report = null; }
+      n.status = status; n.cleanup = cleanup;
+      if (details.error) n.error = failureDiagnostic(n, details.stage ?? 'run', details.error); else delete n.error;
+      if (details.kind) n.termination = { ...cleanup, kind: details.kind, requestedAt, killedAt: Date.now() };
+      if (preemption) n.preemption = preemption;
+      if (details.usage) applyUsage(project, n, details.usage);
+      endAttempt(n, { status, stopReason: status, ...(details.error ? { error: failureMessage(details.error) } : {}) });
+      n.timestamps = { ...(n.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
+      if (clean) {
+        for (const field of ['claim', 'admission', 'resourcesHeld', 'lease', 'hostBudgetGate']) delete n[field];
+        n.deadlineAt = null;
+        n.hostBudgetCleanup = { attempt: n.currentAttempt, sessionId: n.sessionId, verifiedClean: true, at: Date.now() };
+      }
+    }, { cleaned: clean, ...(preemption ? { causeId: preemption.causeId, data: { kind: 'preempted', preemption } } : {}) });
+    let final = { released: false, held: true };
+    if (clean) {
+      hostNode(entry, true);
+      try { final = await hostAdmission.finalize(entry.projectId, entry.nodeId); } catch { /* Budget remains held. */ }
+    }
+    if (final?.released !== true) return hostResult(entry, 'held', 'HOST_CLEANUP_UNCONFIRMED');
+    return { node: hostCopy(requireNode(entry.projectId, entry.nodeId)), revision: requireProject(entry.projectId).revision };
+  }
+  function hostEnd(entry, kind, payload = {}) {
+    if (Number.isInteger(payload.expectedRevision) && payload.expectedRevision !== requireProject(entry.projectId).revision) throw new LabError('stale_basis', 'project revision changed since authorization', 409);
+    if (entry.terminating) return entry.terminating;
+    const current = requireNode(entry.projectId, entry.nodeId);
+    if (entry.done && current.currentAttempt === entry.owner.currentAttempt && current.sessionId === entry.owner.sessionId && !['planned', 'running'].includes(current.status)) return entry.done;
+    const requestedAt = Date.now();
+    entry.phase = 'terminating'; entry.controller.abort();
+    entry.terminating = (async () => {
+      try {
+        await hostDisposeHandles(entry); hostNode(entry);
+        const cancelled = ['cancel', 'dispose', 'preempted'].includes(kind);
+        return await hostTerminal(entry, cancelled ? 'cancelled' : 'failed', { kind, requestedAt, preemptionPayload: payload, stage: kind === 'timeout' ? 'timeout' : 'run', error: payload.message ?? payload.reason ?? (cancelled ? 'cancelled by user' : 'Host attempt terminated') });
+      } catch (error) {
+        // Never write through a changed owner, including a late release ACK.
+        return hostResult(entry, 'held', error.code ?? 'HOST_CLEANUP_UNCONFIRMED');
+      } finally {
+        await hostDisposeHandles(entry);
+        if (active.get(keyOf(entry.projectId, entry.nodeId)) === entry) active.delete(keyOf(entry.projectId, entry.nodeId));
+        deadlines.delete(keyOf(entry.projectId, entry.nodeId));
+        if (!['cancel', 'dispose', 'preempted'].includes(kind)) await hostAutoUpgrade(entry, kind === 'timeout' ? 'timeout' : 'run');
+      }
+    })();
+    entry.done = entry.terminating;
+    return entry.terminating;
+  }
+  function hostFinish(entry, result, failure, mergePayload) {
+    if (entry.done) return entry.done;
+    entry.phase = 'finishing';
+    entry.done = (async () => {
+      try {
+        let node = hostLive(entry), project = hostCopy(requireProject(entry.projectId));
+        if (failure) throw failure;
+        if (result?.stopReason !== 'completed') throw new LabError('worker_incomplete', `worker stopped: ${result?.stopReason}`, 409);
+        const report = normalizeNodeReport(mergePayload ? { summary: mergePayload.summary?.trim() || 'Merge completed by the user', success: true } : result.structured);
+        if (!report) throw new LabError('invalid_report', 'worker returned no valid structured report', 409);
+        const branch = await git.branchOf(node.git.worktreePath); node = hostLive(entry);
+        if (branch !== node.git.branch) throw new LabError('branch_changed', 'worker left the expected Host branch', 409);
+        const cleanup = await cleanupNodeRuntime(node); node = hostLive(entry);
+        const commit = mergePayload
+          ? await git.finishMergeInWorktree(node.git.worktreePath, `dshex(${node.id}): merge ${(node.parentIds ?? []).join(' + ')}`)
+          : await git.commitWorktree(project, node, `dshex(${node.id}): ${node.title}`);
+        node = hostLive(entry);
+        const usage = entry.external && result.usage ? externalUsage(result.usage) : await sessionUsage(node.sessionId);
+        hostLive(entry);
+        return await hostTerminal(entry, 'completed', { report, reportText: mergePayload?.message ?? blocksText(result.output), head: commit.head, usage, cleanup,
+          ...(mergePayload ? { merge: { ...node.merge, state: 'committed', committedAt: Date.now(), committedBy: 'human', headCommit: commit.head } } : {}) });
+      } catch (error) {
+        if (entry.terminating) return await entry.terminating;
+        hostNode(entry);
+        return await hostTerminal(entry, 'failed', { error, stage: error.code === 'host_deadline' ? 'timeout' : 'run' });
+      } finally {
+        await hostDisposeHandles(entry);
+        if (active.get(keyOf(entry.projectId, entry.nodeId)) === entry) active.delete(keyOf(entry.projectId, entry.nodeId));
+        deadlines.delete(keyOf(entry.projectId, entry.nodeId));
+        if (!entry.terminating) await hostAutoUpgrade(entry, requireNode(entry.projectId, entry.nodeId).error?.stage ?? 'run');
+      }
+    })();
+    // Callers attach their own completion; retain failures for dispose/cancel too.
+    entry.done.catch(() => {});
+    return entry.done;
+  }
+  async function hostStart(projectId, nodeId, options) {
+    if (!options.lease || !options.decisionId) return hostAdmission.request(projectId, nodeId, options);
+    const project = hostCopy(requireProject(projectId)), node = hostCopy(requireNode(projectId, nodeId));
+    if (node.status !== 'planned') throw new LabError('node_not_startable', 'Host node is not planned', 409);
+    const rawAdmissionLease = hostCopy(options.lease);
+    if (await hostAdmission.verify(project, node, rawAdmissionLease, options.decisionId) !== true) throw new LabError('host_budget_permit', 'Host admission lease could not be verified', 409);
+    const key = keyOf(projectId, nodeId);
+    const entry = { hostManaged: true, projectId, nodeId, rawAdmissionLease, decisionId: options.decisionId,
+      owner: hostScope(node), node, project, phase: 'authorizing', controller: new AbortController() };
+    hostNode(entry);
+    if (active.has(key)) return hostResult(entry, 'held', 'HOST_ALREADY_ACTIVE');
+    active.set(key, entry);
+    try {
+      const execution = node.execution ?? { driver: 'dsh' }, external = !isDshExecution(execution);
+      let selection;
+      if (external) selection = { provider: `execution:${execution.profile}`, model: execution.model ?? 'native', source: 'execution-profile' };
+      else if (options.model || options.upgrade === true) {
+        const requested = options.model ?? nextTierSelection(project, node.modelResolved ?? node.model);
+        if (!requested) throw new LabError('no_upgrade', 'No stronger model profile is configured', 409);
+        selection = await validateModelSelection(ctx, project, cleanModelRef(requested));
+      } else selection = await resolveNodeSelection(project, node, node.kind === 'merge' ? 'merge' : 'worker');
+      hostNode(entry);
+      const started = await hostChange(entry, 'node/started', n => {
+        if (n.status !== 'planned' || entry.phase !== 'authorizing') throw new LabError('host_budget_held', 'Host start was cancelled', 409);
+        n.sessionId = newSessionId(); n.anchorSessionId = newSessionId();
+        beginAttempt(n, selection);
+        if (options.model || options.upgrade === true) n.model = cleanModelRef(selection);
+        n.status = 'running'; n.modelResolved = hostCopy(selection); n.lease = hostCopy(rawAdmissionLease);
+        n.resourcesHeld = Object.fromEntries(Object.entries(n.needs ?? {}).filter(([name]) => name !== 'machines'));
+        n.deadlineAt = Math.min(Date.now() + (n.timeboxMs ?? project.config.nodeTimeoutMinutes * 60000), Number.isFinite(rawAdmissionLease.hardEndAt) ? rawAdmissionLease.hardEndAt : Infinity);
+        if (n.deadlineAt <= Date.now()) throw new LabError('host_deadline', 'Host admission deadline elapsed', 409);
+        for (const field of ['error', 'termination', 'resourceWait', 'hostBudgetCleanup']) delete n[field];
+        n.timestamps = { ...(n.timestamps ?? {}), startedAt: Date.now(), lastActivityAt: Date.now() };
+      }, options);
+      entry.owner = hostScope(started); entry.node = started; entry.phase = 'preparing';
+      deadlines.set(key, started.deadlineAt);
+      hostLive(entry);
+      let gate;
+      try { gate = await hostAdmission.beforeEffects(projectId, nodeId, hostCopy(rawAdmissionLease)); }
+      catch { gate = { ok: false, held: true }; }
+      hostLive(entry);
+      if (gate?.ok !== true) {
+        await hostChange(entry, 'node/host_budget_gate', n => { n.hostBudgetGate = { attempt: n.currentAttempt, sessionId: n.sessionId, code: 'HOST_EFFECTS_UNCONFIRMED', at: Date.now() }; });
+        entry.phase = 'held'; return hostResult(entry, 'held', 'HOST_EFFECTS_UNCONFIRMED');
+      }
+      await git.ensureWorktree(project, hostLive(entry)); hostLive(entry);
+      if (external) {
+        if (node.kind === 'merge' || rawAdmissionLease.placement === 'fleet') throw new LabError('unsupported', 'External execution requires a local non-merge Host attempt', 409);
+        return await startExternalNode(project, hostLive(entry), execution, entry);
+      }
+      const anchor = await ensureAnchor(project, hostLive(entry)); hostLive(entry);
+      let remotePrompt = '';
+      if (rawAdmissionLease.placement === 'fleet') {
+        const remote = await prepareRemoteRun({ project, node: hostLive(entry), lease: rawAdmissionLease, cluster }); hostLive(entry);
+        remotePrompt = remote.prompt;
+        await hostChange(entry, 'node/remote_prepared', n => { n.remote = { mode: 'fleet', dir: '.dshex-run', leaseId: rawAdmissionLease.leaseId, machineIds: (rawAdmissionLease.machines ?? []).map(group => group.machineId) }; });
+      }
+      if (node.kind === 'merge') await prepareMerge(project, hostLive(entry), entry);
+      const current = hostLive(entry);
+      const activation = await startActivation(ctx, { provider: 'spawn', label: `mir/${projectId}/${nodeId}`, delivery: 'caller', signal: entry.controller.signal, childId: current.sessionId,
+        request: { parent: anchor, cwd: current.git.worktreePath, prompt: [{ type: 'text', text: node.kind === 'merge' ? mergePrompt(project, current, selection, remotePrompt) : workerPrompt(project, current, selection, remotePrompt) }],
+          agentPreset: node.kind === 'merge' ? 'lab-merge' : 'lab-worker', agentOptions: selectionToAgentOptions(selection), ...(node.kind === 'merge' ? {} : { outputSchema: NODE_REPORT_SCHEMA }) } });
+      entry.activation = activation; hostLive(entry);
+      entry.phase = 'running'; entry.mode = node.kind === 'merge' ? 'merge' : 'experiment';
+      seedNodeSandbox(current.sessionId, project, current);
+      activation.result.then(result => node.kind === 'merge' ? onMergeTurnEnd(projectId, nodeId, result) : hostFinish(entry, result), error => hostFinish(entry, null, error)).catch(() => {});
+      return hostResult(entry, 'started');
+    } catch (error) {
+      if (entry.done) { await hostDisposeHandles(entry); return hostResult(entry, 'held', 'HOST_ATTEMPT_TERMINATED'); }
+      try { hostNode(entry); } catch { await hostDisposeHandles(entry); active.delete(key); return hostResult(entry, 'held', 'HOST_OWNER_CHANGED'); }
+      if (entry.owner.currentAttempt === (node.currentAttempt ?? 0)) { active.delete(key); throw error; }
+      return hostEnd(entry, error.code === 'host_deadline' ? 'timeout' : 'failure', { message: failureMessage(error) });
+    }
+  }
+  function hostUnresolved(node) {
+    return Boolean(node.hostBudgetReservation || node.claim || node.admission || node.lease || node.resourcesHeld || node.hostBudgetGate
+      || (node.hostBudgetCleanup && node.hostBudgetCleanup.verifiedClean !== true));
+  }
+  async function hostRetry(projectId, nodeId, options = {}) {
+    const prior = hostCopy(requireNode(projectId, nodeId));
+    if (hostUnresolved(prior)) throw new LabError('host_budget_held', 'Host budget or cleanup is unresolved; retry cannot erase ownership', 409);
+    if (!['failed', 'cancelled', 'completed'].includes(prior.status)) throw new LabError('node_not_retryable', 'Host retry needs a terminal node', 409);
+    if (store.childrenOf(projectId, nodeId).some(candidate => candidate.status !== 'proposed' && !isNonBlockingSuccessor(candidate))) throw new LabError('node_sealed', 'node has successors', 409);
+    const entry = { projectId, nodeId, owner: hostScope(prior), phase: 'retrying' };
+    await hostChange(entry, 'node/retried', n => {
+      if (hostUnresolved(n)) throw new LabError('host_budget_held', 'Host budget changed while preparing retry', 409);
+      n.status = 'planned'; n.report = null; n.deadlineAt = null;
+      if (options.model) n.model = cleanModelRef(options.model);
+      if (options.text) n.prompt = `${n.prompt ?? ''}\n\n# Additional instruction\n${options.text}`;
+      delete n.error; delete n.termination;
+    }, options);
+    return start(projectId, nodeId, { ...(options.model ? { model: options.model } : {}), ...(options.upgrade === true ? { upgrade: true } : {}) });
+  }
+
+  async function hostAutoUpgrade(entry, stage) {
+    if (lifetime.signal.aborted) return;
+    const node = hostCopy(requireNode(entry.projectId, entry.nodeId));
+    if (node.currentAttempt !== entry.owner.currentAttempt || node.sessionId !== entry.owner.sessionId || node.status !== 'failed' || hostUnresolved(node)) return;
+    try { await maybeAutoUpgrade(hostCopy(requireProject(entry.projectId)), node, stage); } catch { /* A rejected new admission cannot rewrite the old attempt. */ }
+  }
 
   function keyOf(projectId, nodeId) {
     return `${projectId}__${nodeId}`;
@@ -377,6 +690,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
    * profile. Budget and maxAttempts are hard guards.
    */
   async function maybeAutoUpgrade(project, node, stage) {
+    if (needsSandbox(node)) return false; // Unknown/cleanup holds must never enter legacy replay.
     if (stage !== 'run' && stage !== 'timeout') return false;
     if (project.config.routing?.autoUpgrade !== true) return false;
     const maxAttempts = project.config.routing?.maxAttempts ?? 2;
@@ -384,6 +698,11 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     if (attempts >= maxAttempts) return false;
     const maxCost = project.config.auto?.maxCostUsd ?? 0;
     if (maxCost > 0 && (node.costUsd ?? 0) >= maxCost) return false;
+    if (hostAdmission) {
+      if (node.kind === 'merge' || node.status !== 'failed' || hostUnresolved(node)) return false;
+      await hostRetry(project.id, node.id, { upgrade: true });
+      return true;
+    }
     const next = nextTierSelection(project, node.modelResolved ?? node.model);
     if (!next) return false;
     let validated;
@@ -424,6 +743,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
 
   /** Prepare a fresh attempt with an explicit/next-tier model (manual upgrade). */
   async function prepareNewAttempt(projectId, nodeId, options = {}) {
+    if (hostAdmission) return hostRetry(projectId, nodeId, { ...options, upgrade: options.reuseModel !== true && !options.model });
     const project = requireProject(projectId);
     const node = requireNode(projectId, nodeId);
     if (node.status === 'running' || node.status === 'proposed') {
@@ -539,7 +859,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
   }
 
   function runningNodes(projectId) {
-    return store.listNodes(projectId).filter((node) => node.status === 'running');
+    return store.listNodes(projectId).filter(holdsResources);
   }
 
   function ensureCapacity(project, node) {
@@ -579,7 +899,10 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     try {
       const handle = await ctx.agents.create({
         sessionId: node.anchorSessionId,
-        meta: { cwd: node.git.worktreePath, origin: 'subagent', agentPreset: 'lab-controller' },
+        // DSH >= 0.2.2-rc.5 refuses to parent children under a session marked origin:'subagent'
+        // once this host process no longer owns that session. An anchor only has to be a
+        // durable private parent, so create it as its own root instead.
+        meta: { cwd: node.git.worktreePath, agentPreset: 'lab-controller' },
         agentOptions: model,
         setup: async (agentCtx) => {
           await ctx.agentPresets.mount(agentCtx, 'lab-controller');
@@ -670,7 +993,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     ].join('\n');
   }
 
-  async function prepareMerge(project, node) {
+  async function prepareMerge(project, node, managed = null) {
     const others = (node.parentIds ?? [])
       .slice(1)
       .map((id) => store.getNode(project.id, id))
@@ -681,7 +1004,9 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       if (!other.git?.headCommit || !other.git?.branch) {
         throw new LabError('merge_parent_not_ready', `parent ${other.id} has no committed branch`, 409);
       }
+      if (managed) hostLive(managed);
       const result = await git.mergeBranchIntoWorktree(node.git.worktreePath, other.git.branch);
+      if (managed) hostLive(managed);
       prepared.push({
         parentId: other.id,
         branch: other.git.branch,
@@ -702,7 +1027,8 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       prepared,
       preparedAt: Date.now(),
     };
-    await persistNode(project, node, 'node/merge_prepared', {
+    if (managed) await hostChange(managed, 'node/merge_prepared', current => { hostLive(managed); current.merge = hostCopy(node.merge); });
+    else await persistNode(project, node, 'node/merge_prepared', {
       data: { state: node.merge.state, conflicts: conflicts.length, parents: node.parentIds },
     });
   }
@@ -711,6 +1037,12 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     const key = keyOf(projectId, nodeId);
     const entry = active.get(key);
     if (!entry || entry.phase !== 'running') return;
+    if (entry.hostManaged) {
+      if (result?.stopReason !== 'completed') return hostFinish(entry, null, new Error(`merge worker stopped: ${result?.stopReason}`));
+      const usage = await sessionUsage(hostLive(entry).sessionId);
+      await hostChange(entry, 'node/merge_turn', (node, project) => { hostLive(entry); node.lastReport = blocksText(result?.output) || node.lastReport || ''; applyUsage(project, node, usage); node.timestamps = { ...(node.timestamps ?? {}), lastActivityAt: Date.now() }; });
+      entry.phase = 'idle'; return;
+    }
     entry.phase = 'idle';
     const project = store.getProject(projectId);
     const node = store.getNode(projectId, nodeId);
@@ -1062,7 +1394,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     };
   }
 
-  async function startExternalNode(project, node, execution) {
+  async function startExternalNode(project, node, execution, managed = null) {
     const driver = EXECUTION_DRIVERS[execution.driver];
     if (typeof driver !== 'function') {
       throw new LabError('unavailable', `execution driver "${execution.driver}" is not registered`, 503);
@@ -1070,6 +1402,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     const runId = `${node.id}-a${node.currentAttempt}`;
     const log = new ExecutionLog(executionLogPath(project.id, node.id, runId));
     await log.init();
+    if (managed) hostLive(managed);
     await log.append({
       type: 'run/started',
       profile: execution.profile,
@@ -1088,15 +1421,19 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       status: 'running',
       startedAt: Date.now(),
     };
-    await persistNode(project, node, 'node/execution_started', {
+    if (managed) {
+      await hostChange(managed, 'node/execution_started', current => { current.executionRun = hostCopy(node.executionRun); });
+      hostLive(managed);
+    } else await persistNode(project, node, 'node/execution_started', {
       data: { runId, driver: execution.driver, profile: execution.profile, logPath: log.filePath },
     });
 
-    const controller = new AbortController();
+    const controller = managed?.controller ?? new AbortController();
     let settled = false;
     const prompt = workerPrompt(project, node, null, '', true);
     const resultPromise = (async () => {
       try {
+        if (managed) hostLive(managed);
         const result = await driver({
           cwd: node.git.worktreePath,
           prompt,
@@ -1137,28 +1474,24 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
         if (settled) return;
         controller.abort();
         await log.append({ type: 'run/cancelled' });
+        if (managed) await resultPromise.catch(() => {});
       },
     };
-    active.set(keyOf(project.id, node.id), {
-      projectId: project.id,
-      nodeId: node.id,
-      project,
-      node,
-      activation,
-      phase: 'running',
-      external: true,
-      execution,
-      executionLog: log,
-    });
+    const entry = managed ?? { projectId: project.id, nodeId: node.id, project, node };
+    Object.assign(entry, { activation, phase: 'running', external: true, execution, executionLog: log });
+    if (managed) hostLive(managed);
+    active.set(keyOf(project.id, node.id), entry);
     deadlines.set(keyOf(project.id, node.id), node.deadlineAt);
     resultPromise.then(
-      (result) => finish(project.id, node.id, result).catch(() => {}),
-      (error) => finishFailure(project.id, node.id, error),
-    );
-    return { node: store.getNode(project.id, node.id), revision: project.revision };
+      (result) => managed ? hostFinish(entry, result) : finish(project.id, node.id, result),
+      (error) => managed ? hostFinish(entry, null, error) : finishFailure(project.id, node.id, error),
+    ).catch(() => {});
+    return managed ? hostResult(entry, 'started') : { node: store.getNode(project.id, node.id), revision: project.revision };
   }
 
   async function start(projectId, nodeId, options = {}) {
+    if (needsSandbox(requireNode(projectId, nodeId))) return sandboxLane().start(projectId, nodeId, options);
+    if (hostAdmission) return hostStart(projectId, nodeId, options);
     const preProject = requireProject(projectId);
     const preNode = requireNode(projectId, nodeId);
     if (preNode.status !== 'planned') {
@@ -1396,7 +1729,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       }
       if (node.kind === 'merge') {
         await prepareMerge(project, node);
-        const mergeActivation = await ctx.subagents.startActivation({
+        const mergeActivation = await startActivation(ctx, {
           provider: 'spawn',
           label: `mir-merge/${project.id}/${node.id}`,
           delivery: 'caller',
@@ -1436,7 +1769,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
         );
         return { node: store.getNode(projectId, nodeId), revision: store.getProject(projectId).revision };
       }
-      const activation = await ctx.subagents.startActivation({
+      const activation = await startActivation(ctx, {
         provider: 'spawn',
         label: `mir/${project.id}/${node.id}`,
         delivery: 'caller',
@@ -1517,6 +1850,11 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
   }
 
   async function terminate(projectId, nodeId, kind, payload = {}) {
+    if (needsSandbox(store.getNode(projectId, nodeId))) return sandboxLane().terminate(projectId, nodeId, kind, payload);
+    if (hostAdmission) {
+      const managed = active.get(keyOf(projectId, nodeId));
+      return managed?.hostManaged ? hostEnd(managed, kind, payload) : null;
+    }
     const key = keyOf(projectId, nodeId);
     activityWrites.delete(key);
     const expectedProjectRevision = Number.isInteger(payload.expectedRevision) ? payload.expectedRevision : null;
@@ -1704,6 +2042,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
    * method is the only producer of the `preempted` termination kind.
    */
   async function preempt(projectId, nodeId, options = {}) {
+    rejectSandboxOperation(requireNode(projectId, nodeId), 'preemption');
     const node = requireNode(projectId, nodeId);
     if (node.status !== 'running') {
       throw new LabError('node_not_preemptible', `node ${nodeId} is ${node.status}; only a running node can be preempted`, 409);
@@ -1726,6 +2065,15 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     const expectedRevision = Number.isInteger(options.expectedRevision) ? options.expectedRevision : null;
     if (expectedRevision !== null && (project.revision ?? 0) !== expectedRevision) {
       throw new LabError('stale_basis', `project revision changed since authorization (expected ${expectedRevision}, actual ${project.revision ?? 0})`, 409);
+    }
+    if (needsSandbox(node)) return sandboxLane().terminate(projectId, nodeId, 'cancel', options);
+    if (hostAdmission) {
+      const entry = active.get(key);
+      if (entry?.hostManaged) return hostEnd(entry, 'cancel', options);
+      if (node.status !== 'planned') throw new LabError('node_not_cancellable', `node ${nodeId} is ${node.status}`, 409);
+      const planned = { projectId, nodeId, owner: hostScope(node), phase: 'cancelling' };
+      await hostChange(planned, 'node/cancelled', current => { current.status = 'cancelled'; current.timestamps = { ...(current.timestamps ?? {}), completedAt: Date.now() }; }, options);
+      return { node: hostCopy(requireNode(projectId, nodeId)), revision: requireProject(projectId).revision };
     }
     if (active.has(key)) return terminate(projectId, nodeId, 'cancel', { expectedRevision });
     if (node.status !== 'planned') {
@@ -1827,9 +2175,27 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
   }
 
   async function message(projectId, nodeId, text, options = {}) {
+    rejectSandboxOperation(requireNode(projectId, nodeId), 'followup');
     const trimmed = typeof text === 'string' ? text.trim() : '';
     if (!trimmed) throw new LabError('bad_request', 'message text is required', 400);
     if (trimmed.length > 8000) throw new LabError('bad_request', 'message text is too long', 400);
+    if (hostAdmission) {
+      const entry = active.get(keyOf(projectId, nodeId)), current = hostCopy(requireNode(projectId, nodeId));
+      if (current.status !== 'running') return hostRetry(projectId, nodeId, { ...options, text: trimmed });
+      if (!entry?.hostManaged || entry.done || !['running', 'idle'].includes(entry.phase)) throw new LabError('host_budget_held', 'No live admitted Host attempt is available', 409);
+      hostLive(entry);
+      const verified = await hostAdmission.verify(hostCopy(requireProject(projectId)), current, hostCopy(entry.rawAdmissionLease), entry.decisionId);
+      hostLive(entry);
+      if (verified !== true) throw new LabError('host_budget_held', 'Live Host permit is not verified', 409);
+      const anchor = await ensureAnchor(hostCopy(requireProject(projectId)), hostLive(entry)); hostLive(entry);
+      if (entry.mode === 'merge') {
+        entry.phase = 'running';
+        pendingFollowUps.set(current.sessionId, { projectId, nodeId, sessionId: current.sessionId, mode: 'merge', text: trimmed });
+      }
+      await ctx.subagents.sendMessage(anchor, current.sessionId, [{ type: 'text', text: followUpPrompt(current, trimmed) }], { signal: entry.controller.signal });
+      hostLive(entry);
+      return hostResult(entry, 'started');
+    }
     const guardProject = requireProject(projectId);
     const guardNode = requireNode(projectId, nodeId);
     if (!isDshExecution(guardNode.execution)) {
@@ -1902,6 +2268,8 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
 
   /** Retry a failed node: restart a start-stage failure, or continue a run-stage failure. */
   async function retry(projectId, nodeId, options = {}) {
+    if (needsSandbox(requireNode(projectId, nodeId))) return retrySandbox(projectId, nodeId, options);
+    if (hostAdmission) return hostRetry(projectId, nodeId, options);
     const project = requireProject(projectId);
     const node = requireNode(projectId, nodeId);
     if (options.model || options.upgrade === true) {
@@ -1990,6 +2358,13 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
 
   /** Human-in-the-loop completion of a merge node: verify + commit the merge. */
   async function finishMerge(projectId, nodeId, payload = {}) {
+    rejectSandboxOperation(requireNode(projectId, nodeId), 'merge');
+    if (hostAdmission) {
+      const managed = active.get(keyOf(projectId, nodeId));
+      if (!managed?.hostManaged || requireNode(projectId, nodeId).kind !== 'merge') throw new LabError('host_budget_held', 'No admitted live merge owner', 409);
+      hostLive(managed);
+      return hostFinish(managed, { stopReason: 'completed', output: [] }, null, payload);
+    }
     const key = keyOf(projectId, nodeId);
     const entry = active.get(key);
     const project = requireProject(projectId);
@@ -2057,6 +2432,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
 
   /** Manual upgrade: rerun failed or completed-unsealed nodes with a stronger model. */
   async function escalate(projectId, nodeId, options = {}) {
+    rejectSandboxOperation(requireNode(projectId, nodeId), 'escalation');
     return prepareNewAttempt(projectId, nodeId, {
       model: options.model,
       source: 'escalation',
@@ -2091,6 +2467,11 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     const project = store.getProject(entry.projectId);
     const node = store.getNode(entry.projectId, entry.nodeId);
     if (!project || !node || node.status !== 'running') return false;
+    if (entry.hostManaged) {
+      hostLive(entry);
+      await hostChange(entry, 'node/activity', current => { hostLive(entry); current.timestamps = { ...(current.timestamps ?? {}), lastActivityAt: now }; });
+      return true;
+    }
     node.timestamps = { ...(node.timestamps ?? {}), lastActivityAt: now };
     await persistNode(project, node, 'node/activity', {
       data: { event: event.type, turnId, at: now },
@@ -2120,6 +2501,11 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
       const node = store.getNode(pending.projectId, pending.nodeId);
       if (project && node) {
         const entry = active.get(keyOf(pending.projectId, pending.nodeId));
+        if (entry?.hostManaged) {
+          const text = await lastAssistantText(hostLive(entry).sessionId); hostLive(entry);
+          await onMergeTurnEnd(pending.projectId, pending.nodeId, { stopReason: reasonKind, output: [{ type: 'text', text }] });
+          return;
+        }
         if (entry) entry.phase = 'idle';
         node.lastReport = (await lastAssistantText(node.sessionId)) || node.lastReport || '';
         applyUsage(project, node, await sessionUsage(node.sessionId));
@@ -2139,6 +2525,21 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     const now = Date.now();
     for (const [key, entry] of active.entries()) {
       if (entry.phase !== 'running') continue;
+      if (entry.hostManaged) {
+        if (entry.rawAdmissionLease.broker !== 'cluster') continue;
+        const last = leaseRenewedAt.get(key) ?? 0;
+        if (now - last < cluster.heartbeatMs) continue;
+        leaseRenewedAt.set(key, now);
+        try {
+          const current = hostLive(entry);
+          if (await hostAdmission.verify(hostCopy(requireProject(entry.projectId)), current, hostCopy(entry.rawAdmissionLease), entry.decisionId) !== true) throw new Error('Host permit lost');
+          hostLive(entry);
+          const renewed = await cluster.renew(entry.rawAdmissionLease.leaseId, Math.max(1, current.deadlineAt - Date.now()) + 120_000);
+          hostLive(entry);
+          if (renewed?.status !== 'renewed') throw new Error('lease lost');
+        } catch { await hostEnd(entry, Date.now() >= entry.node.deadlineAt ? 'timeout' : 'resource_lost'); }
+        continue;
+      }
       const lease = entry.node?.lease;
       if (!lease?.leaseId) continue;
       const last = leaseRenewedAt.get(key) ?? 0;
@@ -2171,6 +2572,18 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
   }
 
   async function pumpLeases() {
+    await hostAdmission?.pumpLeases?.();
+    await sandboxRuntime?.pumpLeases();
+    if (hostAdmission) {
+      for (const project of store.listProjects()) for (const node of store.listNodes(project.id)) {
+        if (needsSandbox(node) || node.status !== 'planned' || !node.resourceWait || hostUnresolved(node) || node.resourceWait.retryAfter > Date.now()) continue;
+        const key = keyOf(project.id, node.id);
+        if (leasePumping.has(key)) continue;
+        leasePumping.add(key);
+        try { await start(project.id, node.id); } finally { leasePumping.delete(key); }
+      }
+      return;
+    }
     if (!cluster?.enabled) return;
     for (const project of store.listProjects()) {
       for (const node of store.listNodes(project.id)) {
@@ -2250,6 +2663,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
   }
 
   async function tick() {
+    await sandboxRuntime?.tick();
     const now = Date.now();
     try {
       await renewLeases();
@@ -2259,6 +2673,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     for (const [key, deadlineAt] of [...deadlines.entries()]) {
       if (now < deadlineAt) continue;
       const entry = active.get(key);
+      if (entry?.hostManaged) { await hostEnd(entry, 'timeout'); continue; }
       if (!entry || entry.phase !== 'running') {
         deadlines.delete(key);
         continue;
@@ -2277,8 +2692,10 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel }
     });
   }
 
-  function dispose() {
+  async function dispose() {
     lifetime.abort();
+    await sandboxRuntime?.dispose();
+    if (hostAdmission) await Promise.all([...active.values()].filter(entry => entry.hostManaged).map(entry => hostEnd(entry, 'dispose')));
     for (const entry of active.values()) {
       try {
         entry.activation.cancel?.();

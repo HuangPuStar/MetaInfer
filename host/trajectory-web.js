@@ -5,7 +5,7 @@
  * small standalone UI bundle and proxies the trajectory REST prefix to the
  * local MetaInfer backend.  No second tab, port or URL is exposed to the user.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -128,6 +128,13 @@ function proxyHandler(req, res) {
  * @param {{ register(route: object): () => void }} webServer
  */
 export function registerTrajectoryWeb(ctx, webServer) {
+  // The refactor promotes the plugin to the repository root and drops the
+  // Python tree, so the platform assets can be absent. Degrade to "no
+  // trajectory workspace" instead of failing the whole plugin activation.
+  if (!existsSync(STATIC_DIR)) {
+    ctx.logger?.warn?.(`[trajectory-web] assets missing at ${STATIC_DIR}; trajectory workspace disabled`);
+    return () => {};
+  }
   const cache = assets();
   const disposers = [
     webServer.register({ kind: 'prefix', path: ASSET_PREFIX, handler: assetHandler(cache) }),

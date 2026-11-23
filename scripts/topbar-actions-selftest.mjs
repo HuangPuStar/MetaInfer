@@ -7,11 +7,12 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
-const rootDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const source = await readFile(path.join(rootDir, 'client.js'), 'utf8');
 const start = source.indexOf('    function WorkspaceTopBar({');
 const end = source.indexOf('    /** Resources currently held by running nodes', start);
