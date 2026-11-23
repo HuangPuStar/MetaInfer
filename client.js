@@ -1800,6 +1800,8 @@ window.__ModuleLoader__.load({
       "ws.trace.nodeOpen": "打开所选",
       "ws.trace.nodePicker": "从 DAG 节点打开",
       "ws.trace.nodePickerEmpty": "选择一个节点…",
+      "ws.trace.nodeRefresh": "重新扫描",
+      "ws.trace.nodeRefreshHint": "重新扫描所有节点 worktree（Host 侧结果缓存 120 秒）",
       "ws.trace.nodeScanning": "正在扫描该节点的 trace 文件…",
       "ws.trace.nodeTitle": "创建任务节点",
       "ws.trace.notFound": "trace 已过期或被关闭",
@@ -3473,6 +3475,8 @@ window.__ModuleLoader__.load({
       "ws.trace.nodeOpen": "Open selected",
       "ws.trace.nodePicker": "Open from a DAG node",
       "ws.trace.nodePickerEmpty": "Pick a node…",
+      "ws.trace.nodeRefresh": "Rescan",
+      "ws.trace.nodeRefreshHint": "Rescan every node worktree (Host caches the index for 120 s)",
       "ws.trace.nodeScanning": "Scanning this node for trace files…",
       "ws.trace.nodeTitle": "Create a task node",
       "ws.trace.notFound": "This trace expired or was closed",
@@ -4867,9 +4871,10 @@ window.__ModuleLoader__.load({
         const search = new URLSearchParams({ view: 'candidates', projectId, nodeId });
         return requestJson(ROUTES.trace + '?' + search.toString(), {}, t);
       },
-      /** Nodes that actually produced traces (cached Host scan). */
-      fetchTraceNodes(projectId, t) {
+      /** Nodes that actually produced traces (cached Host scan; refresh=1 bypasses the cache). */
+      fetchTraceNodes(projectId, t, refresh = false) {
         const search = new URLSearchParams({ view: 'nodes', projectId });
+        if (refresh === true) search.set('refresh', '1');
         return requestJson(ROUTES.trace + '?' + search.toString(), {}, t);
       },
       /** Multi-trace comparison aligned by kernel name; first id is the baseline. */
@@ -18587,22 +18592,24 @@ window.__ModuleLoader__.load({
       // Only nodes with at least one trace are offered: probing 900 worktrees one
       // by one from the browser is not an option, so the Host scans once and
       // caches the answer.
+      const loadTraceNodes = React.useCallback(async (refresh, signal) => {
+        setTraceNodes((previous) => ({ ...previous, busy: true, error: '' }));
+        try {
+          const data = await api.fetchTraceNodes(projectId, tr, refresh === true);
+          if (signal?.aborted === true || !aliveRef.current) return;
+          setTraceNodes({ rows: asArray(asObject(data).nodes), busy: false, error: '' });
+        } catch (reason) {
+          if (signal?.aborted === true || !aliveRef.current) return;
+          setTraceNodes({ rows: [], busy: false, error: describeError(reason, tr) });
+        }
+      }, [projectId, tr]);
+
       React.useEffect(() => {
-        if (active === false && traceNodes.busy === false && traceNodes.rows.length > 0) return undefined;
-        let cancelled = false;
-        (async () => {
-          try {
-            const data = await api.fetchTraceNodes(projectId, tr);
-            if (cancelled || !aliveRef.current) return;
-            setTraceNodes({ rows: asArray(asObject(data).nodes), busy: false, error: '' });
-          } catch (reason) {
-            if (cancelled || !aliveRef.current) return;
-            setTraceNodes({ rows: [], busy: false, error: describeError(reason, tr) });
-          }
-        })();
-        return () => { cancelled = true; };
+        const controller = new AbortController();
+        void loadTraceNodes(false, controller.signal);
+        return () => controller.abort();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [projectId, active, tr]);
+      }, [projectId, active]);
 
       React.useEffect(() => {
         if (candidateNode === '') return;
@@ -18631,6 +18638,12 @@ window.__ModuleLoader__.load({
             const title = firstString(asObject(row).title) || id;
             return h('option', { key: 'node-' + id, value: id }, id + ' · ' + title.slice(0, 60));
           })),
+          h(LabButton, {
+            label: tr('ws.trace.nodeRefresh'),
+            variant: 'ghost',
+            onClick: () => { void loadTraceNodes(true); },
+            title: tr('ws.trace.nodeRefreshHint'),
+          }),
           h('span', { className: 'rl-hint' }, tr('ws.trace.nodeHint'))),
         candidates.error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, candidates.error) : null,
         candidates.busy === true ? h(LabLoading, { label: tr('ws.trace.nodeScanning') }) : null,

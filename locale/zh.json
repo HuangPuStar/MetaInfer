@@ -1673,6 +1673,8 @@
     "ws.nodeTrace.open": "打开",
     "ws.nodeTrace.compare": "对比所选",
     "ws.canvas.label": "实验 DAG 画布",
-    "ws.trace.nodeNone": "没有节点产出 trace（*.json.gz）"
+    "ws.trace.nodeNone": "没有节点产出 trace（*.json.gz）",
+    "ws.trace.nodeRefresh": "重新扫描",
+    "ws.trace.nodeRefreshHint": "重新扫描所有节点 worktree（Host 侧结果缓存 120 秒）"
   }
 }

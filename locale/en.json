@@ -1673,6 +1673,8 @@
     "ws.nodeTrace.open": "Open",
     "ws.nodeTrace.compare": "Compare selected",
     "ws.canvas.label": "experiment DAG canvas",
-    "ws.trace.nodeNone": "No node produced a trace (*.json.gz) yet"
+    "ws.trace.nodeNone": "No node produced a trace (*.json.gz) yet",
+    "ws.trace.nodeRefresh": "Rescan",
+    "ws.trace.nodeRefreshHint": "Rescan every node worktree (Host caches the index for 120 s)"
   }
 }
