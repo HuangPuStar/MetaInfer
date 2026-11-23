@@ -431,7 +431,7 @@ const setP0 = [...(prioHost.querySelectorAll('.rl-dag-menu-item') ?? [])]
   .find((button) => (button.textContent ?? '').includes('ws.menu.prioritySet:priority.p0'));
 await React.act(async () => { setP0.click(); await wait(60); });
 check('choosing a class dispatches node.priority with that class',
-  calls.some(([name, arg]) => name === 'action' && arg === 'node?.priority'), JSON.stringify(calls.slice(-3)));
+  calls.some(([name, arg]) => name === 'action' && arg === 'node.priority'), JSON.stringify(calls.slice(-3)));
 check('the menu closes after choosing a submenu item', prioHost.querySelector('[data-testid="dag-context-menu"]') === null);
 await React.act(async () => { prioRoot.unmount(); });
 
