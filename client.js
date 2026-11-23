@@ -11533,7 +11533,9 @@ window.__ModuleLoader__.load({
       const raiseNodeWindow = React.useCallback((nodeId) => {
         windowZRef.current += 1;
         const z = windowZRef.current;
-        setNodeWindows((previous) => previous.map((entry) => (entry.nodeId === nodeId ? { ...entry, min: false, z } : entry)));
+        // Raising must not expand a collapsed window: a single click would then undo
+        // the collapse the operator just made. Only z changes here.
+        setNodeWindows((previous) => previous.map((entry) => (entry.nodeId === nodeId ? { ...entry, z } : entry)));
       }, []);
       const [mountedTabs, setMountedTabs] = React.useState(() => new Set([activeTab]));
       const selectTab = typeof onSelectTab === 'function' ? onSelectTab : () => {};

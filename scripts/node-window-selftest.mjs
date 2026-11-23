@@ -174,7 +174,16 @@ await React.act(async () => {
 check('a double-click on a header button does not also toggle the window',
   patches.every((patch) => patch.min === undefined), JSON.stringify(patches));
 
-// closing and focus// closing and focus
+// a single click must not expand a collapsed window (only double-click / button)
+patches.length = 0;
+await React.act(async () => {
+  header.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await wait(40);
+});
+check('a single click never expands a collapsed window',
+  patches.every((patch) => patch.min !== false), JSON.stringify(patches));
+
+// closing and focus// closing and focus// closing and focus
 await React.act(async () => {
   win.dispatchEvent(pointer('pointerdown', 300, 300));
   await wait(20);
