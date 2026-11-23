@@ -525,8 +525,6 @@
     "ws.canvas.empty": "没有节点，检查项目状态后刷新。",
     "ws.canvas.fit": "适应画布",
     "ws.canvas.hint": "拖拽平移 · 滚轮缩放 · 点击节点查看详情",
-    "ws.canvas.window": "视口内 {shown}/{total} 个节点",
-    "ws.canvas.windowHint": "平移/缩放查看其余节点；渲染上限 {limit}",
     "ws.canvas.zoomIn": "放大",
     "ws.canvas.zoomOut": "缩小",
     "ws.card.remaining": "⏱ {time}",
@@ -1673,6 +1671,7 @@
     "ws.nodeTrace.scanning": "正在扫描…",
     "ws.nodeTrace.empty": "没有找到 trace 文件",
     "ws.nodeTrace.open": "打开",
-    "ws.nodeTrace.compare": "对比所选"
+    "ws.nodeTrace.compare": "对比所选",
+    "ws.canvas.label": "实验 DAG 画布"
   }
 }

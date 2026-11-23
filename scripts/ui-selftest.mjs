@@ -30,78 +30,9 @@ function extract(region) {
   return match[1];
 }
 
-const windowSource = extract('compute-viewport-window');
-// eslint-disable-next-line no-new-func
-const computeViewportWindow = new Function(`${windowSource}\nreturn computeViewportWindow;`)();
 const deltaSource = extract('apply-change-delta');
 // eslint-disable-next-line no-new-func
 const applyChangeDelta = new Function(`${deltaSource}\nreturn applyChangeDelta;`)();
-
-const COUNT = 5_000;
-const idOf = (node) => node.id;
-const positions = new Map();
-const nodes = [];
-for (let index = 0; index < COUNT; index += 1) {
-  const node = { id: `n${index}`, status: index % 10 === 0 ? 'completed' : 'planned' };
-  nodes.push(node);
-  positions.set(node.id, { x: (index % 100) * 320, y: Math.floor(index / 100) * 180 });
-}
-const edges = [];
-for (let index = 100; index < COUNT; index += 1) edges.push({ from: `n${index - 100}`, to: `n${index}` });
-
-const base = {
-  nodes,
-  edges,
-  positions,
-  pan: { x: 0, y: 0 },
-  zoom: 1,
-  viewportSize: { width: 1_280, height: 720 },
-  nodeWidth: 280,
-  nodeHeight: 132,
-  maxRendered: 300,
-  pad: 240,
-  idOf,
-};
-
-await test('renders only the visible window, never all 5,000 cards', () => {
-  const started = performance.now();
-  let window = null;
-  for (let round = 0; round < 20; round += 1) {
-    window = computeViewportWindow({ ...base, pan: { x: -round * 40, y: -round * 10 } });
-  }
-  const perRound = (performance.now() - started) / 20;
-  assert.ok(window.nodes.length <= 300, `rendered ${window.nodes.length} ≤ 300`);
-  assert.ok(window.nodes.length < COUNT, 'off-screen nodes are dropped');
-  assert.equal(window.hidden, COUNT - window.nodes.length);
-  assert.ok(perRound < 8, `window model ${perRound.toFixed(2)} ms < 8 ms`);
-  console.log(`     viewport window ${perRound.toFixed(2)} ms/round, rendered ${window.nodes.length}/${COUNT}, hidden ${window.hidden}`);
-});
-
-await test('edges are culled to rendered endpoints (no 4,900-path SVG)', () => {
-  const window = computeViewportWindow(base);
-  const ids = new Set(window.nodes.map((node) => node.id));
-  assert.ok(window.edges.every((edge) => ids.has(edge.from) && ids.has(edge.to)));
-  assert.ok(window.edges.length < edges.length);
-  console.log(`     edges ${window.edges.length} of ${edges.length}`);
-});
-
-await test('extreme zoom-out is capped, not silently dropped', () => {
-  const window = computeViewportWindow({ ...base, zoom: 0.02 });
-  assert.equal(window.nodes.length, 300);
-  assert.equal(window.hidden, COUNT - 300);
-  assert.ok(window.hidden > 0, 'the cap is reported so the UI can say so');
-});
-
-await test('empty viewport (first paint) still returns a bounded head', () => {
-  const window = computeViewportWindow({ ...base, viewportSize: { width: 0, height: 0 } });
-  assert.equal(window.nodes.length, 300);
-});
-
-await test('no layout position means no card (ghost nodes are skipped)', () => {
-  const window = computeViewportWindow({ ...base, positions: new Map() });
-  assert.equal(window.nodes.length, 0);
-  assert.equal(window.hidden, COUNT);
-});
 
 await test('a changes_since delta mutates the index without a full state fetch', () => {
   const snapshot = {

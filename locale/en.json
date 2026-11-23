@@ -525,8 +525,6 @@
     "ws.canvas.empty": "No nodes — check the project state and refresh.",
     "ws.canvas.fit": "Fit",
     "ws.canvas.hint": "Drag to pan · scroll to zoom · click a node for details",
-    "ws.canvas.window": "showing {shown}/{total} nodes in view",
-    "ws.canvas.windowHint": "pan/zoom for the rest; render cap {limit}",
     "ws.canvas.zoomIn": "Zoom in",
     "ws.canvas.zoomOut": "Zoom out",
     "ws.card.remaining": "⏱ {time}",
@@ -1673,6 +1671,7 @@
     "ws.nodeTrace.scanning": "Scanning…",
     "ws.nodeTrace.empty": "No trace files found",
     "ws.nodeTrace.open": "Open",
-    "ws.nodeTrace.compare": "Compare selected"
+    "ws.nodeTrace.compare": "Compare selected",
+    "ws.canvas.label": "experiment DAG canvas"
   }
 }

@@ -93,7 +93,6 @@ window.__ModuleLoader__.load({
     const MAX_ZOOM = 1.5;
     const FIT_PAD = 48;
     /** Hard cap on mounted node cards; shown in the canvas window chip. */
-    const MAX_RENDERED_NODES = 300;
 
     /** Status order used by the left rail and by fallback normalization. */
     const STATUS_ORDER = ['proposed', 'planned', 'running', 'completed', 'failed', 'cancelled'];
@@ -747,8 +746,7 @@ window.__ModuleLoader__.load({
       "ws.canvas.empty": "没有节点，检查项目状态后刷新。",
       "ws.canvas.fit": "适应画布",
       "ws.canvas.hint": "拖拽平移 · 滚轮缩放 · 点击节点查看详情",
-      "ws.canvas.window": "视口内 {shown}/{total} 个节点",
-      "ws.canvas.windowHint": "平移/缩放查看其余节点；渲染上限 {limit}",
+      "ws.canvas.label": "实验 DAG 画布",
       "ws.canvas.zoomIn": "放大",
       "ws.canvas.zoomOut": "缩小",
       "ws.card.remaining": "⏱ {time}",
@@ -2420,8 +2418,7 @@ window.__ModuleLoader__.load({
       "ws.canvas.empty": "No nodes — check the project state and refresh.",
       "ws.canvas.fit": "Fit",
       "ws.canvas.hint": "Drag to pan · scroll to zoom · click a node for details",
-      "ws.canvas.window": "showing {shown}/{total} nodes in view",
-      "ws.canvas.windowHint": "pan/zoom for the rest; render cap {limit}",
+      "ws.canvas.label": "experiment DAG canvas",
       "ws.canvas.zoomIn": "Zoom in",
       "ws.canvas.zoomOut": "Zoom out",
       "ws.card.remaining": "⏱ {time}",
@@ -3871,6 +3868,11 @@ window.__ModuleLoader__.load({
       '.rl-dot-cancelled { background: var(--dsw-alias-state-idle-primary); }',
       '@keyframes rl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }',
       '.rl-canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--dsw-alias-bg-base); cursor: grab; touch-action: none; }',
+      '.rl-dag-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }',
+      '.rl-dag-canvas:focus-visible { outline: 2px solid var(--dsw-alias-border-accent, #4aa3ff); outline-offset: -2px; }',
+      '.rl-canvas-dragging .rl-dag-canvas { cursor: grabbing; }',
+      '.rl-dag-overlay { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }',
+      '.rl-dag-overlay-card { position: absolute; pointer-events: auto; }',
       '.rl-explain-list { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }',
       '.rl-explain-subtitle { margin: 8px 0 0; font-size: 12px; opacity: 0.8; }',
       '.rl-explain-kind { font-weight: 600; margin-right: 6px; }',
@@ -12392,300 +12394,548 @@ window.__ModuleLoader__.load({
     }
     // #endregion apply-change-delta
 
-    // #region compute-viewport-window
-    function computeViewportWindow({ nodes, edges, positions, pan, zoom, viewportSize, nodeWidth, nodeHeight, maxRendered, pad, idOf }) {
-      const total = nodes.length;
-      if (!(viewportSize.width > 0) || !(viewportSize.height > 0) || !(zoom > 0)) {
-        const head = nodes.slice(0, maxRendered);
-        return { nodes: head, edges: [], hidden: total - head.length };
-      }
-      const left = -pan.x / zoom - pad;
-      const top = -pan.y / zoom - pad;
-      const right = left + viewportSize.width / zoom + pad * 2;
-      const bottom = top + viewportSize.height / zoom + pad * 2;
-      const visible = [];
+
+    // #region dag-canvas-scene
+    /**
+     * Canvas DAG renderer.
+     *
+     * The old canvas mounted one DOM card per visible node and dropped everything
+     * beyond a hard cap — at 10k nodes that meant both a tiny window (nodes
+     * visibly missing) and a React re-render per pan/zoom frame. This renderer keeps
+     * ONE canvas: the whole graph is painted, pan/zoom only mutates a transform and
+     * schedules a rAF, and React state is touched at most ten times a second (the
+     * zoom percentage). A single DOM card is kept for the selected node so its
+     * quick actions stay available.
+     */
+    const DAG_THEME = {
+      dark: {
+        card: '#24262b', cardAlt: '#2b2e34', border: '#3a3d44', text: '#e6e7ea', muted: '#9aa0a6',
+        edge: '#3d4148', edgeActive: '#6ea8ff', accent: '#4aa3ff', grid: '#202227',
+      },
+      light: {
+        card: '#ffffff', cardAlt: '#f6f7f9', border: '#d6d8de', text: '#1c1e21', muted: '#5f6368',
+        edge: '#c9ccd3', edgeActive: '#2f6fd0', accent: '#2f6fd0', grid: '#eef0f3',
+      },
+    };
+    const DAG_STATUS_COLOR = {
+      planned: '#8a93a6',
+      running: '#4aa3ff',
+      completed: '#35c26b',
+      failed: '#ff5d5d',
+      cancelled: '#8a8a8a',
+      proposed: '#c08cff',
+      deferred: '#c9a227',
+      paused: '#c9a227',
+    };
+
+    function dagTheme() {
+      const dark = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : true;
+      return dark ? DAG_THEME.dark : DAG_THEME.light;
+    }
+
+    /** Truncate by an average glyph width: measuring 10k strings per frame is slower. */
+    function truncateForWidth(text, width, fontSize) {
+      const value = String(text ?? '');
+      const maxChars = Math.max(4, Math.floor(width / (fontSize * 0.58)));
+      return value.length > maxChars ? value.slice(0, maxChars - 1) + '…' : value;
+    }
+
+    /**
+     * Flatten the DAG into a draw model: absolute rects, pre-computed edge
+     * endpoints, x-sorted arrays for culling, and adjacency for the selection dim.
+     * Built once per (nodes, edges, layout).
+     */
+    function buildDagScene({ nodes, edges, layout, t }) {
+      const items = [];
+      const byId = new Map();
       for (const node of nodes) {
-        const position = positions.get(idOf(node));
+        const id = nodeIdOf(node);
+        if (!id) continue;
+        const position = layout.positions.get(id);
         if (!position) continue;
-        if (position.x + nodeWidth < left || position.x > right) continue;
-        if (position.y + nodeHeight < top || position.y > bottom) continue;
-        visible.push(node);
+        const item = {
+          id,
+          node,
+          x: position.x,
+          y: position.y,
+          w: NODE_W,
+          h: NODE_H,
+          status: nodeStatusOf(node),
+          title: nodeTitleOf(node, t),
+          subtitle: '',
+          color: DAG_STATUS_COLOR[nodeStatusOf(node)] ?? '#8a93a6',
+        };
+        items.push(item);
+        byId.set(id, item);
       }
-      let rendered = visible;
-      if (rendered.length > maxRendered) {
-        const cx = (left + right) / 2;
-        const cy = (top + bottom) / 2;
-        rendered = visible
-          .map((node) => {
-            const position = positions.get(idOf(node)) ?? { x: 0, y: 0 };
-            return { node, distance: Math.abs(position.x - cx) + Math.abs(position.y - cy) };
-          })
-          .sort((a, b) => a.distance - b.distance)
-          .slice(0, maxRendered)
-          .map((entry) => entry?.node);
+      const neighbours = new Map();
+      const segments = [];
+      for (const edge of edges) {
+        const from = byId.get(edge.from);
+        const to = byId.get(edge.to);
+        if (!from || !to) continue;
+        const x1 = from.x + from.w;
+        const y1 = from.y + from.h / 2;
+        const x2 = to.x;
+        const y2 = to.y + to.h / 2;
+        const bend = Math.max(24, (x2 - x1) / 2);
+        segments.push({ from: edge.from, to: edge.to, x1, y1, x2, y2, bend, minX: Math.min(x1, x2), maxX: Math.max(x1, x2), minY: Math.min(y1, y2), maxY: Math.max(y1, y2) });
+        if (!neighbours.has(edge.from)) neighbours.set(edge.from, new Set());
+        if (!neighbours.has(edge.to)) neighbours.set(edge.to, new Set());
+        neighbours.get(edge.from).add(edge.to);
+        neighbours.get(edge.to).add(edge.from);
       }
-      const ids = new Set(rendered.map((node) => idOf(node)));
+      const sortedByX = items.slice().sort((a, b) => (a.x - b.x) || (a.y - b.y));
+      const sortedByY = items.slice().sort((a, b) => (a.y - b.y) || (a.x - b.x));
       return {
-        nodes: rendered,
-        edges: edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)),
-        hidden: total - rendered.length,
+        items,
+        byId,
+        sortedByX,
+        sortedByY,
+        segments,
+        segmentsBySource: null,
+        neighbours,
+        count: items.length,
       };
     }
-    // #endregion compute-viewport-window
+
+    /** First index whose key is >= value in an ascending array (lower bound). */
+    function lowerBound(list, value, key) {
+      let lo = 0;
+      let hi = list.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (key(list[mid]) < value) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo;
+    }
+
+    /** Nodes intersecting the padded viewport, via the x-sorted index. */
+    function visibleDagItems(scene, view, size, pad = 200) {
+      const zoom = view.zoom;
+      const pan = view.pan;
+      const left = -pan.x / zoom - pad;
+      const top = -pan.y / zoom - pad;
+      const right = left + size.width / zoom + pad * 2;
+      const bottom = top + size.height / zoom + pad * 2;
+      const start = lowerBound(scene.sortedByX, left - NODE_W, (item) => item.x);
+      const out = [];
+      for (let index = start; index < scene.sortedByX.length; index += 1) {
+        const item = scene.sortedByX[index];
+        if (item.x > right) break;
+        if (item.y + item.h < top || item.y > bottom) continue;
+        out.push(item);
+      }
+      return { items: out, left, top, right, bottom };
+    }
+
+    /** Node under a world-space point (linear over the x-sorted index). */
+    function hitTestDag(scene, world) {
+      const start = lowerBound(scene.sortedByX, world.x - NODE_W, (item) => item.x);
+      for (let index = start; index < scene.sortedByX.length; index += 1) {
+        const item = scene.sortedByX[index];
+        if (item.x > world.x) break;
+        if (world.x >= item.x && world.x <= item.x + item.w && world.y >= item.y && world.y <= item.y + item.h) return item;
+      }
+      return null;
+    }
+
+    function roundRectPath(ctx, x, y, w, h, r) {
+      if (typeof ctx.roundRect === 'function') {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, r);
+        return;
+      }
+      const radius = Math.min(r, w / 2, h / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + w, y, x + w, y + h, radius);
+      ctx.arcTo(x + w, y + h, x, y + h, radius);
+      ctx.arcTo(x, y + h, x, y, radius);
+      ctx.arcTo(x, y, x + w, y, radius);
+      ctx.closePath();
+    }
+
+    /**
+     * Paint one frame. Everything here reads refs; nothing schedules React work.
+     * Detail degrades with the number of visible nodes: at 10k nodes the whole graph
+     * is still drawn, only the per-node text is dropped (blocks + status colour).
+     */
+    function paintDag(ctx, scene, view, size, options) {
+      const theme = options.theme;
+      const zoom = view.zoom;
+      const pan = view.pan;
+      const dpr = view.dpr ?? 1;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, size.width, size.height);
+      if (scene.count === 0) return { items: 0, edges: 0, labels: false };
+      ctx.save();
+      ctx.translate(pan.x, pan.y);
+      ctx.scale(zoom, zoom);
+
+      const pad = 240;
+      const visible = visibleDagItems(scene, { zoom, pan }, size, pad);
+      const selectedId = options.selectedId;
+      const hoverId = options.hoverId;
+      const related = options.related ?? null;
+      const labelBudget = 1400;
+      const detail = visible.items.length <= labelBudget && zoom >= 0.35;
+
+      // Edges: only those whose endpoints can both be on screen.
+      const seenFrom = new Set();
+      for (const item of visible.items) seenFrom.add(item.id);
+      ctx.lineWidth = Math.max(1 / zoom, 0.6);
+      ctx.strokeStyle = theme.edge;
+      ctx.beginPath();
+      let edgeCount = 0;
+      for (const segment of scene.segments) {
+        if (!seenFrom.has(segment.from) && !seenFrom.has(segment.to)) continue;
+        if (segment.maxX < visible.left || segment.minX > visible.right) continue;
+        if (segment.maxY < visible.top || segment.minY > visible.bottom) continue;
+        const active = selectedId !== null && (segment.from === selectedId || segment.to === selectedId);
+        if (active) continue; // painted in the accent pass below
+        ctx.moveTo(segment.x1, segment.y1);
+        ctx.bezierCurveTo(segment.x1 + segment.bend, segment.y1, segment.x2 - segment.bend, segment.y2, segment.x2, segment.y2);
+        edgeCount += 1;
+      }
+      ctx.stroke();
+      if (selectedId !== null) {
+        ctx.save();
+        ctx.strokeStyle = theme.edgeActive;
+        ctx.lineWidth = Math.max(1.6 / zoom, 1);
+        ctx.beginPath();
+        for (const segment of scene.segments) {
+          if (segment.from !== selectedId && segment.to !== selectedId) continue;
+          ctx.moveTo(segment.x1, segment.y1);
+          ctx.bezierCurveTo(segment.x1 + segment.bend, segment.y1, segment.x2 - segment.bend, segment.y2, segment.x2, segment.y2);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Nodes.
+      const dimmed = selectedId !== null;
+      for (const item of visible.items) {
+        const isSelected = item.id === selectedId;
+        const isHover = item.id === hoverId;
+        const isRelated = !dimmed || isSelected || (related !== null && related.has(item.id));
+        ctx.globalAlpha = isRelated ? 1 : 0.28;
+        ctx.fillStyle = theme.card;
+        roundRectPath(ctx, item.x, item.y, item.w, item.h, 8);
+        ctx.fill();
+        // Status stripe on the left edge: readable at any zoom.
+        ctx.fillStyle = item.color;
+        roundRectPath(ctx, item.x, item.y, 5, item.h, 3);
+        ctx.fill();
+        ctx.strokeStyle = isSelected ? theme.accent : (isHover ? theme.edgeActive : theme.border);
+        ctx.lineWidth = Math.max((isSelected ? 2 : 1) / zoom, 0.75);
+        roundRectPath(ctx, item.x, item.y, item.w, item.h, 8);
+        ctx.stroke();
+        if (detail) {
+          const fontSize = 11;
+          ctx.font = '600 ' + fontSize + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+          ctx.fillStyle = theme.text;
+          ctx.textBaseline = 'middle';
+          ctx.fillText(truncateForWidth(item.title, item.w - 22, fontSize), item.x + 14, item.y + 26);
+          ctx.font = '10px system-ui, -apple-system, "Segoe UI", sans-serif';
+          ctx.fillStyle = theme.muted;
+          ctx.fillText(truncateForWidth(item.status + ' · ' + item.id, item.w - 22, 10), item.x + 14, item.y + 52);
+        }
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      return { items: visible.items.length, edges: edgeCount, labels: detail };
+    }
+    // #endregion dag-canvas-scene
 
     function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, replayFooter, factsSlot, t }) {
-      const viewportRef = React.useRef(null);
-      const [pan, setPan] = React.useState({ x: 0, y: 0 });
-      const [zoom, setZoom] = React.useState(1);
-      const [dragging, setDragging] = React.useState(false);
-      const panRef = React.useRef(pan);
-      const zoomRef = React.useRef(zoom);
+      const hostRef = React.useRef(null);
+      const canvasRef = React.useRef(null);
+      const overlayRef = React.useRef(null);
+      const viewRef = React.useRef({ pan: { x: 0, y: 0 }, zoom: 1, dpr: 1, hoverId: null });
+      const sceneRef = React.useRef(null);
+      const frameRef = React.useRef(0);
+      const sizeRef = React.useRef({ width: 0, height: 0 });
       const dragRef = React.useRef(null);
       const movedRef = React.useRef(0);
       const fittedRef = React.useRef(false);
-      const [viewportSize, setViewportSize] = React.useState({ width: 0, height: 0 });
-      React.useEffect(() => {
-        const el = viewportRef.current;
-        if (!el) return undefined;
-        const update = () => setViewportSize({ width: el.clientWidth || 0, height: el.clientHeight || 0 });
-        update();
-        if (typeof ResizeObserver !== 'function') {
-          window.addEventListener('resize', update);
-          return () => window.removeEventListener('resize', update);
+      const zoomStampRef = React.useRef(0);
+      const [zoomPct, setZoomPct] = React.useState(100);
+      const [hoverId, setHoverId] = React.useState(null);
+      // Degraded payloads (a panel mounted before the snapshot arrives) must not
+      // crash the canvas: normalise once, then every effect reads the safe values.
+      const safeLayout = layout && layout.positions instanceof Map ? layout : { positions: new Map(), width: 0, height: 0 };
+      const safeNodes = Array.isArray(nodes) ? nodes : [];
+      const safeEdges = Array.isArray(edges) ? edges : [];
+
+      const scene = React.useMemo(() => buildDagScene({ nodes: safeNodes, edges: safeEdges, layout: safeLayout, t }), [safeNodes, safeEdges, safeLayout, t]);
+      sceneRef.current = scene;
+
+      const selectedNode = React.useMemo(
+        () => (selectedId === null ? null : (scene.byId.get(selectedId)?.node ?? null)),
+        [scene, selectedId],
+      );
+      const related = React.useMemo(() => {
+        if (selectedId === null) return null;
+        const set = new Set([selectedId]);
+        const direct = scene.neighbours.get(selectedId);
+        if (direct) for (const id of direct) set.add(id);
+        return set;
+      }, [scene, selectedId]);
+
+      const paint = React.useCallback(() => {
+        const canvas = canvasRef.current;
+        const host = hostRef.current;
+        if (!canvas || !host) return;
+        const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+        if (!ctx) return;
+        const size = sizeRef.current;
+        const view = viewRef.current;
+        if (size.width <= 0 || size.height <= 0) return;
+        const dpr = view.dpr;
+        const wantW = Math.max(1, Math.round(size.width * dpr));
+        const wantH = Math.max(1, Math.round(size.height * dpr));
+        if (canvas.width !== wantW) canvas.width = wantW;
+        if (canvas.height !== wantH) canvas.height = wantH;
+        paintDag(ctx, sceneRef.current ?? { count: 0, items: [], sortedByX: [], segments: [], neighbours: new Map() }, view, size, {
+          theme: dagTheme(),
+          selectedId,
+          hoverId: view.hoverId,
+          related,
+        });
+        if (overlayRef.current) {
+          overlayRef.current.style.transform = 'translate(' + view.pan.x + 'px, ' + view.pan.y + 'px) scale(' + view.zoom + ')';
         }
-        const observer = new ResizeObserver(update);
-        observer.observe(el);
+        const stamp = Date.now();
+        if (stamp - zoomStampRef.current > 120) {
+          zoomStampRef.current = stamp;
+          setZoomPct(Math.round(view.zoom * 100));
+        }
+      }, [selectedId, related]);
+
+      const schedule = React.useCallback(() => {
+        if (frameRef.current !== 0) return;
+        const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (fn) => setTimeout(fn, 16);
+        frameRef.current = raf(() => {
+          frameRef.current = 0;
+          paint();
+        });
+      }, [paint]);
+
+      const measure = React.useCallback(() => {
+        const host = hostRef.current;
+        if (!host) return;
+        const rect = host.getBoundingClientRect();
+        const width = Math.max(host.clientWidth || 0, rect.width || 0);
+        const height = Math.max(host.clientHeight || 0, rect.height || 0);
+        sizeRef.current = { width, height };
+        const dpr = typeof window !== 'undefined' && Number(window.devicePixelRatio) > 0 ? Math.min(window.devicePixelRatio, 2) : 1;
+        viewRef.current.dpr = dpr;
+        schedule();
+      }, [schedule]);
+
+      React.useEffect(() => {
+        measure();
+        if (typeof ResizeObserver !== 'function') {
+          window.addEventListener('resize', measure);
+          return () => window.removeEventListener('resize', measure);
+        }
+        const observer = new ResizeObserver(measure);
+        if (hostRef.current) observer.observe(hostRef.current);
         return () => observer.disconnect();
-      }, []);
-
-      React.useEffect(() => {
-        panRef.current = pan;
-      }, [pan]);
-      React.useEffect(() => {
-        zoomRef.current = zoom;
-      }, [zoom]);
-
-      // No DOM per off-screen node (S8): render only what intersects the
-      // padded viewport, and cap the window so an extreme zoom-out cannot
-      // mount thousands of cards. The cap is visible in the UI, never silent.
-      // #region viewport-window
-      const windowing = computeViewportWindow({
-        nodes,
-        edges,
-        positions: layout.positions,
-        pan,
-        zoom,
-        viewportSize,
-        nodeWidth: NODE_W,
-        nodeHeight: NODE_H,
-        maxRendered: MAX_RENDERED_NODES,
-        pad: 240,
-        idOf: nodeIdOf,
-      });
-      // #endregion viewport-window
-      const clampZoom = (value) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+      }, [measure]);
 
       const fit = React.useCallback(() => {
-        const viewport = viewportRef.current;
-        if (!viewport || layout.width <= 0 || layout.height <= 0) {
-          setZoom(1);
-          setPan({ x: 0, y: 0 });
-          return;
+        const view = viewRef.current;
+        const size = sizeRef.current;
+        if (!(size.width > 0) || !(size.height > 0) || safeLayout.width <= 0 || safeLayout.height <= 0) {
+          view.zoom = 1;
+          view.pan = { x: 0, y: 0 };
+        } else {
+          const scale = Math.min(
+            (size.width - FIT_PAD * 2) / safeLayout.width,
+            (size.height - FIT_PAD * 2) / safeLayout.height,
+            1,
+          );
+          const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale));
+          view.zoom = zoom;
+          view.pan = { x: (size.width - safeLayout.width * zoom) / 2, y: (size.height - safeLayout.height * zoom) / 2 };
         }
-        const rect = viewport.getBoundingClientRect();
-        const width = Math.max(rect.width, 10);
-        const height = Math.max(rect.height, 10);
-        const scale = clampZoom(Math.min(
-          (width - FIT_PAD * 2) / layout.width,
-          (height - FIT_PAD * 2) / layout.height,
-          1,
-        ));
-        setZoom(scale);
-        setPan({ x: (width - layout.width * scale) / 2, y: (height - layout.height * scale) / 2 });
-      }, [layout]);
+        schedule();
+      }, [safeLayout, schedule]);
 
       React.useEffect(() => {
         if (fittedRef.current) return;
-        if (layout.width <= 0 || layout.height <= 0) return;
+        if (safeLayout.width <= 0 || safeLayout.height <= 0) return;
         fittedRef.current = true;
         fit();
-      }, [fit, layout.width, layout.height]);
+      }, [fit, safeLayout.width, safeLayout.height]);
 
+      React.useEffect(() => { schedule(); }, [scene, selectedId, now, busyKey, schedule]);
+
+      // Wheel zoom is anchored at the cursor; both handlers mutate the ref and
+      // only schedule a repaint, so React never re-renders during a gesture.
       React.useEffect(() => {
-        const viewport = viewportRef.current;
-        if (!viewport || typeof viewport.addEventListener !== 'function') return undefined;
+        const host = hostRef.current;
+        if (!host || typeof host.addEventListener !== 'function') return undefined;
         const onWheel = (event) => {
-          if (typeof event?.preventDefault === 'function') event?.preventDefault();
-          const rect = viewport.getBoundingClientRect();
-          const pointerX = event?.clientX - rect.left;
-          const pointerY = event?.clientY - rect.top;
-          const current = zoomRef.current;
-          const next = clampZoom(current * Math.exp(-event?.deltaY * 0.0015));
-          if (next === current) return;
-          const ratio = next / current;
-          setPan((previous) => ({
-            x: pointerX - (pointerX - previous.x) * ratio,
-            y: pointerY - (pointerY - previous.y) * ratio,
-          }));
-          setZoom(next);
+          if (typeof event.preventDefault === 'function') event.preventDefault();
+          const rect = host.getBoundingClientRect();
+          const view = viewRef.current;
+          const pointerX = (event.clientX ?? 0) - rect.left;
+          const pointerY = (event.clientY ?? 0) - rect.top;
+          const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.zoom * Math.exp(-(event.deltaY ?? 0) * 0.0015)));
+          if (next === view.zoom) return;
+          const ratio = next / view.zoom;
+          view.pan = { x: pointerX - (pointerX - view.pan.x) * ratio, y: pointerY - (pointerY - view.pan.y) * ratio };
+          view.zoom = next;
+          schedule();
         };
-        viewport.addEventListener('wheel', onWheel, { passive: false });
-        return () => viewport.removeEventListener('wheel', onWheel);
-      }, []);
+        host.addEventListener('wheel', onWheel, { passive: false });
+        return () => host.removeEventListener('wheel', onWheel);
+      }, [schedule]);
 
       const zoomBy = (factor) => {
-        const viewport = viewportRef.current;
-        if (!viewport) return;
-        const rect = viewport.getBoundingClientRect();
-        const pointerX = rect.width / 2;
-        const pointerY = rect.height / 2;
-        const current = zoomRef.current;
-        const next = clampZoom(current * factor);
-        if (next === current) return;
-        const ratio = next / current;
-        setPan((previous) => ({
-          x: pointerX - (pointerX - previous.x) * ratio,
-          y: pointerY - (pointerY - previous.y) * ratio,
-        }));
-        setZoom(next);
+        const view = viewRef.current;
+        const size = sizeRef.current;
+        const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.zoom * factor));
+        if (next === view.zoom) return;
+        const ratio = next / view.zoom;
+        view.pan = {
+          x: size.width / 2 - (size.width / 2 - view.pan.x) * ratio,
+          y: size.height / 2 - (size.height / 2 - view.pan.y) * ratio,
+        };
+        view.zoom = next;
+        schedule();
+      };
+
+      const worldPointOf = (event) => {
+        const host = hostRef.current;
+        const rect = host ? host.getBoundingClientRect() : { left: 0, top: 0 };
+        const view = viewRef.current;
+        return {
+          x: ((event.clientX ?? 0) - rect.left - view.pan.x) / view.zoom,
+          y: ((event.clientY ?? 0) - rect.top - view.pan.y) / view.zoom,
+        };
       };
 
       const onPointerDown = (event) => {
         if (event?.button !== 0) return;
-        const target = event?.target;
-        if (target && typeof target?.closest === 'function' && target?.closest('.rl-node') !== null) return;
-        dragRef.current = {
-          startX: event?.clientX,
-          startY: event?.clientY,
-          panX: panRef.current.x,
-          panY: panRef.current.y,
-        };
+        dragRef.current = { startX: event.clientX ?? 0, startY: event.clientY ?? 0, panX: viewRef.current.pan.x, panY: viewRef.current.pan.y };
         movedRef.current = 0;
-        setDragging(true);
-        try {
-          event?.currentTarget.setPointerCapture(event?.pointerId);
-        } catch (error) {
-          /* pointer capture is best effort */
-        }
+        try { event?.currentTarget?.setPointerCapture?.(event.pointerId); } catch { /* best effort */ }
       };
       const onPointerMove = (event) => {
         const drag = dragRef.current;
-        if (drag === null) return;
-        const dx = event?.clientX - drag.startX;
-        const dy = event?.clientY - drag.startY;
-        movedRef.current = Math.max(movedRef.current, Math.abs(dx) + Math.abs(dy));
-        setPan({ x: drag.panX + dx, y: drag.panY + dy });
+        if (drag !== null) {
+          const dx = (event.clientX ?? 0) - drag.startX;
+          const dy = (event.clientY ?? 0) - drag.startY;
+          movedRef.current = Math.max(movedRef.current, Math.abs(dx) + Math.abs(dy));
+          viewRef.current.pan = { x: drag.panX + dx, y: drag.panY + dy };
+          schedule();
+          return;
+        }
+        const hit = hitTestDag(sceneRef.current, worldPointOf(event));
+        const id = hit === null ? null : hit.id;
+        if (id !== viewRef.current.hoverId) {
+          viewRef.current.hoverId = id;
+          setHoverId(id);
+          schedule();
+        }
       };
       const endDrag = (event) => {
         if (dragRef.current === null) return;
         dragRef.current = null;
-        setDragging(false);
         try {
-          if (event?.currentTarget.hasPointerCapture && event?.currentTarget.hasPointerCapture(event?.pointerId)) {
-            event?.currentTarget.releasePointerCapture(event?.pointerId);
-          }
-        } catch (error) {
-          /* ignore */
-        }
+          if (event?.currentTarget?.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch { /* ignore */ }
       };
-      const onCanvasClick = (event) => {
-        if (movedRef.current > 4) {
-          movedRef.current = 0;
-          return;
-        }
-        const target = event?.target;
-        if (target && typeof target?.closest === 'function' && target?.closest('.rl-node') !== null) return;
-        onSelect(null);
+      const onClick = (event) => {
+        if (movedRef.current > 4) { movedRef.current = 0; return; }
+        const hit = hitTestDag(sceneRef.current, worldPointOf(event));
+        onSelect(hit === null ? null : hit.id);
+      };
+      const onDoubleClick = (event) => {
+        const hit = hitTestDag(sceneRef.current, worldPointOf(event));
+        if (hit !== null && typeof onOpenNative === 'function') onOpenNative(hit.id, 'trajectory');
+      };
+      const onKeyDown = (event) => {
+        const view = viewRef.current;
+        const step = 80;
+        if (event.key === 'ArrowLeft') view.pan = { ...view.pan, x: view.pan.x + step };
+        else if (event.key === 'ArrowRight') view.pan = { ...view.pan, x: view.pan.x - step };
+        else if (event.key === 'ArrowUp') view.pan = { ...view.pan, y: view.pan.y + step };
+        else if (event.key === 'ArrowDown') view.pan = { ...view.pan, y: view.pan.y - step };
+        else if (event.key === '+' || event.key === '=') zoomBy(1.2);
+        else if (event.key === '-') zoomBy(1 / 1.2);
+        else if (event.key === '0') fit();
+        else if (event.key === 'Enter' && selectedId !== null && typeof onOpenNative === 'function') onOpenNative(selectedId, 'trajectory');
+        else return;
+        event.preventDefault?.();
+        schedule();
       };
 
-      const related = React.useMemo(() => relatedNodeIds(selectedId, edges), [edges, selectedId]);
-      const innerStyle = {
-        width: layout.width,
-        height: layout.height,
-        transform: 'translate(' + pan.x + 'px, ' + pan.y + 'px) scale(' + zoom + ')',
-        transformOrigin: '0 0',
+      const overlayStyle = selectedNode === null ? null : {
+        left: selectedNodePosition(sceneRef.current, selectedId).x,
+        top: selectedNodePosition(sceneRef.current, selectedId).y,
       };
 
       return h(
         'div',
-        {
-          className: 'rl-canvas' + (dragging ? ' rl-canvas-dragging' : ''),
-          ref: viewportRef,
+        { className: 'rl-canvas' + (dragRef.current !== null ? ' rl-canvas-dragging' : ''), ref: hostRef },
+        factsSlot ?? null,
+        h('canvas', {
+          ref: canvasRef,
+          className: 'rl-dag-canvas',
+          'data-testid': 'dag-canvas',
+          role: 'application',
+          tabIndex: 0,
+          'aria-label': t('ws.canvas.label'),
           onPointerDown,
           onPointerMove,
           onPointerUp: endDrag,
           onPointerCancel: endDrag,
-          onClick: onCanvasClick,
-        },
-        factsSlot ?? null,
-        windowing.hidden > 0
-          ? h(
-              'div',
-              { className: 'rl-canvas-window', title: t('ws.canvas.windowHint', { limit: MAX_RENDERED_NODES }) },
-              t('ws.canvas.window', { shown: windowing.nodes.length, total: nodes.length }),
-            )
-          : null,
-        layout.width > 0
-          ? h(
-              'div',
-              { className: 'rl-canvas-inner', style: innerStyle },
-              h(
-                'svg',
-                {
-                  className: 'rl-canvas-svg',
-                  width: layout.width,
-                  height: layout.height,
-                  viewBox: '0 0 ' + layout.width + ' ' + layout.height,
-                  'aria-hidden': true,
-                },
-                windowing.edges.map((edge, index) => {
-                  const from = layout.positions.get(edge.from);
-                  const to = layout.positions.get(edge.to);
-                  if (!from || !to) return null;
-                  const active = selectedId !== null && (edge.from === selectedId || edge.to === selectedId);
-                  return h('path', {
-                    key: 'edge-' + index + '-' + edge.from + '-' + edge.to,
-                    className: 'rl-edge' + (active ? ' rl-edge-active' : ''),
-                    d: edgePath(from, to),
-                  });
-                }),
-              ),
-              windowing.nodes.map((node) => {
-                const id = nodeIdOf(node);
-                const position = layout.positions.get(id);
-                if (!position) return null;
-                return h(NodeCard, {
-                  key: id,
-                  node,
-                  position,
-                  selected: id === selectedId,
-                  dim: selectedId !== null && id !== selectedId && !related.has(id),
-                  parentTitle: parentTitleOf(node, nodes),
-                  isLeaf: nodeIsLeafOf(node, nodes),
-                  sealed: nodeSealedFlagOf(node),
-                  busyKey,
-                  now,
-                  onSelect,
-                  onOpenNative,
-                  onContinue,
-                  onNodeAction,
-                  onProposalAction,
-                  onRetryRequest,
-                  onEscalate,
-                  t,
-                });
-              }),
-            )
-          : h('div', { className: 'rl-canvas-empty' }, t('ws.canvas.empty')),
+          onClick,
+          onDoubleClick,
+          onKeyDown,
+        }),
+        selectedNode === null ? null : h(
+          'div',
+          { className: 'rl-dag-overlay', ref: overlayRef },
+          h('div', { className: 'rl-dag-overlay-card', style: overlayStyle },
+            h(NodeCard, {
+              node: selectedNode,
+              position: { x: 0, y: 0 },
+              selected: true,
+              dim: false,
+              parentTitle: parentTitleOf(selectedNode, safeNodes),
+              isLeaf: nodeIsLeafOf(selectedNode, safeNodes),
+              sealed: nodeSealedFlagOf(selectedNode),
+              busyKey,
+              now,
+              onSelect,
+              onOpenNative,
+              onContinue,
+              onNodeAction,
+              onProposalAction,
+              onRetryRequest,
+              onEscalate,
+              t,
+            })),
+        ),
         h(
           'div',
           { className: 'rl-canvas-toolbar' },
           h(LabButton, { label: t('ws.canvas.fit'), variant: 'ghost', onClick: fit, title: t('ws.canvas.fit') }),
           h(LabButton, { label: '＋', variant: 'ghost', onClick: () => zoomBy(1.2), title: t('ws.canvas.zoomIn') }),
-          h('span', { className: 'rl-canvas-zoom' }, Math.round(zoom * 100) + '%'),
+          h('span', { className: 'rl-canvas-zoom' }, zoomPct + '%'),
           h(LabButton, { label: '－', variant: 'ghost', onClick: () => zoomBy(1 / 1.2), title: t('ws.canvas.zoomOut') }),
         ),
-        nodes.length > 0 ? h('div', { className: 'rl-canvas-hint' }, t('ws.canvas.hint')) : null,
+        safeNodes.length > 0 ? h('div', { className: 'rl-canvas-hint' }, t('ws.canvas.hint')) : null,
+        safeNodes.length === 0 ? h('div', { className: 'rl-canvas-empty' }, t('ws.canvas.empty')) : null,
         replayFooter ? h('div', {
           className: 'rl-canvas-replay',
           onPointerDown: (event) => event?.stopPropagation(),
@@ -12694,6 +12944,12 @@ window.__ModuleLoader__.load({
           onClick: (event) => event?.stopPropagation(),
         }, replayFooter) : null,
       );
+    }
+
+    /** World position of one selected node (overlay card placement). */
+    function selectedNodePosition(scene, id) {
+      const item = scene?.byId?.get(id);
+      return item === undefined || item === null ? { x: 0, y: 0 } : { x: item.x, y: item.y };
     }
 
     /** Parent title lookup for a node card subtitle (merge nodes list all parents). */
@@ -20510,10 +20766,13 @@ window.__ModuleLoader__.load({
     // Private component handles for the jsdom smoke test. The flag is only set
     // by that test; the Web shell never sees these fields.
     if (typeof window !== 'undefined' && window.__METAINFER_TEST__ === true) {
+      // Internal renderer entry points used by scripts/dag-canvas-selftest.mjs.
+      exported.__dag = { buildDagScene, visibleDagItems, hitTestDag, paintDag, dagTheme };
       exported.__components = {
         LandingScreen,
         MetainferLabPage,
         NodeTraceSection,
+        DagCanvas,
         ProjectTabBar,
         ProjectTabPanel,
         ProfilerTab,
