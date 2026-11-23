@@ -263,6 +263,42 @@ await React.act(async () => {
 check('Escape closes the context menu', host.querySelector('[data-testid="dag-context-menu"]') === null);
 
 
+// --- wheel over a floating surface must not zoom the canvas ------------------
+const wheelHost = window.document.createElement('div');
+window.document.body.appendChild(wheelHost);
+const wheelRoot = createRoot(wheelHost);
+await React.act(async () => {
+  wheelRoot.render(React.createElement(DagCanvas, {
+    nodes, edges, layout, selectedId: null, now: Date.now(), busyKey: '',
+    onSelect: noop, onOpenNative: noop, onContinue: noop, onNodeAction: noop,
+    onProposalAction: noop, onRetryRequest: noop, onEscalate: noop,
+    onOpenTrace: noop, onOpenFiles: noop, onSuccessor: noop, onOpenMergeCreate: noop,
+    onOpenDetail: noop,
+    rail: React.createElement('div', { className: 'rl-rail-window', 'data-testid': 'fake-rail' }, 'rail'),
+    railOpen: true, onToggleRail: noop,
+    replayFooter: null, t: (key) => key,
+  }));
+  await wait(120);
+});
+await wait(60);
+const wheelCanvas = wheelHost.querySelector('[data-testid="dag-canvas"]');
+wheelCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 1000, right: 1600, bottom: 1000, x: 0, y: 0 });
+const zoomText = () => wheelHost.querySelector('.rl-canvas-zoom')?.textContent ?? '';
+const beforeRail = zoomText();
+const railEl = wheelHost.querySelector('[data-testid="fake-rail"]');
+await React.act(async () => {
+  railEl.dispatchEvent(new window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -240, clientX: 40, clientY: 80 }));
+  await wait(60);
+});
+check('a wheel over the node-list window does not zoom the DAG', zoomText() === beforeRail, beforeRail + ' -> ' + zoomText());
+await React.act(async () => {
+  wheelCanvas.dispatchEvent(new window.WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -240, clientX: 800, clientY: 500 }));
+  await wait(160);
+});
+check('a wheel over the canvas still zooms', zoomText() !== beforeRail, beforeRail + ' -> ' + zoomText());
+await React.act(async () => { wheelRoot.unmount(); });
+wheelHost.remove();
+
 // --- the action predicate is the single source of truth ----------------------
 const acts = dag.nodeActionsOf;
 check('planned node: start + priority', (() => {

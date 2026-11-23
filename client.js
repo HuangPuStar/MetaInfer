@@ -4061,17 +4061,7 @@ window.__ModuleLoader__.load({
       '.rl-explain-subtitle { margin: 8px 0 0; font-size: 12px; opacity: 0.8; }',
       '.rl-explain-kind { font-weight: 600; margin-right: 6px; }',
       '.rl-explain-time, .rl-explain-detail { margin-right: 6px; opacity: 0.85; }',
-      '.rl-host-facts { position: absolute; top: 10px; left: 10px; z-index: 3; display: flex; flex-direction: column; gap: 4px; max-width: min(520px, calc(100% - 20px)); padding: 8px 10px; border: 0.5px solid var(--dsw-alias-border-l2); border-left: 2px solid var(--dsw-alias-state-success-primary); border-radius: 8px; background: var(--dsw-alias-bg-elevated); box-shadow: 0 2px 10px rgba(0,0,0,0.08); cursor: default; }',
-      '.rl-host-facts-head { display: flex; align-items: center; gap: 6px; }',
       '.rl-host-badge { flex: 0 0 auto; padding: 0 5px; border-radius: 4px; background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-base); font-family: var(--dsw-font-mono, monospace); font-size: 9.5px; letter-spacing: 0.08em; }',
-      '.rl-host-facts-title { color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 600; }',
-      '.rl-host-facts-body { display: flex; flex-wrap: wrap; gap: 3px 10px; font-family: var(--dsw-font-mono, monospace); font-size: 10.5px; color: var(--dsw-alias-label-secondary); }',
-      '.rl-host-facts-stat { white-space: nowrap; }',
-      '.rl-host-facts-next { flex: 1 1 100%; color: var(--dsw-alias-label-primary); overflow-wrap: anywhere; }',
-      '.rl-host-facts-failure { flex: 1 1 100%; color: var(--dsw-alias-state-error-primary); overflow-wrap: anywhere; }',
-      '.rl-host-facts-hint { color: var(--dsw-alias-label-tertiary); font-size: 10.5px; }',
-      '.rl-host-facts-error { color: var(--dsw-alias-state-error-primary); font-size: 10.5px; overflow-wrap: anywhere; }',
-      '.rl-host-facts-retry { border: 0; background: none; padding: 0; color: var(--dsw-alias-brand-primary); font-size: 10.5px; cursor: pointer; }',
       '.rl-canvas-window { position: absolute; right: 10px; bottom: 52px; z-index: 3; padding: 2px 6px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 5px; background: var(--dsw-alias-bg-elevated); color: var(--dsw-alias-label-tertiary); font-family: var(--dsw-font-mono, monospace); font-size: 10px; cursor: default; }',
       '.rl-rail-more { margin: 4px 6px 10px; padding: 4px 8px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: none; color: var(--dsw-alias-label-secondary); font-size: 11px; cursor: pointer; }',
       '.rl-canvas-dragging { cursor: grabbing; }',
@@ -11853,7 +11843,6 @@ window.__ModuleLoader__.load({
               onClose: () => setRailOpen(false),
               t,
             }),
-            factsSlot: h(HostFactsCard, { projectId, t }),
             nodes: displayNodes,
             edges: displayEdges,
             layout,
@@ -12887,75 +12876,6 @@ window.__ModuleLoader__.load({
      * the next node that will start and why, and the newest failure. Visually a
      * monospace "HOST" card so it cannot be mistaken for advisor commentary.
      */
-    function HostFactsCard({ projectId, t }) {
-      const [state, setState] = React.useState({ phase: 'loading', facts: null, error: '' });
-      const [reloadKey, setReloadKey] = React.useState(0);
-      React.useEffect(() => {
-        let cancelled = false;
-        let timer = null;
-        const load = async () => {
-          try {
-            const facts = await api.fetchFacts(projectId, undefined, t);
-            if (cancelled) return;
-            const empty = facts === null || typeof facts !== 'object' || !facts.counts || facts.counts.total === 0;
-            setState({ phase: empty ? 'empty' : 'ready', facts: empty ? null : facts, error: '' });
-          } catch (error) {
-            if (!cancelled) setState({ phase: 'error', facts: null, error: describeError(error, t) });
-          }
-          if (!cancelled) timer = setTimeout(load, 5000);
-        };
-        load();
-        return () => { cancelled = true; if (timer !== null) clearTimeout(timer); };
-      }, [projectId, reloadKey, t]);
-      const facts = state.facts;
-      const next = facts !== null && Array.isArray(facts.nextToStart) ? facts.nextToStart[0] : null;
-      const failure = facts !== null && Array.isArray(facts.recentFailures) ? facts.recentFailures[0] : null;
-      return h(
-        'div',
-        {
-          className: 'rl-host-facts',
-          role: 'status',
-          'aria-live': 'polite',
-          onPointerDown: (event) => event?.stopPropagation(),
-          onClick: (event) => event?.stopPropagation(),
-          onWheel: (event) => event?.stopPropagation(),
-        },
-        h(
-          'div',
-          { className: 'rl-host-facts-head' },
-          h('span', { className: 'rl-host-badge' }, t('ws.facts.badge')),
-          h('span', { className: 'rl-host-facts-title' }, t('ws.facts.title')),
-          state.phase === 'loading' ? h('span', { className: 'rl-host-facts-hint' }, t('ws.facts.loading')) : null,
-          state.phase === 'error'
-            ? h(
-                'button',
-                { type: 'button', className: 'rl-host-facts-retry', onClick: () => setReloadKey((value) => value + 1) },
-                t('ws.facts.retry'),
-              )
-            : null,
-        ),
-        state.phase === 'error'
-          ? h('div', { className: 'rl-host-facts-error' }, state.error)
-          : state.phase === 'empty'
-            ? h('div', { className: 'rl-host-facts-hint' }, t('ws.facts.empty'))
-            : facts === null
-              ? null
-              : h(
-                  'div',
-                  { className: 'rl-host-facts-body' },
-                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.running', { count: facts.counts.running ?? 0 })),
-                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.queued', { count: facts.counts.planned ?? 0 })),
-                  h('span', { className: 'rl-host-facts-stat' }, t('ws.facts.failed', { count: facts.counts.failed ?? 0 })),
-                  next != null
-                    ? h('span', { className: 'rl-host-facts-next' }, t('ws.facts.next', { id: next.nodeId, why: next.why?.message ?? next.why?.code ?? '' }))
-                    : h('span', { className: 'rl-host-facts-hint' }, t('ws.facts.none')),
-                  failure != null
-                    ? h('span', { className: 'rl-host-facts-failure' }, t('ws.facts.failure', { id: failure?.nodeId, error: (failure?.error ?? '').slice(0, 120) }))
-                    : null,
-                ),
-      );
-    }
-
     /**
      * Pure viewport windowing for the DAG (S8). Kept outside the component and
      * exported through the source region below so the scale test can execute
@@ -13345,7 +13265,7 @@ window.__ModuleLoader__.load({
     }
     // #endregion dag-canvas-scene
 
-    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, onOpenDetail, rail, railOpen, onToggleRail, replayFooter, factsSlot, t }) {
+    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, onOpenDetail, rail, railOpen, onToggleRail, replayFooter, t }) {
       const hostRef = React.useRef(null);
       const canvasRef = React.useRef(null);
       const viewRef = React.useRef({ pan: { x: 0, y: 0 }, zoom: 1, dpr: 1, hoverId: null });
@@ -13357,6 +13277,10 @@ window.__ModuleLoader__.load({
       const fittedRef = React.useRef(false);
       const zoomStampRef = React.useRef(0);
       const [zoomPct, setZoomPct] = React.useState(100);
+      const zoomTimerRef = React.useRef(null);
+      React.useEffect(() => () => {
+        if (zoomTimerRef.current !== null) { clearTimeout(zoomTimerRef.current); zoomTimerRef.current = null; }
+      }, []);
       const [hoverId, setHoverId] = React.useState(null);
       // Right-click menu: the inspector only carries details; node actions live
       // here so the side panel stops listing everything at once.
@@ -13403,6 +13327,14 @@ window.__ModuleLoader__.load({
         if (stamp - zoomStampRef.current > 120) {
           zoomStampRef.current = stamp;
           setZoomPct(Math.round(view.zoom * 100));
+        } else if (zoomTimerRef.current === null) {
+          // Trailing flush: without it the percentage could stay stale after a quick
+          // burst of zooming (the last frame inside the throttle window was dropped).
+          zoomTimerRef.current = setTimeout(() => {
+            zoomTimerRef.current = null;
+            zoomStampRef.current = Date.now();
+            setZoomPct(Math.round(viewRef.current.zoom * 100));
+          }, 130);
         }
       }, [selectedId, related]);
 
@@ -13493,6 +13425,14 @@ window.__ModuleLoader__.load({
         const host = hostRef.current;
         if (!host || typeof host.addEventListener !== 'function') return undefined;
         const onWheel = (event) => {
+          // Wheel belongs to the canvas only. The rail and the facts card live inside
+          // this container, so without this guard their scroll wheel zoomed the DAG
+          // and preventDefault() made the panel un-scrollable.
+          const target = event?.target;
+          const surface = target && typeof target.closest === 'function'
+            ? target.closest('.rl-rail-window, .rl-node-window, .rl-dag-menu, .rl-canvas-toolbar, .rl-canvas-replay')
+            : null;
+          if (surface !== null) return;
           if (typeof event.preventDefault === 'function') event.preventDefault();
           const rect = host.getBoundingClientRect();
           const view = viewRef.current;
@@ -13731,7 +13671,6 @@ window.__ModuleLoader__.load({
       return h(
         'div',
         { className: 'rl-canvas' + (dragRef.current !== null ? ' rl-canvas-dragging' : ''), ref: hostRef, onContextMenu },
-        factsSlot ?? null,
         rail ?? null,
         h('canvas', {
           ref: canvasRef,
