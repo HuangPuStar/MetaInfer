@@ -93,7 +93,9 @@ export const ACTION_CATALOG = Object.freeze({
   retry_node: 'control',
   escalate_node: 'control',
   message_node: 'control',
-  step: 'control',
+  // `step` was the legacy manual Step cycle. It has no handler and no caller
+  // (neither host nor client references it) — leaving it here made the policy
+  // catalog advertise an action the tool enum cannot reach.
   dispatch_once: 'control',
   auto_start: 'control',
   auto_stop: 'control',
@@ -180,6 +182,16 @@ export const PRESET_POLICIES = Object.freeze({
     kind: 'expert',
     allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update']),
     note: 'reviewers propose through intents and the ledger',
+  }),
+  // The generic hired expert (custom proposer/reviewer descriptors resolve to
+  // this preset, see host/role-presets.js ROLE_PRESETS.expert). It was declared
+  // in presets.patch.yml without a policy row, so it silently fell back to
+  // DEFAULT_PRESET_ACTIONS and could not use the propose/intent surface its own
+  // descriptors advertise. Same surface as a reviewer, plus a resident session.
+  'lab-expert': Object.freeze({
+    kind: 'expert',
+    allowed: Object.freeze([...READ, ...DAG, ...EXPERT_PROPOSE, 'ledger_update', 'resident_open', 'resident_call', 'resident_close']),
+    note: 'hired experts propose through intents and the ledger; they never start, cancel or delete',
   }),
   'lab-branch': Object.freeze({
     kind: 'expert',

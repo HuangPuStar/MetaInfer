@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
- * Duplicate-entry guard: the workspace top bar owns exactly seven actions.
+ * Duplicate-entry guard: the workspace top bar owns exactly six actions.
  * The old observability/dashboard/runs/settings/trajectory shortcuts are gone;
- * their capabilities live in the seven tabs and the project menu.
+ * their capabilities live in the seven tabs and the project menu. The manual
+ * Step button went with the legacy `step` action (replaced by dispatch_once),
+ * so the bar no longer carries `topbar-action-step`.
  */
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -40,8 +42,8 @@ function check(name, condition, detail = '') {
   else failures.push(name + (detail === '' ? '' : ': ' + detail));
 }
 
-check('topbar declares exactly seven action ids', JSON.stringify(actionIds) === JSON.stringify([
-  'topbar-action-mode', 'topbar-action-auto', 'topbar-action-experts', 'topbar-action-step',
+check('topbar declares exactly six action ids', JSON.stringify(actionIds) === JSON.stringify([
+  'topbar-action-mode', 'topbar-action-auto', 'topbar-action-experts',
   'topbar-action-menu', 'topbar-action-copilot', 'topbar-action-replay',
 ]), JSON.stringify(actionIds));
 for (const forbidden of ['📊', 't(\'ws.runs.open\')', 't(\'dashboard.toggle\')', 't(\'ws.settings.open\')', 'trajectory.open', 'onToggleDashboard', 'onToggleObservability', 'onOpenSettings', 'onOpenRuns']) {
@@ -105,7 +107,7 @@ await React.act(async () => {
   await new Promise((resolve) => setTimeout(resolve, 20));
 });
 const renderedActions = host.querySelectorAll('[data-testid^="topbar-action-"]');
-check('rendered topbar has exactly seven action groups', renderedActions.length === 7, String(renderedActions.length));
+check('rendered topbar has exactly six action groups', renderedActions.length === 6, String(renderedActions.length));
 const text = host.textContent ?? '';
 for (const forbidden of ['📊', '运行记录', 'ws.runs.open', 'dashboard.toggle', 'ws.settings.open', 'trajectory.open', '⚙']) {
   check('rendered topbar does not show ' + forbidden, !text.includes(forbidden));

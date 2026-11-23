@@ -32,6 +32,7 @@ import { isNonBlockingSuccessor, runnableQueue, runnableSince } from './kernel/r
 import { NEXT_STEPS, rejection, toActionable } from './kernel/errors.js';
 import { PRIORITY_CLASSES, classBudgetOf } from './dispatch/reservation.js';
 import { DISPUTE_CLASS_MAP, DISPUTE_DEFAULT_ACTION, createDisputeRecord, disputeActorVerdict, disputeAuthorityVerdict, effectiveDispute, expireDisputeRecord, reopenDisputeRecord, resolveDisputeRecord } from './kernel/disputes.js';
+import { listNodeTraces, resolveNodeTracePath } from './profiler/node-traces.js';
 import { DEFAULT_ROTATION_DAYS, rotationPlan } from './experts/rotation.js';
 import { actorForSession, actorFromToolExecution } from './kernel/policy.js';
 import { highReviewResolution, validateHighReviewRationale } from './high-review.js';
@@ -44,6 +45,7 @@ import { evaluateEscalationTriggers, evaluateThresholdTriggers, queueOverloadSta
 import { applyNomination, createCurator } from './experts/curator.js';
 import { HIGH_REVIEW_WINDOW_MS, buildHierarchyReview, chiefActivationMetrics, chiefPolicy, childVoteWeight, escalationRate, filterVisibleExperts, validateChiefDecision } from './experts/hierarchy.js';
 import { createResidentSession, RESIDENT_LIMITS } from './experts/resident.js';
+import { sweepOverdueNodes } from './reconcile.js';
 
 const MAX_TIMEOUT_MINUTES = 1440;
 // A state index row never carries a full prompt; the inspector loads the node.
@@ -533,23 +535,32 @@ function normalizeConfig(raw, base = undefined, { allowMigration = false } = {})
   config.models = config.models ?? {};
   config.placementPolicy = config.placementPolicy ?? { text: '', spec: null, compiledAt: null, explanation: [], warnings: [], compiler: null };
 
-  // C14: the migration is staged, and every phase has an explicit switch. The
-  // defaults keep an existing project on the legacy cycle until an operator
-  // advances the phase; no project is silently moved between runtimes.
+  // The legacy advisor cycle is gone: every project runs the async expert +
+  // deterministic-dispatch runtime. `hierarchy` / `resident` only choose which
+  // expert topology supervises the branches; there is no fallback mode.
   const migration = { ...(previous.migration ?? {}), ...(input.migration ?? {}) };
-  const phase = integer(migration.phase, 'config.migration.phase', previous.migration?.phase ?? 1, 1, 3);
-  const expertMode = input.expertsMode ?? previous.expertsMode ?? migration.expertMode ?? 'legacy-cycle';
-  if (!['legacy-cycle', 'hierarchy', 'resident'].includes(expertMode)) {
-    throw new LabError('bad_request', 'config.expertsMode must be legacy-cycle, hierarchy or resident');
-  }
-  if (input.expertsMode !== undefined && expertMode !== 'legacy-cycle' && phase < 2) {
-    throw new LabError('bad_request', 'config.expertsMode hierarchy/resident is only available from migration phase 2');
+  // The accepted range must include the value the project already stores. It was
+  // [2, 3] while the fallback is `previous.migration.phase`, so a project still
+  // at phase 1 rejected EVERY config write ("phase must be between 2 and 3") —
+  // and passing a phase explicitly is refused by the advanceMigration-only guard,
+  // which makes the rejection unavoidable. The effect was that maxNodes,
+  // maxCycles and the dashboard settings could not be changed at all on any
+  // project created before the refactor.
+  //
+  // Phase 1 is accepted as a *stored* value only; moving the phase forward stays
+  // exclusively advance_migration's job (it enforces the S14 parity gate).
+  const phase = integer(migration.phase, 'config.migration.phase', previous.migration?.phase ?? 2, 1, 3);
+  // Projects created before the refactor still carry the removed values; coerce
+  // them forward instead of failing every later config write.
+  const rawExpertMode = input.expertsMode ?? previous.expertsMode ?? migration.expertMode ?? 'hierarchy';
+  const expertMode = rawExpertMode === 'legacy-cycle' ? 'hierarchy' : rawExpertMode;
+  if (!['hierarchy', 'resident'].includes(expertMode)) {
+    throw new LabError('bad_request', 'config.expertsMode must be hierarchy or resident');
   }
   const dispatch = { ...(previous.dispatch ?? {}), ...(input.dispatch ?? {}) };
-  const dispatchStrategy = dispatch.strategy ?? previous.dispatch?.strategy ?? 'deterministic';
-  if (!['legacy-llm', 'shadow-deterministic', 'deterministic'].includes(dispatchStrategy)) {
-    throw new LabError('bad_request', 'config.dispatch.strategy must be legacy-llm, shadow-deterministic or deterministic');
-  }
+  // `legacy-llm` / `shadow-deterministic` were removed with the legacy cycle:
+  // the deterministic dispatcher is the only strategy now.
+  const dispatchStrategy = 'deterministic';
   const contest = { ...(previous.contest ?? {}), ...(input.contest ?? {}) };
   const contestMode = contest.mode ?? previous.contest?.mode ?? 'off';
   if (!['off', 'shadow', 'consensus'].includes(contestMode)) {
@@ -1338,6 +1349,56 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
           updated += 1;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          // A collector agent can die for reasons unrelated to the widget's data
+          // (model transport faults, structured-output parse failures). Without a
+          // fallback the entire dashboard goes stale while the numbers are sitting
+          // in the project store, and every later refresh repeats the same death.
+          // When a fallback script is available, collect deterministically instead
+          // so a flaky model can never take the dashboard down with it.
+          const fallback = typeof config.fallbackScript === 'string' && config.fallbackScript.trim()
+            ? config.fallbackScript
+            : (process.env.DSH_DASHBOARD_FALLBACK_SCRIPT ?? '');
+          if (fallback.trim()) {
+            try {
+              const data = await runWidgetScript(fallback, project.repo.path);
+              widgets.push({
+                ...widget,
+                data,
+                updatedAt: Date.now(),
+                lastRefresh: {
+                  status: 'ok',
+                  at: Date.now(),
+                  agentSessionId: null,
+                  error: null,
+                  dataSource: 'script-fallback',
+                  fallbackReason: message,
+                },
+              });
+              updated += 1;
+              await store.appendEvent(project, 'dashboard/fallback_used', {
+                data: { widgetId: widget.id, reason: message },
+              });
+              continue;
+            } catch (fallbackError) {
+              const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+              errors.push({
+                widgetId: widget.id,
+                title: widget.title,
+                error: `${message}; fallback failed: ${fallbackMessage}`,
+                code: typeof error?.code === 'string' ? error.code : 'error',
+              });
+              widgets.push({
+                ...widget,
+                lastRefresh: {
+                  status: 'error',
+                  at: Date.now(),
+                  agentSessionId: null,
+                  error: `${message}; fallback failed: ${fallbackMessage}`,
+                },
+              });
+              continue;
+            }
+          }
           errors.push({
             widgetId: widget.id,
             title: widget.title,
@@ -1564,7 +1625,12 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   function startDashboardScheduler() {
-    const timer = setInterval(() => { tickDashboards().catch(() => {}); }, 30_000);
+    const timer = setInterval(() => {
+      tickDashboards().catch(() => {});
+      // Housekeeping shares this tick: a node whose worker died must not hold its
+      // resources and maxRunningNodes slot until the next restart.
+      sweepOverdueNodes({ store, kernel }).catch(() => {});
+    }, 30_000);
     return () => clearInterval(timer);
   }
 
@@ -1899,20 +1965,18 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return {
       ok: true,
       projectId,
-      phase: migration.phase ?? 1,
+      phase: migration.phase ?? 2,
       switches: {
         dispatch: project.config?.dispatch?.strategy ?? 'deterministic',
-        experts: project.config?.expertsMode ?? 'legacy-cycle',
+        experts: project.config?.expertsMode ?? 'hierarchy',
         contest: project.config?.contest?.mode ?? 'off',
       },
       parity: migration.parity ?? null,
       zeroDowntime: true,
       staged: [
-        { phase: 1, switch: 'dispatch.strategy', values: ['legacy-llm', 'shadow-deterministic', 'deterministic'] },
-        { phase: 2, switch: 'expertsMode', values: ['legacy-cycle', 'hierarchy', 'resident'] },
+        { phase: 2, switch: 'expertsMode', values: ['hierarchy', 'resident'] },
         { phase: 3, switch: 'contest.mode', values: ['off', 'shadow', 'consensus'] },
       ],
-      p1NoSwitch: (project.config?.migration?.phase ?? 1) === 1,
     };
   }
 
@@ -1922,29 +1986,27 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const actor = actorOverride ?? (exec ? actorFromToolExecution(exec) : { kind: 'human', id: 'operator' });
     if (actor.kind === 'expert') return rejection('forbidden_expert_action', 'experts may not advance the migration');
     const target = Number(input.phase);
-    if (![1, 2, 3].includes(target)) return rejection('bad_request', 'phase must be 1, 2 or 3');
-    const current = project.config?.migration?.phase ?? 1;
+    if (![2, 3].includes(target)) return rejection('bad_request', 'phase must be 2 or 3 (the legacy phase 1 runtime no longer exists)');
+    const current = project.config?.migration?.phase ?? 2;
     if (target !== current && target !== current + 1) return rejection('invalid_migration_step', `migration must advance one phase at a time (current ${current})`);
     const parity = input.parity ?? project.config?.migration?.parity ?? null;
     if (target > 1 && parity?.ok !== true) return rejection('parity_required', 'S14 parity must pass before phase 2 or 3');
-    const currentExpertMode = project.config?.expertsMode ?? 'legacy-cycle';
+    const currentExpertMode = project.config?.expertsMode ?? 'hierarchy';
     const requestedExperts = input.expertsMode ?? null;
-    if (requestedExperts !== null && !['legacy-cycle', 'hierarchy', 'resident'].includes(requestedExperts)) {
-      return rejection('bad_request', 'expertsMode must be legacy-cycle, hierarchy or resident');
+    if (requestedExperts !== null && !['hierarchy', 'resident'].includes(requestedExperts)) {
+      return rejection('bad_request', 'expertsMode must be hierarchy or resident');
     }
-    const expertsMode = target >= 2 ? (requestedExperts && requestedExperts !== 'legacy-cycle' ? requestedExperts : (currentExpertMode === 'legacy-cycle' ? 'hierarchy' : currentExpertMode)) : 'legacy-cycle';
+    const expertsMode = requestedExperts ?? currentExpertMode;
     const requestedContest = input.contestMode ?? null;
     if (requestedContest !== null && !['off', 'shadow', 'consensus'].includes(requestedContest)) {
       return rejection('bad_request', 'contestMode must be off, shadow or consensus');
     }
     const contestMode = target >= 3 ? (requestedContest && requestedContest !== 'off' ? requestedContest : (project.config?.contest?.mode === 'off' ? 'shadow' : project.config.contest.mode)) : 'off';
     const requestedDispatch = input.dispatchStrategy ?? null;
-    if (requestedDispatch !== null && !['legacy-llm', 'shadow-deterministic', 'deterministic'].includes(requestedDispatch)) {
-      return rejection('bad_request', 'dispatchStrategy must be legacy-llm, shadow-deterministic or deterministic');
+    if (requestedDispatch !== null && requestedDispatch !== 'deterministic') {
+      return rejection('bad_request', 'dispatchStrategy must be deterministic');
     }
-    const dispatchStrategy = target === 1
-      ? (requestedDispatch ?? (project.config?.dispatch?.strategy === 'legacy-llm' ? 'shadow-deterministic' : project.config?.dispatch?.strategy ?? 'shadow-deterministic'))
-      : (requestedDispatch ?? project.config?.dispatch?.strategy ?? 'shadow-deterministic');
+    const dispatchStrategy = requestedDispatch ?? project.config?.dispatch?.strategy ?? 'deterministic';
     const next = {
       ...project.config,
       migration: { ...(project.config.migration ?? {}), phase: target, parity, switchedAt: Date.now(), switchedBy: { kind: actor.kind, id: actor.id } },
@@ -1952,7 +2014,6 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       contest: { ...(project.config.contest ?? {}), mode: contestMode },
       dispatch: { ...(project.config.dispatch ?? {}), strategy: dispatchStrategy },
     };
-    if (target >= 2 && expertsMode === 'legacy-cycle') return rejection('invalid_migration_step', 'phase 2 must select a hierarchy or resident expert mode');
     if (target >= 3 && contestMode === 'off') return rejection('invalid_migration_step', 'phase 3 must select contest shadow or consensus');
     const normalized = normalizeConfig(next, project.config, { allowMigration: true });
     const commit = await commitMutations(projectId, [{ op: 'project.migration', config: normalized }], { eventType: 'project/migration_advanced', eventData: { from: current, to: target, switches: { expertsMode, contestMode } }, actor, causeId: `migration:${projectId}:${target}` });
@@ -3305,6 +3366,103 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
    * disk is recreated from the node branch; a planned node gets its branch at
    * the recorded base commit. No experiment is started.
    */
+  /**
+   * Trace files produced inside one node's worktree (issue #94 follow-up: DAG →
+   * trace hop). Read-only: it enumerates, it never opens or writes.
+   */
+  async function nodeTraceCandidates(projectId, nodeId) {
+    const project = requireProject(projectId);
+    const node = requireNode(projectId, nodeId);
+    const worktree = node?.git?.worktreePath;
+    if (!worktree) throw new LabError('worktree_not_recorded', 'node has no recorded worktree path', 404);
+    const listing = await listNodeTraces(worktree);
+    return { projectId: project.id, nodeId: node.id, ...listing };
+  }
+
+  const traceIndexCache = new Map();
+  const TRACE_INDEX_TTL_MS = 120_000;
+  /**
+   * Which nodes actually produced `*.json.gz` traces.
+   *
+   * The Profiler picker must not list 900 nodes that have nothing to open, so the
+   * Host does one bounded, cached pass over the worktrees instead of letting the
+   * client probe node by node. Nodes without a worktree directory are skipped
+   * without a filesystem walk, and each existing worktree stops at the first hit.
+   */
+  async function nodeTraceIndex(projectId, options = {}) {
+    const project = requireProject(projectId);
+    const limit = Number.isFinite(options.limit) && options.limit > 0 ? Math.trunc(options.limit) : 500;
+    const cached = traceIndexCache.get(projectId);
+    if (cached && Date.now() - cached.at < TRACE_INDEX_TTL_MS && !options.refresh) {
+      return { ...cached.value, cached: true, ageMs: Date.now() - cached.at };
+    }
+    const nodes = store.listNodes(projectId);
+    // Any node with a recorded worktree can carry traces (completed, failed and
+    // cancelled runs all do; a hand-seeded worktree may too), so the index does
+    // not filter by status — a missing directory is skipped by the stat below.
+    const candidates = nodes.filter((node) => node?.git?.worktreePath);
+    const rows = [];
+    let scanned = 0;
+    let skipped = 0;
+    const CONCURRENCY = 8;
+    let cursor = 0;
+    const worker = async () => {
+      for (;;) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= candidates.length) return;
+        const node = candidates[index];
+        scanned += 1;
+        const worktree = node.git.worktreePath;
+        let info = null;
+        try {
+          const { stat } = await import('node:fs/promises');
+          info = await stat(worktree);
+        } catch {
+          info = null;
+        }
+        if (!info || !info.isDirectory()) { skipped += 1; continue; }
+        try {
+          const listing = await listNodeTraces(worktree, { stopAfter: 1, limit: 1 });
+          if (listing.candidates.length > 0) {
+            rows.push({
+              nodeId: node.id,
+              title: node.title ?? node.id,
+              status: node.status ?? null,
+              count: listing.total > 1 ? null : 1,
+              latestMtimeMs: listing.candidates[0].mtimeMs,
+              sample: listing.candidates[0].relPath,
+            });
+          }
+        } catch {
+          skipped += 1;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+    rows.sort((left, right) => (right.latestMtimeMs ?? 0) - (left.latestMtimeMs ?? 0));
+    const value = {
+      projectId: project.id,
+      worktrees: candidates.length,
+      scanned,
+      skipped,
+      total: rows.length,
+      nodes: rows.slice(0, limit),
+    };
+    traceIndexCache.set(projectId, { at: Date.now(), value });
+    return { ...value, cached: false, ageMs: 0 };
+  }
+
+  /** Resolve a node-relative trace path, refusing anything outside the worktree. */  /** Resolve a node-relative trace path, refusing anything outside the worktree. */
+  function resolveNodeTrace(projectId, nodeId, relPath) {
+    requireProject(projectId);
+    const node = requireNode(projectId, nodeId);
+    const worktree = node?.git?.worktreePath;
+    if (!worktree) throw new LabError('worktree_not_recorded', 'node has no recorded worktree path', 404);
+    const absolute = resolveNodeTracePath(worktree, relPath);
+    return { absolute, node, relPath: String(relPath).trim() };
+  }
+
   async function ensureNodeWorktree(projectId, nodeId) {
     if (!runtime) throw new LabError('unavailable', 'runtime is not wired', 503);
     const project = requireProject(projectId);
@@ -3423,14 +3581,101 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return transcript.read(projectId, nodeId, afterSeq, limit);
   }
 
-  async function step(projectId, trigger = 'manual') {
-    if (!orchestrator) throw new LabError('unavailable', 'orchestrator is not wired', 503);
-    return orchestrator.step(projectId, trigger);
-  }
-
   async function createSuccessor(projectId, nodeId, input) {
     if (!orchestrator) throw new LabError('unavailable', 'orchestrator is not wired', 503);
     return orchestrator.createSuccessor(projectId, nodeId, input);
+  }
+
+  /**
+   * Issue #94: a profiling span may materialise a root DAG node.
+   *
+   * A trace action ("kernel fusing research", "targeted optimisation") must
+   * become an executable task without pretending it descends from a completed
+   * node. Root nodes are exactly what `createProject` mints, so this mirrors
+   * that shape: status `planned`, `createdBy: 'user'`, its own branch/worktree
+   * from the project base commit, and the same counters/event mutation.
+   */
+  async function createTraceTask(projectId, input = {}) {
+    const title = clampNodeTitle(input?.title);
+    if (typeof title !== 'string' || title.trim() === '') {
+      throw new LabError('bad_request', 'title is required', 400);
+    }
+    const prompt = text(input?.prompt, 'prompt', { required: true, max: 8000 });
+    if (prompt.length < 10) throw new LabError('bad_request', 'prompt must be at least 10 characters', 400);
+    return store.withProjectLock(projectId, async () => {
+      const project = requireProject(projectId);
+      if (store.listNodes(projectId).length >= (project.config.maxNodes ?? 60)) {
+        throw new LabError('max_nodes', 'maxNodes reached for this project', 409);
+      }
+      const now = Date.now();
+      const execution = resolveExecutionProfile(project, { taskType: input?.taskType ?? 'general' });
+      const maxMinutes = project.config?.maxNodeTimeoutMinutes ?? 240;
+      const requested = input?.timeboxMinutes === undefined || input?.timeboxMinutes === null
+        ? (project.config?.nodeTimeoutMinutes ?? 10)
+        : input.timeboxMinutes;
+      const timeboxMinutes = Number.isInteger(requested) ? Math.min(Math.max(requested, 1), maxMinutes) : (project.config?.nodeTimeoutMinutes ?? 10);
+      const nodeId = `n-${String(project.counters.nextNodeSeq ?? 2).padStart(4, '0')}`;
+      const node = {
+        id: nodeId,
+        projectId,
+        title,
+        prompt,
+        successCriteria: '',
+        status: 'planned',
+        priority: { class: 'p1', by: 'human', reason: 'profiling trace action', at: now },
+        parentId: null,
+        createdBy: 'user',
+        needs: {},
+        timeboxMs: timeboxMinutes * 60_000,
+        anchorSessionId: newSessionId(),
+        sessionId: newSessionId(),
+        deadlineAt: null,
+        taskType: execution.taskType,
+        execution: {
+          profile: execution.profile,
+          driver: execution.driver,
+          ...(execution.model ? { model: execution.model } : {}),
+          ...(execution.reasoningEffort ? { reasoningEffort: execution.reasoningEffort } : {}),
+          ...(execution.codexPath ? { codexPath: execution.codexPath } : {}),
+        },
+        source: {
+          kind: 'profiling-trace',
+          traceId: typeof input?.traceId === 'string' ? input.traceId.slice(0, 64) : null,
+          kernelIndex: Number.isInteger(input?.kernelIndex) ? input.kernelIndex : null,
+          action: typeof input?.action === 'string' ? input.action.slice(0, 32) : null,
+        },
+        git: {
+          branch: `dshex/${projectId}/${nodeId}`,
+          worktreePath: path.join(project.repo.worktreeRoot, nodeId),
+          baseCommit: project.repo.baseCommit,
+          headCommit: null,
+        },
+        timestamps: { createdAt: now, lastActivityAt: null },
+      };
+      const counters = {
+        ...project.counters,
+        nextNodeSeq: (project.counters.nextNodeSeq ?? 2) + 1,
+        nodes: (project.counters.nodes ?? 0) + 1,
+      };
+      const result = await commitMutations(projectId, [{
+        op: 'node.create',
+        node,
+        counters,
+        eventType: 'node/created',
+        eventData: {
+          title: node.title,
+          parentId: null,
+          isRoot: true,
+          createdBy: node.createdBy,
+          source: 'profiling-trace',
+          timeboxMinutes,
+        },
+      }], {
+        actor: { kind: 'human', id: 'operator' },
+        causeId: `trace:${node.source.traceId ?? 'unknown'}:${node.source.kernelIndex ?? '?'}`,
+      });
+      return { node: store.getNode(projectId, nodeId), revision: result.revision };
+    });
   }
 
   async function createMergeNode(projectId, input) {
@@ -3825,7 +4070,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   async function ledgerUpdate(projectId, input, exec) {
     const project = requireProject(projectId);
     const op = input?.op;
-    const id = text(input?.id, 'id', { required: true, max: 120 });
+    // `id` is the claim id. The public tool schema never documented it, so agents
+    // legitimately call ledger_update(op=open, hypothesis=...) without one and used
+    // to get a hard "id is required" — mint a stable-ish one instead of failing.
+    const rawId = typeof input?.id === 'string' ? input.id.trim() : '';
+    const id = rawId
+      ? text(rawId, 'id', { required: true, max: 120 })
+      : `claim-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     const known = ['open', 'confirm', 'rule_out'];
     if (!known.includes(op)) {
       return rejection('bad_request', `ledger op must be one of ${known.join(', ')}`);
@@ -6254,7 +6505,6 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'dashboard_chat') return chatDashboard(input?.projectId, input?.text);
     if (action === 'dashboard_layout') return updateDashboardLayout(input?.projectId, input?.layouts);
     if (action === 'transcript') return getTranscript(input?.projectId, input?.nodeId, input?.afterSeq, input?.limit);
-    if (action === 'step') return orchestrator.step(input?.projectId, input?.trigger ?? 'manual');
     if (action === 'successor') return orchestrator.createSuccessor(input?.projectId, input?.nodeId, input);
     if (action === 'create_merge') return createMergeNode(input?.projectId, input);
     if (action === 'finish_merge') return finishMerge(input?.projectId, input?.nodeId, input);
@@ -6411,6 +6661,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     getChat,
     clearProjectChat,
     projectChat,
+    createTraceTask,
     getCopilot,
     openCopilot,
     createPrivateCopilotSession,
@@ -6441,7 +6692,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     startDashboardScheduler,
     resolveWorktreeFile,
     getExecutionEvents,
-    step,
+    nodeTraceIndex,
+    nodeTraceCandidates,
+    resolveNodeTrace,
     createSuccessor,
     createMergeNode,
     finishMerge,

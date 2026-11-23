@@ -14,6 +14,9 @@ import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { publicView } from './kernel/actors.js';
+import { kernelDetail, queryKernels, queryTimeline } from './profiler/trace.js';
+import { compareTraces } from './profiler/compare.js';
+import { actionCatalog, buildActionPrompt, buildNodeTask } from './profiler/prompts.js';
 import { actorForSession } from './kernel/policy.js';
 
 const PREFIX = '/api/metainfer-research-lab';
@@ -82,10 +85,13 @@ export const ROUTE_POLICY = Object.freeze([
   Object.freeze({ method: 'POST', path: `${PREFIX}/preemption/appeal`, policy: 'operator-token' }),
   Object.freeze({ method: 'POST', path: `${PREFIX}/migration/advance`, policy: 'operator-token' }),
   Object.freeze({ method: 'POST', path: `${PREFIX}/commands`, policy: 'operator-token' }),
+  // Issue #94: the profiling viewer reads one opened trace. Mutations (open,
+  // close, node creation) stay on POST /commands so this stays a pure read.
+  Object.freeze({ method: 'GET', path: `${PREFIX}/trace`, policy: 'read-only' }),
 ]);
 
 const ROUTE_POLICY_BY_KEY = new Map(ROUTE_POLICY.map((row) => [`${row.method} ${row.path}`, row]));
-if (ROUTE_POLICY.length !== 53 || ROUTE_POLICY_BY_KEY.size !== ROUTE_POLICY.length) {
+if (ROUTE_POLICY.length !== 54 || ROUTE_POLICY_BY_KEY.size !== ROUTE_POLICY.length) {
   throw new Error(`HTTP route policy must contain exactly ${ROUTE_POLICY.length} unique method+path pairs`);
 }
 
@@ -252,8 +258,19 @@ async function readJsonBody(request) {
  * @param ctx Cordis context with `connection` injected.
  * @param service the `metainferLab` Host service.
  */
-export function registerHttpRoutes(ctx, service, { operatorAuthority = null } = {}) {
+export function registerHttpRoutes(ctx, service, { operatorAuthority = null, profiler = null } = {}) {
   const disposers = [];
+  const requireProfiler = () => {
+    if (!profiler) {
+      throw Object.assign(new Error('the profiling trace store is not available on this Host'), { code: 'unavailable' });
+    }
+    return profiler;
+  };
+  const requireTrace = (traceId) => {
+    const index = requireProfiler().get(traceId);
+    if (!index) throw Object.assign(new Error(`unknown or evicted trace: ${traceId ?? ''}`), { code: 'trace_not_found' });
+    return index;
+  };
 
   const route = (path, methods, handler) => {
     for (const method of methods) {
@@ -633,6 +650,97 @@ export function registerHttpRoutes(ctx, service, { operatorAuthority = null } = 
     return ok(await service.advanceMigration(body.projectId, body, null, actor));
   });
 
+  // Issue #94: read one opened profiling trace. Opening/closing and node
+  // materialisation stay on POST /commands, so this route cannot mutate state.
+  route(`${PREFIX}/trace`, ['GET'], async (request) => {
+    const params = query(request);
+    const traceId = params.get('traceId');
+    const view = params.get('view') ?? 'summary';
+    // DAG → trace hop: enumerate the trace files a node's worktree produced, so
+    // the inspector can offer one click per file instead of asking for a path.
+    // Which nodes have traces at all: one cached Host pass so the picker can
+    // show only nodes that actually have something to open.
+    if (view === 'nodes') {
+      const projectId = params.get('projectId');
+      const limit = params.get('limit') === null ? undefined : Number(params.get('limit'));
+      const refresh = params.get('refresh') === '1';
+      return ok(await service.nodeTraceIndex(projectId, { limit, refresh }));
+    }
+    if (view === 'candidates') {
+      const projectId = params.get('projectId');
+      const nodeId = params.get('nodeId');
+      return ok(await service.nodeTraceCandidates(projectId, nodeId));
+    }
+    // Multi-trace comparison, aligned by kernel name; first id is the baseline.
+    if (view === 'compare') {
+      const ids = String(params.get('traceIds') ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
+      if (ids.length < 2) {
+        throw Object.assign(new Error('compare needs at least two traceIds'), { code: 'bad_request' });
+      }
+      const entries = ids.map((id) => {
+        const index = requireTrace(id);
+        return { index, nodeId: index.nodeId ?? null };
+      });
+      return ok(compareTraces(entries));
+    }
+    if (!traceId) return ok({ traces: profiler ? profiler.list() : [] });
+    const index = requireTrace(traceId);
+    if (view === 'bytes') {
+      // Raw trace bytes, handed to the embedded Perfetto UI. Same-origin read:
+      // the browser fetches with its owner cookie, Perfetto parses in-browser.
+      const payload = requireProfiler().bytes(traceId);
+      if (!payload) {
+        throw Object.assign(new Error(`trace bytes are unavailable: ${traceId}`), { code: 'trace_not_found' });
+      }
+      const safeName = String(payload.name ?? 'trace.json').replace(/[^\w.-]+/g, '_');
+      return new Response(payload.bytes, {
+        status: 200,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'content-disposition': `inline; filename="${safeName}"`,
+          'cache-control': 'no-store',
+        },
+      });
+    }
+    if (view === 'summary') return ok(profiler.summary(traceId));
+    if (view === 'kernels') {
+      return ok(queryKernels(index, {
+        sort: params.get('sort') ?? undefined,
+        direction: params.get('direction') ?? undefined,
+        query: params.get('q') ?? undefined,
+        limit: params.get('limit') === null ? undefined : Number(params.get('limit')),
+        offset: params.get('offset') === null ? undefined : Number(params.get('offset')),
+      }));
+    }
+    if (view === 'kernel' || view === 'prompt') {
+      const detail = kernelDetail(index, Number(params.get('kernel')));
+      if (!detail) {
+        throw Object.assign(new Error(`unknown kernel index: ${params.get('kernel') ?? ''}`), { code: 'kernel_not_found' });
+      }
+      if (view === 'prompt') {
+        return ok({
+          prompt: buildActionPrompt(detail, params.get('action') ?? 'explain', {
+            question: params.get('question') ?? '',
+          }),
+        });
+      }
+      return ok({ detail, actions: actionCatalog() });
+    }
+    if (view === 'timeline') {
+      return ok(queryTimeline(index, {
+        from: params.get('from') === null ? undefined : Number(params.get('from')),
+        to: params.get('to') === null ? undefined : Number(params.get('to')),
+        lane: params.get('lane') ?? undefined,
+        lanes: params.get('lanes') === null ? undefined : Number(params.get('lanes')),
+        limit: params.get('limit') === null ? undefined : Number(params.get('limit')),
+      }));
+    }
+    throw Object.assign(new Error(`unknown trace view: ${view}`), { code: 'bad_request' });
+  });
+
   route(`${PREFIX}/commands`, ['POST'], async (request, actor) => {
     const body = await readJsonBody(request);
     const type = body.type;
@@ -680,6 +788,45 @@ export function registerHttpRoutes(ctx, service, { operatorAuthority = null } = 
     if (type === 'cluster.config') {
       return ok(await service.updateClusterConfig(body));
     }
+    if (type === 'trace.open') {
+      const store = requireProfiler();
+      // Three ways in: a node-relative path (the DAG hop), an absolute Host path
+      // (power users), or inline content (the file picker).
+      if (typeof body.relPath === 'string' && body.relPath.trim() !== '') {
+        const resolved = service.resolveNodeTrace(body.projectId, body.nodeId, body.relPath);
+        const index = await store.openPath(resolved.absolute, {
+          nodeId: resolved.node.id,
+          projectId: body.projectId,
+          relPath: resolved.relPath,
+        });
+        return ok(store.summary(index.traceId));
+      }
+      const index = typeof body.path === 'string' && body.path.trim() !== ''
+        ? await store.openPath(body.path)
+        : store.openContent(body.content, body.name);
+      return ok(store.summary(index.traceId));
+    }
+    if (type === 'trace.close') {
+      const store = requireProfiler();
+      return ok({ closed: store.close(body.traceId) === true });
+    }
+    if (type === 'trace.task') {
+      const index = requireTrace(body.traceId);
+      const detail = kernelDetail(index, Number(body.kernelIndex));
+      if (!detail) {
+        throw Object.assign(new Error(`unknown kernel index: ${body.kernelIndex ?? ''}`), { code: 'kernel_not_found' });
+      }
+      const action = typeof body.action === 'string' ? body.action : '';
+      const task = buildNodeTask(detail, action);
+      return ok(await service.createTraceTask(body.projectId, {
+        title: task.title,
+        prompt: task.prompt,
+        timeboxMinutes: body.timeboxMinutes,
+        traceId: index.traceId,
+        kernelIndex: detail.kernel.index,
+        action,
+      }));
+    }
     if (type === 'project.chat') {
       return ok(await service.projectChat(body.projectId, body.text));
     }
@@ -710,9 +857,6 @@ export function registerHttpRoutes(ctx, service, { operatorAuthority = null } = 
     }
     if (type === 'project.compile_placement') {
       return ok(await service.compilePlacementPolicyForProject(body.projectId, body.text));
-    }
-    if (type === 'project.step') {
-      return ok(await service.step(body.projectId, body.trigger ?? 'manual'));
     }
     if (type === 'migration.advance') {
       return ok(await service.advanceMigration(body.projectId, body, null, actor));

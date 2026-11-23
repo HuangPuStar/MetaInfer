@@ -17,6 +17,8 @@ import { createTranscriptReader } from './host/transcript.js';
 import { createOrchestrator } from './host/orchestrator.js';
 import { registerAgentTool } from './host/agent-tool.js';
 import { registerHttpRoutes } from './host/http.js';
+import { createProfilerStore } from './host/profiler/store.js';
+import { registerPerfettoWeb } from './host/profiler/perfetto-assets.js';
 import { registerTrajectoryWeb } from './host/trajectory-web.js';
 import { registerMcp } from './host/mcp.js';
 import { createWebotsBridge, defaultTablePath as defaultWebotsTablePath } from './host/webots-bridge.js';
@@ -272,8 +274,12 @@ export async function apply(ctx, config = {}) {
     'metainfer-research-lab: storage domain',
   );
 
+  // Issue #94: profiling traces are Host-memory only; the store keeps the last
+  // few opened traces queryable and never writes into the user's repository.
+  const profiler = createProfilerStore();
+
   ctx.effect(
-    () => registerHttpRoutes(ctx, service, { operatorAuthority }),
+    () => registerHttpRoutes(ctx, service, { operatorAuthority, profiler }),
     'metainfer-research-lab: http routes',
   );
 
@@ -298,6 +304,32 @@ export async function apply(ctx, config = {}) {
 
   const webServer = ctx.get('webServer');
   if (webServer) {
+    ctx.effect(() => ctx.on('webserver/index-inject', (table, peer) => {
+      // Only the owner page gets the browser credential. It is read fresh on
+      // every index render and is never returned by an API response.
+      //
+      // Older Hosts passed the requesting peer as the second emit argument and a
+      // strict `peer.principal.kind !== 'owner'` guard made sense. Current Hosts
+      // emit ONLY the table (dsh-host-webserver: collectIndexInjections() emits a
+      // single argument), so `peer` is undefined for every subscriber and the guard
+      // silently dropped the token from every index render — the browser then had
+      // no write credential on any page, no matter how often it was reloaded.
+      // Keep the owner check when a peer is supplied; inject when it is absent.
+      if (peer && peer.principal?.kind !== 'owner') return;
+      table.push({
+        kind: 'global',
+        name: '__METAINFER_OPERATOR_TOKEN__',
+        value: operatorAuthority.token,
+      });
+      // The issue time lets an already-open page compare itself with the
+      // current Host process via the read-only /health field. It is metadata,
+      // not a credential, and is only rendered to the owner page.
+      table.push({
+        kind: 'global',
+        name: '__METAINFER_OPERATOR_ISSUED_AT__',
+        value: operatorAuthority.issuedAt,
+      });
+    }), 'metainfer-research-lab: operator token injection');
     const trajectoryBackend = await ensureTrajectoryBackend(ctx.logger);
     ctx.effect(
       () => () => {
@@ -310,6 +342,18 @@ export async function apply(ctx, config = {}) {
     ctx.effect(
       () => registerTrajectoryWeb(ctx, webServer),
       'metainfer-research-lab: trajectory web bridge',
+    );
+    // Issue #94 follow-up: serve the pinned Perfetto UI build from this origin
+    // (offline, same-origin => no trust prompt). Missing assets answer 404 and
+    // the Client falls back to ui.perfetto.dev.
+    const perfettoUiRoot = path.join(
+      process.env.DSH_HOME ?? path.join(os.homedir(), '.dsh'),
+      'metainfer-research-lab',
+      'perfetto-ui',
+    );
+    ctx.effect(
+      () => registerPerfettoWeb(webServer, { uiRoot: perfettoUiRoot, logger: ctx.logger }),
+      'metainfer-research-lab: perfetto ui',
     );
     ctx.effect(
       () => registerMcp(ctx, webServer, service),

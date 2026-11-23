@@ -64,6 +64,8 @@ window.__ModuleLoader__.load({
       node: 'api/metainfer-research-lab/node',
       explain: 'api/metainfer-research-lab/explain',
       filesDownload: 'api/metainfer-research-lab/files/download',
+      trace: 'api/metainfer-research-lab/trace',
+      chat: 'api/metainfer-research-lab/chat',
     };
 
     /** Poll cadence while the page is visible. */
@@ -94,7 +96,6 @@ window.__ModuleLoader__.load({
     const MAX_ZOOM = 1.5;
     const FIT_PAD = 48;
     /** Hard cap on mounted node cards; shown in the canvas window chip. */
-    const MAX_RENDERED_NODES = 300;
 
     /** Status order used by the left rail and by fallback normalization. */
     const STATUS_ORDER = ['proposed', 'planned', 'running', 'completed', 'failed', 'cancelled'];
@@ -779,8 +780,7 @@ window.__ModuleLoader__.load({
       "ws.canvas.empty": "没有节点，检查项目状态后刷新。",
       "ws.canvas.fit": "适应画布",
       "ws.canvas.hint": "拖拽平移 · 滚轮缩放 · 点击节点查看详情",
-      "ws.canvas.window": "视口内 {shown}/{total} 个节点",
-      "ws.canvas.windowHint": "平移/缩放查看其余节点；渲染上限 {limit}",
+      "ws.canvas.label": "实验 DAG 画布",
       "ws.canvas.zoomIn": "放大",
       "ws.canvas.zoomOut": "缩小",
       "ws.card.remaining": "⏱ {time}",
@@ -1410,6 +1410,12 @@ window.__ModuleLoader__.load({
       "ws.node.parentPrefix": "来自 ",
       "ws.node.root": "根节点",
       "ws.nodeCount": "节点 {count}/{max}",
+      "ws.nodeTrace.compare": "对比所选",
+      "ws.nodeTrace.empty": "没有找到 trace 文件",
+      "ws.nodeTrace.hint": "只列出该节点产出的 *.json.gz trace 文件；可多选后并排对比",
+      "ws.nodeTrace.open": "打开",
+      "ws.nodeTrace.scanning": "正在扫描…",
+      "ws.nodeTrace.title": "Profile 追踪",
       "ws.obs.close": "关闭可观测性",
       "ws.obs.endpoints": "真实端点：/state /status /metrics /events /explain /intents /experts",
       "ws.obs.failures.count": "{count} 次",
@@ -1726,15 +1732,6 @@ window.__ModuleLoader__.load({
       "ws.settings.title": "项目设置",
       "ws.state.more": "继续加载",
       "ws.state.partial": "已加载 {shown} / {total} 个节点，继续加载",
-      "ws.step": "▶ Step",
-      "ws.step.cycleBusy": "上一轮循环仍在进行，请稍后再试。",
-      "ws.step.dismiss": "关闭",
-      "ws.step.error": "Step 失败",
-      "ws.step.errors": "错误 {count} 条",
-      "ws.step.hint": "手动执行一轮：专家组评审 + 调度器决策。",
-      "ws.step.running": "正在执行 Step…",
-      "ws.step.skipped": "跳过 {count} 项",
-      "ws.step.summary": "Step 完成：新建 {created} · 启动 {started}",
       "ws.successor.action": "＋ 添加后继",
       "ws.successor.addNeed": "＋ 添加资源",
       "ws.successor.cancel": "取消",
@@ -1767,6 +1764,7 @@ window.__ModuleLoader__.load({
       "ws.tabs.observability": "可观测性",
       "ws.tabs.sessions": "会话记录",
       "ws.tabs.settings": "设置",
+      "ws.tabs.trace": "Profile 追踪",
       "ws.termination.gpuFreed": "GPU 已释放",
       "ws.termination.jobs": "终止任务",
       "ws.termination.killedAt": "终止时间",
@@ -1780,6 +1778,95 @@ window.__ModuleLoader__.load({
       "ws.termination.title": "终止记录",
       "ws.termination.verifiedClean": "已验证无残留",
       "ws.termination.yes": "是",
+      "ws.trace.action.bound": "是否 compute / memory bound",
+      "ws.trace.action.call-context": "完整代码调用上下文",
+      "ws.trace.action.code-path": "为什么选中这个 kernel",
+      "ws.trace.action.explain": "这个 kernel 在干什么",
+      "ws.trace.action.fusion": "Fusion 分析并建节点",
+      "ws.trace.action.implementation": "解释 kernel 实现",
+      "ws.trace.action.optimize": "创建定向优化任务",
+      "ws.trace.action.shapes": "输入输出形状解释",
+      "ws.trace.actions": "Agent 操作",
+      "ws.trace.actionsHint": "前 7 项交给项目 Copilot；fusion 与定向优化会创建新的根节点进入待执行任务。",
+      "ws.trace.aggregate": "聚合统计",
+      "ws.trace.ask": "提问",
+      "ws.trace.askPlaceholder": "针对这个 kernel 提问…",
+      "ws.trace.chat": "Agent 回答",
+      "ws.trace.chatEmpty": "还没有与这个 trace 相关的对话。",
+      "ws.trace.chooseFile": "选择本地 trace",
+      "ws.trace.close": "关闭 trace",
+      "ws.trace.compareBusy": "正在对比…",
+      "ws.trace.compareClose": "关闭对比",
+      "ws.trace.compareDelta": "Δ",
+      "ws.trace.compareKernel": "Kernel",
+      "ws.trace.compareTitle": "多 trace 对比（第一个为基准）",
+      "ws.trace.compareTotal": "合计",
+      "ws.trace.compareTruncated": "仅显示前 {count} 行",
+      "ws.trace.copied": "已复制 prompt",
+      "ws.trace.copy": "复制 prompt",
+      "ws.trace.copyFailed": "复制失败",
+      "ws.trace.detail": "Kernel 详情",
+      "ws.trace.detailHint": "单击或双击时间线中的 kernel span 查看 9 个 Agent 操作。",
+      "ws.trace.device": "设备 / 流",
+      "ws.trace.deviceStream": "GPU {device} · stream {stream}",
+      "ws.trace.dispatching": "已交给项目 Copilot，等待回答…",
+      "ws.trace.dtypes": "dtype",
+      "ws.trace.empty": "还没有打开 trace：选择本地 JSON 或填写 Host 上的绝对路径。",
+      "ws.trace.error": "trace 加载失败",
+      "ws.trace.fit": "全览",
+      "ws.trace.inputs": "输入形状",
+      "ws.trace.invalidExt": "只支持 .json / .json.gz trace 文件",
+      "ws.trace.kernels": "Kernel 聚合",
+      "ws.trace.laneEmpty": "该视图范围内没有 span",
+      "ws.trace.launch": "启动算子",
+      "ws.trace.layout": "Grid / Block",
+      "ws.trace.loading": "正在解析 trace…",
+      "ws.trace.menu": "Kernel 操作",
+      "ws.trace.menuHint": "双击 span 打开右侧面板",
+      "ws.trace.neighbours": "相邻 kernel",
+      "ws.trace.nodeCompare": "对比所选",
+      "ws.trace.nodeCreate": "创建节点",
+      "ws.trace.nodeCreated": "已创建节点 {id}",
+      "ws.trace.nodeEmpty": "这个节点的 worktree 里没有找到 trace 文件（torch.profiler 导出的 chrome trace）",
+      "ws.trace.nodeFailed": "节点创建失败",
+      "ws.trace.nodeHint": "只列出有 *.json.gz trace 的节点；勾选 2 个以上可并排对比",
+      "ws.trace.nodeNone": "没有节点产出 trace（*.json.gz）",
+      "ws.trace.nodeOpen": "打开所选",
+      "ws.trace.nodePicker": "从 DAG 节点打开",
+      "ws.trace.nodePickerEmpty": "选择一个节点…",
+      "ws.trace.nodeRefresh": "重新扫描",
+      "ws.trace.nodeRefreshHint": "重新扫描所有节点 worktree（Host 侧结果缓存 120 秒）",
+      "ws.trace.nodeScanning": "正在扫描该节点的 trace 文件…",
+      "ws.trace.nodeTitle": "创建任务节点",
+      "ws.trace.notFound": "trace 已过期或被关闭",
+      "ws.trace.open": "打开",
+      "ws.trace.pathPlaceholder": "/path/to/torch_trace.json 或 .json.gz",
+      "ws.trace.perfetto.download": "下载 trace",
+      "ws.trace.perfetto.external": "使用公共 ui.perfetto.dev（本地 Perfetto 资源未安装）",
+      "ws.trace.perfetto.loaded": "已载入 Perfetto；选中 kernel 可在右侧分析",
+      "ws.trace.perfetto.offlineHint": "嵌入式 Perfetto 未能连接。可在新标签打开 Perfetto，或下载 trace 后用本地 Perfetto/Chrome Tracing 打开；首次从本站打开时会弹出一次来源信任提示，选择 Always trust 即可。",
+      "ws.trace.perfetto.openTab": "在新标签打开 Perfetto",
+      "ws.trace.perfetto.ready": "Perfetto 就绪，正在载入 trace…",
+      "ws.trace.perfetto.starting": "正在连接 Perfetto UI…",
+      "ws.trace.perfetto.unavailable": "Perfetto UI 不可用（可能无外网或被拦截）",
+      "ws.trace.recent": "最近的 trace",
+      "ws.trace.refresh": "刷新",
+      "ws.trace.search": "搜索 kernel",
+      "ws.trace.sort": "排序",
+      "ws.trace.sort.avg": "平均耗时",
+      "ws.trace.sort.count": "调用次数",
+      "ws.trace.sort.max": "最大耗时",
+      "ws.trace.sort.sum": "总耗时",
+      "ws.trace.spans": "{shown}/{total} 个 span",
+      "ws.trace.stack": "调用栈",
+      "ws.trace.subtitle": "打开 torch.profiler 导出的 chrome trace；双击任意 kernel span 直接让 Agent 分析，或一键创建 DAG 任务节点。",
+      "ws.trace.summary": "{kernels} 个 kernel · {ops} 个 CPU 算子 · 时间窗 {duration}",
+      "ws.trace.timebox": "时间盒（分钟）",
+      "ws.trace.timeline": "时间线",
+      "ws.trace.title": "Torch Profile 追踪查看器",
+      "ws.trace.tooLarge": "文件过大，请改用 Host 路径打开",
+      "ws.trace.zoomIn": "放大",
+      "ws.trace.zoomOut": "缩小",
       "ws.transcript.args": "参数",
       "ws.transcript.assistant": "Agent",
       "ws.transcript.close": "关闭对话",
@@ -2399,8 +2486,7 @@ window.__ModuleLoader__.load({
       "ws.canvas.empty": "No nodes — check the project state and refresh.",
       "ws.canvas.fit": "Fit",
       "ws.canvas.hint": "Drag to pan · scroll to zoom · click a node for details",
-      "ws.canvas.window": "showing {shown}/{total} nodes in view",
-      "ws.canvas.windowHint": "pan/zoom for the rest; render cap {limit}",
+      "ws.canvas.label": "experiment DAG canvas",
       "ws.canvas.zoomIn": "Zoom in",
       "ws.canvas.zoomOut": "Zoom out",
       "ws.card.remaining": "⏱ {time}",
@@ -3030,6 +3116,12 @@ window.__ModuleLoader__.load({
       "ws.node.parentPrefix": "from ",
       "ws.node.root": "Root node",
       "ws.nodeCount": "Nodes {count}/{max}",
+      "ws.nodeTrace.compare": "Compare selected",
+      "ws.nodeTrace.empty": "No trace files found",
+      "ws.nodeTrace.hint": "This node *.json.gz trace files; select several to compare",
+      "ws.nodeTrace.open": "Open",
+      "ws.nodeTrace.scanning": "Scanning…",
+      "ws.nodeTrace.title": "Profile traces",
       "ws.obs.close": "Close observability",
       "ws.obs.endpoints": "real endpoints: /state /status /metrics /events /explain /intents /experts",
       "ws.obs.failures.count": "{count}×",
@@ -3346,15 +3438,6 @@ window.__ModuleLoader__.load({
       "ws.settings.title": "Project settings",
       "ws.state.more": "Load more",
       "ws.state.partial": "Loaded {shown} / {total} nodes — continue loading",
-      "ws.step": "▶ Step",
-      "ws.step.cycleBusy": "A cycle is still running; try again shortly.",
-      "ws.step.dismiss": "Dismiss",
-      "ws.step.error": "Step failed",
-      "ws.step.errors": "{count} errors",
-      "ws.step.hint": "Run one manual cycle: advisor review + scheduler decisions.",
-      "ws.step.running": "Running Step…",
-      "ws.step.skipped": "{count} skipped",
-      "ws.step.summary": "Step finished: {created} created · {started} started",
       "ws.successor.action": "＋ Add successor",
       "ws.successor.addNeed": "Add resource",
       "ws.successor.cancel": "Cancel",
@@ -3387,6 +3470,7 @@ window.__ModuleLoader__.load({
       "ws.tabs.observability": "Observability",
       "ws.tabs.sessions": "Sessions",
       "ws.tabs.settings": "Settings",
+      "ws.tabs.trace": "Profiling",
       "ws.termination.gpuFreed": "GPU released",
       "ws.termination.jobs": "Killed jobs",
       "ws.termination.killedAt": "Terminated at",
@@ -3400,6 +3484,95 @@ window.__ModuleLoader__.load({
       "ws.termination.title": "Termination record",
       "ws.termination.verifiedClean": "Verified clean",
       "ws.termination.yes": "yes",
+      "ws.trace.action.bound": "Compute or memory bound?",
+      "ws.trace.action.call-context": "Full code call context",
+      "ws.trace.action.code-path": "Why was this kernel selected?",
+      "ws.trace.action.explain": "What does this kernel do?",
+      "ws.trace.action.fusion": "Fusion analysis + DAG node",
+      "ws.trace.action.implementation": "Explain the kernel implementation",
+      "ws.trace.action.optimize": "Create optimisation task",
+      "ws.trace.action.shapes": "Explain input/output shapes",
+      "ws.trace.actions": "Agent actions",
+      "ws.trace.actionsHint": "The first seven go to the project Copilot; fusion and targeted optimisation create a new root node for the task queue.",
+      "ws.trace.aggregate": "Aggregates",
+      "ws.trace.ask": "Ask",
+      "ws.trace.askPlaceholder": "Ask about this kernel…",
+      "ws.trace.chat": "Agent answer",
+      "ws.trace.chatEmpty": "No conversation about this trace yet.",
+      "ws.trace.chooseFile": "Choose local trace",
+      "ws.trace.close": "Close trace",
+      "ws.trace.compareBusy": "Comparing…",
+      "ws.trace.compareClose": "Close comparison",
+      "ws.trace.compareDelta": "Δ",
+      "ws.trace.compareKernel": "Kernel",
+      "ws.trace.compareTitle": "Trace comparison (first one is the baseline)",
+      "ws.trace.compareTotal": "Total",
+      "ws.trace.compareTruncated": "Showing the first {count} rows",
+      "ws.trace.copied": "Prompt copied",
+      "ws.trace.copy": "Copy prompt",
+      "ws.trace.copyFailed": "Copy failed",
+      "ws.trace.detail": "Kernel detail",
+      "ws.trace.detailHint": "Click or double-click a kernel span on the timeline to open the nine Agent actions.",
+      "ws.trace.device": "Device / stream",
+      "ws.trace.deviceStream": "GPU {device} · stream {stream}",
+      "ws.trace.dispatching": "Sent to the project Copilot; waiting for the answer…",
+      "ws.trace.dtypes": "dtypes",
+      "ws.trace.empty": "No trace is open: choose a local JSON file or enter an absolute Host path.",
+      "ws.trace.error": "Failed to load the trace",
+      "ws.trace.fit": "Fit",
+      "ws.trace.inputs": "Input shapes",
+      "ws.trace.invalidExt": "Only .json / .json.gz trace files are supported",
+      "ws.trace.kernels": "Kernel aggregates",
+      "ws.trace.laneEmpty": "No spans in this view window",
+      "ws.trace.launch": "Launch op",
+      "ws.trace.layout": "Grid / Block",
+      "ws.trace.loading": "Parsing trace…",
+      "ws.trace.menu": "Kernel actions",
+      "ws.trace.menuHint": "Double-click a span to open the side panel",
+      "ws.trace.neighbours": "Neighbour kernels",
+      "ws.trace.nodeCompare": "Compare selected",
+      "ws.trace.nodeCreate": "Create node",
+      "ws.trace.nodeCreated": "Created node {id}",
+      "ws.trace.nodeEmpty": "No trace files found in this node worktree (torch.profiler chrome traces)",
+      "ws.trace.nodeFailed": "Node creation failed",
+      "ws.trace.nodeHint": "Only nodes with a *.json.gz trace are listed; select two or more to compare",
+      "ws.trace.nodeNone": "No node produced a trace (*.json.gz) yet",
+      "ws.trace.nodeOpen": "Open selected",
+      "ws.trace.nodePicker": "Open from a DAG node",
+      "ws.trace.nodePickerEmpty": "Pick a node…",
+      "ws.trace.nodeRefresh": "Rescan",
+      "ws.trace.nodeRefreshHint": "Rescan every node worktree (Host caches the index for 120 s)",
+      "ws.trace.nodeScanning": "Scanning this node for trace files…",
+      "ws.trace.nodeTitle": "Create a task node",
+      "ws.trace.notFound": "This trace expired or was closed",
+      "ws.trace.open": "Open",
+      "ws.trace.pathPlaceholder": "/path/to/torch_trace.json or .json.gz",
+      "ws.trace.perfetto.download": "Download trace",
+      "ws.trace.perfetto.external": "Using the public ui.perfetto.dev (self-hosted assets are not installed)",
+      "ws.trace.perfetto.loaded": "Perfetto loaded; pick a kernel for analysis",
+      "ws.trace.perfetto.offlineHint": "The embedded Perfetto UI could not connect. Open Perfetto in a new tab, or download the trace and open it locally; the first post from this origin shows a one-time trust prompt — choose Always trust.",
+      "ws.trace.perfetto.openTab": "Open Perfetto in a new tab",
+      "ws.trace.perfetto.ready": "Perfetto is ready; loading the trace…",
+      "ws.trace.perfetto.starting": "Connecting to Perfetto UI…",
+      "ws.trace.perfetto.unavailable": "Perfetto UI is unavailable (offline or blocked)",
+      "ws.trace.recent": "Recent traces",
+      "ws.trace.refresh": "Refresh",
+      "ws.trace.search": "Search kernels",
+      "ws.trace.sort": "Sort",
+      "ws.trace.sort.avg": "Average",
+      "ws.trace.sort.count": "Launch count",
+      "ws.trace.sort.max": "Max",
+      "ws.trace.sort.sum": "Total time",
+      "ws.trace.spans": "{shown}/{total} spans",
+      "ws.trace.stack": "Call stack",
+      "ws.trace.subtitle": "Open a torch.profiler chrome trace; double-click any kernel span to analyse it with the Agent or materialise a DAG task.",
+      "ws.trace.summary": "{kernels} kernels · {ops} CPU ops · window {duration}",
+      "ws.trace.timebox": "Timebox (minutes)",
+      "ws.trace.timeline": "Timeline",
+      "ws.trace.title": "Torch profile trace viewer",
+      "ws.trace.tooLarge": "File is too large; open it by Host path instead",
+      "ws.trace.zoomIn": "Zoom in",
+      "ws.trace.zoomOut": "Zoom out",
       "ws.transcript.args": "Arguments",
       "ws.transcript.assistant": "Agent",
       "ws.transcript.close": "Close conversation",
@@ -3766,6 +3939,11 @@ window.__ModuleLoader__.load({
       '.rl-dot-cancelled { background: var(--dsw-alias-state-idle-primary); }',
       '@keyframes rl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }',
       '.rl-canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--dsw-alias-bg-base); cursor: grab; touch-action: none; }',
+      '.rl-dag-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }',
+      '.rl-dag-canvas:focus-visible { outline: 2px solid var(--dsw-alias-border-accent, #4aa3ff); outline-offset: -2px; }',
+      '.rl-canvas-dragging .rl-dag-canvas { cursor: grabbing; }',
+      '.rl-dag-overlay { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }',
+      '.rl-dag-overlay-card { position: absolute; pointer-events: auto; }',
       '.rl-explain-list { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }',
       '.rl-explain-subtitle { margin: 8px 0 0; font-size: 12px; opacity: 0.8; }',
       '.rl-explain-kind { font-weight: 600; margin-right: 6px; }',
@@ -4204,6 +4382,88 @@ window.__ModuleLoader__.load({
       '@media (max-width: 820px) { .rl-guide-card { height: calc(100dvh - 16px); max-height: calc(100vh - 16px); } .rl-guide-body { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 10px 12px; overflow: auto; } .rl-guide-visual { order: -1; min-height: 190px; } .rl-guide-svg { max-height: 32vh; } .rl-guide-text { overflow: visible; } .rl-guide-page-title { font-size: 19px; } .rl-guide-swipe { display: none; } .rl-guide-foot { padding: 8px 12px; } }',
       '@media (max-width: 520px) { .rl-guide-layer { padding: 6px; } .rl-guide-card { height: calc(100dvh - 12px); border-radius: 10px; } .rl-guide-head { padding: 8px 10px; } .rl-guide-count { display: none; } .rl-guide-visual { min-height: 160px; } .rl-guide-actions { width: 100%; justify-content: flex-end; } }',
       '@media (prefers-reduced-motion: reduce) { .rl-spinner { animation: none; } .rl-dot-running { animation: none; } .rl-node { transition: none; } .rl-node-actions { transition: none; } }',
+      '.rl-trace-page { display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 0; padding: 12px 16px 16px; overflow: hidden; }',
+      '.rl-trace-head { display: flex; align-items: flex-start; gap: 12px; flex: none; }',
+      '.rl-trace-head > div { min-width: 0; flex: 1 1 auto; }',
+      '.rl-trace-openbar { display: flex; align-items: center; gap: 8px; flex: none; flex-wrap: wrap; }',
+      '.rl-trace-recent { display: flex; align-items: center; gap: 6px; flex: none; flex-wrap: wrap; }',
+      '.rl-trace-recent-item { cursor: pointer; }',
+      '.rl-trace-recent-active { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); }',
+      '.rl-trace-openbar .rl-input { width: clamp(220px, 38vw, 520px); }',
+      '.rl-trace-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }',
+      '.rl-trace-sep { color: var(--dsw-alias-label-tertiary); }',
+      '.rl-trace-picker { display: flex; flex-direction: column; gap: 6px; flex: none; padding: 8px 10px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-picker-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }',
+      '.rl-trace-node-select { max-width: min(420px, 46vw); }',
+      '.rl-trace-candidates { display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow: auto; }',
+      '.rl-trace-candidate { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; font-size: 11.5px; color: var(--dsw-alias-label-secondary); cursor: pointer; }',
+      '.rl-trace-candidate:hover { background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-trace-candidate-on { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }',
+      '.rl-trace-candidate-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--dsw-alias-font-mono, monospace); }',
+      '.rl-trace-candidate-actions, .rl-node-traces-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }',
+      '.rl-node-traces-list { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; }',
+      '.rl-trace-compare { display: flex; flex-direction: column; gap: 8px; flex: none; padding: 10px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-compare-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }',
+      '.rl-trace-compare-totals { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }',
+      '.rl-trace-compare-table-wrap { max-height: 320px; overflow: auto; }',
+      '.rl-trace-compare-table { width: 100%; border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; }',
+      '.rl-trace-compare-table th, .rl-trace-compare-table td { padding: 4px 8px; text-align: right; border-bottom: 0.5px solid var(--dsw-alias-border-l2); white-space: nowrap; }',
+      '.rl-trace-compare-table th:first-child, .rl-trace-compare-table td:first-child { text-align: left; }',
+      '.rl-trace-compare-name { max-width: 420px; overflow: hidden; text-overflow: ellipsis; font-family: var(--dsw-alias-font-mono, monospace); }',
+      '.rl-trace-compare-fast { color: var(--dsw-alias-label-primary); font-weight: 600; }',
+      '.rl-trace-summary { display: flex; align-items: baseline; gap: 10px; flex: none; flex-wrap: wrap; color: var(--dsw-alias-label-secondary); font-size: 12px; }',
+      '.rl-trace-summary strong { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 600; }',
+      '.rl-trace-grid { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 30vw, 380px); gap: 12px; flex: 1 1 auto; min-height: 0; }',
+      '.rl-trace-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; overflow: hidden; }',
+      '.rl-trace-timeline-wrap { display: flex; flex-direction: column; gap: 6px; flex: 0 1 46%; min-height: 150px; overflow: hidden; }',
+      '.rl-trace-stage { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }',
+      '.rl-trace-stagebar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: none; }',
+      '.rl-trace-stagebar-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }',
+      '.rl-trace-frame-wrap { position: relative; flex: 1 1 auto; min-height: 320px; overflow: hidden; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-frame { display: block; width: 100%; height: 100%; min-height: 320px; border: 0; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-frame-fallback { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 24px; text-align: center; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-rail { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-rail-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; padding: 8px 10px 4px; }',
+      '.rl-trace-rail-head .rl-input { width: 100%; }',
+      '.rl-trace-klist { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 6px 8px; }',
+      '.rl-trace-krow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); font-size: 11.5px; text-align: left; cursor: pointer; }',
+      '.rl-trace-krow:hover { background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-trace-krow-active { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }',
+      '.rl-trace-kmeta { flex: none; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; font-size: 10.5px; }',
+      '.rl-trace-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }',
+      '.rl-trace-chip { padding: 1px 7px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 999px; color: var(--dsw-alias-label-secondary); font-size: 10.5px; white-space: nowrap; }',
+      '.rl-trace-canvas { flex: 1 1 auto; min-height: 0; overflow: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-canvas-inner { position: relative; padding: 4px 0; }',
+      '.rl-trace-lane { display: flex; align-items: center; gap: 6px; padding: 1px 6px; box-sizing: border-box; }',
+      '.rl-trace-lane-label { flex: none; width: 86px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-tertiary); font-size: 10px; font-family: ' + MONO + '; }',
+      '.rl-trace-lane-track { position: relative; flex: 1 1 auto; height: 18px; border-radius: 4px; background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-trace-span { position: absolute; top: 2px; height: 14px; padding: 0; border: 0; border-radius: 3px; background: var(--dsw-alias-brand-primary); opacity: 0.62; cursor: pointer; }',
+      '.rl-trace-span:hover { opacity: 0.9; }',
+      '.rl-trace-span-selected { opacity: 1; box-shadow: 0 0 0 1px var(--dsw-alias-label-primary); }',
+      '.rl-trace-span:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }',
+      '.rl-trace-table-wrap { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; overflow: hidden; }',
+      '.rl-trace-table-head { display: flex; align-items: center; gap: 8px; flex: none; flex-wrap: wrap; }',
+      '.rl-trace-table-head .rl-input { width: clamp(160px, 24vw, 320px); }',
+      '.rl-trace-table { flex: 1 1 auto; min-height: 0; overflow: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
+      '.rl-trace-row { display: grid; grid-template-columns: minmax(0, 1fr) 60px 92px 92px 56px; gap: 8px; align-items: center; width: 100%; padding: 5px 10px; border: 0; border-bottom: 0.5px solid var(--dsw-alias-border-l1); background: transparent; color: var(--dsw-alias-label-secondary); font-size: 11.5px; text-align: left; font-variant-numeric: tabular-nums; }',
+      'button.rl-trace-row { cursor: pointer; }',
+      'button.rl-trace-row:hover { background: var(--dsw-alias-bg-layer-2); }',
+      '.rl-trace-row-head { color: var(--dsw-alias-label-tertiary); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }',
+      '.rl-trace-row-selected { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }',
+      '.rl-trace-kname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ' + MONO + '; font-size: 11px; }',
+      '.rl-trace-detail { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: auto; }',
+      '.rl-trace-stack { display: flex; flex-direction: column; gap: 2px; margin: 0; padding-left: 18px; color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }',
+      '.rl-trace-neighbours { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 2px 0; }',
+      '.rl-trace-actions { display: flex; flex-wrap: wrap; gap: 6px; }',
+      '.rl-trace-actions .rl-btn { font-size: 11.5px; }',
+      '.rl-trace-ask { display: flex; align-items: center; gap: 6px; margin-top: 6px; }',
+      '.rl-trace-ask .rl-input { flex: 1 1 auto; }',
+      '.rl-trace-chat { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 0.5px solid var(--dsw-alias-border-l1); }',
+      '.rl-trace-chat-row { display: flex; gap: 6px; font-size: 11.5px; line-height: 16px; }',
+      '.rl-trace-chat-text { min-width: 0; overflow-wrap: anywhere; color: var(--dsw-alias-label-secondary); }',
+      '.rl-trace-chat-user .rl-trace-chat-text { color: var(--dsw-alias-label-primary); }',
+      '.rl-trace-chat-role { flex: none; }',
+      '@media (max-width: 1100px) { .rl-trace-grid { grid-template-columns: minmax(0, 1fr); } .rl-trace-detail { max-height: 320px; } }',
     ].join('\n');
     // #endregion
 
@@ -4671,6 +4931,57 @@ window.__ModuleLoader__.load({
       fetchClusterConfig(signal, t) {
         return requestJson(ROUTES.clusterConfig, { signal }, t);
       },
+      /** Issue #94: opened-trace inventory (no traceId) or one trace summary. */
+      fetchTraces(signal, t) {
+        return requestJson(ROUTES.trace, { signal }, t);
+      },
+      fetchTrace(traceId, view, params, t) {
+        const search = new URLSearchParams({ traceId, view });
+        const extra = asObject(params);
+        for (const key of Object.keys(extra)) {
+          const value = extra[key];
+          if (value === undefined || value === null || value === '') continue;
+          search.set(key, String(value));
+        }
+        return requestJson(ROUTES.trace + '?' + search.toString(), {}, t);
+      },
+      openTrace(payload, t) {
+        return requestJson(ROUTES.commands, { method: 'POST', body: Object.assign({ type: 'trace.open' }, asObject(payload)) }, t);
+      },
+      /** Trace files a DAG node produced (read-only; the Host scans the worktree). */
+      fetchTraceCandidates(projectId, nodeId, t) {
+        const search = new URLSearchParams({ view: 'candidates', projectId, nodeId });
+        return requestJson(ROUTES.trace + '?' + search.toString(), {}, t);
+      },
+      /** Nodes that actually produced traces (cached Host scan; refresh=1 bypasses the cache). */
+      fetchTraceNodes(projectId, t, refresh = false) {
+        const search = new URLSearchParams({ view: 'nodes', projectId });
+        if (refresh === true) search.set('refresh', '1');
+        return requestJson(ROUTES.trace + '?' + search.toString(), {}, t);
+      },
+      /** Multi-trace comparison aligned by kernel name; first id is the baseline. */
+      fetchTraceCompare(traceIds, t) {
+        const search = new URLSearchParams({ view: 'compare', traceIds: traceIds.join(',') });
+        return requestJson(ROUTES.trace + '?' + search.toString(), {}, t);
+      },
+      fetchChat(projectId, signal, t) {
+        return requestJson(ROUTES.chat + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
+      },
+      /** Raw trace bytes for the embedded Perfetto UI (same-origin cookie read). */
+      fetchTraceBytes(traceId, t) {
+        const headers = { accept: 'application/json' };
+        const operator = operatorToken();
+        if (operator !== '') headers['x-metainfer-operator'] = operator;
+        return fetch(ROUTES.trace + '?traceId=' + encodeURIComponent(traceId) + '&view=bytes', { headers }).then((response) => {
+          if (!response || response.ok === false) {
+            throw new LabRequestError('trace_bytes_unavailable', t('ws.trace.perfetto.unavailable'), response?.status);
+          }
+          return response.arrayBuffer();
+        });
+      },
+      traceBytesUrl(traceId) {
+        return ROUTES.trace + '?traceId=' + encodeURIComponent(traceId) + '&view=bytes';
+      },
       fetchRun(projectId, runId, signal, t) {
         return requestJson(
           ROUTES.runs + '?projectId=' + encodeURIComponent(projectId) + '&runId=' + encodeURIComponent(runId),
@@ -5025,7 +5336,7 @@ window.__ModuleLoader__.load({
     }
 
     /** The seven first-class project views. The order is the tab order. */
-    const LAB_TAB_IDS = Object.freeze(['dag', 'observability', 'experts', 'dashboard', 'settings', 'sessions', 'audit']);
+    const LAB_TAB_IDS = Object.freeze(['dag', 'observability', 'experts', 'dashboard', 'settings', 'sessions', 'audit', 'trace']);
     function normalizeLabTab(value) {
       const id = firstString(value);
       return LAB_TAB_IDS.includes(id) ? id : 'dag';
@@ -5189,6 +5500,28 @@ window.__ModuleLoader__.load({
       }
       labNavigation.projectId = id;
     }
+    // #region deep-link-selection
+    /**
+     * Decide whether a deep-link/props navigation should move the selection.
+     *
+     * The workspace used to re-assert `initialNodeId` on every selection change,
+     * which raced the operator's click (click → noteNode → prop change → forced
+     * selection) and made the inspector alternate between the clicked node and a
+     * stale deep-linked one. A navigation intent applies ONCE per distinct id:
+     * after that the operator owns the selection.
+     */
+    function resolveDeepLinkSelection({ wanted, applied, selectedId, nodeIds }) {
+      const navId = typeof wanted === 'string' ? wanted : '';
+      const last = typeof applied === 'string' ? applied : '';
+      const current = typeof selectedId === 'string' ? selectedId : '';
+      if (navId === '') return { applied: '', select: null };
+      if (navId === last) return { applied: last, select: null };
+      const known = Array.isArray(nodeIds) ? nodeIds : [];
+      if (!known.includes(navId)) return { applied: last, select: null };
+      return { applied: navId, select: navId === current ? null : navId };
+    }
+    // #endregion deep-link-selection
+
     function rememberLabNode(projectId, nodeId) {
       const before = labNavigation.nodeId;
       rememberLabProject(projectId);
@@ -9330,6 +9663,87 @@ window.__ModuleLoader__.load({
       try { return type + ' · ' + JSON.stringify(data).slice(0, 1200); } catch { return type; }
     }
 
+    /**
+     * DAG node -> profiling traces (issue #94 follow-up).
+     *
+     * The inspector lists the trace files this node's worktree produced and lets
+     * the operator open one, or several at once for the comparison table. Opening
+     * is a window event so this panel stays decoupled from the tab plumbing; the
+     * Workspace switches to the Profiler tab and forwards the paths.
+     */
+    function NodeTraceSection({ node, t }) {
+      const projectId = firstString(node?.projectId);
+      const nodeId = firstString(node?.id);
+      const [state, setState] = React.useState({ nodeId: '', rows: [], busy: false, error: '' });
+      const [picked, setPicked] = React.useState([]);
+      React.useEffect(() => {
+        if (projectId === '' || nodeId === '') return undefined;
+        let cancelled = false;
+        setState({ nodeId, rows: [], busy: true, error: '' });
+        setPicked([]);
+        (async () => {
+          try {
+            const data = await api.fetchTraceCandidates(projectId, nodeId, t);
+            if (cancelled) return;
+            setState({ nodeId, rows: asArray(asObject(data).candidates), busy: false, error: '' });
+          } catch (reason) {
+            if (cancelled) return;
+            setState({ nodeId, rows: [], busy: false, error: describeError(reason, t) });
+          }
+        })();
+        return () => { cancelled = true; };
+      }, [projectId, nodeId, t]);
+
+      const openTraces = (relPaths) => {
+        const paths = asArray(relPaths).map((value) => firstString(value)).filter((value) => value !== '');
+        if (paths.length === 0 || typeof window === 'undefined') return;
+        // CustomEvent is not a Node global; take it from the window the panel runs in.
+        const Ctor = typeof window.CustomEvent === 'function' ? window.CustomEvent : null;
+        if (Ctor === null) return;
+        window.dispatchEvent(new Ctor('metainfer:open-trace', {
+          detail: { projectId, nodeId, relPaths: paths, at: Date.now() },
+        }));
+      };
+
+      const rows = state.rows;
+      return h('div', { className: 'rl-section rl-node-traces', 'data-testid': 'node-traces' },
+        h('h3', { className: 'rl-section-title' }, t('ws.nodeTrace.title')),
+        h('p', { className: 'rl-hint' }, t('ws.nodeTrace.hint')),
+        state.busy === true ? h(LabLoading, { label: t('ws.nodeTrace.scanning') }) : null,
+        state.error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, state.error) : null,
+        state.busy !== true && state.error === '' && rows.length === 0
+          ? h('p', { className: 'rl-hint' }, t('ws.nodeTrace.empty'))
+          : null,
+        rows.length === 0 ? null : h('div', { className: 'rl-node-traces-list' },
+          rows.map((row) => {
+            const entry = asObject(row);
+            const relPath = firstString(entry.relPath);
+            const checked = picked.indexOf(relPath) >= 0;
+            return h('label', { key: 'node-trace-' + relPath, className: 'rl-trace-candidate' + (checked ? ' rl-trace-candidate-on' : '') },
+              h('input', {
+                type: 'checkbox',
+                checked,
+                'aria-label': relPath,
+                onChange: () => setPicked((previous) => (previous.indexOf(relPath) >= 0
+                  ? previous.filter((value) => value !== relPath)
+                  : [...previous, relPath])),
+              }),
+              h('span', { className: 'rl-trace-candidate-name', title: relPath }, relPath),
+              h('span', { className: 'rl-trace-kmeta' }, formatTraceBytes(numberOr(entry.size, 0))));
+          })),
+        rows.length === 0 ? null : h('div', { className: 'rl-node-traces-actions' },
+          h(LabButton, {
+            label: t('ws.nodeTrace.open'),
+            onClick: () => openTraces(picked.length > 0 ? picked : [firstString(asObject(rows[0]).relPath)]),
+          }),
+          h(LabButton, {
+            label: t('ws.nodeTrace.compare'),
+            variant: 'primary',
+            disabled: picked.length < 2,
+            onClick: () => openTraces(picked),
+          })));
+    }
+
     /** Live/persisted trace of one external execution run. */
     function ExecutionTraceSection({ node, t }) {
       const run = asObject(node?.executionRun);
@@ -10031,6 +10445,7 @@ window.__ModuleLoader__.load({
       settings: 'ws.tabs.settings',
       sessions: 'ws.tabs.sessions',
       audit: 'ws.tabs.audit',
+      trace: 'ws.tabs.trace',
     });
     function projectTabDomId(tab) {
       return 'metainfer-project-tab-' + tab;
@@ -10401,15 +10816,31 @@ window.__ModuleLoader__.load({
       const [continueNodeId, setContinueNodeId] = React.useState(null);
       const [busyKey, setBusyKey] = React.useState('');
       const [actionError, setActionError] = React.useState('');
-      const [stepBusy, setStepBusy] = React.useState(false);
-      const [stepInfo, setStepInfo] = React.useState(null);
       const [successorOpen, setSuccessorOpen] = React.useState(false);
       const [successorNodeId, setSuccessorNodeId] = React.useState(null);
       const [runsOpen, setRunsOpen] = React.useState(false);
       const activeTab = normalizeLabTab(tab);
+      // Cross-panel bridge: the node inspector (DAG tab) asks the Profiler tab to
+      // open one or more of the node's trace files. A window event keeps the two
+      // panels decoupled — the inspector does not need the tab plumbing.
+      const [traceRequest, setTraceRequest] = React.useState(null);
       const [mountedTabs, setMountedTabs] = React.useState(() => new Set([activeTab]));
       const selectTab = typeof onSelectTab === 'function' ? onSelectTab : () => {};
       const noteNode = typeof onNodeChange === 'function' ? onNodeChange : () => {};
+      React.useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const onOpenTrace = (event) => {
+          const detail = asObject(event?.detail);
+          const projectIdOfRequest = firstString(detail.projectId);
+          const nodeIdOfRequest = firstString(detail.nodeId);
+          const relPaths = asArray(detail.relPaths).map((value) => firstString(value)).filter((value) => value !== '');
+          if (projectIdOfRequest === '' || nodeIdOfRequest === '' || relPaths.length === 0) return;
+          setTraceRequest({ projectId: projectIdOfRequest, nodeId: nodeIdOfRequest, relPaths, at: Date.now() });
+          selectTab('trace');
+        };
+        window.addEventListener('metainfer:open-trace', onOpenTrace);
+        return () => window.removeEventListener('metainfer:open-trace', onOpenTrace);
+      }, [selectTab]);
       React.useEffect(() => {
         setMountedTabs((previous) => previous.has(activeTab) ? previous : new Set([...previous, activeTab]));
       }, [activeTab]);
@@ -10441,7 +10872,6 @@ window.__ModuleLoader__.load({
         }
       });
       const busyRef = React.useRef('');
-      const stepBusyRef = React.useRef(false);
       const autoBusyRef = React.useRef(false);
       const nodes = snapshot?.nodes;
       const edges = snapshot?.edges;
@@ -10465,30 +10895,23 @@ window.__ModuleLoader__.load({
       const promptDefaults = modelCatalog.state.catalog === null ? null : asObject(modelCatalog.state.catalog.promptDefaults);
       const promptPlaceholders = modelCatalog.state.catalog === null ? [] : stringListOf(modelCatalog.state.catalog.promptPlaceholders);
 
-      React.useEffect(() => {
-        rememberLabProject(projectId);
-        const wanted = firstString(initialNodeId);
-        if (selectedId === null && wanted !== '') {
-          for (const node of nodes) {
-            if (nodeIdOf(node) === wanted) {
-              setSelectedId(wanted);
-              return;
-            }
-          }
-        }
-      }, [projectId, nodes, selectedId, initialNodeId]);
+      React.useEffect(() => { rememberLabProject(projectId); }, [projectId]);
 
-      // A Back/Forward navigation may point at a different node in the same
-      // project; follow it without remounting the workspace.
+      // Deep link / Back-Forward: apply the navigation intent once, then let the
+      // operator's own selection win. Re-asserting the prop on every selection
+      // change raced the click and made the inspector flicker between two nodes.
+      const appliedNavRef = React.useRef('');
       React.useEffect(() => {
         const wanted = firstString(initialNodeId);
-        if (wanted === '' || wanted === selectedId) return;
-        for (const node of nodes) {
-          if (nodeIdOf(node) === wanted) {
-            setSelectedId(wanted);
-            return;
-          }
-        }
+        const nodeIds = nodes.map((node) => nodeIdOf(node));
+        const decision = resolveDeepLinkSelection({
+          wanted,
+          applied: appliedNavRef.current,
+          selectedId: selectedId === null ? '' : selectedId,
+          nodeIds,
+        });
+        appliedNavRef.current = decision.applied;
+        if (decision.select !== null) setSelectedId(decision.select);
       }, [initialNodeId, nodes, selectedId]);
 
       React.useEffect(() => {
@@ -10756,37 +11179,6 @@ window.__ModuleLoader__.load({
         if (continueNodeId === null) return { ok: false, error: t('error.unknown') };
         return runNodeCommand('node.message', continueNodeId, { text });
       }, [continueNodeId, runNodeCommand, t]);
-
-      /** Manual Step: one advisor + scheduler cycle, then a summary or inline error. */
-      const runStep = React.useCallback(async () => {
-        if (stepBusyRef.current) return;
-        stepBusyRef.current = true;
-        setStepBusy(true);
-        setStepInfo(null);
-        try {
-          const data = await api.command({ type: 'project.step', projectId }, undefined, t);
-          const result = asObject(data);
-          const created = idListOf(result?.created).length;
-          const started = idListOf(result?.started).length;
-          const skipped = asArray(result?.skipped).length;
-          const errors = stringListOf(result?.errors).length;
-          const meta = [
-            skipped > 0 ? t('ws.step.skipped', { count: skipped }) : '',
-            errors > 0 ? t('ws.step.errors', { count: errors }) : '',
-          ].filter((part) => part !== '').join(' · ');
-          setStepInfo({ kind: 'summary', text: t('ws.step.summary', { created, started }), meta });
-          reload();
-        } catch (error) {
-          if (isAbortError(error)) return;
-          const message = error instanceof LabRequestError && error.code === 'cycle_busy'
-            ? t('ws.step.cycleBusy')
-            : describeError(error, t);
-          setStepInfo({ kind: 'error', text: t('ws.step.error') + ': ' + message });
-        } finally {
-          stepBusyRef.current = false;
-          setStepBusy(false);
-        }
-      }, [projectId, reload, t]);
 
       const openSuccessor = React.useCallback((nodeId) => {
         setSuccessorNodeId(nodeId);
@@ -11238,6 +11630,8 @@ window.__ModuleLoader__.load({
           mountedTabs.has('sessions') ? h(SessionsTab, { projectId, nodes, onOpenSession: openSessionNative, t }) : null),
         h(ProjectTabPanel, { key: 'audit', tab: 'audit', active: activeTab === 'audit' },
           mountedTabs.has('audit') ? h(AuditTab, { projectId, nodes, onOpenNode: (nodeId) => { setSelectedId(nodeId); noteNode(nodeId); selectTab('dag'); }, t }) : null),
+        h(ProjectTabPanel, { key: 'trace', tab: 'trace', active: activeTab === 'trace' },
+          mountedTabs.has('trace') ? h(ProfilerTab, { projectId, nodes, request: traceRequest, t, active: activeTab === 'trace' }) : null),
       ];
 
       return h(
@@ -11250,11 +11644,9 @@ window.__ModuleLoader__.load({
           revision: snapshot?.revision,
           nodeCount: nodes.length,
           runningCount,
-          stepBusy,
           auto: autoState,
           pendingProposals: Math.max(pendingProposalsCount, Math.round(numberOr(snapshot?.pendingProposals, 0))),
           autoBusy,
-          onStep: runStep,
           onOpenExperts: () => selectTab('experts'),
           onOpenStatus: () => selectTab('settings'),
           activeTab,
@@ -11304,7 +11696,6 @@ window.__ModuleLoader__.load({
               h(LabButton, { label: t('ws.action.dismiss'), variant: 'ghost', onClick: () => setActionError('') }),
             )
           : null,
-        stepInfo !== null ? h(StepBanner, { info: stepInfo, onDismiss: () => setStepInfo(null), t }) : null,
         h('div', { className: 'rl-workspace-shell' },
           h('div', { className: 'rl-workspace-main' }, tabPanels),
         ),
@@ -11778,11 +12169,9 @@ window.__ModuleLoader__.load({
       revision,
       nodeCount,
       runningCount,
-      stepBusy,
       auto,
       pendingProposals,
       autoBusy,
-      onStep,
       onOpenExperts,
       onOpenStatus,
       activeTab,
@@ -11877,15 +12266,6 @@ window.__ModuleLoader__.load({
             { className: 'rl-topbar-actions' },
             h('span', { 'data-testid': 'topbar-action-auto', className: 'rl-topbar-auto-actions' }, autoActions),
             h('span', { 'data-testid': 'topbar-action-experts' }, h(ExpertChip, { runs, onOpen: onOpenExperts, t })),
-            h('span', { 'data-testid': 'topbar-action-step' }, h('button', {
-              type: 'button',
-              className: 'rl-btn rl-btn-primary rl-topbar-step',
-              disabled: stepBusy === true || autoStatus !== 'off',
-              title: autoStatus === 'off' ? t('ws.step.hint') : t('ws.auto.stepOnlyManual'),
-              onClick: onStep,
-            },
-            stepBusy === true ? h('span', { className: 'rl-spinner', 'aria-hidden': true }) : null,
-            stepBusy === true ? t('ws.step.running') : t('ws.step'))),
             h(
               'div',
               { className: 'rl-menu-wrap', 'data-testid': 'topbar-action-menu' },
@@ -12218,300 +12598,548 @@ window.__ModuleLoader__.load({
     }
     // #endregion apply-change-delta
 
-    // #region compute-viewport-window
-    function computeViewportWindow({ nodes, edges, positions, pan, zoom, viewportSize, nodeWidth, nodeHeight, maxRendered, pad, idOf }) {
-      const total = nodes.length;
-      if (!(viewportSize.width > 0) || !(viewportSize.height > 0) || !(zoom > 0)) {
-        const head = nodes.slice(0, maxRendered);
-        return { nodes: head, edges: [], hidden: total - head.length };
-      }
-      const left = -pan.x / zoom - pad;
-      const top = -pan.y / zoom - pad;
-      const right = left + viewportSize.width / zoom + pad * 2;
-      const bottom = top + viewportSize.height / zoom + pad * 2;
-      const visible = [];
+
+    // #region dag-canvas-scene
+    /**
+     * Canvas DAG renderer.
+     *
+     * The old canvas mounted one DOM card per visible node and dropped everything
+     * beyond a hard cap — at 10k nodes that meant both a tiny window (nodes
+     * visibly missing) and a React re-render per pan/zoom frame. This renderer keeps
+     * ONE canvas: the whole graph is painted, pan/zoom only mutates a transform and
+     * schedules a rAF, and React state is touched at most ten times a second (the
+     * zoom percentage). A single DOM card is kept for the selected node so its
+     * quick actions stay available.
+     */
+    const DAG_THEME = {
+      dark: {
+        card: '#24262b', cardAlt: '#2b2e34', border: '#3a3d44', text: '#e6e7ea', muted: '#9aa0a6',
+        edge: '#3d4148', edgeActive: '#6ea8ff', accent: '#4aa3ff', grid: '#202227',
+      },
+      light: {
+        card: '#ffffff', cardAlt: '#f6f7f9', border: '#d6d8de', text: '#1c1e21', muted: '#5f6368',
+        edge: '#c9ccd3', edgeActive: '#2f6fd0', accent: '#2f6fd0', grid: '#eef0f3',
+      },
+    };
+    const DAG_STATUS_COLOR = {
+      planned: '#8a93a6',
+      running: '#4aa3ff',
+      completed: '#35c26b',
+      failed: '#ff5d5d',
+      cancelled: '#8a8a8a',
+      proposed: '#c08cff',
+      deferred: '#c9a227',
+      paused: '#c9a227',
+    };
+
+    function dagTheme() {
+      const dark = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : true;
+      return dark ? DAG_THEME.dark : DAG_THEME.light;
+    }
+
+    /** Truncate by an average glyph width: measuring 10k strings per frame is slower. */
+    function truncateForWidth(text, width, fontSize) {
+      const value = String(text ?? '');
+      const maxChars = Math.max(4, Math.floor(width / (fontSize * 0.58)));
+      return value.length > maxChars ? value.slice(0, maxChars - 1) + '…' : value;
+    }
+
+    /**
+     * Flatten the DAG into a draw model: absolute rects, pre-computed edge
+     * endpoints, x-sorted arrays for culling, and adjacency for the selection dim.
+     * Built once per (nodes, edges, layout).
+     */
+    function buildDagScene({ nodes, edges, layout, t }) {
+      const items = [];
+      const byId = new Map();
       for (const node of nodes) {
-        const position = positions.get(idOf(node));
+        const id = nodeIdOf(node);
+        if (!id) continue;
+        const position = layout.positions.get(id);
         if (!position) continue;
-        if (position.x + nodeWidth < left || position.x > right) continue;
-        if (position.y + nodeHeight < top || position.y > bottom) continue;
-        visible.push(node);
+        const item = {
+          id,
+          node,
+          x: position.x,
+          y: position.y,
+          w: NODE_W,
+          h: NODE_H,
+          status: nodeStatusOf(node),
+          title: nodeTitleOf(node, t),
+          subtitle: '',
+          color: DAG_STATUS_COLOR[nodeStatusOf(node)] ?? '#8a93a6',
+        };
+        items.push(item);
+        byId.set(id, item);
       }
-      let rendered = visible;
-      if (rendered.length > maxRendered) {
-        const cx = (left + right) / 2;
-        const cy = (top + bottom) / 2;
-        rendered = visible
-          .map((node) => {
-            const position = positions.get(idOf(node)) ?? { x: 0, y: 0 };
-            return { node, distance: Math.abs(position.x - cx) + Math.abs(position.y - cy) };
-          })
-          .sort((a, b) => a.distance - b.distance)
-          .slice(0, maxRendered)
-          .map((entry) => entry?.node);
+      const neighbours = new Map();
+      const segments = [];
+      for (const edge of edges) {
+        const from = byId.get(edge.from);
+        const to = byId.get(edge.to);
+        if (!from || !to) continue;
+        const x1 = from.x + from.w;
+        const y1 = from.y + from.h / 2;
+        const x2 = to.x;
+        const y2 = to.y + to.h / 2;
+        const bend = Math.max(24, (x2 - x1) / 2);
+        segments.push({ from: edge.from, to: edge.to, x1, y1, x2, y2, bend, minX: Math.min(x1, x2), maxX: Math.max(x1, x2), minY: Math.min(y1, y2), maxY: Math.max(y1, y2) });
+        if (!neighbours.has(edge.from)) neighbours.set(edge.from, new Set());
+        if (!neighbours.has(edge.to)) neighbours.set(edge.to, new Set());
+        neighbours.get(edge.from).add(edge.to);
+        neighbours.get(edge.to).add(edge.from);
       }
-      const ids = new Set(rendered.map((node) => idOf(node)));
+      const sortedByX = items.slice().sort((a, b) => (a.x - b.x) || (a.y - b.y));
+      const sortedByY = items.slice().sort((a, b) => (a.y - b.y) || (a.x - b.x));
       return {
-        nodes: rendered,
-        edges: edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)),
-        hidden: total - rendered.length,
+        items,
+        byId,
+        sortedByX,
+        sortedByY,
+        segments,
+        segmentsBySource: null,
+        neighbours,
+        count: items.length,
       };
     }
-    // #endregion compute-viewport-window
+
+    /** First index whose key is >= value in an ascending array (lower bound). */
+    function lowerBound(list, value, key) {
+      let lo = 0;
+      let hi = list.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (key(list[mid]) < value) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo;
+    }
+
+    /** Nodes intersecting the padded viewport, via the x-sorted index. */
+    function visibleDagItems(scene, view, size, pad = 200) {
+      const zoom = view.zoom;
+      const pan = view.pan;
+      const left = -pan.x / zoom - pad;
+      const top = -pan.y / zoom - pad;
+      const right = left + size.width / zoom + pad * 2;
+      const bottom = top + size.height / zoom + pad * 2;
+      const start = lowerBound(scene.sortedByX, left - NODE_W, (item) => item.x);
+      const out = [];
+      for (let index = start; index < scene.sortedByX.length; index += 1) {
+        const item = scene.sortedByX[index];
+        if (item.x > right) break;
+        if (item.y + item.h < top || item.y > bottom) continue;
+        out.push(item);
+      }
+      return { items: out, left, top, right, bottom };
+    }
+
+    /** Node under a world-space point (linear over the x-sorted index). */
+    function hitTestDag(scene, world) {
+      const start = lowerBound(scene.sortedByX, world.x - NODE_W, (item) => item.x);
+      for (let index = start; index < scene.sortedByX.length; index += 1) {
+        const item = scene.sortedByX[index];
+        if (item.x > world.x) break;
+        if (world.x >= item.x && world.x <= item.x + item.w && world.y >= item.y && world.y <= item.y + item.h) return item;
+      }
+      return null;
+    }
+
+    function roundRectPath(ctx, x, y, w, h, r) {
+      if (typeof ctx.roundRect === 'function') {
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, r);
+        return;
+      }
+      const radius = Math.min(r, w / 2, h / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + w, y, x + w, y + h, radius);
+      ctx.arcTo(x + w, y + h, x, y + h, radius);
+      ctx.arcTo(x, y + h, x, y, radius);
+      ctx.arcTo(x, y, x + w, y, radius);
+      ctx.closePath();
+    }
+
+    /**
+     * Paint one frame. Everything here reads refs; nothing schedules React work.
+     * Detail degrades with the number of visible nodes: at 10k nodes the whole graph
+     * is still drawn, only the per-node text is dropped (blocks + status colour).
+     */
+    function paintDag(ctx, scene, view, size, options) {
+      const theme = options.theme;
+      const zoom = view.zoom;
+      const pan = view.pan;
+      const dpr = view.dpr ?? 1;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, size.width, size.height);
+      if (scene.count === 0) return { items: 0, edges: 0, labels: false };
+      ctx.save();
+      ctx.translate(pan.x, pan.y);
+      ctx.scale(zoom, zoom);
+
+      const pad = 240;
+      const visible = visibleDagItems(scene, { zoom, pan }, size, pad);
+      const selectedId = options.selectedId;
+      const hoverId = options.hoverId;
+      const related = options.related ?? null;
+      const labelBudget = 1400;
+      const detail = visible.items.length <= labelBudget && zoom >= 0.35;
+
+      // Edges: only those whose endpoints can both be on screen.
+      const seenFrom = new Set();
+      for (const item of visible.items) seenFrom.add(item.id);
+      ctx.lineWidth = Math.max(1 / zoom, 0.6);
+      ctx.strokeStyle = theme.edge;
+      ctx.beginPath();
+      let edgeCount = 0;
+      for (const segment of scene.segments) {
+        if (!seenFrom.has(segment.from) && !seenFrom.has(segment.to)) continue;
+        if (segment.maxX < visible.left || segment.minX > visible.right) continue;
+        if (segment.maxY < visible.top || segment.minY > visible.bottom) continue;
+        const active = selectedId !== null && (segment.from === selectedId || segment.to === selectedId);
+        if (active) continue; // painted in the accent pass below
+        ctx.moveTo(segment.x1, segment.y1);
+        ctx.bezierCurveTo(segment.x1 + segment.bend, segment.y1, segment.x2 - segment.bend, segment.y2, segment.x2, segment.y2);
+        edgeCount += 1;
+      }
+      ctx.stroke();
+      if (selectedId !== null) {
+        ctx.save();
+        ctx.strokeStyle = theme.edgeActive;
+        ctx.lineWidth = Math.max(1.6 / zoom, 1);
+        ctx.beginPath();
+        for (const segment of scene.segments) {
+          if (segment.from !== selectedId && segment.to !== selectedId) continue;
+          ctx.moveTo(segment.x1, segment.y1);
+          ctx.bezierCurveTo(segment.x1 + segment.bend, segment.y1, segment.x2 - segment.bend, segment.y2, segment.x2, segment.y2);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Nodes.
+      const dimmed = selectedId !== null;
+      for (const item of visible.items) {
+        const isSelected = item.id === selectedId;
+        const isHover = item.id === hoverId;
+        const isRelated = !dimmed || isSelected || (related !== null && related.has(item.id));
+        ctx.globalAlpha = isRelated ? 1 : 0.28;
+        ctx.fillStyle = theme.card;
+        roundRectPath(ctx, item.x, item.y, item.w, item.h, 8);
+        ctx.fill();
+        // Status stripe on the left edge: readable at any zoom.
+        ctx.fillStyle = item.color;
+        roundRectPath(ctx, item.x, item.y, 5, item.h, 3);
+        ctx.fill();
+        ctx.strokeStyle = isSelected ? theme.accent : (isHover ? theme.edgeActive : theme.border);
+        ctx.lineWidth = Math.max((isSelected ? 2 : 1) / zoom, 0.75);
+        roundRectPath(ctx, item.x, item.y, item.w, item.h, 8);
+        ctx.stroke();
+        if (detail) {
+          const fontSize = 11;
+          ctx.font = '600 ' + fontSize + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+          ctx.fillStyle = theme.text;
+          ctx.textBaseline = 'middle';
+          ctx.fillText(truncateForWidth(item.title, item.w - 22, fontSize), item.x + 14, item.y + 26);
+          ctx.font = '10px system-ui, -apple-system, "Segoe UI", sans-serif';
+          ctx.fillStyle = theme.muted;
+          ctx.fillText(truncateForWidth(item.status + ' · ' + item.id, item.w - 22, 10), item.x + 14, item.y + 52);
+        }
+      }
+      ctx.globalAlpha = 1;
+      ctx.restore();
+      return { items: visible.items.length, edges: edgeCount, labels: detail };
+    }
+    // #endregion dag-canvas-scene
 
     function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, replayFooter, factsSlot, t }) {
-      const viewportRef = React.useRef(null);
-      const [pan, setPan] = React.useState({ x: 0, y: 0 });
-      const [zoom, setZoom] = React.useState(1);
-      const [dragging, setDragging] = React.useState(false);
-      const panRef = React.useRef(pan);
-      const zoomRef = React.useRef(zoom);
+      const hostRef = React.useRef(null);
+      const canvasRef = React.useRef(null);
+      const overlayRef = React.useRef(null);
+      const viewRef = React.useRef({ pan: { x: 0, y: 0 }, zoom: 1, dpr: 1, hoverId: null });
+      const sceneRef = React.useRef(null);
+      const frameRef = React.useRef(0);
+      const sizeRef = React.useRef({ width: 0, height: 0 });
       const dragRef = React.useRef(null);
       const movedRef = React.useRef(0);
       const fittedRef = React.useRef(false);
-      const [viewportSize, setViewportSize] = React.useState({ width: 0, height: 0 });
-      React.useEffect(() => {
-        const el = viewportRef.current;
-        if (!el) return undefined;
-        const update = () => setViewportSize({ width: el.clientWidth || 0, height: el.clientHeight || 0 });
-        update();
-        if (typeof ResizeObserver !== 'function') {
-          window.addEventListener('resize', update);
-          return () => window.removeEventListener('resize', update);
+      const zoomStampRef = React.useRef(0);
+      const [zoomPct, setZoomPct] = React.useState(100);
+      const [hoverId, setHoverId] = React.useState(null);
+      // Degraded payloads (a panel mounted before the snapshot arrives) must not
+      // crash the canvas: normalise once, then every effect reads the safe values.
+      const safeLayout = layout && layout.positions instanceof Map ? layout : { positions: new Map(), width: 0, height: 0 };
+      const safeNodes = Array.isArray(nodes) ? nodes : [];
+      const safeEdges = Array.isArray(edges) ? edges : [];
+
+      const scene = React.useMemo(() => buildDagScene({ nodes: safeNodes, edges: safeEdges, layout: safeLayout, t }), [safeNodes, safeEdges, safeLayout, t]);
+      sceneRef.current = scene;
+
+      const selectedNode = React.useMemo(
+        () => (selectedId === null ? null : (scene.byId.get(selectedId)?.node ?? null)),
+        [scene, selectedId],
+      );
+      const related = React.useMemo(() => {
+        if (selectedId === null) return null;
+        const set = new Set([selectedId]);
+        const direct = scene.neighbours.get(selectedId);
+        if (direct) for (const id of direct) set.add(id);
+        return set;
+      }, [scene, selectedId]);
+
+      const paint = React.useCallback(() => {
+        const canvas = canvasRef.current;
+        const host = hostRef.current;
+        if (!canvas || !host) return;
+        const ctx = typeof canvas.getContext === 'function' ? canvas.getContext('2d') : null;
+        if (!ctx) return;
+        const size = sizeRef.current;
+        const view = viewRef.current;
+        if (size.width <= 0 || size.height <= 0) return;
+        const dpr = view.dpr;
+        const wantW = Math.max(1, Math.round(size.width * dpr));
+        const wantH = Math.max(1, Math.round(size.height * dpr));
+        if (canvas.width !== wantW) canvas.width = wantW;
+        if (canvas.height !== wantH) canvas.height = wantH;
+        paintDag(ctx, sceneRef.current ?? { count: 0, items: [], sortedByX: [], segments: [], neighbours: new Map() }, view, size, {
+          theme: dagTheme(),
+          selectedId,
+          hoverId: view.hoverId,
+          related,
+        });
+        if (overlayRef.current) {
+          overlayRef.current.style.transform = 'translate(' + view.pan.x + 'px, ' + view.pan.y + 'px) scale(' + view.zoom + ')';
         }
-        const observer = new ResizeObserver(update);
-        observer.observe(el);
+        const stamp = Date.now();
+        if (stamp - zoomStampRef.current > 120) {
+          zoomStampRef.current = stamp;
+          setZoomPct(Math.round(view.zoom * 100));
+        }
+      }, [selectedId, related]);
+
+      const schedule = React.useCallback(() => {
+        if (frameRef.current !== 0) return;
+        const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (fn) => setTimeout(fn, 16);
+        frameRef.current = raf(() => {
+          frameRef.current = 0;
+          paint();
+        });
+      }, [paint]);
+
+      const measure = React.useCallback(() => {
+        const host = hostRef.current;
+        if (!host) return;
+        const rect = host.getBoundingClientRect();
+        const width = Math.max(host.clientWidth || 0, rect.width || 0);
+        const height = Math.max(host.clientHeight || 0, rect.height || 0);
+        sizeRef.current = { width, height };
+        const dpr = typeof window !== 'undefined' && Number(window.devicePixelRatio) > 0 ? Math.min(window.devicePixelRatio, 2) : 1;
+        viewRef.current.dpr = dpr;
+        schedule();
+      }, [schedule]);
+
+      React.useEffect(() => {
+        measure();
+        if (typeof ResizeObserver !== 'function') {
+          window.addEventListener('resize', measure);
+          return () => window.removeEventListener('resize', measure);
+        }
+        const observer = new ResizeObserver(measure);
+        if (hostRef.current) observer.observe(hostRef.current);
         return () => observer.disconnect();
-      }, []);
-
-      React.useEffect(() => {
-        panRef.current = pan;
-      }, [pan]);
-      React.useEffect(() => {
-        zoomRef.current = zoom;
-      }, [zoom]);
-
-      // No DOM per off-screen node (S8): render only what intersects the
-      // padded viewport, and cap the window so an extreme zoom-out cannot
-      // mount thousands of cards. The cap is visible in the UI, never silent.
-      // #region viewport-window
-      const windowing = computeViewportWindow({
-        nodes,
-        edges,
-        positions: layout.positions,
-        pan,
-        zoom,
-        viewportSize,
-        nodeWidth: NODE_W,
-        nodeHeight: NODE_H,
-        maxRendered: MAX_RENDERED_NODES,
-        pad: 240,
-        idOf: nodeIdOf,
-      });
-      // #endregion viewport-window
-      const clampZoom = (value) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
+      }, [measure]);
 
       const fit = React.useCallback(() => {
-        const viewport = viewportRef.current;
-        if (!viewport || layout.width <= 0 || layout.height <= 0) {
-          setZoom(1);
-          setPan({ x: 0, y: 0 });
-          return;
+        const view = viewRef.current;
+        const size = sizeRef.current;
+        if (!(size.width > 0) || !(size.height > 0) || safeLayout.width <= 0 || safeLayout.height <= 0) {
+          view.zoom = 1;
+          view.pan = { x: 0, y: 0 };
+        } else {
+          const scale = Math.min(
+            (size.width - FIT_PAD * 2) / safeLayout.width,
+            (size.height - FIT_PAD * 2) / safeLayout.height,
+            1,
+          );
+          const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale));
+          view.zoom = zoom;
+          view.pan = { x: (size.width - safeLayout.width * zoom) / 2, y: (size.height - safeLayout.height * zoom) / 2 };
         }
-        const rect = viewport.getBoundingClientRect();
-        const width = Math.max(rect.width, 10);
-        const height = Math.max(rect.height, 10);
-        const scale = clampZoom(Math.min(
-          (width - FIT_PAD * 2) / layout.width,
-          (height - FIT_PAD * 2) / layout.height,
-          1,
-        ));
-        setZoom(scale);
-        setPan({ x: (width - layout.width * scale) / 2, y: (height - layout.height * scale) / 2 });
-      }, [layout]);
+        schedule();
+      }, [safeLayout, schedule]);
 
       React.useEffect(() => {
         if (fittedRef.current) return;
-        if (layout.width <= 0 || layout.height <= 0) return;
+        if (safeLayout.width <= 0 || safeLayout.height <= 0) return;
         fittedRef.current = true;
         fit();
-      }, [fit, layout.width, layout.height]);
+      }, [fit, safeLayout.width, safeLayout.height]);
 
+      React.useEffect(() => { schedule(); }, [scene, selectedId, now, busyKey, schedule]);
+
+      // Wheel zoom is anchored at the cursor; both handlers mutate the ref and
+      // only schedule a repaint, so React never re-renders during a gesture.
       React.useEffect(() => {
-        const viewport = viewportRef.current;
-        if (!viewport || typeof viewport.addEventListener !== 'function') return undefined;
+        const host = hostRef.current;
+        if (!host || typeof host.addEventListener !== 'function') return undefined;
         const onWheel = (event) => {
-          if (typeof event?.preventDefault === 'function') event?.preventDefault();
-          const rect = viewport.getBoundingClientRect();
-          const pointerX = event?.clientX - rect.left;
-          const pointerY = event?.clientY - rect.top;
-          const current = zoomRef.current;
-          const next = clampZoom(current * Math.exp(-event?.deltaY * 0.0015));
-          if (next === current) return;
-          const ratio = next / current;
-          setPan((previous) => ({
-            x: pointerX - (pointerX - previous.x) * ratio,
-            y: pointerY - (pointerY - previous.y) * ratio,
-          }));
-          setZoom(next);
+          if (typeof event.preventDefault === 'function') event.preventDefault();
+          const rect = host.getBoundingClientRect();
+          const view = viewRef.current;
+          const pointerX = (event.clientX ?? 0) - rect.left;
+          const pointerY = (event.clientY ?? 0) - rect.top;
+          const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.zoom * Math.exp(-(event.deltaY ?? 0) * 0.0015)));
+          if (next === view.zoom) return;
+          const ratio = next / view.zoom;
+          view.pan = { x: pointerX - (pointerX - view.pan.x) * ratio, y: pointerY - (pointerY - view.pan.y) * ratio };
+          view.zoom = next;
+          schedule();
         };
-        viewport.addEventListener('wheel', onWheel, { passive: false });
-        return () => viewport.removeEventListener('wheel', onWheel);
-      }, []);
+        host.addEventListener('wheel', onWheel, { passive: false });
+        return () => host.removeEventListener('wheel', onWheel);
+      }, [schedule]);
 
       const zoomBy = (factor) => {
-        const viewport = viewportRef.current;
-        if (!viewport) return;
-        const rect = viewport.getBoundingClientRect();
-        const pointerX = rect.width / 2;
-        const pointerY = rect.height / 2;
-        const current = zoomRef.current;
-        const next = clampZoom(current * factor);
-        if (next === current) return;
-        const ratio = next / current;
-        setPan((previous) => ({
-          x: pointerX - (pointerX - previous.x) * ratio,
-          y: pointerY - (pointerY - previous.y) * ratio,
-        }));
-        setZoom(next);
+        const view = viewRef.current;
+        const size = sizeRef.current;
+        const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.zoom * factor));
+        if (next === view.zoom) return;
+        const ratio = next / view.zoom;
+        view.pan = {
+          x: size.width / 2 - (size.width / 2 - view.pan.x) * ratio,
+          y: size.height / 2 - (size.height / 2 - view.pan.y) * ratio,
+        };
+        view.zoom = next;
+        schedule();
+      };
+
+      const worldPointOf = (event) => {
+        const host = hostRef.current;
+        const rect = host ? host.getBoundingClientRect() : { left: 0, top: 0 };
+        const view = viewRef.current;
+        return {
+          x: ((event.clientX ?? 0) - rect.left - view.pan.x) / view.zoom,
+          y: ((event.clientY ?? 0) - rect.top - view.pan.y) / view.zoom,
+        };
       };
 
       const onPointerDown = (event) => {
         if (event?.button !== 0) return;
-        const target = event?.target;
-        if (target && typeof target?.closest === 'function' && target?.closest('.rl-node') !== null) return;
-        dragRef.current = {
-          startX: event?.clientX,
-          startY: event?.clientY,
-          panX: panRef.current.x,
-          panY: panRef.current.y,
-        };
+        dragRef.current = { startX: event.clientX ?? 0, startY: event.clientY ?? 0, panX: viewRef.current.pan.x, panY: viewRef.current.pan.y };
         movedRef.current = 0;
-        setDragging(true);
-        try {
-          event?.currentTarget.setPointerCapture(event?.pointerId);
-        } catch (error) {
-          /* pointer capture is best effort */
-        }
+        try { event?.currentTarget?.setPointerCapture?.(event.pointerId); } catch { /* best effort */ }
       };
       const onPointerMove = (event) => {
         const drag = dragRef.current;
-        if (drag === null) return;
-        const dx = event?.clientX - drag.startX;
-        const dy = event?.clientY - drag.startY;
-        movedRef.current = Math.max(movedRef.current, Math.abs(dx) + Math.abs(dy));
-        setPan({ x: drag.panX + dx, y: drag.panY + dy });
+        if (drag !== null) {
+          const dx = (event.clientX ?? 0) - drag.startX;
+          const dy = (event.clientY ?? 0) - drag.startY;
+          movedRef.current = Math.max(movedRef.current, Math.abs(dx) + Math.abs(dy));
+          viewRef.current.pan = { x: drag.panX + dx, y: drag.panY + dy };
+          schedule();
+          return;
+        }
+        const hit = hitTestDag(sceneRef.current, worldPointOf(event));
+        const id = hit === null ? null : hit.id;
+        if (id !== viewRef.current.hoverId) {
+          viewRef.current.hoverId = id;
+          setHoverId(id);
+          schedule();
+        }
       };
       const endDrag = (event) => {
         if (dragRef.current === null) return;
         dragRef.current = null;
-        setDragging(false);
         try {
-          if (event?.currentTarget.hasPointerCapture && event?.currentTarget.hasPointerCapture(event?.pointerId)) {
-            event?.currentTarget.releasePointerCapture(event?.pointerId);
-          }
-        } catch (error) {
-          /* ignore */
-        }
+          if (event?.currentTarget?.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        } catch { /* ignore */ }
       };
-      const onCanvasClick = (event) => {
-        if (movedRef.current > 4) {
-          movedRef.current = 0;
-          return;
-        }
-        const target = event?.target;
-        if (target && typeof target?.closest === 'function' && target?.closest('.rl-node') !== null) return;
-        onSelect(null);
+      const onClick = (event) => {
+        if (movedRef.current > 4) { movedRef.current = 0; return; }
+        const hit = hitTestDag(sceneRef.current, worldPointOf(event));
+        onSelect(hit === null ? null : hit.id);
+      };
+      const onDoubleClick = (event) => {
+        const hit = hitTestDag(sceneRef.current, worldPointOf(event));
+        if (hit !== null && typeof onOpenNative === 'function') onOpenNative(hit.id, 'trajectory');
+      };
+      const onKeyDown = (event) => {
+        const view = viewRef.current;
+        const step = 80;
+        if (event.key === 'ArrowLeft') view.pan = { ...view.pan, x: view.pan.x + step };
+        else if (event.key === 'ArrowRight') view.pan = { ...view.pan, x: view.pan.x - step };
+        else if (event.key === 'ArrowUp') view.pan = { ...view.pan, y: view.pan.y + step };
+        else if (event.key === 'ArrowDown') view.pan = { ...view.pan, y: view.pan.y - step };
+        else if (event.key === '+' || event.key === '=') zoomBy(1.2);
+        else if (event.key === '-') zoomBy(1 / 1.2);
+        else if (event.key === '0') fit();
+        else if (event.key === 'Enter' && selectedId !== null && typeof onOpenNative === 'function') onOpenNative(selectedId, 'trajectory');
+        else return;
+        event.preventDefault?.();
+        schedule();
       };
 
-      const related = React.useMemo(() => relatedNodeIds(selectedId, edges), [edges, selectedId]);
-      const innerStyle = {
-        width: layout.width,
-        height: layout.height,
-        transform: 'translate(' + pan.x + 'px, ' + pan.y + 'px) scale(' + zoom + ')',
-        transformOrigin: '0 0',
+      const overlayStyle = selectedNode === null ? null : {
+        left: selectedNodePosition(sceneRef.current, selectedId).x,
+        top: selectedNodePosition(sceneRef.current, selectedId).y,
       };
 
       return h(
         'div',
-        {
-          className: 'rl-canvas' + (dragging ? ' rl-canvas-dragging' : ''),
-          ref: viewportRef,
+        { className: 'rl-canvas' + (dragRef.current !== null ? ' rl-canvas-dragging' : ''), ref: hostRef },
+        factsSlot ?? null,
+        h('canvas', {
+          ref: canvasRef,
+          className: 'rl-dag-canvas',
+          'data-testid': 'dag-canvas',
+          role: 'application',
+          tabIndex: 0,
+          'aria-label': t('ws.canvas.label'),
           onPointerDown,
           onPointerMove,
           onPointerUp: endDrag,
           onPointerCancel: endDrag,
-          onClick: onCanvasClick,
-        },
-        factsSlot ?? null,
-        windowing.hidden > 0
-          ? h(
-              'div',
-              { className: 'rl-canvas-window', title: t('ws.canvas.windowHint', { limit: MAX_RENDERED_NODES }) },
-              t('ws.canvas.window', { shown: windowing.nodes.length, total: nodes.length }),
-            )
-          : null,
-        layout.width > 0
-          ? h(
-              'div',
-              { className: 'rl-canvas-inner', style: innerStyle },
-              h(
-                'svg',
-                {
-                  className: 'rl-canvas-svg',
-                  width: layout.width,
-                  height: layout.height,
-                  viewBox: '0 0 ' + layout.width + ' ' + layout.height,
-                  'aria-hidden': true,
-                },
-                windowing.edges.map((edge, index) => {
-                  const from = layout.positions.get(edge.from);
-                  const to = layout.positions.get(edge.to);
-                  if (!from || !to) return null;
-                  const active = selectedId !== null && (edge.from === selectedId || edge.to === selectedId);
-                  return h('path', {
-                    key: 'edge-' + index + '-' + edge.from + '-' + edge.to,
-                    className: 'rl-edge' + (active ? ' rl-edge-active' : ''),
-                    d: edgePath(from, to),
-                  });
-                }),
-              ),
-              windowing.nodes.map((node) => {
-                const id = nodeIdOf(node);
-                const position = layout.positions.get(id);
-                if (!position) return null;
-                return h(NodeCard, {
-                  key: id,
-                  node,
-                  position,
-                  selected: id === selectedId,
-                  dim: selectedId !== null && id !== selectedId && !related.has(id),
-                  parentTitle: parentTitleOf(node, nodes),
-                  isLeaf: nodeIsLeafOf(node, nodes),
-                  sealed: nodeSealedFlagOf(node),
-                  busyKey,
-                  now,
-                  onSelect,
-                  onOpenNative,
-                  onContinue,
-                  onNodeAction,
-                  onProposalAction,
-                  onRetryRequest,
-                  onEscalate,
-                  t,
-                });
-              }),
-            )
-          : h('div', { className: 'rl-canvas-empty' }, t('ws.canvas.empty')),
+          onClick,
+          onDoubleClick,
+          onKeyDown,
+        }),
+        selectedNode === null ? null : h(
+          'div',
+          { className: 'rl-dag-overlay', ref: overlayRef },
+          h('div', { className: 'rl-dag-overlay-card', style: overlayStyle },
+            h(NodeCard, {
+              node: selectedNode,
+              position: { x: 0, y: 0 },
+              selected: true,
+              dim: false,
+              parentTitle: parentTitleOf(selectedNode, safeNodes),
+              isLeaf: nodeIsLeafOf(selectedNode, safeNodes),
+              sealed: nodeSealedFlagOf(selectedNode),
+              busyKey,
+              now,
+              onSelect,
+              onOpenNative,
+              onContinue,
+              onNodeAction,
+              onProposalAction,
+              onRetryRequest,
+              onEscalate,
+              t,
+            })),
+        ),
         h(
           'div',
           { className: 'rl-canvas-toolbar' },
           h(LabButton, { label: t('ws.canvas.fit'), variant: 'ghost', onClick: fit, title: t('ws.canvas.fit') }),
           h(LabButton, { label: '＋', variant: 'ghost', onClick: () => zoomBy(1.2), title: t('ws.canvas.zoomIn') }),
-          h('span', { className: 'rl-canvas-zoom' }, Math.round(zoom * 100) + '%'),
+          h('span', { className: 'rl-canvas-zoom' }, zoomPct + '%'),
           h(LabButton, { label: '－', variant: 'ghost', onClick: () => zoomBy(1 / 1.2), title: t('ws.canvas.zoomOut') }),
         ),
-        nodes.length > 0 ? h('div', { className: 'rl-canvas-hint' }, t('ws.canvas.hint')) : null,
+        safeNodes.length > 0 ? h('div', { className: 'rl-canvas-hint' }, t('ws.canvas.hint')) : null,
+        safeNodes.length === 0 ? h('div', { className: 'rl-canvas-empty' }, t('ws.canvas.empty')) : null,
         replayFooter ? h('div', {
           className: 'rl-canvas-replay',
           onPointerDown: (event) => event?.stopPropagation(),
@@ -12520,6 +13148,12 @@ window.__ModuleLoader__.load({
           onClick: (event) => event?.stopPropagation(),
         }, replayFooter) : null,
       );
+    }
+
+    /** World position of one selected node (overlay card placement). */
+    function selectedNodePosition(scene, id) {
+      const item = scene?.byId?.get(id);
+      return item === undefined || item === null ? { x: 0, y: 0 } : { x: item.x, y: item.y };
     }
 
     /** Parent title lookup for a node card subtitle (merge nodes list all parents). */
@@ -13186,6 +13820,7 @@ window.__ModuleLoader__.load({
           );
         })(),
         h(ExecutionTraceSection, { node, t }),
+        h(NodeTraceSection, { node, t }),
         h(NativeSessionPanel, { node, onOpenSession: (sessionId, view) => onOpenSession(sessionId, view, nodeKeyId), onOpenFiles: () => onOpenFiles(nodeKeyId), t }),
         isMergeNode
           ? h(MergeSection, { node, nodes, busy, onFinish: () => onFinishMerge(nodeKeyId), t })
@@ -16717,19 +17352,6 @@ window.__ModuleLoader__.load({
       );
     }
 
-    /** Inline Step result banner (summary or localized error). */
-    function StepBanner({ info, onDismiss, t }) {
-      const record = asObject(info);
-      const isError = record?.kind === 'error';
-      return h(
-        'div',
-        { className: 'rl-step-banner' + (isError ? ' rl-step-banner-error' : ''), role: 'status' },
-        h('span', { className: 'rl-step-banner-text' + (isError ? '' : ' rl-step-banner-ok') }, record?.text || ''),
-        record?.meta ? h('span', { className: 'rl-step-banner-meta' }, record?.meta) : null,
-        h(LabButton, { label: t('ws.step.dismiss'), variant: 'ghost', onClick: onDismiss }),
-      );
-    }
-
     /** One collapsed JSON document (details/summary, no state needed). */
     function JsonBlock({ title, value, open }) {
       const text = stringifyPayload(value);
@@ -17565,6 +18187,905 @@ window.__ModuleLoader__.load({
         t('nav.returnToLab'),
       );
     }
+
+    // #region profiler trace viewer (issue #94)
+    /** Google Perfetto UI owns trace rendering (issue #94 follow-up: standard UI). */
+    const TRACE_PERFETTO_ORIGIN = 'https://ui.perfetto.dev';
+    /** Same-origin self-hosted build (served by the Host when installed). */
+    const TRACE_PERFETTO_LOCAL_SRC = '/metainfer/perfetto/#!/?mode=embedded';
+    /** Embedded mode disables the sidebar and the file-drop handler. */
+    const TRACE_PERFETTO_EXTERNAL_SRC = TRACE_PERFETTO_ORIGIN + '/#!/?mode=embedded';
+    /** Handshake ping cadence; the UI answers PONG once its listener is ready. */
+    const TRACE_PING_MS = 150;
+    /** Give the embedded UI this long to answer PONG before offering fallbacks. */
+    const TRACE_PERFETTO_TIMEOUT_MS = 12000;
+    /** Project-chat poll cadence while a trace action is in flight. */
+    const TRACE_CHAT_POLL_MS = 1500;
+    /** Upper bound on chat polls so a failed turn cannot spin forever. */
+    const TRACE_CHAT_TRIES = 60;
+    /** Rows rendered by the kernel selector rail. */
+    const TRACE_KERNEL_ROWS = 40;
+    /** Trace actions that materialise a DAG node instead of a chat turn. */
+    const TRACE_NODE_ACTIONS = Object.freeze(['fusion', 'optimize']);
+    /** Default and maximum timebox for a trace-created node. */
+    const TRACE_DEFAULT_TIMEBOX = 30;
+    const TRACE_MAX_TIMEBOX = 240;
+    /** Local file ceiling; larger traces must be opened by Host path. */
+    const TRACE_FILE_LIMIT = 64 * 1024 * 1024;
+    /** Perfetto zooms this fill ratio when a kernel is picked in the rail. */
+    const TRACE_VIEW_FILL = 0.9;
+
+    /** `1.234 ms` style duration; traces are recorded in microseconds. */
+    /** Human byte size for a trace file candidate. */
+    function formatTraceBytes(value) {
+      const bytes = numberOr(value, 0);
+      if (bytes <= 0) return '0 B';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+
+    /** Signed percentage for the comparison table; '±0' reads better than '+0'. */
+    function formatDeltaPct(value) {
+      const pct = Number(value);
+      if (!Number.isFinite(pct) || pct === 0) return '±0%';
+      return (pct > 0 ? '+' : '') + (Math.round(pct * 10) / 10) + '%';
+    }
+
+    function formatTraceMicros(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return '—';
+      if (number >= 1_000_000) return (number / 1_000_000).toFixed(3) + ' s';
+      if (number >= 1000) return (number / 1000).toFixed(3) + ' ms';
+      return number.toFixed(1) + ' µs';
+    }
+
+    function formatTraceShape(dims) {
+      const rows = asArray(dims);
+      if (rows.length === 0) return '—';
+      const parts = rows.map((entry) => (Array.isArray(entry) ? '[' + entry.join('x') + ']' : String(entry)));
+      return '[' + parts.join(', ') + ']';
+    }
+
+    function traceWindowOf(payload) {
+      const window = asObject(asObject(payload)?.window);
+      const start = Number(window?.startTs);
+      const end = Number(window?.endTs);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+      return { from: start, to: end };
+    }
+
+    /**
+     * Trace workspace: Google Perfetto renders the trace in an embedded iframe
+     * (`mode=embedded`), the Host parses the same bytes for the kernel rail, and
+     * the nine Agent actions run from the rail. Selecting a kernel in the rail
+     * zooms Perfetto to that slice via the documented postMessage API.
+     */
+    function ProfilerTab({ projectId, t, active, nodes = [], request = null }) {
+      const tr = typeof t === 'function' ? t : (key) => key;
+      const [traces, setTraces] = React.useState([]);
+      // Multi-trace comparison: at most three columns stay legible, and the first
+      // opened trace is the baseline every delta is measured against.
+      const [compareIds, setCompareIds] = React.useState([]);
+      const [compare, setCompare] = React.useState(null);
+      const [compareBusy, setCompareBusy] = React.useState(false);
+      const [candidates, setCandidates] = React.useState({ nodeId: '', rows: [], error: '', busy: false });
+      const [candidateNode, setCandidateNode] = React.useState('');
+      const [pickedCandidates, setPickedCandidates] = React.useState([]);
+      const [traceNodes, setTraceNodes] = React.useState({ rows: [], busy: true, error: '' });
+      const [traceId, setTraceId] = React.useState('');
+      const [summary, setSummary] = React.useState(null);
+      const [phase, setPhase] = React.useState('idle');
+      const [error, setError] = React.useState('');
+      const [pathInput, setPathInput] = React.useState('');
+      const [search, setSearch] = React.useState('');
+      const [sort, setSort] = React.useState('sum');
+      const [kernels, setKernels] = React.useState({ rows: [], matched: 0, total: 0 });
+      const [selected, setSelected] = React.useState(null);
+      const [showDetail, setShowDetail] = React.useState(false);
+      const [chat, setChat] = React.useState([]);
+      const [busy, setBusy] = React.useState('');
+      const [notice, setNotice] = React.useState('');
+      const [actionError, setActionError] = React.useState('');
+      const [nodeDialog, setNodeDialog] = React.useState(null);
+      const [timebox, setTimebox] = React.useState(TRACE_DEFAULT_TIMEBOX);
+      const [question, setQuestion] = React.useState('');
+      const [perfetto, setPerfetto] = React.useState({ state: 'starting', loaded: false, origin: 'local' });
+      const aliveRef = React.useRef(true);
+      const kernelsRef = React.useRef([]);
+      const selectKernelRef = React.useRef(null);
+      const frameRef = React.useRef(null);
+      const pingRef = React.useRef(null);
+      const timerRef = React.useRef(null);
+
+      React.useEffect(() => {
+        aliveRef.current = true;
+        return () => {
+          aliveRef.current = false;
+          if (timerRef.current !== null) clearTimeout(timerRef.current);
+          if (pingRef.current !== null) clearInterval(pingRef.current);
+        };
+      }, []);
+
+      const perfettoWindow = React.useCallback(() => {
+        const frame = frameRef.current;
+        return frame === null || frame === undefined ? null : frame.contentWindow;
+      }, []);
+
+      const postPerfetto = React.useCallback((payload, transfer) => {
+        const target = perfettoWindow();
+        if (target === null) return false;
+        try {
+          if (Array.isArray(transfer) && transfer.length > 0) target.postMessage(payload, '*', transfer);
+          else target.postMessage(payload, '*');
+          return true;
+        } catch (reason) {
+          return false;
+        }
+      }, [perfettoWindow]);
+
+      // PING/PONG: the Perfetto message channel is not buffered, so the trace
+      // can only be posted after the UI answers PONG.
+      // Latest kernel rows, for the Perfetto selection bridge (the message
+      // listener must not be re-bound on every kernel page).
+      React.useEffect(() => { kernelsRef.current = asArray(kernels.rows); }, [kernels]);
+
+      React.useEffect(() => {
+        if (active === false || typeof window === 'undefined') return undefined;
+        const origin = perfetto.origin;
+        const onMessage = (event) => {
+          const target = perfettoWindow();
+          if (target === null || event.source !== target) return;
+          if (event.data === 'PONG') {
+            if (pingRef.current !== null) clearInterval(pingRef.current);
+            pingRef.current = null;
+            setPerfetto((previous) => (previous.state === 'ready' ? previous : { ...previous, state: 'ready' }));
+            return;
+          }
+          // Self-hosted hook: the user picked a slice inside Perfetto.
+          const selection = asObject(asObject(event.data).metainfer)?.selection;
+          const text = firstString(asObject(selection).text);
+          if (text === '') return;
+          const needle = text.toLowerCase();
+          let match = null;
+          for (const row of kernelsRef.current) {
+            const name = firstString(asObject(row).name);
+            if (name.length < 8) continue;
+            if (needle.includes(name.toLowerCase())) { match = row; break; }
+          }
+          if (match === null) {
+            for (const row of kernelsRef.current) {
+              const family = firstString(asObject(row).family);
+              if (family.length < 8) continue;
+              if (needle.includes(family.toLowerCase())) { match = row; break; }
+            }
+          }
+          if (match === null) return;
+          const index = numberOr(asObject(match).kernelIndex, -1);
+          if (index < 0) return;
+          const handler = selectKernelRef.current;
+          if (typeof handler !== 'function') return;
+          void handler(index, true);
+        };
+        window.addEventListener('message', onMessage);
+        if (pingRef.current !== null) clearInterval(pingRef.current);
+        const ping = () => { postPerfetto('PING'); };
+        ping();
+        pingRef.current = setInterval(ping, TRACE_PING_MS);
+        const timeout = setTimeout(() => {
+          if (origin === 'local') {
+            // Self-hosted assets are not installed: retry against the public UI.
+            setPerfetto((previous) => (previous.state === 'ready' ? previous : { state: 'starting', loaded: false, origin: 'external' }));
+            return;
+          }
+          setPerfetto((previous) => (previous.state === 'ready' ? previous : { ...previous, state: 'unavailable', loaded: false }));
+        }, TRACE_PERFETTO_TIMEOUT_MS);
+        timerRef.current = timeout;
+        return () => {
+          window.removeEventListener('message', onMessage);
+          if (pingRef.current !== null) clearInterval(pingRef.current);
+          pingRef.current = null;
+          clearTimeout(timeout);
+        };
+        // selectKernel/selected are read through refs; binding once per origin is
+        // what keeps the Perfetto ping loop stable.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [active, perfetto.origin, perfettoWindow, postPerfetto]);
+
+      const loadTraces = React.useCallback(async (signal) => {
+        try {
+          const data = await api.fetchTraces(signal, tr);
+          if (signal?.aborted) return;
+          setTraces(asArray(asObject(data).traces));
+        } catch (reason) {
+          if (!isAbortError(reason)) setActionError(describeError(reason, tr));
+        }
+      }, [tr]);
+
+      React.useEffect(() => {
+        if (active === false) return undefined;
+        const controller = new AbortController();
+        void loadTraces(controller.signal);
+        return () => controller.abort();
+      }, [active, loadTraces]);
+
+      const refreshTrace = React.useCallback(async (id) => {
+        if (typeof id !== 'string' || id === '') return;
+        setPhase('loading');
+        setError('');
+        try {
+          const data = await api.fetchTrace(id, 'summary', {}, tr);
+          if (!aliveRef.current) return;
+          setSummary(asObject(data));
+          setTraceId(id);
+          setSelected(null);
+          setShowDetail(false);
+          // Do NOT force 'ready' here: Perfetto accepts messages only after its
+          // document is complete (PONG), otherwise the trace is silently dropped.
+          setPerfetto((previous) => ({ ...previous, loaded: false }));
+          setPhase('ready');
+        } catch (reason) {
+          if (!aliveRef.current) return;
+          setPhase('error');
+          setError(describeError(reason, tr));
+        }
+      }, [tr]);
+
+      // Hand the raw bytes to Perfetto once the channel is up and a trace exists.
+      React.useEffect(() => {
+        if (traceId === '' || perfetto.state !== 'ready') return undefined;
+        let cancelled = false;
+        (async () => {
+          try {
+            const buffer = await api.fetchTraceBytes(traceId, tr);
+            if (cancelled || !aliveRef.current) return;
+            const title = firstString(asObject(summary).name) || traceId;
+            const posted = postPerfetto({ perfetto: { buffer, title, keepApiOpen: true } }, [buffer]);
+            if (!cancelled) setPerfetto((previous) => ({ ...previous, loaded: posted }));
+          } catch (reason) {
+            if (cancelled || !aliveRef.current) return;
+            setPerfetto((previous) => ({ ...previous, state: 'unavailable', loaded: false }));
+            setActionError(describeError(reason, tr));
+          }
+        })();
+        return () => { cancelled = true; };
+      }, [traceId, perfetto.state, summary, postPerfetto, tr]);
+
+      const loadKernels = React.useCallback(async (id, sortKey, query) => {
+        try {
+          const data = await api.fetchTrace(id, 'kernels', { sort: sortKey, q: query, limit: 200 }, tr);
+          if (!aliveRef.current) return;
+          setKernels({
+            rows: asArray(asObject(data).rows),
+            matched: numberOr(asObject(data).matched, 0),
+            total: numberOr(asObject(data).total, 0),
+          });
+        } catch (reason) {
+          if (!isAbortError(reason)) setActionError(describeError(reason, tr));
+        }
+      }, [tr]);
+
+      React.useEffect(() => {
+        if (phase !== 'ready' || traceId === '') return undefined;
+        void loadKernels(traceId, sort, '');
+        return undefined;
+      }, [phase, traceId, loadKernels]);
+
+      React.useEffect(() => {
+        if (traceId === '') return undefined;
+        const handle = setTimeout(() => { void loadKernels(traceId, sort, search); }, 150);
+        return () => clearTimeout(handle);
+      }, [search, sort, traceId, loadKernels]);
+
+      const openTrace = async (payload) => {
+        setPhase('loading');
+        setError('');
+        setNotice('');
+        try {
+          const data = await api.openTrace(payload, tr);
+          if (!aliveRef.current) return;
+          await refreshTrace(asObject(data).traceId);
+          await loadTraces();
+        } catch (reason) {
+          if (!aliveRef.current) return;
+          setPhase('error');
+          setError(describeError(reason, tr));
+        }
+      };
+
+      const openByPath = () => {
+        const value = pathInput.trim();
+        if (value === '') return;
+        void openTrace({ path: value });
+      };
+
+      const openByFile = async (event) => {
+        const file = event?.target?.files?.[0];
+        if (!file) return;
+        if (file.size > TRACE_FILE_LIMIT) {
+          setActionError(tr('ws.trace.tooLarge'));
+          return;
+        }
+        try {
+          const text = await file.text();
+          await openTrace({ content: text, name: firstString(file.name) || 'uploaded-trace.json' });
+        } catch (reason) {
+          setActionError(describeError(reason, tr));
+        } finally {
+          if (event?.target) event.target.value = '';
+        }
+      };
+
+      const revealInPerfetto = (detail) => {
+        if (perfetto.state !== 'ready') return;
+        const kernel = asObject(asObject(detail).kernel);
+        const ts = Number(kernel.ts);
+        const dur = Number(kernel.dur);
+        if (!Number.isFinite(ts)) return;
+        // Perfetto's postMessage time range is absolute seconds, while chrome
+        // traces from torch.profiler record microseconds.
+        postPerfetto({
+          perfetto: {
+            timeStart: ts / 1e6,
+            timeEnd: (ts + Math.max(Number.isFinite(dur) ? dur : 0, 1)) / 1e6,
+            viewPercentage: TRACE_VIEW_FILL,
+          },
+        });
+      };
+
+      const selectKernel = async (kernelIndex, openDetail) => {
+        if (!Number.isInteger(kernelIndex) || traceId === '') return;
+        setBusy('kernel');
+        setActionError('');
+        try {
+          const data = await api.fetchTrace(traceId, 'kernel', { kernel: kernelIndex }, tr);
+          if (!aliveRef.current) return;
+          const payload = asObject(data);
+          setSelected({ index: kernelIndex, detail: asObject(payload.detail), actions: asArray(payload.actions) });
+          setShowDetail(openDetail === true);
+          revealInPerfetto(payload.detail);
+        } catch (reason) {
+          setActionError(describeError(reason, tr));
+        } finally {
+          setBusy('');
+        }
+      };
+
+      selectKernelRef.current = selectKernel;
+
+      const pollChat = async (before) => {
+        for (let attempt = 0; attempt < TRACE_CHAT_TRIES; attempt += 1) {
+          if (!aliveRef.current) return;
+          await new Promise((resolve) => { timerRef.current = setTimeout(resolve, TRACE_CHAT_POLL_MS); });
+          if (!aliveRef.current) return;
+          try {
+            const data = await api.fetchChat(projectId, undefined, tr);
+            const messages = asArray(asObject(data).messages);
+            setChat(messages);
+            const answered = messages.length > before && messages.some((message, index) => index >= before && asObject(message).role !== 'user');
+            if (answered) {
+              setNotice('');
+              return;
+            }
+          } catch (reason) {
+            if (!isAbortError(reason)) {
+              setActionError(describeError(reason, tr));
+              return;
+            }
+          }
+        }
+        setNotice('');
+      };
+
+      const dispatchAction = async (actionId) => {
+        if (selected === null || traceId === '') return;
+        setBusy(actionId);
+        setActionError('');
+        setNotice(tr('ws.trace.dispatching'));
+        try {
+          const promptData = await api.fetchTrace(traceId, 'prompt', {
+            action: actionId,
+            kernel: selected.index,
+            question,
+          }, tr);
+          const before = asArray(chat).length;
+          const command = await api.command({ type: 'project.chat', projectId, text: asObject(promptData).prompt }, undefined, tr);
+          if (!aliveRef.current) return;
+          const messages = asArray(asObject(command).messages);
+          if (messages.length > 0) setChat(messages);
+          setQuestion('');
+          await pollChat(before);
+        } catch (reason) {
+          setNotice('');
+          setActionError(describeError(reason, tr));
+        } finally {
+          setBusy('');
+        }
+      };
+
+      const askQuestion = () => {
+        if (question.trim() === '') return;
+        void dispatchAction('ask');
+      };
+
+      const createNode = async (actionId) => {
+        setBusy(actionId);
+        setActionError('');
+        try {
+          const data = await api.command({
+            type: 'trace.task',
+            projectId,
+            traceId,
+            kernelIndex: selected?.index,
+            action: actionId,
+            timeboxMinutes: timebox,
+          }, undefined, tr);
+          const node = asObject(asObject(data).node);
+          setNodeDialog(null);
+          setNotice(tr('ws.trace.nodeCreated', { id: firstString(node.id) }));
+        } catch (reason) {
+          setActionError(describeError(reason, tr));
+        } finally {
+          setBusy('');
+        }
+      };
+
+      const closeTrace = async () => {
+        if (traceId === '') return;
+        try {
+          await api.command({ type: 'trace.close', traceId }, undefined, tr);
+        } catch (reason) {
+          setActionError(describeError(reason, tr));
+        }
+        setSummary(null);
+        setSelected(null);
+        setShowDetail(false);
+        setTraceId('');
+        setPhase('idle');
+        setChat([]);
+        setPerfetto((previous) => ({ ...previous, loaded: false }));
+        void loadTraces();
+      };
+
+      const openPerfettoTab = () => {
+        if (typeof window === 'undefined' || typeof window.open !== 'function') return;
+        window.open(perfetto.origin === 'local' ? TRACE_PERFETTO_LOCAL_SRC : TRACE_PERFETTO_EXTERNAL_SRC, '_blank', 'noopener');
+      };
+
+      const downloadTrace = () => {
+        if (traceId === '' || typeof window === 'undefined') return;
+        window.open(api.traceBytesUrl(traceId), '_blank', 'noopener');
+      };
+
+      // --- DAG node -> trace hop, and multi-trace comparison -----------------
+      const loadCandidates = React.useCallback(async (nodeId) => {
+        const wanted = firstString(nodeId);
+        if (wanted === '') return;
+        setCandidates({ nodeId: wanted, rows: [], error: '', busy: true });
+        try {
+          const data = await api.fetchTraceCandidates(projectId, wanted, tr);
+          if (!aliveRef.current) return;
+          setCandidates({ nodeId: wanted, rows: asArray(asObject(data).candidates), error: '', busy: false });
+        } catch (reason) {
+          if (!aliveRef.current) return;
+          setCandidates({ nodeId: wanted, rows: [], error: describeError(reason, tr), busy: false });
+        }
+      }, [projectId, tr]);
+
+      const loadCompare = React.useCallback(async (ids) => {
+        const list = asArray(ids).map((value) => firstString(value)).filter((value) => value !== '');
+        if (list.length < 2) {
+          setCompare(null);
+          return;
+        }
+        setCompareBusy(true);
+        try {
+          const data = await api.fetchTraceCompare(list, tr);
+          if (!aliveRef.current) return;
+          setCompare(asObject(data));
+        } catch (reason) {
+          if (!aliveRef.current) return;
+          setCompare(null);
+          setActionError(describeError(reason, tr));
+        } finally {
+          if (aliveRef.current) setCompareBusy(false);
+        }
+      }, [tr]);
+
+      /** Open every selected node trace; two or more land in the compare table. */
+      const openNodeTraces = React.useCallback(async (nodeId, relPaths) => {
+        const paths = asArray(relPaths).map((value) => firstString(value)).filter((value) => value !== '');
+        if (paths.length === 0) return;
+        setPhase('loading');
+        setError('');
+        const openedIds = [];
+        try {
+          for (const relPath of paths) {
+            const data = await api.openTrace({ projectId, nodeId, relPath }, tr);
+            const id = firstString(asObject(data).traceId);
+            if (id !== '') openedIds.push(id);
+          }
+        } catch (reason) {
+          if (!aliveRef.current) return;
+          setPhase('error');
+          setError(describeError(reason, tr));
+          return;
+        }
+        if (!aliveRef.current) return;
+        await loadTraces();
+        if (openedIds.length > 0) await refreshTrace(openedIds[openedIds.length - 1]);
+        setCompareIds(openedIds);
+        if (openedIds.length > 1) await loadCompare(openedIds);
+        else setCompare(null);
+      }, [projectId, tr, loadTraces, refreshTrace, loadCompare]);
+
+      // The Workspace bridge forwards "open these node traces" from the inspector.
+      React.useEffect(() => {
+        if (!request || typeof request !== 'object') return;
+        const nodeId = firstString(request.nodeId);
+        if (nodeId === '') return;
+        setCandidateNode(nodeId);
+        void loadCandidates(nodeId);
+        void openNodeTraces(nodeId, request.relPaths);
+        // request.at makes a repeated selection of the same node files re-open.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [request?.at]);
+
+      // Only nodes with at least one trace are offered: probing 900 worktrees one
+      // by one from the browser is not an option, so the Host scans once and
+      // caches the answer.
+      const loadTraceNodes = React.useCallback(async (refresh, signal) => {
+        setTraceNodes((previous) => ({ ...previous, busy: true, error: '' }));
+        try {
+          const data = await api.fetchTraceNodes(projectId, tr, refresh === true);
+          if (signal?.aborted === true || !aliveRef.current) return;
+          setTraceNodes({ rows: asArray(asObject(data).nodes), busy: false, error: '' });
+        } catch (reason) {
+          if (signal?.aborted === true || !aliveRef.current) return;
+          setTraceNodes({ rows: [], busy: false, error: describeError(reason, tr) });
+        }
+      }, [projectId, tr]);
+
+      React.useEffect(() => {
+        const controller = new AbortController();
+        void loadTraceNodes(false, controller.signal);
+        return () => controller.abort();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [projectId, active]);
+
+      React.useEffect(() => {
+        if (candidateNode === '') return;
+        void loadCandidates(candidateNode);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [candidateNode]);
+
+      const toggleCandidate = (relPath) => {
+        setPickedCandidates((previous) => (previous.indexOf(relPath) >= 0
+          ? previous.filter((value) => value !== relPath)
+          : [...previous, relPath]));
+      };
+
+      const nodeTracePicker = h('div', { className: 'rl-trace-picker', 'data-testid': 'trace-node-picker' },
+        h('div', { className: 'rl-trace-picker-head' },
+          h('span', { className: 'rl-section-title' }, tr('ws.trace.nodePicker')),
+          h('select', {
+            className: 'rl-select rl-trace-node-select',
+            value: candidateNode,
+            'aria-label': tr('ws.trace.nodePicker'),
+            onChange: (event) => { setCandidateNode(firstString(event?.target?.value)); setPickedCandidates([]); },
+          },
+          h('option', { value: '' }, traceNodes.rows.length === 0 ? tr('ws.trace.nodeNone') : tr('ws.trace.nodePickerEmpty')),
+          traceNodes.rows.map((row) => {
+            const id = firstString(asObject(row).nodeId);
+            const title = firstString(asObject(row).title) || id;
+            return h('option', { key: 'node-' + id, value: id }, id + ' · ' + title.slice(0, 60));
+          })),
+          h(LabButton, {
+            label: tr('ws.trace.nodeRefresh'),
+            variant: 'ghost',
+            onClick: () => { void loadTraceNodes(true); },
+            title: tr('ws.trace.nodeRefreshHint'),
+          }),
+          h('span', { className: 'rl-hint' }, tr('ws.trace.nodeHint'))),
+        candidates.error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, candidates.error) : null,
+        candidates.busy === true ? h(LabLoading, { label: tr('ws.trace.nodeScanning') }) : null,
+        candidates.busy !== true && candidateNode !== '' && candidates.rows.length === 0 && candidates.error === ''
+          ? h('p', { className: 'rl-hint' }, tr('ws.trace.nodeEmpty'))
+          : null,
+        candidates.rows.length === 0 ? null : h('div', { className: 'rl-trace-candidates' },
+          candidates.rows.map((row) => {
+            const entry = asObject(row);
+            const relPath = firstString(entry.relPath);
+            const picked = pickedCandidates.indexOf(relPath) >= 0;
+            return h('label', { key: 'cand-' + relPath, className: 'rl-trace-candidate' + (picked ? ' rl-trace-candidate-on' : '') },
+              h('input', {
+                type: 'checkbox',
+                checked: picked,
+                onChange: () => toggleCandidate(relPath),
+                'aria-label': relPath,
+              }),
+              h('span', { className: 'rl-trace-candidate-name' }, relPath),
+              h('span', { className: 'rl-trace-kmeta' }, formatTraceBytes(numberOr(entry.size, 0))));
+          }),
+          h('div', { className: 'rl-trace-candidate-actions' },
+            h(LabButton, {
+              label: tr('ws.trace.nodeOpen'),
+              onClick: () => { void openNodeTraces(candidateNode, pickedCandidates.length > 0 ? pickedCandidates : [firstString(asObject(candidates.rows[0]).relPath)]); },
+              disabled: candidateNode === '' || candidates.rows.length === 0,
+            }),
+            h(LabButton, {
+              label: tr('ws.trace.nodeCompare'),
+              variant: 'primary',
+              onClick: () => { void openNodeTraces(candidateNode, pickedCandidates); },
+              disabled: pickedCandidates.length < 2,
+            }))));
+
+      const comparePanel = compare === null ? null : (() => {
+        const columns = asArray(compare.columns).map((column) => asObject(column));
+        const totals = asArray(compare.totals).map((total) => asObject(total));
+        const rows = asArray(compare.rows).map((row) => asObject(row));
+        return h('div', { className: 'rl-trace-compare', 'data-testid': 'trace-compare' },
+          h('div', { className: 'rl-trace-compare-head' },
+            h('span', { className: 'rl-section-title' }, tr('ws.trace.compareTitle')),
+            compareBusy ? h(LabLoading, { label: tr('ws.trace.compareBusy') }) : null,
+            h(LabButton, { label: tr('ws.trace.compareClose'), variant: 'ghost', onClick: () => { setCompare(null); setCompareIds([]); } })),
+          h('div', { className: 'rl-trace-compare-totals' },
+            h('span', { className: 'rl-hint' }, tr('ws.trace.compareTotal')),
+            totals.map((total, index) => h('span', { key: 'total-' + index, className: 'rl-trace-chip' },
+              firstString(total.name) + (index === 0 ? ' (基准)' : '') + ' · ' + formatTraceMicros(numberOr(total.totalKernelUs, 0))
+              + (index === 0 ? '' : ' · ' + formatDeltaPct(numberOr(total.deltaPct, 0)))))),
+          h('div', { className: 'rl-trace-compare-table-wrap' },
+            h('table', { className: 'rl-trace-compare-table' },
+              h('thead', null,
+                h('tr', null,
+                  h('th', null, tr('ws.trace.compareKernel')),
+                  columns.map((column, index) => h('th', { key: 'col-' + index }, firstString(column.name) || firstString(column.traceId))),
+                  h('th', null, tr('ws.trace.compareDelta')))),
+              h('tbody', null,
+                rows.map((row, rowIndex) => {
+                  const cells = asArray(row.perTrace);
+                  const deltas = asArray(row.deltaPct);
+                  return h('tr', { key: 'row-' + rowIndex },
+                    h('td', { className: 'rl-trace-compare-name', title: firstString(row.name) }, firstString(row.name)),
+                    cells.map((cell, index) => h('td', {
+                      key: 'cell-' + index,
+                      className: index === numberOr(row.fastest, -1) ? 'rl-trace-compare-fast' : '',
+                    }, formatTraceMicros(numberOr(asObject(cell).sumUs, 0)))),
+                    h('td', null, cells.length > 1 ? formatDeltaPct(numberOr(deltas[1], 0)) : '—'));
+                })))), 
+          compare.truncated === true ? h('p', { className: 'rl-hint' }, tr('ws.trace.compareTruncated', { count: numberOr(compare.rowCount, 0) })) : null);
+      })();
+
+      const controls = h('div', { className: 'rl-trace-openbar' },
+        h(LabButton, { label: tr('ws.trace.chooseFile'), variant: 'primary', onClick: () => {
+          if (typeof document === 'undefined') return;
+          const input = document.getElementById('metainfer-trace-file');
+          if (input) input.click();
+        } }),
+        h('input', {
+          id: 'metainfer-trace-file',
+          type: 'file',
+          accept: '.json,.gz,application/json',
+          className: 'rl-trace-file',
+          onChange: (event) => { void openByFile(event); },
+        }),
+        h('span', { className: 'rl-trace-sep' }, '·'),
+        h(LabInput, {
+          value: pathInput,
+          placeholder: tr('ws.trace.pathPlaceholder'),
+          ariaLabel: tr('ws.trace.pathPlaceholder'),
+          onChange: (event) => setPathInput(firstString(event?.target?.value)),
+        }),
+        h(LabButton, { label: tr('ws.trace.open'), onClick: openByPath, disabled: pathInput.trim() === '' }),
+        traceId !== '' ? h(LabButton, { label: tr('ws.trace.close'), variant: 'ghost', onClick: () => { void closeTrace(); } }) : null,
+      );
+
+      const uniqueTraces = [];
+      const seenTraceKeys = new Set();
+      for (const row of traces) {
+        const key = firstString(asObject(row).sourcePath) || firstString(asObject(row).name) || firstString(asObject(row).traceId);
+        if (seenTraceKeys.has(key)) continue;
+        seenTraceKeys.add(key);
+        uniqueTraces.push(row);
+      }
+      const recentTraces = uniqueTraces.length === 0
+        ? null
+        : h('div', { className: 'rl-trace-recent' },
+            h('span', { className: 'rl-hint' }, tr('ws.trace.recent')),
+            uniqueTraces.map((row) => h('button', {
+              key: 'recent-' + firstString(asObject(row).traceId),
+              type: 'button',
+              className: 'rl-chip rl-trace-recent-item' + (firstString(asObject(row).traceId) === traceId ? ' rl-trace-recent-active' : ''),
+              onClick: () => { void refreshTrace(firstString(asObject(row).traceId)); },
+            }, firstString(asObject(row).name) || firstString(asObject(row).traceId))));
+
+      const summaryLine = summary === null
+        ? null
+        : h('div', { className: 'rl-trace-summary' },
+            h('strong', null, firstString(summary.name)),
+            h('span', null, tr('ws.trace.summary', {
+              kernels: numberOr(asObject(summary.counts).kernels, 0),
+              ops: numberOr(asObject(summary.counts).ops, 0),
+              duration: formatTraceMicros(numberOr(asObject(summary.window).durationUs, 0)),
+            })));
+
+      const perfettoStatus = perfetto.state === 'ready'
+        ? (perfetto.loaded ? tr('ws.trace.perfetto.loaded') : tr('ws.trace.perfetto.ready'))
+        : perfetto.state === 'unavailable'
+          ? tr('ws.trace.perfetto.unavailable')
+          : perfetto.origin === 'external'
+            ? tr('ws.trace.perfetto.external')
+            : tr('ws.trace.perfetto.starting');
+
+      const stage = h('div', { className: 'rl-trace-stage' },
+        h('div', { className: 'rl-trace-stagebar' },
+          h('span', { className: 'rl-trace-chip' }, 'Perfetto UI'),
+          h('span', { className: 'rl-hint' }, perfettoStatus),
+          h('span', { className: 'rl-trace-stagebar-actions' },
+            h(LabButton, { label: tr('ws.trace.perfetto.openTab'), variant: 'ghost', onClick: openPerfettoTab }),
+            traceId !== '' ? h(LabButton, { label: tr('ws.trace.perfetto.download'), variant: 'ghost', onClick: downloadTrace }) : null)),
+        h('div', { className: 'rl-trace-frame-wrap' },
+          h('iframe', {
+            key: 'perfetto-' + perfetto.origin,
+            ref: frameRef,
+            className: 'rl-trace-frame',
+            title: 'Perfetto',
+            src: perfetto.origin === 'local' ? TRACE_PERFETTO_LOCAL_SRC : TRACE_PERFETTO_EXTERNAL_SRC,
+            allow: 'clipboard-write',
+          }),
+          perfetto.state === 'unavailable'
+            ? h('div', { className: 'rl-trace-frame-fallback' },
+                h('p', { className: 'rl-hint' }, tr('ws.trace.perfetto.offlineHint')),
+                h(LabButton, { label: tr('ws.trace.perfetto.openTab'), variant: 'primary', onClick: openPerfettoTab }))
+            : null));
+
+      const kernelRow = asObject(asObject(selected?.detail).kernel);
+      const aggregate = asObject(asObject(selected?.detail).aggregate);
+      const neighbours = asObject(asObject(selected?.detail).neighbours);
+      const actionList = selected !== null && asArray(selected.actions).length > 0
+        ? asArray(selected.actions)
+        : TRACE_NODE_ACTIONS.concat(['explain']).map((id) => ({ id, kind: TRACE_NODE_ACTIONS.indexOf(id) >= 0 ? 'node' : 'chat' }));
+
+      const kernelList = h('div', { className: 'rl-trace-rail-head' },
+        h('span', { className: 'rl-section-title' }, tr('ws.trace.kernels')),
+        h(LabInput, {
+          value: search,
+          placeholder: tr('ws.trace.search'),
+          ariaLabel: tr('ws.trace.search'),
+          onChange: (event) => setSearch(firstString(event?.target?.value)),
+        }),
+        h(LabSelect, {
+          value: sort,
+          ariaLabel: tr('ws.trace.sort'),
+          options: [
+            { value: 'sum', label: tr('ws.trace.sort.sum') },
+            { value: 'count', label: tr('ws.trace.sort.count') },
+            { value: 'avg', label: tr('ws.trace.sort.avg') },
+            { value: 'max', label: tr('ws.trace.sort.max') },
+          ],
+          onChange: (event) => setSort(firstString(event?.target?.value, 'sum')),
+        }));
+
+      const kernelRows = asArray(kernels.rows).slice(0, TRACE_KERNEL_ROWS).map((row, index) => {
+        const id = firstString(asObject(row).name) + ':' + String(index);
+        return h('button', {
+          key: id,
+          type: 'button',
+          className: 'rl-trace-krow' + (selected !== null && asObject(row).kernelIndex === selected.index ? ' rl-trace-krow-active' : ''),
+          title: firstString(asObject(row).name),
+          onClick: () => { void selectKernel(numberOr(asObject(row).kernelIndex, 0), true); },
+        },
+          h('span', { className: 'rl-trace-kname' }, firstString(asObject(row).shortName)),
+          h('span', { className: 'rl-trace-kmeta' },
+            '×' + String(numberOr(asObject(row).count, 0)) + ' · ' + formatTraceMicros(numberOr(asObject(row).sumUs, 0))));
+      });
+
+      const kernelListPanel = h('div', { className: 'rl-trace-rail', 'data-testid': 'trace-kernel-table' },
+        kernelList,
+        asArray(kernels.rows).length === 0
+          ? h('p', { className: 'rl-hint' }, tr('ws.trace.laneEmpty'))
+          : h('div', { className: 'rl-trace-klist' }, kernelRows));
+
+      const detailPanel = h('aside', { className: 'rl-inspector rl-trace-detail', 'data-testid': 'trace-detail' },
+        h('div', { className: 'rl-inspector-head' },
+          h('button', { type: 'button', className: 'rl-btn rl-btn-ghost', onClick: () => setShowDetail(false) }, '← ' + tr('ws.trace.kernels')),
+          selected !== null ? h('span', { className: 'rl-inspector-id rl-mono' }, '#' + String(selected.index)) : null),
+        selected === null
+          ? h('p', { className: 'rl-hint' }, tr('ws.trace.detailHint'))
+          : h('div', null,
+              h('div', { className: 'rl-section' },
+                h('span', { className: 'rl-section-title', title: firstString(kernelRow.name) }, firstString(kernelRow.shortName)),
+                h(LabInfoRow, { label: tr('ws.trace.device'), value: tr('ws.trace.deviceStream', { device: numberOr(kernelRow.device, 0), stream: numberOr(kernelRow.stream, 0) }) }),
+                h(LabInfoRow, { label: tr('ws.trace.sort.max'), value: formatTraceMicros(kernelRow.dur) }),
+                h(LabInfoRow, { label: tr('ws.trace.aggregate'), value: tr('ws.trace.sort.count') + ' ' + String(numberOr(aggregate.count, 0)) + ' · ' + tr('ws.trace.sort.sum') + ' ' + formatTraceMicros(aggregate.sumUs) + ' · p99 ' + formatTraceMicros(aggregate.p99Us) }),
+                h(LabInfoRow, { label: tr('ws.trace.layout'), value: (Array.isArray(kernelRow.grid) ? 'grid [' + kernelRow.grid.join('x') + '] ' : '') + (Array.isArray(kernelRow.block) ? 'block [' + kernelRow.block.join('x') + ']' : '') || '—' }),
+                h(LabInfoRow, { label: tr('ws.trace.launch'), value: firstString(asObject(kernelRow.launchOp).name, '—') }),
+                h(LabInfoRow, { label: tr('ws.trace.inputs'), value: formatTraceShape(asObject(selected.detail).inputs?.dims) }),
+                h(LabInfoRow, { label: tr('ws.trace.dtypes'), value: asArray(asObject(selected.detail).dtypes).length > 0 ? asArray(asObject(selected.detail).dtypes).join(', ') : '—' })),
+              asArray(asObject(selected.detail).stack).length > 0
+                ? h('div', { className: 'rl-section' },
+                    h('span', { className: 'rl-section-title' }, tr('ws.trace.stack')),
+                    h('ol', { className: 'rl-trace-stack' }, asArray(asObject(selected.detail).stack).slice(-10).reverse().map((entry, index) => h('li', { key: 'stack-' + String(index), className: 'rl-mono' },
+                      firstString(asObject(entry).name) + (firstString(asObject(entry).source) === '' ? '' : ' @ ' + firstString(asObject(entry).source))))))
+                : null,
+              h('div', { className: 'rl-trace-neighbours' },
+                h('span', { className: 'rl-info-label' }, tr('ws.trace.neighbours') + ' ←'),
+                asArray(neighbours.prev).length === 0
+                  ? h('span', { className: 'rl-hint' }, '—')
+                  : asArray(neighbours.prev).map((row, index) => h('span', { key: 'prev-' + String(index), className: 'rl-trace-chip' }, firstString(asObject(row).shortName) + ' · ' + formatTraceMicros(numberOr(asObject(row).dur, 0))))),
+              h('div', { className: 'rl-trace-neighbours' },
+                h('span', { className: 'rl-info-label' }, tr('ws.trace.neighbours') + ' →'),
+                asArray(neighbours.next).length === 0
+                  ? h('span', { className: 'rl-hint' }, '—')
+                  : asArray(neighbours.next).map((row, index) => h('span', { key: 'next-' + String(index), className: 'rl-trace-chip' }, firstString(asObject(row).shortName) + ' · ' + formatTraceMicros(numberOr(asObject(row).dur, 0))))),
+              h('div', { className: 'rl-section' },
+                h('span', { className: 'rl-section-title' }, tr('ws.trace.actions')),
+                h('p', { className: 'rl-hint' }, tr('ws.trace.actionsHint')),
+                h('div', { className: 'rl-inspector-actions rl-trace-actions' },
+                  actionList.map((action) => {
+                    const id = firstString(asObject(action).id);
+                    const isNode = firstString(asObject(action).kind) === 'node';
+                    return h('button', {
+                      key: id,
+                      type: 'button',
+                      className: 'rl-btn' + (isNode ? ' rl-btn-primary' : ''),
+                      disabled: busy !== '',
+                      onClick: () => { if (isNode) setNodeDialog({ action: id }); else void dispatchAction(id); },
+                    }, tr('ws.trace.action.' + id));
+                  })),
+                h('div', { className: 'rl-trace-ask' },
+                  h(LabInput, {
+                    value: question,
+                    placeholder: tr('ws.trace.askPlaceholder'),
+                    ariaLabel: tr('ws.trace.askPlaceholder'),
+                    onChange: (event) => setQuestion(firstString(event?.target?.value)),
+                  }),
+                  h(LabButton, { label: tr('ws.trace.ask'), disabled: busy !== '' || question.trim() === '', onClick: askQuestion })),
+                busy !== '' ? h(LabLoading, { label: tr('ws.trace.dispatching') }) : null,
+                notice !== '' ? h('p', { className: 'rl-hint' }, notice) : null,
+                actionError !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, actionError) : null),
+              h('div', { className: 'rl-trace-chat' },
+                h('span', { className: 'rl-section-title' }, tr('ws.trace.chat')),
+                asArray(chat).length === 0
+                  ? h('p', { className: 'rl-hint' }, tr('ws.trace.chatEmpty'))
+                  : asArray(chat).slice(-6).map((message, index) => {
+                      const row = asObject(message);
+                      const role = firstString(row.role);
+                      return h('div', { key: 'chat-' + String(index), className: 'rl-trace-chat-row rl-trace-chat-' + role },
+                        h('span', { className: 'rl-trace-chat-role' }, role === 'user' ? '🙋' : role === 'error' ? '⚠️' : '🤖'),
+                        h('span', { className: 'rl-trace-chat-text' }, firstString(row.text)));
+                    }))));
+
+      const nodeModal = nodeDialog === null ? null : h('div', { className: 'rl-overlay-layer' },
+        h('div', { className: 'rl-modal rl-modal-narrow', role: 'dialog', 'aria-modal': 'true' },
+          h('div', { className: 'rl-modal-head' }, h('h3', { className: 'rl-modal-title' }, tr('ws.trace.nodeTitle'))),
+          h('div', { className: 'rl-modal-body' },
+            h('p', { className: 'rl-hint' }, tr('ws.trace.nodeHint')),
+            h(LabField, { label: tr('ws.trace.timebox') },
+              h(LabInput, { type: 'number', min: 1, max: TRACE_MAX_TIMEBOX, value: String(timebox), onChange: (event) => setTimebox(numberOr(event?.target?.value, TRACE_DEFAULT_TIMEBOX)) }))),
+          h('div', { className: 'rl-modal-foot' },
+            h(LabButton, { label: tr('common.cancel'), variant: 'ghost', onClick: () => setNodeDialog(null) }),
+            h(LabButton, { label: tr('ws.trace.nodeCreate'), variant: 'primary', disabled: busy !== '', onClick: () => { void createNode(firstString(nodeDialog.action)); } }))));
+
+      return h('section', { className: 'rl-trace-page', 'data-testid': 'trace-view' },
+        h('header', { className: 'rl-trace-head' },
+          h('div', null,
+            h('h2', { className: 'rl-page-title' }, tr('ws.trace.title')),
+            h('p', { className: 'rl-hint' }, tr('ws.trace.subtitle'))),
+          h(LabButton, { label: tr('ws.trace.refresh'), variant: 'ghost', onClick: () => { if (traceId !== '') void refreshTrace(traceId); else void loadTraces(); } })),
+        controls,
+        nodeTracePicker,
+        recentTraces,
+        comparePanel,
+        error !== '' ? h('p', { className: 'rl-error-text', role: 'alert' }, error) : null,
+        phase === 'loading' ? h(LabLoading, { label: tr('ws.trace.loading') }) : null,
+        phase === 'idle' && traces.length === 0 ? h('p', { className: 'rl-hint' }, tr('ws.trace.empty')) : null,
+        summaryLine,
+        h('div', { className: 'rl-trace-grid' }, stage, showDetail ? detailPanel : kernelListPanel),
+        nodeModal);
+    }
+    // #endregion profiler trace viewer
 
     // #region page, error boundary, sidebar icon
     /** Inline chrome for the crash fallback (the panel stylesheet may not be mounted). */
@@ -19454,12 +20975,17 @@ window.__ModuleLoader__.load({
     // Private component handles for the jsdom smoke test. The flag is only set
     // by that test; the Web shell never sees these fields.
     if (typeof window !== 'undefined' && window.__METAINFER_TEST__ === true) {
+      // Internal renderer entry points used by scripts/dag-canvas-selftest.mjs.
+      exported.__dag = { buildDagScene, visibleDagItems, hitTestDag, paintDag, dagTheme };
       exported.__components = {
         LandingScreen,
         CreateProjectWizard,
         MetainferLabPage,
+        NodeTraceSection,
+        DagCanvas,
         ProjectTabBar,
         ProjectTabPanel,
+        ProfilerTab,
         WorkspaceScreen,
         WorkspaceTopBar,
         ProjectsPanel,

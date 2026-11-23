@@ -114,7 +114,7 @@ process.stdout.write('ok   operator credential banner, precise mapping and uncac
 // Project shell guard: all seven views share one URL/deep-link contract and
 // the panels are mounted lazily rather than hidden by CSS.
 for (const token of [
-  "LAB_TAB_IDS = Object.freeze(['dag', 'observability', 'experts', 'dashboard', 'settings', 'sessions', 'audit'])",
+  "LAB_TAB_IDS = Object.freeze(['dag', 'observability', 'experts', 'dashboard', 'settings', 'sessions', 'audit', 'trace'])",
   'PROJECT_TAB_LABEL_KEYS',
   "role: 'tablist'",
   "role: 'tabpanel'",

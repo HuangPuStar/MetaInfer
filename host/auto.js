@@ -379,6 +379,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     if (state.status === 'waiting') return;
     state.status = 'waiting';
     state.pauseReason = reason;
+    state.lastWaitingAt = Date.now();
     const project = store.getProject(projectId);
     if (project) await saveEvent(project, 'auto/waiting', { reason });
   }
@@ -490,7 +491,22 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
   async function tickOne(projectId) {
     if (busy.has(projectId)) return;
     const state = stateOf(projectId);
-    if (state.status !== 'running') return;
+    if (state.status !== 'running') {
+      // `waiting` is a throttle, not a terminal state — but nothing ever cleared
+      // it. `notifyChange` (the documented way back to `running`) is wired only
+      // to approve/reject, so a capacity wait was never re-evaluated when a node
+      // completed and freed its slot: the driver sat in `waiting` forever while
+      // runnable nodes queued behind it, and only a manual auto_stop/auto_start
+      // revived the lab. Re-check throttling reasons on a slow cadence so the
+      // driver returns to work by itself; the 30 s guard keeps `auto/waiting`
+      // events from repeating on every tick.
+      const throttled = state.status === 'waiting'
+        && (state.pauseReason === 'capacityFull' || state.pauseReason === 'awaitingGpu');
+      if (!throttled) return;
+      if (Date.now() - Number(state.lastWaitingAt ?? 0) < 30_000) return;
+      state.status = 'running';
+      state.pauseReason = null;
+    }
     const project = store.getProject(projectId);
     if (!project) return;
     const auto = project.config.auto ?? {};
@@ -710,8 +726,18 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       }
       if (state.idleStreak >= (auto.idleCycleLimit ?? 3)) {
         const atPause = store.listNodes(projectId);
-        const activeWork = atPause.some((node) => node.status === 'running' || node.status === 'proposed')
-          || runnableQueue(atPause, Date.now()).length > 0;
+        // A running node is progress *in flight*: the planner has nothing to add
+        // only because the queue is already busy. Counting those cycles as idleness
+        // stopped the driver in the middle of a 10-minute experiment (the page then
+        // reported "auto paused" while work was still running), so reset the streak
+        // instead of pausing.
+        const runningNow = atPause.some((node) => node.status === 'running');
+        const runnableNow = runnableQueue(atPause, Date.now()).length > 0;
+        if (runningNow || runnableNow) {
+          state.idleStreak = 0;
+          return undefined;
+        }
+        const activeWork = atPause.some((node) => node.status === 'proposed');
         const blockers = activeWork ? [] : deferredDeadlockBlockers(atPause, Date.now());
         if (blockers.length > 0) {
           const shown = blockers.slice(0, MAX_DEADLOCK_BLOCKERS);
@@ -765,7 +791,15 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
         }
         continue;
       }
-      if (state.status === 'running') await tickOne(project.id);
+      // `waiting` is a capacity throttle, not a terminal state — but only
+      // `running` projects were ticked, so a waiting driver never re-measured
+      // capacity and the lab sat idle until a human resumed it. Tick throttled
+      // waits too; `tickOne` re-checks the 30 s guard and either resumes or
+      // re-parks. (Guarding inside `tickOne` alone is unreachable: this loop is
+      // the only caller.)
+      const throttledWait = state.status === 'waiting'
+        && (state.pauseReason === 'capacityFull' || state.pauseReason === 'awaitingGpu');
+      if (state.status === 'running' || throttledWait) await tickOne(project.id);
     }
   }
 

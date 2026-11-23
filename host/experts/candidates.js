@@ -268,15 +268,14 @@ export function buildBranchCandidateQueue({ project = {}, runs = [], nodes = [],
         ? project.candidateBlocks[candidateId] ?? null
         : null;
       const structureKey = block ? candidateStructureKey({ candidateId, ...normalized }, nodes) : null;
-      const sourceNode = normalized.sourceNodeId ? nodeById.get(normalized.sourceNodeId) ?? null : null;
-      const hasBlockingSuccessors = sourceNode
-        ? (Array.isArray(nodes) ? nodes : []).some((node) => nodeParentId(node) === sourceNode.id && !isNonBlockingSuccessor(node))
-        : false;
-      // Even a legacy block without a structureKey must not survive after the
-      // only successor was deferred/cancelled: that is exactly the deadlock.
-      const obsoleteParentSuccessorBlock = block?.code === 'parent_already_has_successor'
-        && Boolean(sourceNode)
-        && !hasBlockingSuccessors;
+      // The `parent_already_has_successor` gate was removed: a completed node may
+      // always be branched again, because what must stay immutable is the
+      // parent's commit (enforced by baseCommit), not the number of children.
+      // Every block recorded under that code is therefore obsolete — including
+      // the branch-level ones (sourceNodeId = null) whose structure fingerprint
+      // contains no DAG-dependent field and could never change. Those stayed
+      // blocked forever and starved the project queue.
+      const obsoleteParentSuccessorBlock = block?.code === 'parent_already_has_successor';
       const blocked = Boolean(!consumedRow && block && !obsoleteParentSuccessorBlock && (!block.structureKey || block.structureKey === structureKey));
       candidatesById.set(candidateId, {
         candidateId,

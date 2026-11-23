@@ -372,7 +372,12 @@ await test('Round 36: a fully blocked candidate queue is planned once and pauses
       planning: { minRemainingMs: 3_600_000, planLatencyMs: 1_000, safetyFactor: 0.1, debounceMs: 0, minGapMs: 0 },
     },
   });
-  await store.saveNode(projectId, { ...node('b0'), status: 'running' });
+  // The fixture must NOT keep a node running: since the "running is progress in
+  // flight" fix (7832b508) a running node resets idleStreak instead of letting
+  // the driver pause, so a running fixture can never reach the noProgress branch
+  // this case is about. A completed node keeps the project non-empty without
+  // tripping that guard.
+  await store.saveNode(projectId, { ...node('b0'), status: 'completed' });
   const kernel = createKernel({ store });
   let steps = 0;
   const auto = createAutoController({

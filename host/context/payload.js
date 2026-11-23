@@ -245,7 +245,7 @@ export function buildContextPayload({ project, nodes = [], ledger = null, now = 
     },
     guidance: {
       navigation: 'This payload is intentionally incomplete. Use dag_query (status / subtreeOf / depth / since / text) and dag_get(nodeIds) for anything not in focus.',
-      propose: 'Propose successors only for completed leaves in focus or found via dag_query; a parent with children cannot be extended.',
+      propose: 'Propose successors for any completed node with a commit — a leaf in focus, or an ancestor found via dag_query. A parent that already has children may still be branched again (that is how an older state is re-opened); only the same hypothesis from the same parent is rejected.',
     },
   };
   return enforceByteBudget(payload, config.maxBytes);

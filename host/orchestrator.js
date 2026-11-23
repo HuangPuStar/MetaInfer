@@ -23,6 +23,7 @@ import { createLedgerReader } from './context/ledger.js';
 import { basisFor, createIntent, intentId, intentMutation } from './kernel/intent.js';
 import { baselineFor, normalizeExpected } from './kernel/prediction.js';
 import { BRANCH_REPORT_SCHEMA, EVIDENCE_FIELDS, HIGH_REVIEW_WINDOW_MS, branchIdOf, buildHierarchyReview, branchEventKey, childVoteQuota, childVoteWeight, escalationQuota, validateChiefDecision } from './experts/hierarchy.js';
+import { EXPERT_ACTIVATION_CAP, buildExpertPrompt, expertProposes, expertSchemaFor, firedTriggers, resolveRoster, selectActivations } from './experts/activation.js';
 import { MAX_CONSUMPTIONS, buildBranchCandidateQueue, candidateSkipReason, candidateStats, candidateStructureKey, replacementChainForNode } from './experts/candidates.js';
 import { assertModelSchema } from './schema-check.js';
 import { classifyRoleFailure, formatRoleFailure } from './role-errors.js';
@@ -523,7 +524,8 @@ function leadPromptParts(project, review, branchRuns, pendingCandidates = [], op
   const candidateBytesAfter = Buffer.byteLength(JSON.stringify(candidates), 'utf8');
   const text = [
     'You are the L1 lead. Use the bounded L0 BranchReports and the pending candidate queue to materialize the next useful nodes.',
-    'Create at most one successor per completed leaf. Return proposals with parentId, title, prompt, rationale.',
+    'Any completed node may receive a successor, including one that already has children: the DAG is a graph, not a frontier-only tree. Branching from an older node is the supported way to re-open a state whose experiment was missing or wrong.',
+    'What is forbidden is duplicate WORK: the same hypothesis (same prompt content) from the same parent is rejected. Return proposals with parentId, title, prompt, rationale.',
     'If a proposal implements one of the pending branch-report candidates, set candidateId to that exact id.',
     'A candidate is consumed only when the Host creates its node; repeating the same candidate without creating a node is useless.',
     'For every pending candidate you do not implement, return a candidateDecisions entry: candidateId, decision (blocked_by_failed_source, needs_human_scope_decision, duplicate_of_consumed, low_confidence_only, deferred_by_pass_limit, not_selected_by_lead, implemented), and a one-line reason.',
@@ -904,7 +906,10 @@ function advisorPrompt(project, snapshot, lens) {
     '# Rules',
     '1. The payload is intentionally incomplete. `focus` holds up to 8 active leaves; navigate with',
     '   dag_query (filter by status / subtreeOf / depth / since / text) and dag_get(nodeIds). A parent must be',
-    '   a completed leaf with a commit; a completed node that already has a child cannot be extended.',
+    '   a completed node with a commit. It does NOT have to be a leaf: a node that already has children may',
+    '   still receive a new successor, which is how a branch is re-opened from a historical state (an ancestor',
+    '   that turned out to be missing an experiment, or whose verdict is now suspect). Only duplicate work is',
+    '   rejected — the same hypothesis from the same parent.',
     '2. Size the proposal count to idle capacity: resources.free / resources.maxRunningNodes say how many',
     '   slots are idle. When free slots exceed the runnable nodes, propose 2-4 INDEPENDENT successors so the',
     '   queue does not drain; when capacity is tight (free < 2) propose only the best next step.',
@@ -925,6 +930,9 @@ function advisorPrompt(project, snapshot, lens) {
     '   It is only honored when the project enables advisor model selection and the Host allowlist accepts it.',
     '11. Optional: set executionProfile (or taskType mapped by config.execution.taskTypes) to select a',
     '    local execution runtime such as a Codex profile. The Host rejects unknown profiles.',
+    '12. Keep the answer compact: `analysis` <= 800 characters and every proposal prompt <= 4000',
+    '    characters. Long answers get truncated by the model gateway into invalid JSON (MALFORMED_RESPONSE)',
+    '    and the whole pass is lost, so put the evidence in numbers, not prose.',
     '',
     resourcePromptSection(project, snapshot?.resources ?? null),
     '',
@@ -1224,6 +1232,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       projectId: project.id,
       cycleId: cycle.id,
       role,
+      ...(options.expertId ? { expertId: options.expertId } : {}),
       sessionId,
       model,
       status: 'running',
@@ -1251,7 +1260,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     try {
       activation = await startActivation(ctx, {
         provider: 'spawn',
-        label: `mirl-${role}${options.lens ? `-${options.lens.slice(0, 20)}` : ''}/${project.id}`,
+        label: `mirl-${role}${options.expertId ? `:${String(options.expertId).slice(0, 24)}` : ''}${options.lens ? `-${options.lens.slice(0, 20)}` : ''}/${project.id}`,
         delivery: 'caller',
         signal: lifetime.signal,
         childId: sessionId,
@@ -1441,11 +1450,26 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     const replacingFailedSource = Boolean(sourceFailed && parentsOf(source).includes(parentId));
     const children = nodes.filter((node) => node.id !== parentId && parentsOf(node).includes(parentId));
     // A deferred child means "not this time", and a cancelled child is gone.
-    // Neither may make a completed parent look terminal: otherwise the parent
-    // cannot get a replacement successor and the deferred child never runs,
-    // deadlocking the branch (high-review defer -> parent_already_has_successor
-    // rejection -> noProgress).
     const blockingChildren = children.filter((node) => node.status !== 'proposed' && !isNonBlockingSuccessor(node));
+    // The graph is a DAG, not a tree restricted to its frontier.
+    //
+    // A completed node may receive a NEW child even when it already has live
+    // ones. The only invariant in that area is commit immutability — a parent's
+    // code state must not change after it has branched — and that is enforced by
+    // `baseCommit = parent.git.headCommit` in createChild(), NOT by a child
+    // count. Siblings are the supported way to re-open a branch from a
+    // historical state (a review finds that an ancestor, now a grandparent,
+    // never ran one of its experiments).
+    //
+    // Duplicate *work* is still rejected: the prompt-hash check below refuses
+    // the same hypothesis from the same parent. That is the real guard; a child
+    // count was never a proxy for it, and using one turned every non-leaf parent
+    // into a permanently closed branch.
+    //
+    // True when the parent already advanced: this child hangs off a historical
+    // state instead of continuing the frontier. Recorded on the node so review,
+    // the dashboard and the reports can label the branch.
+    const branchFromHistoricalState = blockingChildren.length > 0;
     let replacementTarget = null;
     if (replacingFailedSource) {
       // Round 36: a failed replacement is not a live successor. Walk the
@@ -1453,7 +1477,6 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       // replacesNodeId points at B. Cap the chain at three attempts so a scope
       // cannot be retried forever; a fourth proposal gets a named rejection.
       const chain = replacementChainForNode(nodes, source.id);
-      const chainIds = new Set(chain.map((node) => node.id));
       const chainLabel = chain.map((node) => node.id).join(' -> ');
       const liveReplacement = chain.find((node) => node.id !== source.id && node.status !== 'failed' && node.status !== 'cancelled' && !isNonBlockingSuccessor(node));
       if (liveReplacement) {
@@ -1470,18 +1493,8 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           reason: `replacement chain for ${chain[0]?.id ?? source.id} exhausted after 3 attempts (${chainLabel}); no further attempt`,
         };
       }
-      const liveChild = blockingChildren.find((node) => node.id !== source.id && !chainIds.has(node.id) && node.status !== 'failed' && node.status !== 'cancelled' && !isNonBlockingSuccessor(node));
-      if (liveChild) {
-        return {
-          ok: false,
-          code: 'parent_already_has_successor',
-          reason: `parent ${parentId} already has a live successor ${liveChild.id}; only the failed child ${source.id} is retryable`,
-        };
-      }
       const terminal = chain.at(-1) ?? source;
       replacementTarget = terminal.id;
-    } else if (blockingChildren.length > 0) {
-      return { ok: false, code: 'parent_already_has_successor', reason: `parent ${parentId} already has a successor; propose from a leaf` };
     }
     // A title is a label, not an instruction: clamp it instead of rejecting the
     // whole proposal (rejections here used to starve the auto driver silently).
@@ -1532,6 +1545,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       ok: true,
       parent,
       replacesNodeId: replacingFailedSource ? replacementTarget : null,
+      branchFromHistoricalState,
       executionNote: execution.profileFallback
         ? { requestedProfile: execution.requestedProfile, usedProfile: execution.profile }
         : null,
@@ -1613,6 +1627,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
       ...(meta.candidateId ? { candidateId: meta.candidateId } : {}),
+      ...(meta.branchFromHistoricalState ? { branchFromHistoricalState: true } : {}),
       ...(spec.replacesNodeId ? { replacesNodeId: spec.replacesNodeId } : {}),
       ...(meta.reviewLevel ? { reviewLevel: meta.reviewLevel, ratifiedBy: null } : {}),
       ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
@@ -1700,6 +1715,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       createdBy: meta.createdBy,
       createdByRunId: meta.runId ?? null,
       ...(meta.candidateId ? { candidateId: meta.candidateId } : {}),
+      ...(meta.branchFromHistoricalState ? { branchFromHistoricalState: true } : {}),
       ...(spec.replacesNodeId ? { replacesNodeId: spec.replacesNodeId } : {}),
       ...(meta.reviewLevel ? { reviewLevel: meta.reviewLevel, ratifiedBy: null } : {}),
       ...(meta.pendingHighReview ? { pendingHighReview: meta.pendingHighReview, highReview: { status: 'pending', openedAt: meta.pendingHighReview.openedAt } } : {}),
@@ -1786,7 +1802,13 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     const explicit = typeof proposal?.candidateId === 'string' ? proposal.candidateId.trim() : '';
     if (explicit) {
       const candidate = pendingCandidates.find((row) => row.candidateId === explicit);
-      return candidate ? { candidate, explicit: true } : { candidate: null, explicit: true, unknown: explicit };
+      if (candidate) return { candidate, explicit: true };
+      // Legacy advisor passes register no candidates at all (only the
+      // lead/high-review flow produces them). A model-invented id there must not
+      // kill an otherwise valid proposal: fall through to the lineage/branch
+      // matching below. When candidates DO exist, keep rejecting unknown ids so a
+      // consumed candidate cannot be re-materialized.
+      if (pendingCandidates.length > 0) return { candidate: null, explicit: true, unknown: explicit };
     }
     const byId = new Map(nodes.map((node) => [node.id, node]));
     const parentIdsOf = (node) => (Array.isArray(node.parentIds) && node.parentIds.length > 0 ? node.parentIds : (node.parentId ? [node.parentId] : []));
@@ -2002,6 +2024,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
             rationale: proposal.rationale,
             expected,
             expectedBaseline: baselineFor(check.parent, expected),
+            ...(check.branchFromHistoricalState ? { branchFromHistoricalState: true } : {}),
             ...(selectedCandidate ? { candidateId: selectedCandidate.candidateId, candidate: selectedCandidate } : {}),
             ...(hierarchy ? { reviewLevel: 'lead', hierarchy: true } : {}),
             ...(pendingHighReview ? { pendingHighReview } : {}),
@@ -2131,9 +2154,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     return applied;
   }
 
-  function hierarchyMode(project) {
-    const mode = project?.config?.expertsMode ?? project?.config?.experts?.mode;
-    return mode === 'hierarchy' || mode === 'resident' || project?.config?.reviewHierarchy?.enabled === true;
+  // The legacy advisor cycle has been removed: every project is supervised by the
+  // expert hierarchy (or resident experts). Kept as a named predicate because the
+  // planner reads it in several places, but it is now unconditional.
+  function hierarchyMode() {
+    return true;
   }
 
   function hierarchySummary(review) {
@@ -2526,6 +2551,85 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     }
   }
 
+  /**
+   * P4 wiring: wake the hired experts whose triggers fired, collect their
+   * answers, and route proposals through the same Host validation the advisor
+   * uses. Reviewers only record a verdict; they never mutate the DAG.
+   */
+  async function runExpertPass(projectId, cycle) {
+    let project = requireProject(projectId);
+    const roster = resolveRoster(project);
+    if (roster.length === 0) return;
+    const nodes = store.listNodes(projectId);
+    const { fired, leaves, attachable, recent } = firedTriggers({ project, nodes, cycle });
+    if (recent.length === 0) return;
+    let runs = [];
+    try { runs = store.listRuns(projectId, 200) ?? []; } catch { runs = []; }
+    const chosen = selectActivations({ roster, fired, runs, leaves, attachable, cap: EXPERT_ACTIVATION_CAP });
+    cycle.expertActivations = [];
+    if (chosen.length === 0) return;
+    const snapshot = buildAdvisorSnapshot(store, project);
+    for (const expert of chosen) {
+      project = requireProject(projectId);
+      const proposer = expertProposes(expert.template);
+      const schema = expertSchemaFor(expert.template);
+      const maxProposals = Math.min(2, Number(project.config?.advisor?.maxProposalsPerPass ?? 2));
+      const prompt = buildExpertPrompt({ project, expert, leaves: proposer ? leaves : recent, fired, maxProposals });
+      const timeoutMs = Number(expert.budget?.wallClockMs);
+      const maxQueries = Number(expert.budget?.queriesPerRun);
+      let outcome = null;
+      try {
+        const { record, failure } = await runRole(project, 'expert', cycle, prompt, schema, snapshot, {
+          expertId: expert.id,
+          lens: expert.lens || expert.name || null,
+          modelOverride: expert.model ?? undefined,
+          ...(Number.isFinite(timeoutMs) && timeoutMs > 0 ? { timeoutMs } : {}),
+          ...(Number.isFinite(maxQueries) && maxQueries > 0 ? { maxQueries } : {}),
+        });
+        outcome = {
+          expertId: expert.id,
+          runId: record.id,
+          status: failure ? 'failed' : 'completed',
+          error: failure ? (record.failureSummary ?? String(failure)) : null,
+        };
+        if (failure) {
+          cycle.errors.push(`expert ${expert.id}: ${outcome.error}`);
+        } else if (proposer) {
+          const proposals = Array.isArray(record.output?.proposals) ? record.output.proposals : [];
+          if (proposals.length > 0) {
+            const applied = await applyAdvisorOutput(projectId, cycle, { analysis: record.output?.analysis ?? '', proposals }, []);
+            cycle.createdNodeIds.push(...applied.createdNodeIds);
+            record.createdNodeIds = applied.createdNodeIds;
+            record.rejected = applied.rejected;
+            outcome.created = applied.createdNodeIds.length;
+            outcome.rejected = applied.rejected.length;
+          }
+          await saveRun(projectId, record, 'run/updated', { expertId: expert.id, created: outcome.created ?? 0 });
+        } else {
+          await commitMutations(projectId, [{
+            op: 'event.record',
+            type: 'expert/reviewed',
+            data: {
+              expertId: expert.id,
+              runId: record.id,
+              verdict: record.output?.verdict ?? null,
+              reason: record.output?.reason ?? null,
+              pruneSuggestions: record.output?.pruneSuggestions ?? [],
+            },
+          }], { causeId: `expert-review:${record.id}` });
+          cycle.expertReviews = [...(cycle.expertReviews ?? []), {
+            expertId: expert.id, runId: record.id, verdict: record.output?.verdict ?? null,
+          }];
+          await saveRun(projectId, record, 'run/updated', { expertId: expert.id });
+        }
+      } catch (error) {
+        outcome = { expertId: expert.id, status: 'failed', error: error instanceof Error ? error.message : String(error) };
+        cycle.errors.push(`expert ${expert.id}: ${outcome.error}`);
+      }
+      cycle.expertActivations.push(outcome);
+    }
+  }
+
   async function runCycle(projectId, trigger) {
     let project = requireProject(projectId);
     const cycle = {
@@ -2555,6 +2659,13 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     // --- hierarchy pass (real L0/L1/L2 activations) -------------------------
     if (hierarchyMode(project)) {
       await runHierarchyPass(projectId, cycle);
+      // P4: wake the hired experts AFTER the hierarchy pass so they see the
+      // branch reports it just persisted.
+      try {
+        await runExpertPass(projectId, cycle);
+      } catch (error) {
+        cycle.errors.push(`expert pass: ${error instanceof Error ? error.message : String(error)}`);
+      }
     } else {
     // --- advisor pass -------------------------------------------------------
     project = requireProject(projectId);
@@ -2749,7 +2860,18 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
           ? { ...cleanModelRef(validatedModel), source: 'user' }
           : null,
         execution,
-      }, { createdBy: 'user' });
+      }, {
+        createdBy: 'user',
+        // Same marker the lead path records: an operator may also branch from a
+        // node that already advanced, so review/reports must be able to label it.
+        branchFromHistoricalState: nodes.some((node) => {
+          const parents = Array.isArray(node.parentIds) && node.parentIds.length > 0
+            ? node.parentIds
+            : (node.parentId ? [node.parentId] : []);
+          return node.id !== parent.id && parents.includes(parent.id)
+            && node.status !== 'proposed' && !isNonBlockingSuccessor(node);
+        }),
+      });
       return { node, revision: project.revision };
     });
   }
