@@ -1720,6 +1720,8 @@
     "ws.menu.fit": "适应视图",
     "ws.menu.zoomIn": "放大",
     "ws.menu.zoomOut": "缩小",
-    "ws.menu.clearSelection": "取消选中"
+    "ws.menu.clearSelection": "取消选中",
+    "ws.menu.approve": "批准提案",
+    "ws.menu.reject": "拒绝提案"
   }
 }

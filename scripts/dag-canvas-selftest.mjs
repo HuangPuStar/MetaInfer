@@ -263,34 +263,61 @@ await React.act(async () => {
 check('Escape closes the context menu', host.querySelector('[data-testid="dag-context-menu"]') === null);
 
 
-// --- right-click on the DOM node card (the reported hole) --------------------
-const cardHost = window.document.createElement('div');
-window.document.body.appendChild(cardHost);
-const cardRoot = createRoot(cardHost);
+// --- no floating card: selection is canvas highlight only --------------------
+const selHost = window.document.createElement('div');
+window.document.body.appendChild(selHost);
+const selRoot = createRoot(selHost);
 await React.act(async () => {
-  cardRoot.render(React.createElement(DagCanvas, {
+  selRoot.render(React.createElement(DagCanvas, {
     nodes, edges, layout, selectedId: 'n-00007', now: Date.now(), busyKey: '',
     onSelect: noop, onOpenNative: record('native'), onContinue: record('continue'),
-    onNodeAction: record('action'), onProposalAction: noop, onRetryRequest: record('retry'),
+    onNodeAction: record('action'), onProposalAction: record('proposal'), onRetryRequest: record('retry'),
     onEscalate: record('escalate'), onOpenTrace: record('trace'), onOpenFiles: record('files'),
     onSuccessor: record('child'), replayFooter: null, factsSlot: null, t: (key) => key,
   }));
   await wait(120);
 });
-await wait(80);
-const card = cardHost.querySelector('.rl-dag-overlay-card');
-check('the selected node renders a DOM card', card !== null);
-const cardTitle = card?.querySelector('.rl-node-title, span, div') ?? card;
-const cardEvent = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 });
+await wait(60);
+check('selecting a node mounts no floating card',
+  selHost.querySelectorAll('.rl-dag-overlay-card, .rl-node').length === 0,
+  String(selHost.querySelectorAll('.rl-dag-overlay-card, .rl-node').length));
+check('the selected node is still drawn on the canvas', stub.calls.fill > 0);
+await React.act(async () => { selRoot.unmount(); });
+
+// A proposed node must expose approve/reject in the menu (the card used to).
+const propNode = { id: 'n-prop', title: 'proposal', status: 'proposed', parentId: null };
+const propLayout = { positions: new Map([['n-prop', { x: 10, y: 10 }]]), width: 400, height: 200 };
+const propHost = window.document.createElement('div');
+window.document.body.appendChild(propHost);
+const propRoot = createRoot(propHost);
+localStorage.clear();
 await React.act(async () => {
-  cardTitle.dispatchEvent(cardEvent);
-  await wait(60);
+  propRoot.render(React.createElement(DagCanvas, {
+    nodes: [propNode], edges: [], layout: propLayout, selectedId: null, now: Date.now(), busyKey: '',
+    onSelect: noop, onOpenNative: noop, onContinue: noop, onNodeAction: noop,
+    onProposalAction: record('proposal'), onRetryRequest: noop, onEscalate: noop,
+    onOpenTrace: noop, onOpenFiles: noop, onSuccessor: noop,
+    replayFooter: null, factsSlot: null, t: (key) => key,
+  }));
+  await wait(120);
 });
-const cardMenu = cardHost.querySelector('[data-testid="dag-context-menu"]');
-check('right-click on the node card suppresses the browser menu', cardEvent.defaultPrevented === true);
-check('right-click on the node card opens the menu for that node',
-  cardMenu !== null && (cardMenu.textContent ?? '').includes('n-00007'), cardMenu?.textContent?.slice(0, 60) ?? 'null');
-await React.act(async () => { cardRoot.unmount(); });
+await wait(60);
+const propCanvas = propHost.querySelector('[data-testid="dag-canvas"]');
+propCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 1000, right: 1600, bottom: 1000, x: 0, y: 0 });
+const propZoom = Math.min((1600 - 96) / propLayout.width, (1000 - 96) / propLayout.height, 1);
+const propPan = { x: (1600 - propLayout.width * propZoom) / 2, y: (1000 - propLayout.height * propZoom) / 2 };
+const propEvent = new window.MouseEvent('contextmenu', {
+  bubbles: true,
+  cancelable: true,
+  clientX: (10 + 30) * propZoom + propPan.x,
+  clientY: (10 + 30) * propZoom + propPan.y,
+});
+await React.act(async () => { propCanvas.dispatchEvent(propEvent); await wait(60); });
+const propMenu = propHost.querySelector('[data-testid="dag-context-menu"]');
+check('a proposed node offers approve/reject in the menu',
+  (propMenu?.textContent ?? '').includes('ws.menu.approve') && (propMenu?.textContent ?? '').includes('ws.menu.reject'),
+  propMenu?.textContent?.slice(0, 80) ?? 'null');
+await React.act(async () => { propRoot.unmount(); });
 
 await React.act(async () => { root.unmount(); });
 dom.window.close();

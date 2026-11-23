@@ -1720,6 +1720,8 @@
     "ws.menu.fit": "Fit view",
     "ws.menu.zoomIn": "Zoom in",
     "ws.menu.zoomOut": "Zoom out",
-    "ws.menu.clearSelection": "Clear selection"
+    "ws.menu.clearSelection": "Clear selection",
+    "ws.menu.approve": "Approve proposal",
+    "ws.menu.reject": "Reject proposal"
   }
 }

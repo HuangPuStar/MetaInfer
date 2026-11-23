@@ -1298,6 +1298,7 @@ window.__ModuleLoader__.load({
       "ws.log.expand": "展开",
       "ws.log.openRun": "查看运行",
       "ws.log.title": "活动日志",
+      "ws.menu.approve": "批准提案",
       "ws.menu.clearSelection": "取消选中",
       "ws.menu.continue": "继续对话",
       "ws.menu.copyId": "复制节点 ID",
@@ -1308,6 +1309,7 @@ window.__ModuleLoader__.load({
       "ws.menu.native": "打开原生会话",
       "ws.menu.priorityLower": "降低优先级",
       "ws.menu.priorityRaise": "提升优先级",
+      "ws.menu.reject": "拒绝提案",
       "ws.menu.retry": "重试",
       "ws.menu.trace": "查看 Profile 追踪",
       "ws.menu.zoomIn": "放大",
@@ -3018,6 +3020,7 @@ window.__ModuleLoader__.load({
       "ws.log.expand": "Expand",
       "ws.log.openRun": "View run",
       "ws.log.title": "Activity log",
+      "ws.menu.approve": "Approve proposal",
       "ws.menu.clearSelection": "Clear selection",
       "ws.menu.continue": "Continue conversation",
       "ws.menu.copyId": "Copy node id",
@@ -3028,6 +3031,7 @@ window.__ModuleLoader__.load({
       "ws.menu.native": "Open native session",
       "ws.menu.priorityLower": "Lower priority",
       "ws.menu.priorityRaise": "Raise priority",
+      "ws.menu.reject": "Reject proposal",
       "ws.menu.retry": "Retry",
       "ws.menu.trace": "View profile trace",
       "ws.menu.zoomIn": "Zoom in",
@@ -3970,8 +3974,6 @@ window.__ModuleLoader__.load({
       '.rl-dag-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }',
       '.rl-dag-canvas:focus-visible { outline: 2px solid var(--dsw-alias-border-accent, #4aa3ff); outline-offset: -2px; }',
       '.rl-canvas-dragging .rl-dag-canvas { cursor: grabbing; }',
-      '.rl-dag-overlay { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }',
-      '.rl-dag-overlay-card { position: absolute; pointer-events: auto; }',
       '.rl-dag-menu { position: absolute; z-index: 20; min-width: 176px; padding: 4px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); box-shadow: 0 8px 28px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent); display: flex; flex-direction: column; gap: 1px; }',
       '.rl-dag-menu-head { padding: 4px 8px 6px; color: var(--dsw-alias-label-tertiary, inherit); font-size: 10.5px; font-family: var(--dsw-alias-font-mono, monospace); border-bottom: 0.5px solid var(--dsw-alias-border-l2); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
       '.rl-dag-menu-item { display: block; width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 12px; line-height: 18px; text-align: left; cursor: pointer; white-space: nowrap; }',
@@ -12977,7 +12979,6 @@ window.__ModuleLoader__.load({
     function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, replayFooter, factsSlot, t }) {
       const hostRef = React.useRef(null);
       const canvasRef = React.useRef(null);
-      const overlayRef = React.useRef(null);
       const viewRef = React.useRef({ pan: { x: 0, y: 0 }, zoom: 1, dpr: 1, hoverId: null });
       const sceneRef = React.useRef(null);
       const frameRef = React.useRef(0);
@@ -13000,10 +13001,6 @@ window.__ModuleLoader__.load({
       const scene = React.useMemo(() => buildDagScene({ nodes: safeNodes, edges: safeEdges, layout: safeLayout, t }), [safeNodes, safeEdges, safeLayout, t]);
       sceneRef.current = scene;
 
-      const selectedNode = React.useMemo(
-        () => (selectedId === null ? null : (scene.byId.get(selectedId)?.node ?? null)),
-        [scene, selectedId],
-      );
       const related = React.useMemo(() => {
         if (selectedId === null) return null;
         const set = new Set([selectedId]);
@@ -13032,9 +13029,6 @@ window.__ModuleLoader__.load({
           hoverId: view.hoverId,
           related,
         });
-        if (overlayRef.current) {
-          overlayRef.current.style.transform = 'translate(' + view.pan.x + 'px, ' + view.pan.y + 'px) scale(' + view.zoom + ')';
-        }
         const stamp = Date.now();
         if (stamp - zoomStampRef.current > 120) {
           zoomStampRef.current = stamp;
@@ -13224,14 +13218,7 @@ window.__ModuleLoader__.load({
 
         const onContextMenu = (event) => {
         if (typeof event?.preventDefault === 'function') event.preventDefault();
-        // The selected node is a DOM card on top of the canvas, so a right click on
-        // its title/buttons never reaches the canvas element. Inspect the target:
-        // inside the card it is that node, elsewhere the canvas hit test decides.
-        const target = event?.target;
-        const inCard = target && typeof target.closest === 'function'
-          ? target.closest('.rl-dag-overlay-card') !== null
-          : false;
-        const hit = inCard ? (selectedId === null ? null : { id: selectedId }) : hitTestDag(sceneRef.current, worldPointOf(event));
+        const hit = hitTestDag(sceneRef.current, worldPointOf(event));
         const id = hit === null ? null : hit.id;
       if (id !== null) onSelect(id);
       const rect = hostRef.current ? hostRef.current.getBoundingClientRect() : { left: 0, top: 0 };
@@ -13261,6 +13248,10 @@ window.__ModuleLoader__.load({
       ];
       if (status === 'completed' || status === 'running') {
         items.push({ key: 'continue', label: t('ws.menu.continue'), run: () => onContinue(nodeId) });
+      }
+      if (status === 'proposed') {
+        items.push({ key: 'approve', label: t('ws.menu.approve'), run: () => onProposalAction('approve', nodeId) });
+        items.push({ key: 'reject', label: t('ws.menu.reject'), run: () => onProposalAction('reject', nodeId) });
       }
       if (status === 'failed' || status === 'cancelled') {
         items.push({ key: 'retry', label: t('ws.menu.retry'), run: () => onRetryRequest(nodeId) });
@@ -13296,11 +13287,6 @@ window.__ModuleLoader__.load({
         else return;
         event.preventDefault?.();
         schedule();
-      };
-
-      const overlayStyle = selectedNode === null ? null : {
-        left: selectedNodePosition(sceneRef.current, selectedId).x,
-        top: selectedNodePosition(sceneRef.current, selectedId).y,
       };
 
       return h(
@@ -13340,30 +13326,6 @@ window.__ModuleLoader__.load({
             className: 'rl-dag-menu-item',
             onClick: () => { closeMenu(); item.run(); },
           }, item.label)),
-        ),
-        selectedNode === null ? null : h(
-          'div',
-          { className: 'rl-dag-overlay', ref: overlayRef },
-          h('div', { className: 'rl-dag-overlay-card', style: overlayStyle },
-            h(NodeCard, {
-              node: selectedNode,
-              position: { x: 0, y: 0 },
-              selected: true,
-              dim: false,
-              parentTitle: parentTitleOf(selectedNode, safeNodes),
-              isLeaf: nodeIsLeafOf(selectedNode, safeNodes),
-              sealed: nodeSealedFlagOf(selectedNode),
-              busyKey,
-              now,
-              onSelect,
-              onOpenNative,
-              onContinue,
-              onNodeAction,
-              onProposalAction,
-              onRetryRequest,
-              onEscalate,
-              t,
-            })),
         ),
         h(
           'div',
