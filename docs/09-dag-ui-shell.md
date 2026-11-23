@@ -99,3 +99,30 @@ target.closest('.rl-rail-window, .rl-node-window, .rl-dag-menu, .rl-canvas-toolb
 
 仍会中断会话这一点无法避免：需要加载 Host/插件的新代码就必须重启。做法上应
 **合并改动、一次重启**，并在重启前告知，而不是每改一处就重启一次。
+
+## 7. 浮窗一致性（统一外壳）
+
+页面里所有浮窗都来自同一个 `FloatWindow` 外壳，因此外观与能力一致：
+
+| 能力 | 实现 |
+|---|---|
+| 半透明 + 背景模糊 | `background: bg-layer-1 @82%` + `backdrop-filter: blur(10px)` |
+| 拖动 | 标题栏 pointer 事件（按钮区域不触发） |
+| 缩放 | 右下角手柄，最小 320×200 |
+| 最小化 | `—` 折叠成标题条，`▢` 还原 |
+| 关闭 | `✕` |
+| 置顶 | 点击窗口任意处（`onPointerDown`）→ 共用 z 计数器 +1 |
+| 可选 tab | `tabs` / `tab` / `onTab` |
+
+使用它的四个窗口：
+
+1. **节点详情**（双击节点）
+2. **节点列表**（工具栏开关，状态分页签）
+3. **历史**（顶栏时钟图标：变更日志 + DAG 回放）
+4. **变更详情**（WAL 行 → 完整记录）
+
+它们都渲染在同一个层 `.rl-node-windows` 里（`position: absolute; inset: 0`，`pointer-events: none`），
+所以置顶在四种窗口之间是互相比大小的，不会出现"节点窗口永远压住历史窗口"。
+
+一致性由探针守住：`wal-ui-selftest` 断言历史窗口带 `rl-node-window` 类、有缩放手柄、
+可拖动、可最小化；`node-window-selftest` 对节点列表做同样的事。

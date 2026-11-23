@@ -211,6 +211,7 @@ const modalHost = window.document.createElement('div');
 window.document.body.appendChild(modalHost);
 const modalRoot = createRoot(modalHost);
 let tab = 'wal';
+const modalPatches = [];
 let closed = 0;
 const renderModal = async () => {
   modalRoot.render(React.createElement(HistoryModal, {
@@ -218,6 +219,8 @@ const renderModal = async () => {
     tab,
     onTab: (next) => { tab = next; },
     onClose: () => { closed += 1; },
+    geometry: { x: 100, y: 80, w: 820, h: 560, min: false },
+    onGeometry: (patch) => { modalPatches.push(patch); },
     walPanel: React.createElement('div', { 'data-panel': 'wal' }, 'wal panel'),
     replayPanel: React.createElement('div', { 'data-panel': 'replay' }, 'replay panel'),
     t,
@@ -226,14 +229,32 @@ const renderModal = async () => {
 };
 await renderModal();
 check('the history modal opens on the change log', modalHost.querySelector('[data-panel="wal"]') !== null);
-const modalTabs = [...modalHost.querySelectorAll('.rl-modal-tab')];
+const modalTabs = [...modalHost.querySelectorAll('[data-testid="history-modal"] .rl-node-window-tab')];
 check('the modal offers both modules', modalTabs.length === 2, String(modalTabs.length));
 const replayTab = modalTabs.find((button) => (button.textContent ?? '').includes('ws.history.tab.replay'));
 await React.act(async () => { replayTab.click(); await wait(40); });
 await renderModal();
 check('switching to replay swaps the panel',
   modalHost.querySelector('[data-panel="replay"]') !== null && modalHost.querySelector('[data-panel="wal"]') === null);
-const closeButton = [...modalHost.querySelectorAll('button')].find((button) => (button.textContent ?? '') === '✕');
+// consistency with the other floating windows: same shell, drag, resize, minimise
+const historyWin = modalHost.querySelector('[data-testid="history-modal"]');
+check('history is a floating window like the others',
+  (historyWin?.className ?? '').includes('rl-node-window'), historyWin?.className ?? '(none)');
+check('history has a resize handle', modalHost.querySelector('[data-testid="history-modal"] .rl-node-window-resize') !== null);
+const historyHeader = modalHost.querySelector('[data-testid="history-modal"] .rl-node-window-head');
+const pointer = (type, x, y) => new window.MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+await React.act(async () => {
+  historyHeader.dispatchEvent(pointer('pointerdown', 200, 100));
+  historyHeader.dispatchEvent(pointer('pointermove', 260, 150));
+  historyHeader.dispatchEvent(pointer('pointerup', 260, 150));
+  await wait(40);
+});
+const moved = modalPatches.filter((patch) => patch.x !== undefined).pop();
+check('history can be dragged', moved !== undefined && moved.x === 160 && moved.y === 130, JSON.stringify(moved));
+const historyMinimize = [...modalHost.querySelectorAll('[data-testid="history-modal"] .rl-node-window-btn')][0];
+await React.act(async () => { historyMinimize.click(); await wait(40); });
+check('history can be minimised', modalPatches.some((patch) => patch.min === true), JSON.stringify(modalPatches.slice(-2)));
+const closeButton = [...modalHost.querySelectorAll('[data-testid="history-modal"] .rl-node-window-btn')].pop();
 await React.act(async () => { closeButton.click(); await wait(20); });
 check('the modal closes', closed === 1);
 await React.act(async () => { modalRoot.unmount(); });

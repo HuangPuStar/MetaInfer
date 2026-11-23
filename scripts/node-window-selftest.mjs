@@ -196,7 +196,7 @@ await renderRail(true);
 const railWin = railHost.querySelector('[data-testid="node-rail-window"]');
 check('opening the list mounts a floating window', railWin !== null);
 check('the list window is not in the layout flow (absolute)', (railWin?.className ?? '').includes('rl-rail-window'));
-const railTabs = [...railHost.querySelectorAll('.rl-rail-window-tab')];
+const railTabs = [...railHost.querySelectorAll('[data-testid="node-rail-window"] .rl-node-window-tab')];
 check('the list groups nodes into status tabs', railTabs.length === 3, String(railTabs.length));
 const tabCounts = {};
 for (const button of railTabs) {
@@ -213,7 +213,7 @@ check('the first tab lists only that status', rowsOf().join(',') === expectedByS
 const failedTab = railTabs.find((button) => (button.textContent ?? '').includes('status.failed'));
 await React.act(async () => { failedTab.click(); await wait(40); });
 check('switching a tab shows only that status', rowsOf().join(',') === 'gamma', rowsOf().join(','));
-const railHeader = railHost.querySelector('.rl-rail-window-head');
+const railHeader = railHost.querySelector('[data-testid="node-rail-window"] .rl-node-window-head');
 await React.act(async () => {
   railHeader.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 100, clientY: 80, button: 0 }));
   railHeader.dispatchEvent(new window.MouseEvent('pointermove', { bubbles: true, cancelable: true, clientX: 160, clientY: 130, button: 0 }));
@@ -222,7 +222,7 @@ await React.act(async () => {
 });
 const railMoved = railPatches.filter((patch) => patch.x !== undefined).pop();
 check('the list window can be dragged', railMoved !== undefined && railMoved.x === 72 && railMoved.y === 114, JSON.stringify(railMoved));
-const railClose = railHost.querySelector('.rl-rail-window-head .rl-node-window-btn');
+const railClose = [...railHost.querySelectorAll('[data-testid="node-rail-window"] .rl-node-window-head .rl-node-window-btn')].pop();
 await React.act(async () => { railClose.click(); await wait(20); });
 check('the list window closes', railClosed === 1);
 await React.act(async () => { railRoot.unmount(); });

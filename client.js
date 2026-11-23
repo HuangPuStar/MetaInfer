@@ -4095,17 +4095,11 @@ window.__ModuleLoader__.load({
       '.rl-dag-menu-sep { height: 1px; margin: 3px 6px; background: var(--dsw-alias-border-l2); }',
       '.rl-dag-menu-sub { position: absolute; z-index: 21; min-width: 190px; }',
       '.rl-dag-menu-sub-flip { left: auto; right: 100%; }',
-      '.rl-rail-window { position: absolute; z-index: 6; display: flex; flex-direction: column; min-width: 260px; min-height: 220px; border: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 82%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 78%, transparent); backdrop-filter: blur(8px); color: var(--dsw-alias-label-primary); box-shadow: 0 2px 8px color-mix(in srgb, var(--dsw-alias-label-primary) 13%, transparent); overflow: hidden; }',
-      '.rl-rail-window-busy { user-select: none; }',
-      '.rl-rail-window-head { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 10px; border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 70%, transparent); background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 70%, transparent); cursor: grab; touch-action: none; }',
-      '.rl-rail-window-busy .rl-rail-window-head { cursor: grabbing; }',
-      '.rl-rail-window-tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 5px 6px; border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 60%, transparent); }',
-      '.rl-rail-window-tab { padding: 3px 8px; border: 0; border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11px; cursor: pointer; }',
-      '.rl-rail-window-tab:hover { color: var(--dsw-alias-label-primary); }',
-      '.rl-rail-window-tab-active { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 22%, transparent); color: var(--dsw-alias-label-primary); }',
-      '.rl-rail-window-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; padding: 6px; }',
+      '.rl-rail-window-body { display: flex; flex-direction: column; gap: 2px; padding: 6px; }',
       '.rl-node-windows { position: absolute; inset: 0; z-index: 30; pointer-events: none; }',
-      '.rl-node-window { position: absolute; display: flex; flex-direction: column; min-width: 360px; max-width: calc(100% - 16px); border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); box-shadow: 0 2px 8px color-mix(in srgb, var(--dsw-alias-label-primary) 13%, transparent); pointer-events: auto; overflow: hidden; }',
+      '.rl-node-window { position: absolute; display: flex; flex-direction: column; min-width: 320px; max-width: calc(100% - 16px); border: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 82%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 82%, transparent); backdrop-filter: blur(10px); color: var(--dsw-alias-label-primary); box-shadow: 0 2px 8px color-mix(in srgb, var(--dsw-alias-label-primary) 13%, transparent); pointer-events: auto; overflow: hidden; }',
+      '.rl-wal-detail-body { display: flex; flex-direction: column; gap: 10px; padding: 12px; overflow: auto; min-height: 0; }',
+      '.rl-history-window .rl-node-window-panel { padding: 12px; }',
       '.rl-node-window-busy { user-select: none; }',
       '.rl-node-window-head { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 10px; border-bottom: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); cursor: grab; touch-action: none; }',
       '.rl-node-window-busy .rl-node-window-head { cursor: grabbing; }',
@@ -10610,7 +10604,7 @@ window.__ModuleLoader__.load({
      * clipped there; this dialog shows the whole record: identity, the before/after
      * table for the fields that changed, and the raw payload.
      */
-    function WalDetailDialog({ entry, t, onClose, onSelectNode }) {
+    function WalDetailDialog({ entry, t, onClose, onSelectNode, geometry, onGeometry }) {
       if (entry === null || entry === undefined) return null;
       const payload = asObject(entry.payload);
       const before = asObject(payload.before);
@@ -10621,75 +10615,69 @@ window.__ModuleLoader__.load({
         if (value === undefined || value === null || value === '') return '—';
         return String(value);
       };
-      return h(
+      const box = geometry !== null && typeof geometry === 'object'
+        ? geometry
+        : { x: 240, y: 120, w: 640, h: 500 };
+      return h(FloatWindow, {
+        geometry: box,
+        zIndex: box.z ?? 28,
+        title: t('ws.wal.detailTitle'),
+        meta: '#' + String(entry.projectSeq ?? entry.seq ?? ''),
+        t,
+        testId: 'wal-detail',
+        modifier: 'rl-wal-detail-window',
+        onGeometry,
+        onClose,
+        onFocus: () => { if (typeof onGeometry === 'function') onGeometry({ z: Date.now() % 1000000 }); },
+      }, h(
         'div',
-        { className: 'rl-overlay-layer rl-overlay-layer-confirm', 'data-testid': 'wal-detail' },
+        { className: 'rl-wal-detail-body' },
         h(
           'div',
-          { className: 'rl-modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('ws.wal.detailTitle') },
-          h(
-            'div',
-            { className: 'rl-modal-head' },
-            h('h2', { className: 'rl-modal-title' }, t('ws.wal.detailTitle')),
-            h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.window.close'), onClick: onClose }),
-          ),
-          h(
-            'div',
-            { className: 'rl-modal-body' },
-            h(
-              'div',
-              { className: 'rl-info-grid' },
-              h(LabInfoRow, { label: t('ws.wal.seq'), value: String(entry.projectSeq ?? entry.seq ?? ''), mono: true }),
-              h(LabInfoRow, { label: t('ws.wal.globalSeq'), value: String(entry.seq ?? ''), mono: true }),
-              h(LabInfoRow, { label: t('ws.wal.kind'), value: firstString(entry.kind), mono: true }),
-              h(LabInfoRow, { label: t('ws.wal.at'), value: formatDateTime(Number(entry.at) || 0, t) }),
-              firstString(entry.nodeId) === ''
-                ? null
-                : h('div', { className: 'rl-info-row' },
-                    h('span', { className: 'rl-info-label' }, t('ws.wal.node')),
-                    h('button', {
-                      type: 'button',
-                      className: 'rl-link-btn',
-                      onClick: () => onSelectNode(firstString(entry.nodeId)),
-                    }, firstString(entry.nodeId))),
-            ),
-            changed.length > 0
-              ? h(
-                  'div',
-                  { className: 'rl-section' },
-                  h('h3', { className: 'rl-section-title' }, t('ws.wal.detailChanged')),
-                  h(
-                    'div',
-                    { className: 'rl-wal-diff', role: 'table' },
-                    h('div', { className: 'rl-wal-diff-row rl-wal-diff-head', role: 'row' },
-                      h('span', { role: 'columnheader' }, t('ws.wal.field')),
-                      h('span', { role: 'columnheader' }, t('ws.wal.before')),
-                      h('span', { role: 'columnheader' }, t('ws.wal.after'))),
-                    changed.map((field) => h(
-                      'div',
-                      { key: 'diff-' + field, className: 'rl-wal-diff-row', role: 'row' },
-                      h('span', { role: 'cell', className: 'rl-wal-diff-field' }, field),
-                      h('span', { role: 'cell' }, fieldValue(before, field)),
-                      h('span', { role: 'cell' }, fieldValue(after, field)),
-                    )),
-                  ),
-                )
-              : null,
-            h(
+          { className: 'rl-info-grid' },
+          h(LabInfoRow, { label: t('ws.wal.seq'), value: String(entry.projectSeq ?? entry.seq ?? ''), mono: true }),
+          h(LabInfoRow, { label: t('ws.wal.globalSeq'), value: String(entry.seq ?? ''), mono: true }),
+          h(LabInfoRow, { label: t('ws.wal.kind'), value: firstString(entry.kind), mono: true }),
+          h(LabInfoRow, { label: t('ws.wal.at'), value: formatDateTime(Number(entry.at) || 0, t) }),
+          firstString(entry.nodeId) === ''
+            ? null
+            : h('div', { className: 'rl-info-row' },
+                h('span', { className: 'rl-info-label' }, t('ws.wal.node')),
+                h('button', {
+                  type: 'button',
+                  className: 'rl-link-btn',
+                  onClick: () => onSelectNode(firstString(entry.nodeId)),
+                }, firstString(entry.nodeId))),
+        ),
+        changed.length > 0
+          ? h(
               'div',
               { className: 'rl-section' },
-              h('h3', { className: 'rl-section-title' }, t('ws.wal.detailPayload')),
-              h('pre', { className: 'rl-wal-json', 'data-testid': 'wal-detail-json' },
-                JSON.stringify(payload, null, 2)),
-            ),
-          ),
-          h(
-            'div',
-            { className: 'rl-modal-foot' },
-            h(LabButton, { label: t('ws.window.close'), onClick: onClose }),
-          ),
+              h('h3', { className: 'rl-section-title' }, t('ws.wal.detailChanged')),
+              h(
+                'div',
+                { className: 'rl-wal-diff', role: 'table' },
+                h('div', { className: 'rl-wal-diff-row rl-wal-diff-head', role: 'row' },
+                  h('span', { role: 'columnheader' }, t('ws.wal.field')),
+                  h('span', { role: 'columnheader' }, t('ws.wal.before')),
+                  h('span', { role: 'columnheader' }, t('ws.wal.after'))),
+                changed.map((field) => h(
+                  'div',
+                  { key: 'diff-' + field, className: 'rl-wal-diff-row', role: 'row' },
+                  h('span', { role: 'cell', className: 'rl-wal-diff-field' }, field),
+                  h('span', { role: 'cell' }, fieldValue(before, field)),
+                  h('span', { role: 'cell' }, fieldValue(after, field)),
+                )),
+              ),
+            )
+          : null,
+        h(
+          'div',
+          { className: 'rl-section' },
+          h('h3', { className: 'rl-section-title' }, t('ws.wal.detailPayload')),
+          h('pre', { className: 'rl-wal-json', 'data-testid': 'wal-detail-json' }, JSON.stringify(payload, null, 2)),
         ),
-      );
+      ));
     }
 
     /** One-line summary of a WAL payload, for the results table. */
@@ -10887,85 +10875,30 @@ window.__ModuleLoader__.load({
      * one dialog, because they answer the same question from two directions
      * (what changed vs what the graph looked like at a moment).
      */
-    function HistoryModal({ open, tab, onTab, onClose, walPanel, replayPanel, t }) {
+    function HistoryModal({ open, tab, onTab, onClose, walPanel, replayPanel, geometry, onGeometry, t }) {
       if (open !== true) return null;
       const tabs = [
         { id: 'wal', label: t('ws.history.tab.wal') },
         { id: 'replay', label: t('ws.history.tab.replay') },
       ];
       const active = tab === 'replay' ? 'replay' : 'wal';
-      return h(
-        'div',
-        { className: 'rl-overlay-layer rl-overlay-layer-top', 'data-testid': 'history-modal' },
-        h(
-          'div',
-          { className: 'rl-modal rl-modal-wide', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('ws.history.title') },
-          h(
-            'div',
-            { className: 'rl-modal-head' },
-            h('h2', { className: 'rl-modal-title' }, t('ws.history.title')),
-            h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.window.close'), onClick: onClose }),
-          ),
-          h(
-            'div',
-            { className: 'rl-modal-tabs', role: 'tablist' },
-            tabs.map((entry) => h('button', {
-              key: 'history-tab-' + entry.id,
-              type: 'button',
-              role: 'tab',
-              'aria-selected': active === entry.id,
-              className: 'rl-modal-tab' + (active === entry.id ? ' rl-modal-tab-active' : ''),
-              onClick: () => onTab(entry.id),
-            }, entry.label)),
-          ),
-          h('div', { className: 'rl-modal-body' }, active === 'wal' ? walPanel : replayPanel),
-        ),
-      );
-    }
-
-    function replaySnapshot(data, at) {
-      const nodes = asArray(asObject(data).nodes);
-      const edges = asArray(asObject(data).edges);
-      const events = asArray(asObject(data).events);
-      const created = new Map();
-      const status = new Map();
-      for (const node of nodes) {
-        const stamps = asObject(node?.timestamps);
-        const createdAt = Number(stamps.createdAt ?? node?.createdAt ?? 0);
-        if (createdAt > 0 && createdAt <= at) {
-          created.set(node?.id, createdAt);
-          status.set(node?.id, firstString(node?.status) === 'proposed' ? 'proposed' : 'planned');
-        }
-      }
-      for (const event of events) {
-        if (Number(event?.at) > at) continue;
-        const id = firstString(event?.nodeId, asObject(event?.data)?.nodeId);
-        if (!id) continue;
-        const type = firstString(event?.type);
-        if (type === 'node/created' || type === 'node/proposed') {
-          if (!created.has(id)) created.set(id, Number(event?.at) || 0);
-          status.set(id, type === 'node/proposed' ? 'proposed' : 'planned');
-        } else if (type === 'node/approved' || type === 'node/retried' || type === 'node/escalated') {
-          status.set(id, 'planned');
-        } else if (type === 'node/started') {
-          status.set(id, 'running');
-        } else if (type === 'node/completed') {
-          status.set(id, 'completed');
-        } else if (type === 'node/failed' || type === 'node/timeout' || type === 'node/resource_lost') {
-          status.set(id, 'failed');
-        } else if (type === 'node/cancelled' || type === 'node/rejected') {
-          status.set(id, 'cancelled');
-        }
-      }
-      const visible = new Set();
-      const resultNodes = [];
-      for (const node of nodes) {
-        if (!created.has(node?.id)) continue;
-        visible.add(node?.id);
-        resultNodes.push({ ...node, status: status.get(node?.id) || node?.status });
-      }
-      const resultEdges = edges.filter((edge) => visible.has(edge.from) && visible.has(edge.to));
-      return { nodes: resultNodes, edges: resultEdges };
+      const box = geometry !== null && typeof geometry === 'object'
+        ? geometry
+        : { x: 180, y: 96, w: 820, h: 560 };
+      return h(FloatWindow, {
+        geometry: box,
+        zIndex: box.z ?? 26,
+        title: t('ws.history.title'),
+        tabs,
+        tab: active,
+        onTab,
+        t,
+        testId: 'history-modal',
+        modifier: 'rl-history-window',
+        onGeometry,
+        onClose,
+        onFocus: () => { if (typeof onGeometry === 'function') onGeometry({ z: Date.now() % 1000000 }); },
+      }, active === 'wal' ? walPanel : replayPanel);
     }
 
     /** Timeline bar for dragging through DAG growth history. */
@@ -11384,17 +11317,26 @@ window.__ModuleLoader__.load({
      * several can stay open so two nodes can be compared. The header drags, the
      * corner resizes, the first button minimises to just the title bar.
      */
-    function NodeDetailWindow({ geometry, zIndex, inspector, t, onGeometry, onClose, onFocus }) {
-      const [tab, setTab] = React.useState('summary');
+    /**
+     * Shared floating-window shell.
+     *
+     * Every detached surface in the DAG page (node details, node list, history, the
+     * WAL record dialog) is the same object: translucent, draggable by its header,
+     * resizable from the corner, collapsible to the title bar, with an optional tab
+     * strip. Keeping one shell is what makes them behave and look alike.
+     */
+    function FloatWindow({
+      geometry, zIndex, title, meta, tabs, tab, onTab, t,
+      onGeometry, onClose, onFocus, testId, nodeId, modifier = '', footer = null, children,
+    }) {
+      const box = geometry !== null && typeof geometry === 'object'
+        ? geometry
+        : { x: 0, y: 0, w: 560, h: 520, min: false };
+      const minimized = box.min === true;
       const dragRef = React.useRef(null);
       const resizeRef = React.useRef(null);
       const [busy, setBusy] = React.useState(false);
-      // Degraded mounts (a probe rendering every panel with an empty payload) must
-      // not crash the window: fall back to a sane default box.
-      const box = geometry !== null && typeof geometry === 'object'
-        ? geometry
-        : { nodeId: '', title: '', x: 0, y: 0, w: 560, h: 520, min: false };
-      const minimized = box.min === true;
+      const moveBy = (patch) => { if (typeof onGeometry === 'function') onGeometry(patch); };
 
       const beginDrag = (event) => {
         if (event?.button !== 0) return;
@@ -11405,11 +11347,11 @@ window.__ModuleLoader__.load({
         try { event?.currentTarget?.setPointerCapture?.(event.pointerId); } catch { /* best effort */ }
       };
       const drag = (event) => {
-        const drag0 = dragRef.current;
-        if (drag0 === null) return;
-        onGeometry({
-          x: Math.max(0, drag0.gx + ((event.clientX ?? 0) - drag0.x)),
-          y: Math.max(0, drag0.gy + ((event.clientY ?? 0) - drag0.y)),
+        const start = dragRef.current;
+        if (start === null) return;
+        moveBy({
+          x: Math.max(0, start.gx + ((event.clientX ?? 0) - start.x)),
+          y: Math.max(0, start.gy + ((event.clientY ?? 0) - start.y)),
         });
       };
       const endDrag = (event) => {
@@ -11430,9 +11372,9 @@ window.__ModuleLoader__.load({
       const resize = (event) => {
         const start = resizeRef.current;
         if (start === null) return;
-        onGeometry({
-          w: Math.max(360, start.w + ((event.clientX ?? 0) - start.x)),
-          h: Math.max(220, start.h + ((event.clientY ?? 0) - start.y)),
+        moveBy({
+          w: Math.max(320, start.w + ((event.clientX ?? 0) - start.x)),
+          h: Math.max(200, start.h + ((event.clientY ?? 0) - start.y)),
         });
       };
       const endResize = (event) => {
@@ -11444,13 +11386,14 @@ window.__ModuleLoader__.load({
         } catch { /* ignore */ }
       };
 
+      const tabList = Array.isArray(tabs) ? tabs : [];
       return h(
         'section',
         {
-          className: 'rl-node-window' + (busy ? ' rl-node-window-busy' : '') + (minimized ? ' rl-node-window-min' : ''),
-          'data-testid': 'node-window',
-          'data-node-id': box.nodeId,
-          style: { left: box.x, top: box.y, width: box.w, height: minimized ? 'auto' : box.h, zIndex },
+          className: 'rl-node-window rl-float-window' + (modifier === '' ? '' : ' ' + modifier) + (busy ? ' rl-node-window-busy' : '') + (minimized ? ' rl-node-window-min' : ''),
+          'data-testid': testId ?? 'float-window',
+          'data-node-id': nodeId,
+          style: { left: box.x, top: box.y, width: box.w, height: minimized ? 'auto' : box.h, zIndex: zIndex ?? 20 },
           onPointerDown: onFocus,
         },
         h(
@@ -11463,14 +11406,14 @@ window.__ModuleLoader__.load({
             onPointerCancel: endDrag,
           },
           h('span', { className: 'rl-node-window-grip', 'aria-hidden': true }, '⠿'),
-          h('span', { className: 'rl-node-window-title' }, box.title),
-          h('span', { className: 'rl-node-window-id' }, box.nodeId),
+          h('span', { className: 'rl-node-window-title' }, title),
+          meta === undefined || meta === null ? null : h('span', { className: 'rl-node-window-id' }, String(meta)),
           h('button', {
             type: 'button',
             className: 'rl-node-window-btn',
             title: minimized ? t('ws.window.restore') : t('ws.window.minimize'),
             'aria-label': minimized ? t('ws.window.restore') : t('ws.window.minimize'),
-            onClick: () => onGeometry({ min: minimized !== true }),
+            onClick: () => moveBy({ min: minimized !== true }),
           }, minimized ? '▢' : '—'),
           h('button', {
             type: 'button',
@@ -11483,17 +11426,21 @@ window.__ModuleLoader__.load({
         minimized ? null : h(
           'div',
           { className: 'rl-node-window-main' },
-          h('div', { className: 'rl-node-window-tabs', role: 'tablist' },
-            NODE_WINDOW_TABS.map((id) => h('button', {
-              key: 'tab-' + id,
+          tabList.length === 0 ? null : h(
+            'div',
+            { className: 'rl-node-window-tabs', role: 'tablist' },
+            tabList.map((entry) => h('button', {
+              key: 'tab-' + entry.id,
               type: 'button',
               role: 'tab',
-              'aria-selected': tab === id,
-              className: 'rl-node-window-tab' + (tab === id ? ' rl-node-window-tab-active' : ''),
-              onClick: () => setTab(id),
-            }, t('ws.window.tab.' + id)))),
-          h('div', { className: 'rl-node-window-panel', role: 'tabpanel' }, typeof inspector === 'function' ? inspector(tab) : null),
+              'aria-selected': tab === entry.id,
+              className: 'rl-node-window-tab' + (tab === entry.id ? ' rl-node-window-tab-active' : ''),
+              onClick: () => { if (typeof onTab === 'function') onTab(entry.id); },
+            }, entry.label)),
+          ),
+          h('div', { className: 'rl-node-window-panel', role: 'tabpanel' }, children),
         ),
+        footer,
         minimized ? null : h('span', {
           className: 'rl-node-window-resize',
           'aria-hidden': true,
@@ -11503,6 +11450,28 @@ window.__ModuleLoader__.load({
           onPointerCancel: endResize,
         }),
       );
+    }
+
+    /** Node details: the shared shell plus the inspector body for one tab. */
+    function NodeDetailWindow({ geometry, zIndex, inspector, t, onGeometry, onClose, onFocus }) {
+      const [tab, setTab] = React.useState('summary');
+      const box = geometry !== null && typeof geometry === 'object' ? geometry : {};
+      return h(FloatWindow, {
+        geometry: box,
+        zIndex,
+        title: box.title ?? '',
+        meta: box.nodeId ?? '',
+        tabs: NODE_WINDOW_TABS.map((id) => ({ id, label: t('ws.window.tab.' + id) })),
+        tab,
+        onTab: setTab,
+        t,
+        testId: 'node-window',
+        nodeId: box.nodeId,
+        modifier: 'rl-detail-window',
+        onGeometry,
+        onClose,
+        onFocus,
+      }, typeof inspector === 'function' ? inspector(tab) : null);
     }
 
     function WorkspaceScreen({ projectId, initialNodeId, tab, onSelectTab, onNodeChange, onBack, openNativeSession, openNativeFiles, retainCopilotSession, SessionProvider, renderFactorySlot, t }) {
@@ -11527,7 +11496,13 @@ window.__ModuleLoader__.load({
       const [historyOpen, setHistoryOpen] = React.useState(false);
       const [historyTab, setHistoryTab] = React.useState('wal');
       const [walDetail, setWalDetail] = React.useState(null);
-      const [railBox, setRailBox] = React.useState({ x: 12, y: 64, w: 320, h: 460 });
+      // One z counter for every floating surface: raising any window (detail, list,
+      // history, WAL record) wins over the others, whatever its type.
+      const floatZRef = React.useRef(40);
+      const nextFloatZ = () => { floatZRef.current += 1; return floatZRef.current; };
+      const [historyBox, setHistoryBox] = React.useState({ x: 180, y: 96, w: 820, h: 560, min: false, z: 26 });
+      const [walDetailBox, setWalDetailBox] = React.useState({ x: 240, y: 120, w: 640, h: 500, min: false, z: 28 });
+      const [railBox, setRailBox] = React.useState({ x: 12, y: 64, w: 320, h: 460, min: false, z: 24 });
       const windowZRef = React.useRef(20);
       const openNodeWindow = React.useCallback((nodeId) => {
         const id = firstString(nodeId);
@@ -12265,19 +12240,14 @@ window.__ModuleLoader__.load({
           { className: 'rl-workspace-grid' },
           h(DagCanvas, {
             railOpen,
-            onToggleRail: () => setRailOpen((value) => value !== true),
-            onOpenHistory: () => setHistoryOpen(true),
-            rail: h(NodeRail, {
-              project,
-              nodes: displayNodes,
-              selectedId,
-              onSelect: setSelectedId,
-              open: railOpen,
-              geometry: railBox,
-              onGeometry: (patch) => setRailBox((previous) => ({ ...previous, ...patch })),
-              onClose: () => setRailOpen(false),
-              t,
-            }),
+            onToggleRail: () => {
+              setRailOpen((value) => value !== true);
+              setRailBox((previous) => ({ ...previous, z: nextFloatZ(), min: false }));
+            },
+            onOpenHistory: () => {
+            setHistoryOpen(true);
+            setHistoryBox((previous) => ({ ...previous, z: nextFloatZ(), min: false }));
+          },
             nodes: displayNodes,
             edges: displayEdges,
             layout,
@@ -12363,9 +12333,20 @@ window.__ModuleLoader__.load({
           mountedTabs.has('trace') ? h(ProfilerTab, { projectId, nodes, request: traceRequest, t, active: activeTab === 'trace' }) : null),
       ];
 
-      const windowLayer = nodeWindows.length === 0 ? null : h(
+      const floatLayer = h(
         'div',
         { className: 'rl-node-windows', 'aria-live': 'polite' },
+        h(NodeRail, {
+          project,
+          nodes,
+          selectedId,
+          onSelect: setSelectedId,
+          open: railOpen,
+          geometry: railBox,
+          onGeometry: (patch) => setRailBox((previous) => ({ ...previous, ...patch })),
+          onClose: () => setRailOpen(false),
+          t,
+        }),
         nodeWindows.map((entry) => {
           const target = nodes.find((row) => nodeIdOf(row) === entry.nodeId) ?? null;
           if (target === null) return null;
@@ -12411,6 +12392,55 @@ window.__ModuleLoader__.load({
               t,
             }),
           });
+        }),
+        h(HistoryModal, {
+          open: historyOpen,
+          tab: historyTab,
+          geometry: historyBox,
+          onGeometry: (patch) => setHistoryBox((previous) => ({ ...previous, ...patch, z: patch?.z ?? nextFloatZ() })),
+          onTab: setHistoryTab,
+          onClose: () => {
+            setHistoryOpen(false);
+            setWalDetail(null);
+            if (replayOpen) closeReplay();
+          },
+          t,
+          walPanel: h(WalLogPanel, {
+            projectId,
+            onSelect: setSelectedId,
+            onDetail: (entry) => { setWalDetail(entry); setWalDetailBox((previous) => ({ ...previous, z: nextFloatZ(), min: false })); },
+            t,
+          }),
+          replayPanel: h(
+            'div',
+            { className: 'rl-history-replay' },
+            h('p', { className: 'rl-hint' }, t('ws.history.replayHint')),
+            replayOpen && replayData !== null
+              ? h(ReplayBar, {
+                  data: replayData,
+                  at: replayAt,
+                  playing: replayPlaying,
+                  loading: replayLoading,
+                  error: replayError,
+                  onChange: (value) => { setReplayAt(value); setReplayPlaying(false); },
+                  onTogglePlay: () => { setReplayPlaying((value) => !value); },
+                  onClose: closeReplay,
+                  t,
+                })
+              : h(LabButton, {
+                  label: replayLoading ? t('ws.replay.loading') : t('ws.replay.open'),
+                  variant: 'primary',
+                  onClick: () => { void openReplay(); },
+                }),
+          ),
+        }),
+        h(WalDetailDialog, {
+          entry: walDetail,
+          geometry: walDetailBox,
+          onGeometry: (patch) => setWalDetailBox((previous) => ({ ...previous, ...patch, z: patch?.z ?? nextFloatZ() })),
+          t,
+          onClose: () => setWalDetail(null),
+          onSelectNode: (nodeId) => { setSelectedId(nodeId); setWalDetail(null); },
         }),
       );
 
@@ -12603,52 +12633,7 @@ window.__ModuleLoader__.load({
               t,
             })
           : null,
-        windowLayer,
-        h(WalDetailDialog, {
-          entry: walDetail,
-          t,
-          onClose: () => setWalDetail(null),
-          onSelectNode: (nodeId) => { setSelectedId(nodeId); setWalDetail(null); },
-        }),
-        h(HistoryModal, {
-          open: historyOpen,
-          tab: historyTab,
-          onTab: setHistoryTab,
-          onClose: () => {
-            setHistoryOpen(false);
-            setWalDetail(null);
-            if (replayOpen) closeReplay();
-          },
-          t,
-          walPanel: h(WalLogPanel, {
-            projectId,
-            onSelect: setSelectedId,
-            onDetail: (entry) => setWalDetail(entry),
-            t,
-          }),
-          replayPanel: h(
-            'div',
-            { className: 'rl-history-replay' },
-            h('p', { className: 'rl-hint' }, t('ws.history.replayHint')),
-            replayOpen && replayData !== null
-              ? h(ReplayBar, {
-                  data: replayData,
-                  at: replayAt,
-                  playing: replayPlaying,
-                  loading: replayLoading,
-                  error: replayError,
-                  onChange: (value) => { setReplayAt(value); setReplayPlaying(false); },
-                  onTogglePlay: () => { setReplayPlaying((value) => !value); },
-                  onClose: closeReplay,
-                  t,
-                })
-              : h(LabButton, {
-                  label: replayLoading ? t('ws.replay.loading') : t('ws.replay.open'),
-                  variant: 'primary',
-                  onClick: () => { void openReplay(); },
-                }),
-          ),
-        }),
+        floatLayer,
       );
     }
 
@@ -13215,17 +13200,15 @@ window.__ModuleLoader__.load({
         }
         return byStatus;
       }, [nodes]);
-      const tabs = React.useMemo(
+      const statuses = React.useMemo(
         () => STATUS_ORDER.filter((status) => (buckets[status] ?? []).length > 0),
         [buckets],
       );
       const [activeTab, setActiveTab] = React.useState(null);
-      const tab = activeTab !== null && tabs.includes(activeTab) ? activeTab : (tabs[0] ?? null);
+      const tab = activeTab !== null && statuses.includes(activeTab) ? activeTab : (statuses[0] ?? null);
       const RAIL_PAGE = 200;
       const [limit, setLimit] = React.useState(RAIL_PAGE);
       React.useEffect(() => { setLimit(RAIL_PAGE); }, [tab]);
-      const dragRef = React.useRef(null);
-      const [dragging, setDragging] = React.useState(false);
       if (open !== true) return null;
       const box = geometry !== null && typeof geometry === 'object'
         ? geometry
@@ -13233,106 +13216,56 @@ window.__ModuleLoader__.load({
       const rows = tab === null ? [] : (buckets[tab] ?? []).slice(0, limit);
       const hidden = tab === null ? 0 : Math.max(0, (buckets[tab] ?? []).length - rows.length);
 
-      const beginDrag = (event) => {
-        if (event?.button !== 0) return;
-        const target = event?.target;
-        if (target && typeof target.closest === 'function' && target.closest('button') !== null) return;
-        dragRef.current = { x: event.clientX ?? 0, y: event.clientY ?? 0, gx: box.x, gy: box.y };
-        setDragging(true);
-        try { event?.currentTarget?.setPointerCapture?.(event.pointerId); } catch { /* best effort */ }
-      };
-      const drag = (event) => {
-        const start = dragRef.current;
-        if (start === null) return;
-        onGeometry({
-          x: Math.max(0, start.gx + ((event.clientX ?? 0) - start.x)),
-          y: Math.max(0, start.gy + ((event.clientY ?? 0) - start.y)),
-        });
-      };
-      const endDrag = () => {
-        if (dragRef.current === null) return;
-        dragRef.current = null;
-        setDragging(false);
-      };
-
-      return h(
-        'aside',
-        {
-          className: 'rl-rail-window' + (dragging ? ' rl-rail-window-busy' : ''),
-          'data-testid': 'node-rail-window',
-          'aria-label': t('ws.rail.title'),
-          style: { left: box.x, top: box.y, width: box.w, height: box.h },
-        },
-        h(
-          'header',
-          {
-            className: 'rl-rail-window-head',
-            onPointerDown: beginDrag,
-            onPointerMove: drag,
-            onPointerUp: endDrag,
-            onPointerCancel: endDrag,
-          },
-          h('span', { className: 'rl-node-window-grip', 'aria-hidden': true }, '⠿'),
-          h('span', { className: 'rl-node-window-title' }, t('ws.rail.title')),
-          h('span', { className: 'rl-node-window-id' }, String(nodes.length)),
-          h('button', {
-            type: 'button',
-            className: 'rl-node-window-btn',
-            title: t('ws.window.close'),
-            'aria-label': t('ws.window.close'),
-            onClick: onClose,
-          }, '✕'),
-        ),
-        h(
-          'div',
-          { className: 'rl-rail-window-tabs', role: 'tablist' },
-          tabs.map((status) => h('button', {
-            key: 'rail-tab-' + status,
-            type: 'button',
-            role: 'tab',
-            'aria-selected': tab === status,
-            className: 'rl-rail-window-tab' + (tab === status ? ' rl-rail-window-tab-active' : ''),
-            onClick: () => setActiveTab(status),
-          }, t('status.' + status) + ' ' + String((buckets[status] ?? []).length))),
-        ),
-        h(
-          'div',
-          { className: 'rl-rail-window-body' },
-          nodes.length === 0 ? h('p', { className: 'rl-empty-note' }, t('ws.rail.empty')) : null,
-          nodes.length > 0 && tab === null ? h('p', { className: 'rl-empty-note' }, t('ws.rail.empty')) : null,
-          rows.map((node) => {
-            const id = nodeIdOf(node);
-            const active = id === selectedId;
-            const minutes = nodeTimeboxMinutesOf(node, project);
-            return h(
+      return h(FloatWindow, {
+        geometry: box,
+        zIndex: box.z ?? 24,
+        title: t('ws.rail.title'),
+        meta: nodes.length,
+        tabs: statuses.map((status) => ({ id: status, label: t('status.' + status) + ' ' + String((buckets[status] ?? []).length) })),
+        tab,
+        onTab: setActiveTab,
+        t,
+        testId: 'node-rail-window',
+        modifier: 'rl-rail-window',
+        onGeometry,
+        onClose,
+        onFocus: () => { if (typeof onGeometry === 'function') onGeometry({ z: Date.now() % 100000 }); },
+      }, h(
+        'div',
+        { className: 'rl-rail-window-body' },
+        nodes.length === 0 ? h('p', { className: 'rl-empty-note' }, t('ws.rail.empty')) : null,
+        rows.map((node) => {
+          const id = nodeIdOf(node);
+          const active = id === selectedId;
+          const minutes = nodeTimeboxMinutesOf(node, project);
+          return h(
+            'button',
+            {
+              key: id,
+              type: 'button',
+              className: 'rl-rail-row' + (active ? ' rl-rail-row-active' : ''),
+              'aria-pressed': active,
+              title: nodeTitleOf(node, t),
+              onClick: () => onSelect(id),
+            },
+            h(StatusDot, { status: nodeStatusOf(node) }),
+            h(
+              'span',
+              { className: 'rl-rail-row-main' },
+              h('span', { className: 'rl-rail-row-title' }, nodeTitleOf(node, t)),
+              h('span', { className: 'rl-rail-row-sub' }, id),
+            ),
+            h('span', { className: 'rl-rail-row-meta' }, t('ws.node.minutes', { minutes })),
+          );
+        }),
+        hidden > 0
+          ? h(
               'button',
-              {
-                key: id,
-                type: 'button',
-                className: 'rl-rail-row' + (active ? ' rl-rail-row-active' : ''),
-                'aria-pressed': active,
-                title: nodeTitleOf(node, t),
-                onClick: () => onSelect(id),
-              },
-              h(StatusDot, { status: nodeStatusOf(node) }),
-              h(
-                'span',
-                { className: 'rl-rail-row-main' },
-                h('span', { className: 'rl-rail-row-title' }, nodeTitleOf(node, t)),
-                h('span', { className: 'rl-rail-row-sub' }, id),
-              ),
-              h('span', { className: 'rl-rail-row-meta' }, t('ws.node.minutes', { minutes })),
-            );
-          }),
-          hidden > 0
-            ? h(
-                'button',
-                { type: 'button', className: 'rl-rail-more', onClick: () => setLimit((value) => value + RAIL_PAGE) },
-                t('ws.rail.loadMore', { count: hidden }),
-              )
-            : null,
-        ),
-      );
+              { type: 'button', className: 'rl-rail-more', onClick: () => setLimit((value) => value + RAIL_PAGE) },
+              t('ws.rail.loadMore', { count: hidden }),
+            )
+          : null,
+      ));
     }
 
     /**
