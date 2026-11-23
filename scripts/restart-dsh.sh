@@ -53,7 +53,7 @@ for attempt in 1 2; do
     --trusted-host 10.8.160.18:3081 --trusted-host 127.0.0.1:3081 \
     >>/workspace/logs/dsh-web.log 2>&1 &
   sleep 10
-  CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://172.17.0.5:3081/ 2>/dev/null || echo 000)
+  CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://10.8.160.18:3081/ 2>/dev/null || echo 000)
   log "health check http=$CODE"
   # 401 is the expected answer for an unauthenticated root: the server is up,
   # auth is just required. Treat it as success and continue to the token probe.
@@ -61,7 +61,7 @@ for attempt in 1 2; do
     # The log keeps every historical URL; take the newest token that authenticates.
     TOK=""
     for cand in $(grep -aoE 'token=[A-Za-z0-9_-]+' /workspace/logs/dsh-web.log | tail -4 | cut -d= -f2 | tac); do
-      code=$(curl -s -c /tmp/dsh-cj -H "Host: 10.8.160.18:3081" "http://172.17.0.5:3081/?token=$cand" -o /dev/null -w '%{http_code}')
+      code=$(curl -s -c /tmp/dsh-cj "http://10.8.160.18:3081/?token=$cand" -o /dev/null -w '%{http_code}')
       if [ "$code" = "303" ] || [ "$code" = "302" ] || [ "$code" = "200" ]; then TOK="$cand"; break; fi
     done
     # The plugin API authenticates with the operator token the Host injects into
@@ -71,22 +71,22 @@ for attempt in 1 2; do
     # The plugin registers its index-inject handler asynchronously, so the token can
     # be absent for a few seconds after boot. Retry instead of failing the resume.
     for _ in 1 2 3 4 5 6 7 8 9 10; do
-      OPTOK=$(curl -s -b /tmp/dsh-cj -H "Host: 10.8.160.18:3081" "http://172.17.0.5:3081/" \
+      OPTOK=$(curl -s -b /tmp/dsh-cj "http://10.8.160.18:3081/" \
         | grep -o 'mir-operator\.[A-Za-z0-9._-]*' | head -1)
       [ -n "$OPTOK" ] && break
       sleep 3
     done
     log "operator token ${OPTOK:0:16}..."
-    PLUG=$(curl -s -b /tmp/dsh-cj -H "Host: 10.8.160.18:3081" -H "x-metainfer-operator: $OPTOK" -o /dev/null -w '%{http_code}' "http://172.17.0.5:3081/api/metainfer-research-lab/health")
-    PBODY=$(curl -s -b /tmp/dsh-cj -H "Host: 10.8.160.18:3081" "http://172.17.0.5:3081/api/metainfer-research-lab/health" -o /tmp/plugin-health.json -w '%{http_code}')
+    PLUG=$(curl -s -b /tmp/dsh-cj -H "x-metainfer-operator: $OPTOK" -o /dev/null -w '%{http_code}' "http://10.8.160.18:3081/api/metainfer-research-lab/health")
+    PBODY=$(curl -s -b /tmp/dsh-cj "http://10.8.160.18:3081/api/metainfer-research-lab/health" -o /tmp/plugin-health.json -w '%{http_code}')
     log "plugin health http=$PBODY body=$(head -c 200 /tmp/plugin-health.json 2>/dev/null)"
     # The driver is never resumed automatically: a restart must not kick off
     # experiments on its own. The plugin pauses auto after a host restart by
     # design, and resuming is an explicit operator action.
-    TR=$(curl -s -b /tmp/dsh-cj -H "Host: 10.8.160.18:3081" -H "x-metainfer-operator: $OPTOK" "http://172.17.0.5:3081/api/metainfer-research-lab/traces" -o /tmp/traces.json -w '%{http_code}')
+    TR=$(curl -s -b /tmp/dsh-cj -H "x-metainfer-operator: $OPTOK" "http://10.8.160.18:3081/api/metainfer-research-lab/traces" -o /tmp/traces.json -w '%{http_code}')
     log "profiler traces http=$TR body=$(head -c 120 /tmp/traces.json 2>/dev/null)"
-    PTR=$(curl -s -b /tmp/dsh-cj -H "Host: 10.8.160.18:3081" -H "x-metainfer-operator: $OPTOK" -o /tmp/trace-index.json -w '%{http_code}' \
-      "http://172.17.0.5:3081/api/metainfer-research-lab/trace?view=nodes&projectId=${PROJECT_ID:-prj-eb229127}")
+    PTR=$(curl -s -b /tmp/dsh-cj -H "x-metainfer-operator: $OPTOK" -o /tmp/trace-index.json -w '%{http_code}' \
+      "http://10.8.160.18:3081/api/metainfer-research-lab/trace?view=nodes&projectId=${PROJECT_ID:-prj-eb229127}")
     log "trace index http=$PTR body=$(head -c 200 /tmp/trace-index.json 2>/dev/null)"
     log "restart OK (token=${TOK:0:8}...)"; rm -f "$ENVF"; exit 0
   fi
