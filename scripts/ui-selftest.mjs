@@ -34,6 +34,34 @@ const deltaSource = extract('apply-change-delta');
 // eslint-disable-next-line no-new-func
 const applyChangeDelta = new Function(`${deltaSource}\nreturn applyChangeDelta;`)();
 
+const deepLinkSource = extract('deep-link-selection');
+// eslint-disable-next-line no-new-func
+const resolveDeepLinkSelection = new Function(`${deepLinkSource}\nreturn resolveDeepLinkSelection;`)();
+
+await test('a deep link applies once, then the operator owns the selection', () => {
+  const nodeIds = ['n1', 'n2', 'n3'];
+  // Boot: no navigation applied yet -> follow the deep link.
+  let state = { applied: '', selected: '' };
+  let decision = resolveDeepLinkSelection({ wanted: 'n1', applied: state.applied, selectedId: state.selected, nodeIds });
+  assert.equal(decision.select, 'n1');
+  state = { applied: decision.applied, selected: 'n1' };
+  // Operator clicks n2; the stale deep link must NOT pull them back (the flicker).
+  decision = resolveDeepLinkSelection({ wanted: 'n1', applied: state.applied, selectedId: 'n2', nodeIds });
+  assert.equal(decision.select, null, 'stale deep link must not re-assert');
+  assert.equal(decision.applied, 'n1');
+  // A real navigation intent (popstate to n3) still moves the selection.
+  decision = resolveDeepLinkSelection({ wanted: 'n3', applied: 'n1', selectedId: 'n2', nodeIds });
+  assert.equal(decision.select, 'n3');
+  // An unknown id is remembered as applied but selects nothing.
+  decision = resolveDeepLinkSelection({ wanted: 'nope', applied: 'n3', selectedId: 'n2', nodeIds });
+  assert.equal(decision.select, null);
+  assert.equal(decision.applied, 'n3');
+  // Clearing the deep link resets the intent.
+  decision = resolveDeepLinkSelection({ wanted: '', applied: 'n3', selectedId: 'n2', nodeIds });
+  assert.equal(decision.applied, '');
+  assert.equal(decision.select, null);
+});
+
 await test('a changes_since delta mutates the index without a full state fetch', () => {
   const snapshot = {
     phase: 'ready',

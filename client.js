@@ -5406,6 +5406,28 @@ window.__ModuleLoader__.load({
       }
       labNavigation.projectId = id;
     }
+    // #region deep-link-selection
+    /**
+     * Decide whether a deep-link/props navigation should move the selection.
+     *
+     * The workspace used to re-assert `initialNodeId` on every selection change,
+     * which raced the operator's click (click → noteNode → prop change → forced
+     * selection) and made the inspector alternate between the clicked node and a
+     * stale deep-linked one. A navigation intent applies ONCE per distinct id:
+     * after that the operator owns the selection.
+     */
+    function resolveDeepLinkSelection({ wanted, applied, selectedId, nodeIds }) {
+      const navId = typeof wanted === 'string' ? wanted : '';
+      const last = typeof applied === 'string' ? applied : '';
+      const current = typeof selectedId === 'string' ? selectedId : '';
+      if (navId === '') return { applied: '', select: null };
+      if (navId === last) return { applied: last, select: null };
+      const known = Array.isArray(nodeIds) ? nodeIds : [];
+      if (!known.includes(navId)) return { applied: last, select: null };
+      return { applied: navId, select: navId === current ? null : navId };
+    }
+    // #endregion deep-link-selection
+
     function rememberLabNode(projectId, nodeId) {
       const before = labNavigation.nodeId;
       rememberLabProject(projectId);
@@ -10684,30 +10706,23 @@ window.__ModuleLoader__.load({
       const promptDefaults = modelCatalog.state.catalog === null ? null : asObject(modelCatalog.state.catalog.promptDefaults);
       const promptPlaceholders = modelCatalog.state.catalog === null ? [] : stringListOf(modelCatalog.state.catalog.promptPlaceholders);
 
-      React.useEffect(() => {
-        rememberLabProject(projectId);
-        const wanted = firstString(initialNodeId);
-        if (selectedId === null && wanted !== '') {
-          for (const node of nodes) {
-            if (nodeIdOf(node) === wanted) {
-              setSelectedId(wanted);
-              return;
-            }
-          }
-        }
-      }, [projectId, nodes, selectedId, initialNodeId]);
+      React.useEffect(() => { rememberLabProject(projectId); }, [projectId]);
 
-      // A Back/Forward navigation may point at a different node in the same
-      // project; follow it without remounting the workspace.
+      // Deep link / Back-Forward: apply the navigation intent once, then let the
+      // operator's own selection win. Re-asserting the prop on every selection
+      // change raced the click and made the inspector flicker between two nodes.
+      const appliedNavRef = React.useRef('');
       React.useEffect(() => {
         const wanted = firstString(initialNodeId);
-        if (wanted === '' || wanted === selectedId) return;
-        for (const node of nodes) {
-          if (nodeIdOf(node) === wanted) {
-            setSelectedId(wanted);
-            return;
-          }
-        }
+        const nodeIds = nodes.map((node) => nodeIdOf(node));
+        const decision = resolveDeepLinkSelection({
+          wanted,
+          applied: appliedNavRef.current,
+          selectedId: selectedId === null ? '' : selectedId,
+          nodeIds,
+        });
+        appliedNavRef.current = decision.applied;
+        if (decision.select !== null) setSelectedId(decision.select);
       }, [initialNodeId, nodes, selectedId]);
 
       React.useEffect(() => {
