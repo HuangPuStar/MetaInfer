@@ -1741,6 +1741,9 @@
     "ws.window.tab.stats": "Stats",
     "ws.window.minimize": "Minimize",
     "ws.window.restore": "Restore",
-    "ws.window.close": "Close"
+    "ws.window.close": "Close",
+    "ws.rail.show": "Node list",
+    "ws.rail.hide": "Hide list",
+    "ws.rail.toggleHint": "Show the node list as a floating, status-tabbed panel"
   }
 }

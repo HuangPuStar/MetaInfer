@@ -158,6 +158,76 @@ const closeButton = [...host.querySelectorAll('.rl-node-window-btn')].pop();
 await React.act(async () => { closeButton.click(); await wait(20); });
 check('the close button asks the host to drop the window', closed === 1);
 
+
+// --- the node list is an overlay window, closed by default -------------------
+const NodeRail = mod.__components.NodeRail;
+assert.equal(typeof NodeRail, 'function', 'NodeRail is exported');
+const railHost = window.document.createElement('div');
+window.document.body.appendChild(railHost);
+const railRoot = createRoot(railHost);
+let railBox = { x: 12, y: 64, w: 320, h: 460 };
+const railPatches = [];
+let railClosed = 0;
+const railNodes = [
+  { id: 'n-a', title: 'alpha', status: 'completed', timeboxMinutes: 10 },
+  { id: 'n-b', title: 'beta', status: 'completed', timeboxMinutes: 10 },
+  { id: 'n-c', title: 'gamma', status: 'failed', timeboxMinutes: 10 },
+  { id: 'n-d', title: 'delta', status: 'planned', timeboxMinutes: 10 },
+];
+const renderRail = async (open) => {
+  await React.act(async () => {
+    railRoot.render(React.createElement(NodeRail, {
+      project: { id: 'p1', config: {} },
+      nodes: railNodes,
+      selectedId: 'n-a',
+      onSelect: () => {},
+      open,
+      geometry: railBox,
+      onGeometry: (patch) => { railPatches.push(patch); railBox = { ...railBox, ...patch }; },
+      onClose: () => { railClosed += 1; },
+      t,
+    }));
+    await wait(40);
+  });
+};
+await renderRail(false);
+check('the node list is closed by default (renders nothing)', railHost.querySelector('[data-testid="node-rail-window"]') === null);
+await renderRail(true);
+const railWin = railHost.querySelector('[data-testid="node-rail-window"]');
+check('opening the list mounts a floating window', railWin !== null);
+check('the list window is not in the layout flow (absolute)', (railWin?.className ?? '').includes('rl-rail-window'));
+const railTabs = [...railHost.querySelectorAll('.rl-rail-window-tab')];
+check('the list groups nodes into status tabs', railTabs.length === 3, String(railTabs.length));
+const tabCounts = {};
+for (const button of railTabs) {
+  const [statusKey, count] = (button.textContent ?? '').split(' ');
+  tabCounts[statusKey.replace('status.', '')] = Number(count);
+}
+check('tabs carry their counts',
+  tabCounts.completed === 2 && tabCounts.failed === 1 && tabCounts.planned === 1,
+  JSON.stringify(tabCounts));
+const rowsOf = () => [...railHost.querySelectorAll('.rl-rail-row')].map((row) => row.getAttribute('title'));
+const expectedByStatus = { completed: 'alpha,beta', failed: 'gamma', planned: 'delta' };
+const firstStatus = (railTabs[0].textContent ?? '').split(' ')[0].replace('status.', '');
+check('the first tab lists only that status', rowsOf().join(',') === expectedByStatus[firstStatus], rowsOf().join(','));
+const failedTab = railTabs.find((button) => (button.textContent ?? '').includes('status.failed'));
+await React.act(async () => { failedTab.click(); await wait(40); });
+check('switching a tab shows only that status', rowsOf().join(',') === 'gamma', rowsOf().join(','));
+const railHeader = railHost.querySelector('.rl-rail-window-head');
+await React.act(async () => {
+  railHeader.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 100, clientY: 80, button: 0 }));
+  railHeader.dispatchEvent(new window.MouseEvent('pointermove', { bubbles: true, cancelable: true, clientX: 160, clientY: 130, button: 0 }));
+  railHeader.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true, cancelable: true, clientX: 160, clientY: 130, button: 0 }));
+  await wait(40);
+});
+const railMoved = railPatches.filter((patch) => patch.x !== undefined).pop();
+check('the list window can be dragged', railMoved !== undefined && railMoved.x === 72 && railMoved.y === 114, JSON.stringify(railMoved));
+const railClose = railHost.querySelector('.rl-rail-window-head .rl-node-window-btn');
+await React.act(async () => { railClose.click(); await wait(20); });
+check('the list window closes', railClosed === 1);
+await React.act(async () => { railRoot.unmount(); });
+railHost.remove();
+
 await React.act(async () => { root.unmount(); });
 host.remove();
 

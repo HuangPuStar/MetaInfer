@@ -1741,6 +1741,9 @@
     "ws.window.tab.stats": "统计",
     "ws.window.minimize": "最小化",
     "ws.window.restore": "还原",
-    "ws.window.close": "关闭"
+    "ws.window.close": "关闭",
+    "ws.rail.show": "节点列表",
+    "ws.rail.hide": "隐藏列表",
+    "ws.rail.toggleHint": "以浮窗显示节点列表（按状态分页）"
   }
 }

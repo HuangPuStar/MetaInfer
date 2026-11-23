@@ -1505,8 +1505,11 @@ window.__ModuleLoader__.load({
       "ws.push.submit": "推送",
       "ws.push.title": "推送分支与 tag",
       "ws.rail.empty": "还没有节点",
+      "ws.rail.hide": "隐藏列表",
       "ws.rail.loadMore": "加载更多（还有 {count} 个）",
+      "ws.rail.show": "节点列表",
       "ws.rail.title": "任务列表",
+      "ws.rail.toggleHint": "以浮窗显示节点列表（按状态分页）",
       "ws.report.blockers": "阻塞项",
       "ws.report.changes": "变更",
       "ws.report.failed": "未达成",
@@ -3246,8 +3249,11 @@ window.__ModuleLoader__.load({
       "ws.push.submit": "Push",
       "ws.push.title": "Push branches & tags",
       "ws.rail.empty": "No nodes yet",
+      "ws.rail.hide": "Hide list",
       "ws.rail.loadMore": "Load more ({count} remaining)",
+      "ws.rail.show": "Node list",
       "ws.rail.title": "Task list",
+      "ws.rail.toggleHint": "Show the node list as a floating, status-tabbed panel",
       "ws.report.blockers": "Blockers",
       "ws.report.changes": "Changes",
       "ws.report.failed": "Not achieved",
@@ -3938,8 +3944,8 @@ window.__ModuleLoader__.load({
       '.rl-audit-ledger .rl-audit-row { grid-template-columns: 110px minmax(0, 1.6fr) 100px minmax(0, 1fr) 110px; }',
       '.rl-dash-embedded { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; flex-direction: column; }',
       '.rl-dash-window-embedded { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; }',
-      // Two columns: the node detail lived in the third one and is now a floating window.
-      '.rl-workspace-grid { display: grid; grid-template-columns: clamp(180px, 18vw, 240px) minmax(0, 1fr); flex: 1 1 auto; min-width: 0; min-height: 0; }',
+      // One column: both the node list and the detail live in floating windows.
+      '.rl-workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 auto; min-width: 0; min-height: 0; }',
       '.rl-copilot-native-layer { position: fixed; inset: 0; z-index: 60; display: flex; align-items: stretch; justify-content: stretch; padding: 16px; pointer-events: none; }',
       '.rl-copilot-native-backdrop { position: fixed; inset: 0; z-index: 59; background: var(--dsw-alias-bg-mask-2, transparent); pointer-events: auto; }',
       '.rl-copilot-native { position: relative; z-index: 60; box-sizing: border-box; display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; width: min(96vw, calc(100vw - 32px)); max-width: calc(100vw - 32px); height: min(96vh, calc(100vh - 32px)); height: min(96vh, calc(100dvh - 32px)); max-height: calc(100vh - 32px); margin: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-family: inherit; font-size: 13px; line-height: 20px; pointer-events: auto; overflow: hidden; }',
@@ -4024,6 +4030,15 @@ window.__ModuleLoader__.load({
       '.rl-dag-menu-sep { height: 1px; margin: 3px 6px; background: var(--dsw-alias-border-l2); }',
       '.rl-dag-menu-sub { position: absolute; z-index: 21; min-width: 190px; }',
       '.rl-dag-menu-sub-flip { left: auto; right: 100%; }',
+      '.rl-rail-window { position: absolute; z-index: 6; display: flex; flex-direction: column; min-width: 260px; min-height: 220px; border: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 82%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 78%, transparent); backdrop-filter: blur(8px); color: var(--dsw-alias-label-primary); box-shadow: 0 2px 8px color-mix(in srgb, var(--dsw-alias-label-primary) 13%, transparent); overflow: hidden; }',
+      '.rl-rail-window-busy { user-select: none; }',
+      '.rl-rail-window-head { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 10px; border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 70%, transparent); background: color-mix(in srgb, var(--dsw-alias-bg-layer-2) 70%, transparent); cursor: grab; touch-action: none; }',
+      '.rl-rail-window-busy .rl-rail-window-head { cursor: grabbing; }',
+      '.rl-rail-window-tabs { display: flex; flex-wrap: wrap; gap: 2px; padding: 5px 6px; border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 60%, transparent); }',
+      '.rl-rail-window-tab { padding: 3px 8px; border: 0; border-radius: 999px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11px; cursor: pointer; }',
+      '.rl-rail-window-tab:hover { color: var(--dsw-alias-label-primary); }',
+      '.rl-rail-window-tab-active { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 22%, transparent); color: var(--dsw-alias-label-primary); }',
+      '.rl-rail-window-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; padding: 6px; }',
       '.rl-node-windows { position: absolute; inset: 0; z-index: 30; pointer-events: none; }',
       '.rl-node-window { position: absolute; display: flex; flex-direction: column; min-width: 360px; max-width: calc(100% - 16px); border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); box-shadow: 0 2px 8px color-mix(in srgb, var(--dsw-alias-label-primary) 13%, transparent); pointer-events: auto; overflow: hidden; }',
       '.rl-node-window-busy { user-select: none; }',
@@ -11085,6 +11100,10 @@ window.__ModuleLoader__.load({
       const [traceRequest, setTraceRequest] = React.useState(null);
       // Detached detail windows: one per node, several at once for comparison.
       const [nodeWindows, setNodeWindows] = React.useState([]);
+      // The node list is an optional overlay, closed by default so it never pushes
+      // the canvas.
+      const [railOpen, setRailOpen] = React.useState(false);
+      const [railBox, setRailBox] = React.useState({ x: 12, y: 64, w: 320, h: 460 });
       const windowZRef = React.useRef(20);
       const openNodeWindow = React.useCallback((nodeId) => {
         const id = firstString(nodeId);
@@ -11820,8 +11839,20 @@ window.__ModuleLoader__.load({
         body = h(
           'div',
           { className: 'rl-workspace-grid' },
-          h(NodeRail, { project, nodes: displayNodes, selectedId, onSelect: setSelectedId, t }),
           h(DagCanvas, {
+            railOpen,
+            onToggleRail: () => setRailOpen((value) => value !== true),
+            rail: h(NodeRail, {
+              project,
+              nodes: displayNodes,
+              selectedId,
+              onSelect: setSelectedId,
+              open: railOpen,
+              geometry: railBox,
+              onGeometry: (patch) => setRailBox((previous) => ({ ...previous, ...patch })),
+              onClose: () => setRailOpen(false),
+              t,
+            }),
             factsSlot: h(HostFactsCard, { projectId, t }),
             nodes: displayNodes,
             edges: displayEdges,
@@ -12702,100 +12733,147 @@ window.__ModuleLoader__.load({
     }
 
     /** Left rail: nodes grouped by status with counts; clicking selects. */
-    function NodeRail({ project, nodes, selectedId, onSelect, t }) {
-      const orderedGroups = React.useMemo(() => {
-        const buckets = {};
-        for (const status of STATUS_ORDER) buckets[status] = [];
+    /**
+     * Node list as an optional floating window.
+     *
+     * It used to be a permanent left column that pushed the canvas; it is now a
+     * detached, semi-transparent panel that is closed by default and groups nodes
+     * into status tabs instead of one endless scroll.
+     */
+    function NodeRail({ project, nodes, selectedId, onSelect, open, geometry, onGeometry, onClose, t }) {
+      const buckets = React.useMemo(() => {
+        const byStatus = {};
+        for (const status of STATUS_ORDER) byStatus[status] = [];
         for (const node of nodes) {
           const status = nodeStatusOf(node);
-          if (buckets[status] === undefined) buckets[status] = [];
-          buckets[status].push(node);
+          if (byStatus[status] === undefined) byStatus[status] = [];
+          byStatus[status].push(node);
         }
-        for (const status of STATUS_ORDER) {
-          buckets[status] = buckets[status].slice().sort((left, right) =>
+        for (const status of Object.keys(byStatus)) {
+          byStatus[status].sort((left, right) =>
             nodeRecencyOf(right) - nodeRecencyOf(left)
             || nodeTimeOf(right) - nodeTimeOf(left)
             || String(nodeIdOf(left)).localeCompare(String(nodeIdOf(right))));
         }
-        return STATUS_ORDER
-          .filter((status) => buckets[status].length > 0)
-          .map((status) => ({
-            status,
-            bucket: buckets[status],
-            newest: nodeRecencyOf(buckets[status][0]),
-          }))
-          .sort((left, right) =>
-            right.newest - left.newest
-            || STATUS_ORDER.indexOf(left.status) - STATUS_ORDER.indexOf(right.status));
+        return byStatus;
       }, [nodes]);
-      // A 5,000-node project must not mount 5,000 rail buttons. Render one
-      // bounded window and let the operator extend it deliberately.
+      const tabs = React.useMemo(
+        () => STATUS_ORDER.filter((status) => (buckets[status] ?? []).length > 0),
+        [buckets],
+      );
+      const [activeTab, setActiveTab] = React.useState(null);
+      const tab = activeTab !== null && tabs.includes(activeTab) ? activeTab : (tabs[0] ?? null);
       const RAIL_PAGE = 200;
-      const [railLimit, setRailLimit] = React.useState(RAIL_PAGE);
-      const totalNodes = nodes.length;
-      let railBudget = railLimit;
-      const windowedGroups = [];
-      for (const group of orderedGroups) {
-        if (railBudget <= 0) break;
-        const bucket = group.bucket.slice(0, railBudget);
-        railBudget -= bucket.length;
-        windowedGroups.push({ ...group, bucket });
-      }
-      const railHidden = Math.max(0, totalNodes - windowedGroups.reduce((sum, group) => sum + group.bucket.length, 0));
-      const groups = windowedGroups.map(({ status, bucket }) =>
-          h(
-            'div',
-            { key: status, className: 'rl-rail-group' },
-            h(
-              'div',
-              { className: 'rl-rail-group-head' },
-              h('span', null, t('status.' + status)),
-              h('span', null, String(bucket.length)),
-            ),
-            bucket.map((node) => {
-              const id = nodeIdOf(node);
-              const active = id === selectedId;
-              const minutes = nodeTimeboxMinutesOf(node, project);
-              return h(
-                'button',
-                {
-                  key: id,
-                  type: 'button',
-                  className: 'rl-rail-row' + (active ? ' rl-rail-row-active' : ''),
-                  'aria-pressed': active,
-                  title: nodeTitleOf(node, t),
-                  onClick: () => onSelect(id),
-                },
-                h(StatusDot, { status: nodeStatusOf(node) }),
-                h(
-                  'span',
-                  { className: 'rl-rail-row-main' },
-                  h('span', { className: 'rl-rail-row-title' }, nodeTitleOf(node, t)),
-                  h('span', { className: 'rl-rail-row-sub' }, id),
-                ),
-                h('span', { className: 'rl-rail-row-meta' }, t('ws.node.minutes', { minutes })),
-              );
-            }),
-          ),
-        );
+      const [limit, setLimit] = React.useState(RAIL_PAGE);
+      React.useEffect(() => { setLimit(RAIL_PAGE); }, [tab]);
+      const dragRef = React.useRef(null);
+      const [dragging, setDragging] = React.useState(false);
+      if (open !== true) return null;
+      const box = geometry !== null && typeof geometry === 'object'
+        ? geometry
+        : { x: 12, y: 64, w: 320, h: 460 };
+      const rows = tab === null ? [] : (buckets[tab] ?? []).slice(0, limit);
+      const hidden = tab === null ? 0 : Math.max(0, (buckets[tab] ?? []).length - rows.length);
+
+      const beginDrag = (event) => {
+        if (event?.button !== 0) return;
+        const target = event?.target;
+        if (target && typeof target.closest === 'function' && target.closest('button') !== null) return;
+        dragRef.current = { x: event.clientX ?? 0, y: event.clientY ?? 0, gx: box.x, gy: box.y };
+        setDragging(true);
+        try { event?.currentTarget?.setPointerCapture?.(event.pointerId); } catch { /* best effort */ }
+      };
+      const drag = (event) => {
+        const start = dragRef.current;
+        if (start === null) return;
+        onGeometry({
+          x: Math.max(0, start.gx + ((event.clientX ?? 0) - start.x)),
+          y: Math.max(0, start.gy + ((event.clientY ?? 0) - start.y)),
+        });
+      };
+      const endDrag = () => {
+        if (dragRef.current === null) return;
+        dragRef.current = null;
+        setDragging(false);
+      };
+
       return h(
         'aside',
-        { className: 'rl-rail', 'aria-label': t('ws.rail.title') },
+        {
+          className: 'rl-rail-window' + (dragging ? ' rl-rail-window-busy' : ''),
+          'data-testid': 'node-rail-window',
+          'aria-label': t('ws.rail.title'),
+          style: { left: box.x, top: box.y, width: box.w, height: box.h },
+        },
+        h(
+          'header',
+          {
+            className: 'rl-rail-window-head',
+            onPointerDown: beginDrag,
+            onPointerMove: drag,
+            onPointerUp: endDrag,
+            onPointerCancel: endDrag,
+          },
+          h('span', { className: 'rl-node-window-grip', 'aria-hidden': true }, '⠿'),
+          h('span', { className: 'rl-node-window-title' }, t('ws.rail.title')),
+          h('span', { className: 'rl-node-window-id' }, String(nodes.length)),
+          h('button', {
+            type: 'button',
+            className: 'rl-node-window-btn',
+            title: t('ws.window.close'),
+            'aria-label': t('ws.window.close'),
+            onClick: onClose,
+          }, '✕'),
+        ),
         h(
           'div',
-          { className: 'rl-rail-head' },
-          h('span', { className: 'rl-card-title' }, t('ws.rail.title')),
-          h('span', { className: 'rl-card-meta' }, String(nodes.length)),
+          { className: 'rl-rail-window-tabs', role: 'tablist' },
+          tabs.map((status) => h('button', {
+            key: 'rail-tab-' + status,
+            type: 'button',
+            role: 'tab',
+            'aria-selected': tab === status,
+            className: 'rl-rail-window-tab' + (tab === status ? ' rl-rail-window-tab-active' : ''),
+            onClick: () => setActiveTab(status),
+          }, t('status.' + status) + ' ' + String((buckets[status] ?? []).length))),
         ),
-        nodes.length === 0 ? h('p', { className: 'rl-empty-note' }, t('ws.rail.empty')) : null,
-        groups,
-        railHidden > 0
-          ? h(
+        h(
+          'div',
+          { className: 'rl-rail-window-body' },
+          nodes.length === 0 ? h('p', { className: 'rl-empty-note' }, t('ws.rail.empty')) : null,
+          nodes.length > 0 && tab === null ? h('p', { className: 'rl-empty-note' }, t('ws.rail.empty')) : null,
+          rows.map((node) => {
+            const id = nodeIdOf(node);
+            const active = id === selectedId;
+            const minutes = nodeTimeboxMinutesOf(node, project);
+            return h(
               'button',
-              { type: 'button', className: 'rl-rail-more', onClick: () => setRailLimit((value) => value + RAIL_PAGE) },
-              t('ws.rail.loadMore', { count: railHidden }),
-            )
-          : null,
+              {
+                key: id,
+                type: 'button',
+                className: 'rl-rail-row' + (active ? ' rl-rail-row-active' : ''),
+                'aria-pressed': active,
+                title: nodeTitleOf(node, t),
+                onClick: () => onSelect(id),
+              },
+              h(StatusDot, { status: nodeStatusOf(node) }),
+              h(
+                'span',
+                { className: 'rl-rail-row-main' },
+                h('span', { className: 'rl-rail-row-title' }, nodeTitleOf(node, t)),
+                h('span', { className: 'rl-rail-row-sub' }, id),
+              ),
+              h('span', { className: 'rl-rail-row-meta' }, t('ws.node.minutes', { minutes })),
+            );
+          }),
+          hidden > 0
+            ? h(
+                'button',
+                { type: 'button', className: 'rl-rail-more', onClick: () => setLimit((value) => value + RAIL_PAGE) },
+                t('ws.rail.loadMore', { count: hidden }),
+              )
+            : null,
+        ),
       );
     }
 
@@ -13267,7 +13345,7 @@ window.__ModuleLoader__.load({
     }
     // #endregion dag-canvas-scene
 
-    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, onOpenDetail, replayFooter, factsSlot, t }) {
+    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, onOpenDetail, rail, railOpen, onToggleRail, replayFooter, factsSlot, t }) {
       const hostRef = React.useRef(null);
       const canvasRef = React.useRef(null);
       const viewRef = React.useRef({ pan: { x: 0, y: 0 }, zoom: 1, dpr: 1, hoverId: null });
@@ -13654,6 +13732,7 @@ window.__ModuleLoader__.load({
         'div',
         { className: 'rl-canvas' + (dragRef.current !== null ? ' rl-canvas-dragging' : ''), ref: hostRef, onContextMenu },
         factsSlot ?? null,
+        rail ?? null,
         h('canvas', {
           ref: canvasRef,
           className: 'rl-dag-canvas',
@@ -13679,6 +13758,12 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'rl-canvas-toolbar' },
+          typeof onToggleRail === 'function' ? h(LabButton, {
+            label: t(railOpen === true ? 'ws.rail.hide' : 'ws.rail.show'),
+            variant: railOpen === true ? 'primary' : 'ghost',
+            onClick: onToggleRail,
+            title: t('ws.rail.toggleHint'),
+          }) : null,
           h(LabButton, { label: t('ws.canvas.fit'), variant: 'ghost', onClick: fit, title: t('ws.canvas.fit') }),
           h(LabButton, { label: '＋', variant: 'ghost', onClick: () => zoomBy(1.2), title: t('ws.canvas.zoomIn') }),
           h('span', { className: 'rl-canvas-zoom' }, zoomPct + '%'),
@@ -21484,6 +21569,7 @@ window.__ModuleLoader__.load({
         DagCanvas,
         NodeDetailWindow,
         NodeInspector,
+        NodeRail,
         ProjectTabBar,
         ProjectTabPanel,
         ProfilerTab,
