@@ -161,13 +161,17 @@ const host = window.document.createElement('div');
 window.document.body.appendChild(host);
 const root = createRoot(host);
 let selected = 'unset';
+const calls = [];
 const noop = () => {};
+const record = (name) => (arg) => { calls.push([name, arg]); };
 await React.act(async () => {
   root.render(React.createElement(DagCanvas, {
     nodes, edges, layout, selectedId: null, now: Date.now(), busyKey: '',
     onSelect: (id) => { selected = id; },
-    onOpenNative: noop, onContinue: noop, onNodeAction: noop, onProposalAction: noop,
-    onRetryRequest: noop, onEscalate: noop, replayFooter: null, factsSlot: null,
+    onOpenNative: record('native'), onContinue: record('continue'), onNodeAction: record('action'),
+    onProposalAction: noop, onRetryRequest: record('retry'), onEscalate: record('escalate'),
+    onOpenTrace: record('trace'), onOpenFiles: record('files'), onSuccessor: record('child'),
+    replayFooter: null, factsSlot: null,
     t: (key) => key,
   }));
   await wait(120);
@@ -194,6 +198,54 @@ await React.act(async () => {
   await wait(40);
 });
 check('clicking a card selects it', selected === 'n-00000', String(selected));
+
+
+// --- right-click menu --------------------------------------------------------
+const menuPoint = (id) => {
+  const item = scene.byId.get(id);
+  return {
+    clientX: (item.x + 40) * clickZoom + clickPan.x,
+    clientY: (item.y + 40) * clickZoom + clickPan.y,
+  };
+};
+const openMenuAt = async (point) => {
+  const event = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, ...point });
+  await React.act(async () => {
+    canvasEl.dispatchEvent(event);
+    await wait(60);
+  });
+  return event;
+};
+selected = 'unset';
+const menuEvent = await openMenuAt(menuPoint('n-00042'));
+check('right-click suppresses the browser menu', menuEvent.defaultPrevented === true);
+const menu = host.querySelector('[data-testid="dag-context-menu"]');
+check('right-click on a node opens the context menu', menu !== null);
+check('right-click selects the node under the cursor', selected === 'n-00042', String(selected));
+check('the context menu is headed by the node id', (menu?.textContent ?? '').includes('n-00042'));
+const labels = (menu?.textContent ?? '');
+check('the menu offers the required actions',
+  ['ws.menu.createChild', 'ws.menu.files', 'ws.menu.trace'].every((key) => labels.includes(key)), labels);
+const childItem = [...(menu?.querySelectorAll('.rl-dag-menu-item') ?? [])]
+  .find((button) => (button.textContent ?? '').includes('ws.menu.createChild'));
+await React.act(async () => {
+  childItem.click();
+  await wait(40);
+});
+check('clicking a menu item runs its action and closes the menu',
+  calls.some(([name, arg]) => name === 'child' && arg === 'n-00042') && host.querySelector('[data-testid="dag-context-menu"]') === null,
+  JSON.stringify(calls));
+
+const blank = await openMenuAt({ clientX: 4, clientY: 4 });
+check('right-click on empty canvas suppresses the browser menu', blank.defaultPrevented === true);
+const blankMenu = host.querySelector('[data-testid="dag-context-menu"]');
+check('empty-canvas menu offers view actions',
+  (blankMenu?.textContent ?? '').includes('ws.menu.fit'), blankMenu?.textContent ?? '');
+await React.act(async () => {
+  window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+  await wait(40);
+});
+check('Escape closes the context menu', host.querySelector('[data-testid="dag-context-menu"]') === null);
 
 await React.act(async () => { root.unmount(); });
 dom.window.close();

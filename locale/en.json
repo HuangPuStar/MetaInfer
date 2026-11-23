@@ -1706,6 +1706,20 @@
     "ws.canvas.label": "experiment DAG canvas",
     "ws.trace.nodeNone": "No node produced a trace (*.json.gz) yet",
     "ws.trace.nodeRefresh": "Rescan",
-    "ws.trace.nodeRefreshHint": "Rescan every node worktree (Host caches the index for 120 s)"
+    "ws.trace.nodeRefreshHint": "Rescan every node worktree (Host caches the index for 120 s)",
+    "ws.menu.createChild": "Create child node",
+    "ws.menu.files": "Browse files",
+    "ws.menu.trace": "View profile trace",
+    "ws.menu.native": "Open native session",
+    "ws.menu.continue": "Continue conversation",
+    "ws.menu.retry": "Retry",
+    "ws.menu.escalate": "Escalate model",
+    "ws.menu.priorityRaise": "Raise priority",
+    "ws.menu.priorityLower": "Lower priority",
+    "ws.menu.copyId": "Copy node id",
+    "ws.menu.fit": "Fit view",
+    "ws.menu.zoomIn": "Zoom in",
+    "ws.menu.zoomOut": "Zoom out",
+    "ws.menu.clearSelection": "Clear selection"
   }
 }

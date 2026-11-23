@@ -1706,6 +1706,20 @@
     "ws.canvas.label": "实验 DAG 画布",
     "ws.trace.nodeNone": "没有节点产出 trace（*.json.gz）",
     "ws.trace.nodeRefresh": "重新扫描",
-    "ws.trace.nodeRefreshHint": "重新扫描所有节点 worktree（Host 侧结果缓存 120 秒）"
+    "ws.trace.nodeRefreshHint": "重新扫描所有节点 worktree（Host 侧结果缓存 120 秒）",
+    "ws.menu.createChild": "创建子节点",
+    "ws.menu.files": "查看文件",
+    "ws.menu.trace": "查看 Profile 追踪",
+    "ws.menu.native": "打开原生会话",
+    "ws.menu.continue": "继续对话",
+    "ws.menu.retry": "重试",
+    "ws.menu.escalate": "升级模型重试",
+    "ws.menu.priorityRaise": "提升优先级",
+    "ws.menu.priorityLower": "降低优先级",
+    "ws.menu.copyId": "复制节点 ID",
+    "ws.menu.fit": "适应视图",
+    "ws.menu.zoomIn": "放大",
+    "ws.menu.zoomOut": "缩小",
+    "ws.menu.clearSelection": "取消选中"
   }
 }

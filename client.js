@@ -1298,6 +1298,20 @@ window.__ModuleLoader__.load({
       "ws.log.expand": "展开",
       "ws.log.openRun": "查看运行",
       "ws.log.title": "活动日志",
+      "ws.menu.clearSelection": "取消选中",
+      "ws.menu.continue": "继续对话",
+      "ws.menu.copyId": "复制节点 ID",
+      "ws.menu.createChild": "创建子节点",
+      "ws.menu.escalate": "升级模型重试",
+      "ws.menu.files": "查看文件",
+      "ws.menu.fit": "适应视图",
+      "ws.menu.native": "打开原生会话",
+      "ws.menu.priorityLower": "降低优先级",
+      "ws.menu.priorityRaise": "提升优先级",
+      "ws.menu.retry": "重试",
+      "ws.menu.trace": "查看 Profile 追踪",
+      "ws.menu.zoomIn": "放大",
+      "ws.menu.zoomOut": "缩小",
       "ws.merge.badge": "⊕ 合并",
       "ws.merge.clean": "干净",
       "ws.merge.close": "关闭合并节点对话框",
@@ -3004,6 +3018,20 @@ window.__ModuleLoader__.load({
       "ws.log.expand": "Expand",
       "ws.log.openRun": "View run",
       "ws.log.title": "Activity log",
+      "ws.menu.clearSelection": "Clear selection",
+      "ws.menu.continue": "Continue conversation",
+      "ws.menu.copyId": "Copy node id",
+      "ws.menu.createChild": "Create child node",
+      "ws.menu.escalate": "Escalate model",
+      "ws.menu.files": "Browse files",
+      "ws.menu.fit": "Fit view",
+      "ws.menu.native": "Open native session",
+      "ws.menu.priorityLower": "Lower priority",
+      "ws.menu.priorityRaise": "Raise priority",
+      "ws.menu.retry": "Retry",
+      "ws.menu.trace": "View profile trace",
+      "ws.menu.zoomIn": "Zoom in",
+      "ws.menu.zoomOut": "Zoom out",
       "ws.merge.badge": "⊕ merge",
       "ws.merge.clean": "clean",
       "ws.merge.close": "Close merge node dialog",
@@ -3944,6 +3972,10 @@ window.__ModuleLoader__.load({
       '.rl-canvas-dragging .rl-dag-canvas { cursor: grabbing; }',
       '.rl-dag-overlay { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }',
       '.rl-dag-overlay-card { position: absolute; pointer-events: auto; }',
+      '.rl-dag-menu { position: absolute; z-index: 20; min-width: 168px; padding: 4px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-elevated, #fff); box-shadow: 0 6px 24px rgba(0,0,0,0.18); display: flex; flex-direction: column; gap: 1px; }',
+      '.rl-dag-menu-head { padding: 4px 8px 6px; color: var(--dsw-alias-label-tertiary); font-size: 10.5px; font-family: var(--dsw-alias-font-mono, monospace); border-bottom: 0.5px solid var(--dsw-alias-border-l2); margin-bottom: 3px; }',
+      '.rl-dag-menu-item { display: block; width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font-size: 12px; text-align: left; cursor: pointer; }',
+      '.rl-dag-menu-item:hover { background: var(--dsw-alias-bg-layer-2); }',
       '.rl-explain-list { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }',
       '.rl-explain-subtitle { margin: 8px 0 0; font-size: 12px; opacity: 0.8; }',
       '.rl-explain-kind { font-weight: 600; margin-right: 6px; }',
@@ -8398,7 +8430,7 @@ window.__ModuleLoader__.load({
       const go = (next) => setIndex(Math.max(0, Math.min(total - 1, next)));
       React.useEffect(() => {
         if (typeof document === 'undefined' || typeof document.addEventListener !== 'function') return undefined;
-        const onKeyDown = (event) => {
+      const onKeyDown = (event) => {
           if (event?.key === 'Escape') onClose();
           else if (event?.key === 'ArrowRight') setIndex((value) => Math.min(total - 1, value + 1));
           else if (event?.key === 'ArrowLeft') setIndex((value) => Math.max(0, value - 1));
@@ -10838,8 +10870,20 @@ window.__ModuleLoader__.load({
           setTraceRequest({ projectId: projectIdOfRequest, nodeId: nodeIdOfRequest, relPaths, at: Date.now() });
           selectTab('trace');
         };
+        const onOpenNodeTrace = (event) => {
+          const detail = asObject(event?.detail);
+          const nodeIdOfRequest = firstString(detail.nodeId);
+          if (nodeIdOfRequest === '') return;
+          // No relPaths: the Profiler tab preselects the node and lists its traces.
+          setTraceRequest({ projectId: firstString(detail.projectId), nodeId: nodeIdOfRequest, relPaths: [], at: Date.now() });
+          selectTab('trace');
+        };
         window.addEventListener('metainfer:open-trace', onOpenTrace);
-        return () => window.removeEventListener('metainfer:open-trace', onOpenTrace);
+        window.addEventListener('metainfer:open-node-trace', onOpenNodeTrace);
+        return () => {
+          window.removeEventListener('metainfer:open-trace', onOpenTrace);
+          window.removeEventListener('metainfer:open-node-trace', onOpenNodeTrace);
+        };
       }, [selectTab]);
       React.useEffect(() => {
         setMountedTabs((previous) => previous.has(activeTab) ? previous : new Set([...previous, activeTab]));
@@ -11180,6 +11224,15 @@ window.__ModuleLoader__.load({
         return runNodeCommand('node.message', continueNodeId, { text });
       }, [continueNodeId, runNodeCommand, t]);
 
+      const openNodeTrace = React.useCallback((nodeId) => {
+        setSelectedId(nodeId);
+        if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
+          window.dispatchEvent(new window.CustomEvent('metainfer:open-node-trace', {
+            detail: { projectId, nodeId, at: Date.now() },
+          }));
+        }
+        selectTab('trace');
+      }, [projectId, selectTab]);
       const openSuccessor = React.useCallback((nodeId) => {
         setSuccessorNodeId(nodeId);
         setSuccessorOpen(true);
@@ -11529,6 +11582,9 @@ window.__ModuleLoader__.load({
             onProposalAction: requestProposalAction,
             onRetryRequest: requestRetry,
             onEscalate: handleEscalate,
+            onOpenTrace: openNodeTrace,
+            onOpenFiles: openNodeFiles,
+            onSuccessor: openSuccessor,
             replayFooter: replayOpen ? h(ReplayBar, {
               data: replayData ?? { startAt: replayAt, endAt: replayAt },
               at: replayAt,
@@ -12855,7 +12911,7 @@ window.__ModuleLoader__.load({
     }
     // #endregion dag-canvas-scene
 
-    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, replayFooter, factsSlot, t }) {
+    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, replayFooter, factsSlot, t }) {
       const hostRef = React.useRef(null);
       const canvasRef = React.useRef(null);
       const overlayRef = React.useRef(null);
@@ -12869,6 +12925,9 @@ window.__ModuleLoader__.load({
       const zoomStampRef = React.useRef(0);
       const [zoomPct, setZoomPct] = React.useState(100);
       const [hoverId, setHoverId] = React.useState(null);
+      // Right-click menu: the inspector only carries details; node actions live
+      // here so the side panel stops listing everything at once.
+      const [menu, setMenu] = React.useState(null);
       // Degraded payloads (a panel mounted before the snapshot arrives) must not
       // crash the canvas: normalise once, then every effect reads the safe values.
       const safeLayout = layout && layout.positions instanceof Map ? layout : { positions: new Map(), width: 0, height: 0 };
@@ -13066,6 +13125,72 @@ window.__ModuleLoader__.load({
         const hit = hitTestDag(sceneRef.current, worldPointOf(event));
         if (hit !== null && typeof onOpenNative === 'function') onOpenNative(hit.id, 'trajectory');
       };
+      const closeMenu = React.useCallback(() => setMenu(null), []);
+    React.useEffect(() => {
+      if (menu === null) return undefined;
+      const onDocPointer = () => setMenu(null);
+      const onDocKey = (event) => { if (event.key === 'Escape') setMenu(null); };
+      document.addEventListener('pointerdown', onDocPointer);
+      document.addEventListener('keydown', onDocKey);
+      return () => {
+        document.removeEventListener('pointerdown', onDocPointer);
+        document.removeEventListener('keydown', onDocKey);
+      };
+    }, [menu]);
+
+    const onContextMenu = (event) => {
+      if (typeof event?.preventDefault === 'function') event.preventDefault();
+      const hit = hitTestDag(sceneRef.current, worldPointOf(event));
+      const id = hit === null ? null : hit.id;
+      if (id !== null) onSelect(id);
+      const rect = hostRef.current ? hostRef.current.getBoundingClientRect() : { left: 0, top: 0 };
+      setMenu({
+        nodeId: id,
+        x: Math.max(0, Math.round((event.clientX ?? 0) - rect.left)),
+        y: Math.max(0, Math.round((event.clientY ?? 0) - rect.top)),
+      });
+    };
+
+    const menuItemsFor = (nodeId) => {
+      if (nodeId === null) {
+        return [
+          { key: 'fit', label: t('ws.menu.fit'), run: fit },
+          { key: 'zoom-in', label: t('ws.menu.zoomIn'), run: () => zoomBy(1.2) },
+          { key: 'zoom-out', label: t('ws.menu.zoomOut'), run: () => zoomBy(1 / 1.2) },
+          { key: 'clear', label: t('ws.menu.clearSelection'), run: () => onSelect(null) },
+        ];
+      }
+      const node = sceneRef.current?.byId?.get(nodeId)?.node ?? null;
+      const status = node === null ? 'planned' : nodeStatusOf(node);
+      const items = [
+        { key: 'child', label: t('ws.menu.createChild'), run: () => onSuccessor(nodeId) },
+        { key: 'files', label: t('ws.menu.files'), run: () => onOpenFiles(nodeId) },
+        { key: 'trace', label: t('ws.menu.trace'), run: () => onOpenTrace(nodeId) },
+        { key: 'native', label: t('ws.menu.native'), run: () => onOpenNative(nodeId, 'trajectory') },
+      ];
+      if (status === 'completed' || status === 'running') {
+        items.push({ key: 'continue', label: t('ws.menu.continue'), run: () => onContinue(nodeId) });
+      }
+      if (status === 'failed' || status === 'cancelled') {
+        items.push({ key: 'retry', label: t('ws.menu.retry'), run: () => onRetryRequest(nodeId) });
+      }
+      if (status === 'failed') {
+        items.push({ key: 'escalate', label: t('ws.menu.escalate'), run: () => onEscalate(nodeId) });
+      }
+      items.push({
+        key: 'priority-raise',
+        label: t('ws.menu.priorityRaise'),
+        run: () => onNodeAction('node?.priority', nodeId, { priority: { class: nodePriorityTargetOf(node, 'raise') } }),
+      });
+      items.push({
+        key: 'priority-lower',
+        label: t('ws.menu.priorityLower'),
+        run: () => onNodeAction('node?.priority', nodeId, { priority: { class: nodePriorityTargetOf(node, 'lower') } }),
+      });
+      items.push({ key: 'copy', label: t('ws.menu.copyId'), run: () => { copyText(nodeId); } });
+      return items;
+    };
+
       const onKeyDown = (event) => {
         const view = viewRef.current;
         const step = 80;
@@ -13104,8 +13229,28 @@ window.__ModuleLoader__.load({
           onPointerCancel: endDrag,
           onClick,
           onDoubleClick,
+          onContextMenu,
           onKeyDown,
         }),
+        menu === null ? null : h(
+          'div',
+          {
+            className: 'rl-dag-menu',
+            'data-testid': 'dag-context-menu',
+            role: 'menu',
+            style: { left: menu.x, top: menu.y },
+            onPointerDown: (event) => event?.stopPropagation(),
+            onContextMenu: (event) => event?.preventDefault(),
+          },
+          menu.nodeId === null ? null : h('div', { className: 'rl-dag-menu-head' }, menu.nodeId),
+          menuItemsFor(menu.nodeId).map((item) => h('button', {
+            key: 'menu-' + item.key,
+            type: 'button',
+            role: 'menuitem',
+            className: 'rl-dag-menu-item',
+            onClick: () => { closeMenu(); item.run(); },
+          }, item.label)),
+        ),
         selectedNode === null ? null : h(
           'div',
           { className: 'rl-dag-overlay', ref: overlayRef },
@@ -13820,7 +13965,6 @@ window.__ModuleLoader__.load({
           );
         })(),
         h(ExecutionTraceSection, { node, t }),
-        h(NodeTraceSection, { node, t }),
         h(NativeSessionPanel, { node, onOpenSession: (sessionId, view) => onOpenSession(sessionId, view, nodeKeyId), onOpenFiles: () => onOpenFiles(nodeKeyId), t }),
         isMergeNode
           ? h(MergeSection, { node, nodes, busy, onFinish: () => onFinishMerge(nodeKeyId), t })
@@ -18727,7 +18871,7 @@ window.__ModuleLoader__.load({
         if (nodeId === '') return;
         setCandidateNode(nodeId);
         void loadCandidates(nodeId);
-        void openNodeTraces(nodeId, request.relPaths);
+        if (asArray(request.relPaths).length > 0) void openNodeTraces(nodeId, request.relPaths);
         // request.at makes a repeated selection of the same node files re-open.
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [request?.at]);
