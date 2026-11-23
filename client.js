@@ -38,6 +38,7 @@ window.__ModuleLoader__.load({
       state: 'api/metainfer-research-lab/state',
       events: 'api/metainfer-research-lab/events',
       replay: 'api/metainfer-research-lab/replay',
+      wal: 'api/metainfer-research-lab/wal',
       commands: 'api/metainfer-research-lab/commands',
       runs: 'api/metainfer-research-lab/runs',
       execution: 'api/metainfer-research-lab/execution',
@@ -1256,6 +1257,12 @@ window.__ModuleLoader__.load({
       "ws.gc.summary": "摘要",
       "ws.gc.title": "善后报告（GC）",
       "ws.held": "{key} 占用 {held}",
+      "ws.history.open": "历史",
+      "ws.history.openHint": "打开变更日志（WAL）与 DAG 生长回放",
+      "ws.history.replayHint": "回放按时间重建当时的 DAG；拖动时间轴或在下方标签页里切换。",
+      "ws.history.tab.replay": "DAG 回放",
+      "ws.history.tab.wal": "变更日志",
+      "ws.history.title": "历史：变更日志与回放",
       "ws.inspector.baseCommit": "基准提交",
       "ws.inspector.branch": "分支",
       "ws.inspector.cancelReason": "撤销原因",
@@ -1510,6 +1517,8 @@ window.__ModuleLoader__.load({
       "ws.rail.show": "节点列表",
       "ws.rail.title": "任务列表",
       "ws.rail.toggleHint": "以浮窗显示节点列表（按状态分页）",
+      "ws.replay.loading": "载入中…",
+      "ws.replay.open": "载入回放",
       "ws.report.blockers": "阻塞项",
       "ws.report.changes": "变更",
       "ws.report.failed": "未达成",
@@ -1921,6 +1930,21 @@ window.__ModuleLoader__.load({
       "ws.usage.output": "输出 {count}",
       "ws.usage.title": "Token 用量",
       "ws.usage.total": "总计 {count}",
+      "ws.wal.at": "时间",
+      "ws.wal.empty": "该区间没有变更记录",
+      "ws.wal.fromSeq": "起始 seq（不含）",
+      "ws.wal.kind": "类型",
+      "ws.wal.latest": "最新",
+      "ws.wal.limit": "每页",
+      "ws.wal.nextPage": "下一页",
+      "ws.wal.noDetail": "—",
+      "ws.wal.node": "节点",
+      "ws.wal.nodeId": "节点 ID",
+      "ws.wal.query": "查询",
+      "ws.wal.statusLine": "最新 seq {latest} · 本页 {count} 条",
+      "ws.wal.summary": "变更",
+      "ws.wal.toSeq": "结束 seq（含）",
+      "ws.wal.toSeqPlaceholder": "留空 = 最新",
       "ws.window.close": "关闭",
       "ws.window.minimize": "最小化",
       "ws.window.restore": "还原",
@@ -3000,6 +3024,12 @@ window.__ModuleLoader__.load({
       "ws.gc.summary": "Summary",
       "ws.gc.title": "Postmortem (GC)",
       "ws.held": "{key} held {held}",
+      "ws.history.open": "History",
+      "ws.history.openHint": "Open the DAG change log (WAL) and the growth replay",
+      "ws.history.replayHint": "Replay rebuilds the graph at a past moment; scrub the timeline below.",
+      "ws.history.tab.replay": "DAG replay",
+      "ws.history.tab.wal": "Change log",
+      "ws.history.title": "History: change log and replay",
       "ws.inspector.baseCommit": "Base commit",
       "ws.inspector.branch": "Branch",
       "ws.inspector.cancelReason": "Cancellation reason",
@@ -3254,6 +3284,8 @@ window.__ModuleLoader__.load({
       "ws.rail.show": "Node list",
       "ws.rail.title": "Task list",
       "ws.rail.toggleHint": "Show the node list as a floating, status-tabbed panel",
+      "ws.replay.loading": "Loading…",
+      "ws.replay.open": "Load replay",
       "ws.report.blockers": "Blockers",
       "ws.report.changes": "Changes",
       "ws.report.failed": "Not achieved",
@@ -3665,6 +3697,21 @@ window.__ModuleLoader__.load({
       "ws.usage.output": "output {count}",
       "ws.usage.title": "Token usage",
       "ws.usage.total": "total {count}",
+      "ws.wal.at": "Time",
+      "ws.wal.empty": "No changes in this range",
+      "ws.wal.fromSeq": "From seq (exclusive)",
+      "ws.wal.kind": "Kind",
+      "ws.wal.latest": "Latest",
+      "ws.wal.limit": "Page size",
+      "ws.wal.nextPage": "Next page",
+      "ws.wal.noDetail": "—",
+      "ws.wal.node": "Node",
+      "ws.wal.nodeId": "Node id",
+      "ws.wal.query": "Query",
+      "ws.wal.statusLine": "latest seq {latest} · {count} rows",
+      "ws.wal.summary": "Change",
+      "ws.wal.toSeq": "To seq (inclusive)",
+      "ws.wal.toSeqPlaceholder": "blank = latest",
       "ws.window.close": "Close",
       "ws.window.minimize": "Minimize",
       "ws.window.restore": "Restore",
@@ -4202,6 +4249,23 @@ window.__ModuleLoader__.load({
       '.rl-modal-title { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 14px; font-weight: 500; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
       '.rl-modal-body { display: flex; flex-direction: column; gap: 12px; flex: 1 1 auto; min-height: 0; padding: 14px 16px; overflow: auto; }',
       '.rl-modal-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: none; padding: 10px 16px; border-top: 0.5px solid var(--dsw-alias-border-l2); }',
+      '.rl-modal-tabs { display: flex; gap: 2px; flex: none; padding: 6px 12px 0; border-bottom: 0.5px solid var(--dsw-alias-border-l2); }',
+      '.rl-modal-tab { padding: 5px 12px; border: 0; border-bottom: 2px solid transparent; border-radius: 6px 6px 0 0; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; cursor: pointer; }',
+      '.rl-modal-tab:hover { color: var(--dsw-alias-label-primary); }',
+      '.rl-modal-tab-active { border-bottom-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-label-primary); }',
+      '.rl-wal-panel { display: flex; flex-direction: column; gap: 10px; min-height: 0; }',
+      '.rl-wal-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }',
+      '.rl-wal-kinds { display: flex; flex-wrap: wrap; gap: 4px; }',
+      '.rl-wal-kinds .rl-chip { cursor: pointer; border: 0.5px solid var(--dsw-alias-border-l2); background: transparent; color: var(--dsw-alias-label-secondary); }',
+      '.rl-wal-kinds .rl-chip-active { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-label-primary); }',
+      '.rl-wal-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }',
+      '.rl-wal-table { display: flex; flex-direction: column; min-height: 0; overflow: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; }',
+      '.rl-wal-row { display: grid; grid-template-columns: 64px 132px 118px 96px minmax(0, 1fr); gap: 8px; align-items: center; padding: 5px 10px; border-top: 0.5px solid color-mix(in srgb, var(--dsw-alias-border-l2) 60%, transparent); font-size: 12px; }',
+      '.rl-wal-row:first-child { border-top: 0; }',
+      '.rl-wal-row-head { position: sticky; top: 0; z-index: 1; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-tertiary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }',
+      '.rl-wal-seq { font-family: var(--dsw-alias-font-mono, monospace); color: var(--dsw-alias-label-secondary); }',
+      '.rl-wal-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-secondary); }',
+      '.rl-history-replay { display: flex; flex-direction: column; gap: 10px; }',
       '.rl-modal-foot-note { flex: 1 1 auto; margin: 0; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 16px; }',
       '.rl-tabs { display: inline-flex; gap: 2px; padding: 2px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; align-self: flex-start; }',
       '.rl-tab { padding: 1px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11.5px; line-height: 18px; cursor: pointer; }',
@@ -5100,6 +5164,21 @@ window.__ModuleLoader__.load({
       },
       fetchReplayAll(projectId, signal, t, options) {
         return fetchReplayAll(projectId, signal, t, options);
+      },
+      /** DAG write-ahead log: cursor/range read. */
+      fetchWal(projectId, query = {}, t) {
+        const search = new URLSearchParams({ projectId });
+        for (const key of ['fromSeq', 'toSeq', 'limit']) {
+          const value = query[key];
+          if (value !== undefined && value !== null && String(value) !== '' && Number.isFinite(Number(value))) {
+            search.set(key, String(value));
+          }
+        }
+        if (typeof query.nodeId === 'string' && query.nodeId !== '') search.set('nodeId', query.nodeId);
+        if (Array.isArray(query.kinds) && query.kinds.length > 0) search.set('kinds', query.kinds.join(','));
+        if (typeof query.cursor === 'string' && query.cursor !== '') search.set('cursor', query.cursor);
+        if (query.order === 'desc') search.set('order', 'desc');
+        return requestJson(ROUTES.wal + '?' + search.toString(), {}, t);
       },
       fetchDashboard(projectId, signal, t) {
         return requestJson(ROUTES.dashboard + '?projectId=' + encodeURIComponent(projectId), { signal }, t);
@@ -10492,6 +10571,227 @@ window.__ModuleLoader__.load({
     // #region workspace
     /** Full workspace: top bar, node rail, DAG canvas, inspector, log and transcript drawer. */
     /** Reconstruct the visible DAG at a point in time from node/event timestamps. */
+    /** Kind chips offered by the WAL query form (matches host/wal.js). */
+    const WAL_KIND_OPTIONS = Object.freeze([
+      'node.created', 'node.status', 'node.priority', 'node.title', 'node.updated', 'node.removed', 'node.snapshot',
+    ]);
+
+    /** One-line summary of a WAL payload, for the results table. */
+    function walSummaryOf(entry, t) {
+      const payload = asObject(entry?.payload);
+      const kind = firstString(entry?.kind);
+      if (kind === 'node.removed') return firstString(payload.title) || '—';
+      if (kind === 'node.created' || kind === 'node.snapshot') {
+        const bits = [firstString(payload.status), firstString(payload.title)].filter((value) => value !== '');
+        return bits.join(' · ') || '—';
+      }
+      const before = asObject(payload.before);
+      const after = asObject(payload.after);
+      const changed = asArray(payload.changed).map((value) => firstString(value)).filter(Boolean);
+      const parts = [];
+      for (const field of changed) {
+        if (field === 'status' || field === 'priority' || field === 'title') {
+          parts.push(field + ': ' + (firstString(before[field]) || '—') + ' → ' + (firstString(after[field]) || '—'));
+        } else {
+          parts.push(field);
+        }
+      }
+      return parts.join(' · ') || t('ws.wal.noDetail');
+    }
+
+    /**
+     * Human query surface for the DAG write-ahead log.
+     *
+     * The log is the "what changed since" feed that schedulers and agents use
+     * programmatically; this panel is the same query surface for a person, with the
+     * seq range, filters and cursor paging exposed directly.
+     */
+    function WalLogPanel({ projectId, onSelect, t }) {
+      const [fromSeq, setFromSeq] = React.useState('0');
+      const [toSeq, setToSeq] = React.useState('');
+      const [nodeId, setNodeId] = React.useState('');
+      const [kinds, setKinds] = React.useState([]);
+      const [limit, setLimit] = React.useState(50);
+      const [state, setState] = React.useState({ phase: 'idle', rows: [], cursor: null, hasMore: false, latestSeq: 0, error: '' });
+      const aliveRef = React.useRef(true);
+      React.useEffect(() => () => { aliveRef.current = false; }, []);
+
+      const load = React.useCallback(async (options = {}) => {
+        const query = {
+          fromSeq: Number(fromSeq) || 0,
+          toSeq: options.toSeq === undefined ? (Number(toSeq) || undefined) : options.toSeq,
+          nodeId,
+          kinds,
+          limit,
+          cursor: options.cursor === undefined ? null : options.cursor,
+        };
+        setState((previous) => ({ ...previous, phase: 'loading', error: '' }));
+        try {
+          const data = await api.fetchWal(projectId, query, t);
+          if (!aliveRef.current) return;
+          const rows = asArray(asObject(data).entries);
+          setState({
+            phase: 'ready',
+            rows,
+            cursor: firstString(asObject(data).nextCursor) || null,
+            hasMore: asObject(data).hasMore === true,
+            latestSeq: Number(asObject(data).latestSeq) || 0,
+            error: '',
+            loadedAt: Date.now(),
+          });
+        } catch (error) {
+          if (!aliveRef.current) return;
+          setState({ phase: 'error', rows: [], cursor: null, hasMore: false, latestSeq: 0, error: describeError(error, t) });
+        }
+      }, [projectId, fromSeq, toSeq, nodeId, kinds, limit, t]);
+
+      // First open loads the newest page so the panel is never empty on arrival.
+      React.useEffect(() => {
+        let cancelled = false;
+        (async () => {
+          setState((previous) => ({ ...previous, phase: 'loading' }));
+          try {
+            const latest = await api.fetchWal(projectId, { limit: 1, order: 'desc' }, t);
+            if (cancelled || !aliveRef.current) return;
+            const newest = Number(asObject(latest).latestSeq) || 0;
+            const start = Math.max(0, newest - limit);
+            setFromSeq(String(start));
+            const data = await api.fetchWal(projectId, { fromSeq: start, limit }, t);
+            if (cancelled || !aliveRef.current) return;
+            setState({
+              phase: 'ready',
+              rows: asArray(asObject(data).entries),
+              cursor: firstString(asObject(data).nextCursor) || null,
+              hasMore: asObject(data).hasMore === true,
+              latestSeq: Number(asObject(data).latestSeq) || newest,
+              error: '',
+              loadedAt: Date.now(),
+            });
+          } catch (error) {
+            if (cancelled || !aliveRef.current) return;
+            setState({ phase: 'error', rows: [], cursor: null, hasMore: false, latestSeq: 0, error: describeError(error, t) });
+          }
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [projectId, t]);
+
+      const toggleKind = (kind) => setKinds((previous) => (previous.includes(kind) ? previous.filter((value) => value !== kind) : [...previous, kind]));
+      const rows = state.rows;
+      return h(
+        'div',
+        { className: 'rl-wal-panel', 'data-testid': 'wal-panel' },
+        h(
+          'div',
+          { className: 'rl-wal-form' },
+          h(LabField, { label: t('ws.wal.fromSeq') },
+            h('input', { className: 'rl-input', value: fromSeq, onInput: (event) => setFromSeq(event.target.value), inputMode: 'numeric' })),
+          h(LabField, { label: t('ws.wal.toSeq') },
+            h('input', { className: 'rl-input', value: toSeq, onInput: (event) => setToSeq(event.target.value), inputMode: 'numeric', placeholder: t('ws.wal.toSeqPlaceholder') })),
+          h(LabField, { label: t('ws.wal.nodeId') },
+            h('input', { className: 'rl-input', value: nodeId, onInput: (event) => setNodeId(event.target.value), placeholder: 'n-0001' })),
+          h(LabField, { label: t('ws.wal.limit') },
+            h(LabSelect, {
+              value: String(limit),
+              options: [25, 50, 100, 200].map((size) => ({ value: String(size), label: String(size) })),
+              ariaLabel: t('ws.wal.limit'),
+              onChange: (event) => setLimit(Number(event.target.value) || 50),
+            })),
+        ),
+        h(
+          'div',
+          { className: 'rl-wal-kinds' },
+          WAL_KIND_OPTIONS.map((kind) => h('button', {
+            key: 'wal-kind-' + kind,
+            type: 'button',
+            className: 'rl-chip rl-chip-mono' + (kinds.includes(kind) ? ' rl-chip-active' : ''),
+            'aria-pressed': kinds.includes(kind),
+            onClick: () => toggleKind(kind),
+          }, kind)),
+        ),
+        h(
+          'div',
+          { className: 'rl-wal-actions' },
+          h(LabButton, { label: t('ws.wal.query'), variant: 'primary', onClick: () => { void load({ cursor: null }); } }),
+          h(LabButton, { label: t('ws.wal.latest'), onClick: () => { void load({ cursor: null, toSeq: '' }); } }),
+          h(LabButton, { label: t('ws.wal.nextPage'), disabled: state.hasMore !== true, onClick: () => { void load({ cursor: state.cursor }); } }),
+          h('span', { className: 'rl-hint' }, t('ws.wal.statusLine', { latest: state.latestSeq, count: rows.length }))),
+        state.phase === 'error' ? h('p', { className: 'rl-error-text', role: 'alert' }, state.error) : null,
+        state.phase === 'loading' ? h(LabLoading, { label: t('common.loading') }) : null,
+        state.phase === 'ready' && rows.length === 0 ? h('p', { className: 'rl-hint' }, t('ws.wal.empty')) : null,
+        rows.length === 0 ? null : h(
+          'div',
+          { className: 'rl-wal-table', role: 'table' },
+          h(
+            'div',
+            { className: 'rl-wal-row rl-wal-row-head', role: 'row' },
+            h('span', { role: 'columnheader' }, 'seq'),
+            h('span', { role: 'columnheader' }, t('ws.wal.at')),
+            h('span', { role: 'columnheader' }, t('ws.wal.kind')),
+            h('span', { role: 'columnheader' }, t('ws.wal.node')),
+            h('span', { role: 'columnheader' }, t('ws.wal.summary')),
+          ),
+          rows.map((entry) => h(
+            'div',
+            { key: 'wal-' + entry.seq, className: 'rl-wal-row', role: 'row' },
+            h('span', { className: 'rl-wal-seq', role: 'cell' }, String(entry.seq)),
+            h('span', { role: 'cell' }, formatDateTime(Number(entry.at) || 0, t)),
+            h('span', { role: 'cell' }, h('span', { className: 'rl-chip rl-chip-mono' }, firstString(entry.kind))),
+            h('span', { role: 'cell' },
+              firstString(entry.nodeId) === ''
+                ? '—'
+                : h('button', {
+                    type: 'button',
+                    className: 'rl-link-btn',
+                    onClick: () => onSelect(firstString(entry.nodeId)),
+                  }, firstString(entry.nodeId))),
+            h('span', { role: 'cell', className: 'rl-wal-summary' }, walSummaryOf(entry, t)),
+          )),
+        ),
+      );
+    }
+
+    /**
+     * "History" module: the human query for the WAL and the DAG growth replay share
+     * one dialog, because they answer the same question from two directions
+     * (what changed vs what the graph looked like at a moment).
+     */
+    function HistoryModal({ open, tab, onTab, onClose, walPanel, replayPanel, t }) {
+      if (open !== true) return null;
+      const tabs = [
+        { id: 'wal', label: t('ws.history.tab.wal') },
+        { id: 'replay', label: t('ws.history.tab.replay') },
+      ];
+      const active = tab === 'replay' ? 'replay' : 'wal';
+      return h(
+        'div',
+        { className: 'rl-overlay-layer rl-overlay-layer-top', 'data-testid': 'history-modal' },
+        h(
+          'div',
+          { className: 'rl-modal rl-modal-wide', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('ws.history.title') },
+          h(
+            'div',
+            { className: 'rl-modal-head' },
+            h('h2', { className: 'rl-modal-title' }, t('ws.history.title')),
+            h(LabButton, { label: '✕', variant: 'ghost', title: t('ws.window.close'), onClick: onClose }),
+          ),
+          h(
+            'div',
+            { className: 'rl-modal-tabs', role: 'tablist' },
+            tabs.map((entry) => h('button', {
+              key: 'history-tab-' + entry.id,
+              type: 'button',
+              role: 'tab',
+              'aria-selected': active === entry.id,
+              className: 'rl-modal-tab' + (active === entry.id ? ' rl-modal-tab-active' : ''),
+              onClick: () => onTab(entry.id),
+            }, entry.label)),
+          ),
+          h('div', { className: 'rl-modal-body' }, active === 'wal' ? walPanel : replayPanel),
+        ),
+      );
+    }
+
     function replaySnapshot(data, at) {
       const nodes = asArray(asObject(data).nodes);
       const edges = asArray(asObject(data).edges);
@@ -11093,6 +11393,8 @@ window.__ModuleLoader__.load({
       // The node list is an optional overlay, closed by default so it never pushes
       // the canvas.
       const [railOpen, setRailOpen] = React.useState(false);
+      const [historyOpen, setHistoryOpen] = React.useState(false);
+      const [historyTab, setHistoryTab] = React.useState('wal');
       const [railBox, setRailBox] = React.useState({ x: 12, y: 64, w: 320, h: 460 });
       const windowZRef = React.useRef(20);
       const openNodeWindow = React.useCallback((nodeId) => {
@@ -11832,6 +12134,7 @@ window.__ModuleLoader__.load({
           h(DagCanvas, {
             railOpen,
             onToggleRail: () => setRailOpen((value) => value !== true),
+            onOpenHistory: () => setHistoryOpen(true),
             rail: h(NodeRail, {
               project,
               nodes: displayNodes,
@@ -12183,6 +12486,36 @@ window.__ModuleLoader__.load({
             })
           : null,
         windowLayer,
+        h(HistoryModal, {
+          open: historyOpen,
+          tab: historyTab,
+          onTab: setHistoryTab,
+          onClose: () => setHistoryOpen(false),
+          t,
+          walPanel: h(WalLogPanel, { projectId, onSelect: setSelectedId, t }),
+          replayPanel: h(
+            'div',
+            { className: 'rl-history-replay' },
+            h('p', { className: 'rl-hint' }, t('ws.history.replayHint')),
+            replayOpen && replayData !== null
+              ? h(ReplayBar, {
+                  data: replayData,
+                  at: replayAt,
+                  playing: replayPlaying,
+                  loading: replayLoading,
+                  error: replayError,
+                  onChange: (value) => { setReplayAt(value); setReplayPlaying(false); },
+                  onTogglePlay: () => { setReplayPlaying((value) => !value); },
+                  onClose: closeReplay,
+                  t,
+                })
+              : h(LabButton, {
+                  label: replayLoading ? t('ws.replay.loading') : t('ws.replay.open'),
+                  variant: 'primary',
+                  onClick: () => { void openReplay(); },
+                }),
+          ),
+        }),
       );
     }
 
@@ -13265,7 +13598,7 @@ window.__ModuleLoader__.load({
     }
     // #endregion dag-canvas-scene
 
-    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, onOpenDetail, rail, railOpen, onToggleRail, replayFooter, t }) {
+    function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, onOpenDetail, rail, railOpen, onToggleRail, onOpenHistory, replayFooter, t }) {
       const hostRef = React.useRef(null);
       const canvasRef = React.useRef(null);
       const viewRef = React.useRef({ pan: { x: 0, y: 0 }, zoom: 1, dpr: 1, hoverId: null });
@@ -13697,6 +14030,12 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'rl-canvas-toolbar' },
+          typeof onOpenHistory === 'function' ? h(LabButton, {
+            label: t('ws.history.open'),
+            variant: 'ghost',
+            onClick: onOpenHistory,
+            title: t('ws.history.openHint'),
+          }) : null,
           typeof onToggleRail === 'function' ? h(LabButton, {
             label: t(railOpen === true ? 'ws.rail.hide' : 'ws.rail.show'),
             variant: railOpen === true ? 'primary' : 'ghost',
@@ -21509,6 +21848,8 @@ window.__ModuleLoader__.load({
         NodeDetailWindow,
         NodeInspector,
         NodeRail,
+        WalLogPanel,
+        HistoryModal,
         ProjectTabBar,
         ProjectTabPanel,
         ProfilerTab,
