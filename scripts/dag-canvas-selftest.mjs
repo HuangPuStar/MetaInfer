@@ -262,6 +262,36 @@ await React.act(async () => {
 });
 check('Escape closes the context menu', host.querySelector('[data-testid="dag-context-menu"]') === null);
 
+
+// --- right-click on the DOM node card (the reported hole) --------------------
+const cardHost = window.document.createElement('div');
+window.document.body.appendChild(cardHost);
+const cardRoot = createRoot(cardHost);
+await React.act(async () => {
+  cardRoot.render(React.createElement(DagCanvas, {
+    nodes, edges, layout, selectedId: 'n-00007', now: Date.now(), busyKey: '',
+    onSelect: noop, onOpenNative: record('native'), onContinue: record('continue'),
+    onNodeAction: record('action'), onProposalAction: noop, onRetryRequest: record('retry'),
+    onEscalate: record('escalate'), onOpenTrace: record('trace'), onOpenFiles: record('files'),
+    onSuccessor: record('child'), replayFooter: null, factsSlot: null, t: (key) => key,
+  }));
+  await wait(120);
+});
+await wait(80);
+const card = cardHost.querySelector('.rl-dag-overlay-card');
+check('the selected node renders a DOM card', card !== null);
+const cardTitle = card?.querySelector('.rl-node-title, span, div') ?? card;
+const cardEvent = new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 });
+await React.act(async () => {
+  cardTitle.dispatchEvent(cardEvent);
+  await wait(60);
+});
+const cardMenu = cardHost.querySelector('[data-testid="dag-context-menu"]');
+check('right-click on the node card suppresses the browser menu', cardEvent.defaultPrevented === true);
+check('right-click on the node card opens the menu for that node',
+  cardMenu !== null && (cardMenu.textContent ?? '').includes('n-00007'), cardMenu?.textContent?.slice(0, 60) ?? 'null');
+await React.act(async () => { cardRoot.unmount(); });
+
 await React.act(async () => { root.unmount(); });
 dom.window.close();
 

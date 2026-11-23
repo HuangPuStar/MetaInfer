@@ -13210,7 +13210,7 @@ window.__ModuleLoader__.load({
         if (hit !== null && typeof onOpenNative === 'function') onOpenNative(hit.id, 'trajectory');
       };
       const closeMenu = React.useCallback(() => setMenu(null), []);
-    React.useEffect(() => {
+      React.useEffect(() => {
       if (menu === null) return undefined;
       const onDocPointer = () => setMenu(null);
       const onDocKey = (event) => { if (event.key === 'Escape') setMenu(null); };
@@ -13220,12 +13220,19 @@ window.__ModuleLoader__.load({
         document.removeEventListener('pointerdown', onDocPointer);
         document.removeEventListener('keydown', onDocKey);
       };
-    }, [menu]);
+      }, [menu]);
 
-    const onContextMenu = (event) => {
-      if (typeof event?.preventDefault === 'function') event.preventDefault();
-      const hit = hitTestDag(sceneRef.current, worldPointOf(event));
-      const id = hit === null ? null : hit.id;
+        const onContextMenu = (event) => {
+        if (typeof event?.preventDefault === 'function') event.preventDefault();
+        // The selected node is a DOM card on top of the canvas, so a right click on
+        // its title/buttons never reaches the canvas element. Inspect the target:
+        // inside the card it is that node, elsewhere the canvas hit test decides.
+        const target = event?.target;
+        const inCard = target && typeof target.closest === 'function'
+          ? target.closest('.rl-dag-overlay-card') !== null
+          : false;
+        const hit = inCard ? (selectedId === null ? null : { id: selectedId }) : hitTestDag(sceneRef.current, worldPointOf(event));
+        const id = hit === null ? null : hit.id;
       if (id !== null) onSelect(id);
       const rect = hostRef.current ? hostRef.current.getBoundingClientRect() : { left: 0, top: 0 };
       setMenu({
@@ -13233,9 +13240,9 @@ window.__ModuleLoader__.load({
         x: Math.max(0, Math.round((event.clientX ?? 0) - rect.left)),
         y: Math.max(0, Math.round((event.clientY ?? 0) - rect.top)),
       });
-    };
+      };
 
-    const menuItemsFor = (nodeId) => {
+      const menuItemsFor = (nodeId) => {
       if (nodeId === null) {
         return [
           { key: 'fit', label: t('ws.menu.fit'), run: fit },
@@ -13273,7 +13280,7 @@ window.__ModuleLoader__.load({
       });
       items.push({ key: 'copy', label: t('ws.menu.copyId'), run: () => { copyText(nodeId); } });
       return items;
-    };
+      };
 
       const onKeyDown = (event) => {
         const view = viewRef.current;
@@ -13298,7 +13305,7 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { className: 'rl-canvas' + (dragRef.current !== null ? ' rl-canvas-dragging' : ''), ref: hostRef },
+        { className: 'rl-canvas' + (dragRef.current !== null ? ' rl-canvas-dragging' : ''), ref: hostRef, onContextMenu },
         factsSlot ?? null,
         h('canvas', {
           ref: canvasRef,
@@ -13313,7 +13320,6 @@ window.__ModuleLoader__.load({
           onPointerCancel: endDrag,
           onClick,
           onDoubleClick,
-          onContextMenu,
           onKeyDown,
         }),
         menu === null ? null : h(
@@ -13324,7 +13330,7 @@ window.__ModuleLoader__.load({
             role: 'menu',
             style: { left: menu.x, top: menu.y },
             onPointerDown: (event) => event?.stopPropagation(),
-            onContextMenu: (event) => event?.preventDefault(),
+            onContextMenu: (event) => { event?.preventDefault?.(); event?.stopPropagation?.(); },
           },
           menu.nodeId === null ? null : h('div', { className: 'rl-dag-menu-head' }, menu.nodeId),
           menuItemsFor(menu.nodeId).map((item) => h('button', {
