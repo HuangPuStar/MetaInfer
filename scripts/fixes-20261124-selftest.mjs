@@ -41,5 +41,7 @@ check('first commit preserves already staged content', /diff', '--cached', '--na
 check('credential-bearing remote URLs are refused', /remote_credentials_rejected/.test(git));
 check('clones publish through a staging directory', /\.tmp-\$\{cacheDirName\(url\)\}/.test(git) && /await rename\(staging, target\)/.test(git));
 check('no operator token is injected into rendered HTML', !/webserver\/index-inject/.test(entry));
+check('canvas titles are measured, not estimated by character count', /function truncateForWidth\(ctx, text, width\)/.test(client) && /ctx\.measureText\(value\)\.width <= width/.test(client));
+check('card titles are painted with a right gutter inside the card', /truncateForWidth\(ctx, item\.title, item\.w - 24\)/.test(client));
 
 console.log(`\nfixes-20261124-selftest: ${checks} checks passed`);

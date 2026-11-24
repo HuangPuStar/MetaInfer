@@ -13541,10 +13541,24 @@ window.__ModuleLoader__.load({
     }
 
     /** Truncate by an average glyph width: measuring 10k strings per frame is slower. */
-    function truncateForWidth(text, width, fontSize) {
+    /**
+     * Fit `text` into `width` px using the context's current font. The previous
+     * implementation estimated characters at 0.58em, which fits Latin text but
+     * overflows for CJK (a Chinese glyph is ~1em), so long Chinese titles were
+     * painted past the card edge. Measure for real and binary-search the cut.
+     */
+    function truncateForWidth(ctx, text, width) {
       const value = String(text ?? '');
-      const maxChars = Math.max(4, Math.floor(width / (fontSize * 0.58)));
-      return value.length > maxChars ? value.slice(0, maxChars - 1) + '…' : value;
+      if (typeof ctx?.measureText !== 'function' || width <= 0) return value;
+      if (ctx.measureText(value).width <= width) return value;
+      let low = 0;
+      let high = value.length;
+      while (low < high) {
+        const mid = Math.ceil((low + high) / 2);
+        if (ctx.measureText(value.slice(0, mid) + '…').width <= width) low = mid;
+        else high = mid - 1;
+      }
+      return value.slice(0, low) + '…';
     }
 
     /**
@@ -13752,10 +13766,10 @@ window.__ModuleLoader__.load({
           ctx.font = '600 ' + fontSize + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
           ctx.fillStyle = theme.text;
           ctx.textBaseline = 'middle';
-          ctx.fillText(truncateForWidth(item.title, item.w - 22, fontSize), item.x + 14, item.y + 26);
+          ctx.fillText(truncateForWidth(ctx, item.title, item.w - 24), item.x + 12, item.y + 26);
           ctx.font = '10px system-ui, -apple-system, "Segoe UI", sans-serif';
           ctx.fillStyle = theme.muted;
-          ctx.fillText(truncateForWidth((item.statusLabel ?? item.status) + ' · ' + item.id, item.w - 22, 10), item.x + 14, item.y + 52);
+          ctx.fillText(truncateForWidth(ctx, (item.statusLabel ?? item.status) + ' · ' + item.id, item.w - 24), item.x + 12, item.y + 52);
         }
       }
       ctx.globalAlpha = 1;
