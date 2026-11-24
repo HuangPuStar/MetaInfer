@@ -23,6 +23,11 @@ export async function reconcileRunningNodes({ store, kernel }) {
         && !Object.values(operations).some(row => row?.state === 'intent')) continue;
       const now = Date.now();
       const wasRunning = node.status === 'running';
+      // A local node whose worker died with the Host is not a task failure: the
+      // worktree is intact and the task can simply run again. Requeue it instead
+      // of marking it failed. Remote (sandbox) nodes keep the held path below,
+      // because their cleanup needs an explicit reconciliation first.
+      const requeued = wasRunning && !remote;
       const clean = !remote || physicalClean;
       if (clean) {
         delete node.resourcesHeld;
@@ -37,7 +42,7 @@ export async function reconcileRunningNodes({ store, kernel }) {
         lastAttempt.status = 'failed';
         lastAttempt.stopReason = 'restart';
       }
-      if (wasRunning) node.status = 'failed';
+      if (wasRunning) node.status = requeued ? 'planned' : 'failed';
       if (remote && (!clean || unresolved || node.sandboxGate)) {
         if (node.sandbox) {
           for (const row of Object.values(node.sandbox.operations ?? {})) {
@@ -49,9 +54,18 @@ export async function reconcileRunningNodes({ store, kernel }) {
         node.sandboxGate ??= { profile: node.execution?.sandboxProfile ?? node.sandbox?.profile ?? null,
           code: 'sandbox_restart_held', blockers: ['No remote acquire/exec replay; exact binding/operation reconciliation is required.'], at: now, retryable: false };
       }
-      node.error ??= { message: remote
-        ? 'Host restarted; sandbox outcome/cleanup requires explicit reconciliation, not a local process proof.'
-        : 'host restarted or plugin reloaded while this node was running; the node was marked failed', at: now, stage: 'run' };
+      if (requeued) {
+        node.requeued = {
+          at: now,
+          previousAttempt: Number(node.currentAttempt) || (Array.isArray(node.attempts) ? node.attempts.length : 0),
+          reason: 'host-restart',
+        };
+        delete node.error;
+      } else {
+        node.error ??= { message: remote
+          ? 'Host restarted; sandbox outcome/cleanup requires explicit reconciliation, not a local process proof.'
+          : 'host restarted or plugin reloaded while this node was running; the node was marked failed', at: now, stage: 'run' };
+      }
       node.termination = {
         ...(node.termination ?? {}), kind: node.termination?.kind ?? 'restart',
         requestedAt: node.termination?.requestedAt ?? now,
@@ -61,13 +75,15 @@ export async function reconcileRunningNodes({ store, kernel }) {
         leftover: remote && (!clean || unresolved) ? ['sandbox proof held; unresolved operation identities are preserved on the binding'] : [],
         ...(remote ? { proofScope: clean ? 'existing exact remote physical cleanup only' : 'remote physical cleanup unconfirmed', reconciledAfterRestart: true } : {}),
       };
-      node.timestamps = { ...(node.timestamps ?? {}), completedAt: node.timestamps?.completedAt ?? now, lastActivityAt: now };
+      node.timestamps = requeued
+        ? { ...(node.timestamps ?? {}), runnableAt: now, lastActivityAt: now, startedAt: null, completedAt: null }
+        : { ...(node.timestamps ?? {}), completedAt: node.timestamps?.completedAt ?? now, lastActivityAt: now };
       const result = await kernel.executor.commit(project.id, {
         actor: { kind: 'system', id: 'reconcile' }, causeId: `reconcile:${node.id}`,
         ...(Number.isInteger(node.rev) ? { basis: node.rev } : {}),
         mutations: [{ op: 'node.put', nodeId: node.id, node,
-          eventType: remote && node.sandboxGate ? 'node/sandbox_reconcile_held' : 'node/failed',
-          eventData: { stage: 'run', message: node.error.message, restart: true, ...(remote ? { verifiedClean: clean, admissionHeld: Boolean(node.sandboxGate) } : {}) } }],
+          eventType: requeued ? 'node/requeued' : (remote && node.sandboxGate ? 'node/sandbox_reconcile_held' : 'node/failed'),
+          eventData: { stage: 'run', message: requeued ? 'host restarted while running; requeued for a new attempt' : node.error.message, restart: true, ...(requeued ? { requeued: true } : {}), ...(remote ? { verifiedClean: clean, admissionHeld: Boolean(node.sandboxGate) } : {}) } }],
       });
       if (result.ok !== true) throw new Error(result.message ?? `reconcile ${node.id} failed`);
       reconciled.push(`${project.id}/${node.id}`);
