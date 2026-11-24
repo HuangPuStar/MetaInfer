@@ -71,6 +71,8 @@ window.__ModuleLoader__.load({
 
     /** Poll cadence while the page is visible. */
     const POLL_STATE_MS = 1500;
+    /** Copilot 打开时的慢速状态检查间隔：被遮挡的工作区不再按 1.5s 轮询。 */
+    const PAUSED_POLL_MS = 15000;
     const POLL_EVENTS_MS = 2000;
     /** Transcript drawer cadence while it is open and the page is visible. */
     /** Runs panel cadence while it is open (state/events keep 1500/2000ms). */
@@ -4013,7 +4015,7 @@ window.__ModuleLoader__.load({
       '.rl-workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 auto; min-width: 0; min-height: 0; }',
       '.rl-copilot-native-layer { position: fixed; inset: 0; z-index: 60; display: flex; align-items: stretch; justify-content: stretch; padding: 16px; pointer-events: none; }',
       '.rl-copilot-native-backdrop { position: fixed; inset: 0; z-index: 59; background: var(--dsw-alias-bg-mask-2, transparent); pointer-events: auto; }',
-      '.rl-copilot-native { position: relative; z-index: 60; box-sizing: border-box; display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; width: min(96vw, calc(100vw - 32px)); max-width: calc(100vw - 32px); height: min(96vh, calc(100vh - 32px)); height: min(96vh, calc(100dvh - 32px)); max-height: calc(100vh - 32px); margin: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 14px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-family: inherit; font-size: 13px; line-height: 20px; pointer-events: auto; overflow: hidden; }',
+      '.rl-copilot-native { position: relative; z-index: 60; box-sizing: border-box; display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; width: min(96vw, calc(100vw - 32px)); max-width: calc(100vw - 32px); height: min(96vh, calc(100vh - 32px)); height: min(96vh, calc(100dvh - 32px)); max-height: calc(100vh - 32px); margin: auto; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 0; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font-family: inherit; font-size: 13px; line-height: 20px; pointer-events: auto; overflow: hidden; }',
       '.rl-copilot-native-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 6px; flex: none; padding: 10px 14px; border-bottom: 0.5px solid var(--dsw-alias-border-l2); }',
       '.rl-copilot-native-title { color: var(--dsw-alias-label-primary); font-size: 13px; font-weight: 500; line-height: 20px; }',
       '.rl-copilot-native-hint { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
@@ -4417,7 +4419,7 @@ window.__ModuleLoader__.load({
       '.rl-push-stdout { margin: 0; max-height: 160px; overflow: auto; padding: 6px 8px; border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-family: ' + MONO + '; font-size: 11px; line-height: 16px; white-space: pre-wrap; overflow-wrap: anywhere; }',
       '@media (max-width: 1180px) { .rl-workspace-grid { grid-template-columns: 210px minmax(0, 1fr) 300px; } }',
       '@media (max-width: 980px) { .rl-workspace-grid { grid-template-columns: minmax(0, 1fr) minmax(250px, 30vw); } .rl-rail { display: none; } }',
-      '@media (max-width: 760px) { .rl-workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(170px, 42vh); overflow: auto; } .rl-inspector { grid-column: 1; grid-row: 2; max-height: 42vh; border-left: 0; border-top: 0.5px solid var(--dsw-alias-border-l2); } .rl-canvas { min-height: 260px; } .rl-copilot-native-layer { padding: 8px; } .rl-copilot-native { width: calc(100vw - 16px); max-width: calc(100vw - 16px); height: calc(100dvh - 16px); max-height: calc(100vh - 16px); border-radius: 10px; } .rl-copilot-native-head { padding: 8px 10px; } .rl-copilot-native-hint { flex: 1 1 100%; margin-left: 0; white-space: normal; } }',
+      '@media (max-width: 760px) { .rl-workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(170px, 42vh); overflow: auto; } .rl-inspector { grid-column: 1; grid-row: 2; max-height: 42vh; border-left: 0; border-top: 0.5px solid var(--dsw-alias-border-l2); } .rl-canvas { min-height: 260px; } .rl-copilot-native-layer { padding: 8px; } .rl-copilot-native { width: calc(100vw - 16px); max-width: calc(100vw - 16px); height: calc(100dvh - 16px); max-height: calc(100vh - 16px); border-radius: 0; } .rl-copilot-native-head { padding: 8px 10px; } .rl-copilot-native-hint { flex: 1 1 100%; margin-left: 0; white-space: normal; } }',
       '@media (max-width: 1720px) { .rl-topbar-branch { display: none; } }',
             '@media (max-width: 640px) { .rl-settings-model-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-settings-model-role { grid-column: 1 / -1; padding: 0; } .rl-reviewer-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-model-option-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-config-device-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } .rl-config-grid, .rl-config-grid-3 { grid-template-columns: minmax(0, 1fr); } .rl-reviewer-row .rl-reviewer-actions, .rl-model-option-row > :last-child { grid-column: 1 / -1; } .rl-drawer { width: 100%; min-width: 0; } .rl-modal, .rl-modal-wide, .rl-modal-narrow { width: 100%; max-height: calc(100vh - 20px); max-height: calc(100dvh - 20px); } .rl-modal-body { padding: 10px 12px; } .rl-modal-head, .rl-modal-foot { padding: 10px 12px; } .rl-log-row, .rl-log-row-btn { grid-template-columns: 46px 62px minmax(0, 1fr); gap: 6px; font-size: 11px; } .rl-topbar { height: 42px; padding: 0 8px; } .rl-topbar-tabs { padding: 0 8px; } .rl-workspace-grid { grid-template-rows: minmax(0, 1fr) minmax(190px, 46vh); } .rl-inspector { max-height: 46vh; } }',
       '@media (max-width: 420px) { .rl-settings-model-row, .rl-reviewer-row, .rl-model-option-row, .rl-config-device-row { grid-template-columns: minmax(0, 1fr); } .rl-reviewer-row .rl-reviewer-actions, .rl-model-option-row > :last-child { grid-column: auto; } .rl-node-actions { opacity: 1; } .rl-canvas-hint { display: none; } }',
@@ -7217,7 +7219,8 @@ window.__ModuleLoader__.load({
      * hidden and resumes with an immediate refetch; failures back off
      * 1.5s → 3s → 5s and surface through the inline banner.
      */
-    function useProjectWorkspace(projectId, t) {
+    function useProjectWorkspace(projectId, t, options = undefined) {
+      const pausedRef = options !== null && typeof options === 'object' ? options.pausedRef : undefined;
       const [snapshot, setSnapshot] = React.useState({
         phase: 'loading',
         project: null,
@@ -7321,6 +7324,10 @@ window.__ModuleLoader__.load({
 
         const pollState = async () => {
           if (!alive || !visible()) return;
+          if (pausedRef?.current) {
+            schedule('state', PAUSED_POLL_MS, pollState);
+            return;
+          }
           abortFlight('state');
           const controller = new AbortController();
           flights.state = controller;
@@ -7388,6 +7395,10 @@ window.__ModuleLoader__.load({
 
         const pollEvents = async () => {
           if (!alive || !visible()) return;
+          if (pausedRef?.current) {
+            schedule('events', PAUSED_POLL_MS, pollEvents);
+            return;
+          }
           abortFlight('events');
           const controller = new AbortController();
           flights.events = controller;
@@ -11529,7 +11540,9 @@ window.__ModuleLoader__.load({
     }
 
     function WorkspaceScreen({ projectId, initialNodeId, tab, onSelectTab, onNodeChange, onBack, openNativeSession, openNativeFiles, retainCopilotSession, SessionProvider, renderFactorySlot, t }) {
-      const { snapshot, events, offline, retry, reload, loadMore, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t);
+      // Copilot 打开时它几乎盖满工作区：暂停被遮挡区域的轮询，避免两套界面互相刷新。
+      const copilotPauseRef = React.useRef(false);
+      const { snapshot, events, offline, refresh, retry, reload, loadMore, applyAutoResult, applyCommandResult } = useProjectWorkspace(projectId, t, { pausedRef: copilotPauseRef });
       const [selectedId, setSelectedId] = React.useState(null);
       const [continueNodeId, setContinueNodeId] = React.useState(null);
       const [busyKey, setBusyKey] = React.useState('');
@@ -11643,6 +11656,11 @@ window.__ModuleLoader__.load({
           return false;
         }
       });
+      // 打开 Copilot 时暂停工作区轮询与倒计时；关闭后立即恢复（游标与缓存由 hook 自己保留）。
+      React.useEffect(() => {
+        copilotPauseRef.current = copilotOpen;
+        if (!copilotOpen && typeof refresh === 'function') refresh();
+      }, [copilotOpen, refresh]);
       const busyRef = React.useRef('');
       const autoBusyRef = React.useRef(false);
       const nodes = snapshot?.nodes;
@@ -11659,7 +11677,8 @@ window.__ModuleLoader__.load({
       );
       const autoState = snapshot?.auto;
       const autoStatus = autoStatusOf(autoState);
-      const now = useNow(runningCount > 0 || autoStatus === 'running');
+      // Copilot 打开时暂停倒计时刷新，关闭后自动恢复。
+      const now = useNow(!copilotPauseRef.current && (runningCount > 0 || autoStatus === 'running'));
       const modelCatalog = useModelCatalog(projectId, t);
       const runsFeed = useRuns(projectId, t);
       const modelOptions = modelCatalog.state.catalog === null ? [] : asArray(modelCatalog.state.catalog.options);
