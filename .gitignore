@@ -6,3 +6,4 @@ Thumbs.db
 
 # Test/runtime scratch
 nodes/
+node_modules
