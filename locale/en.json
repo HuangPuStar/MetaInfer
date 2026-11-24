@@ -388,7 +388,6 @@
     "log.type.node/resource_granted": "Node got resources",
     "log.type.node/resource_lost": "Node lost resources",
     "log.type.node/resource_waiting": "Node waiting for resources",
-    "log.type.node/retried": "Node retried",
     "log.type.project.created": "project created",
     "log.type.project.updated": "project updated",
     "log.type.scheduler.finished": "scheduler finished",
@@ -1180,7 +1179,7 @@
     "ws.settings.acceptMode.hint": "In human-approval mode new proposals wait in the pending queue without blocking established nodes.",
     "ws.settings.advisorMaySelectModels": "Let the advisor choose models",
     "ws.settings.advisorTimeoutSeconds": "Advisor timeout (seconds)",
-    "ws.settings.advisorTimeoutSeconds.hint": "Maximum wait for one advisor/reviewer run; default 180 s (previously hard-coded at 3 minutes).",
+    "ws.settings.advisorTimeoutSeconds.hint": "Maximum wait for one advisor/reviewer run; default 240 s (30-1800).",
     "ws.settings.autoUpgrade": "Auto-upgrade model after failures",
     "ws.settings.cluster.connected": "coordinator connected",
     "ws.settings.cluster.disconnected": "coordinator disconnected",
@@ -1776,6 +1775,9 @@
     "ws.wal.seq": "Project seq",
     "ws.wal.field": "Field",
     "ws.wal.before": "Before",
-    "ws.wal.after": "After"
+    "ws.wal.after": "After",
+    "ws.copilot.legacyTag": "[legacy]",
+    "ws.copilot.legacyOpenFailed": "This legacy conversation could not be opened in the native view.",
+    "log.type.node.retried": "Node retried"
   }
 }

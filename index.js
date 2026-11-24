@@ -304,32 +304,9 @@ export async function apply(ctx, config = {}) {
 
   const webServer = ctx.get('webServer');
   if (webServer) {
-    ctx.effect(() => ctx.on('webserver/index-inject', (table, peer) => {
-      // Only the owner page gets the browser credential. It is read fresh on
-      // every index render and is never returned by an API response.
-      //
-      // Older Hosts passed the requesting peer as the second emit argument and a
-      // strict `peer.principal.kind !== 'owner'` guard made sense. Current Hosts
-      // emit ONLY the table (dsh-host-webserver: collectIndexInjections() emits a
-      // single argument), so `peer` is undefined for every subscriber and the guard
-      // silently dropped the token from every index render — the browser then had
-      // no write credential on any page, no matter how often it was reloaded.
-      // Keep the owner check when a peer is supplied; inject when it is absent.
-      if (peer && peer.principal?.kind !== 'owner') return;
-      table.push({
-        kind: 'global',
-        name: '__METAINFER_OPERATOR_TOKEN__',
-        value: operatorAuthority.token,
-      });
-      // The issue time lets an already-open page compare itself with the
-      // current Host process via the read-only /health field. It is metadata,
-      // not a credential, and is only rendered to the owner page.
-      table.push({
-        kind: 'global',
-        name: '__METAINFER_OPERATOR_ISSUED_AT__',
-        value: operatorAuthority.issuedAt,
-      });
-    }), 'metainfer-research-lab: operator token injection');
+    // Credentials are delivered only through the authenticated bootstrap route
+    // (host/http.js `/operator/bootstrap`); the old index-inject path is gone so
+    // no token is embedded into rendered HTML for every page load.
     const trajectoryBackend = await ensureTrajectoryBackend(ctx.logger);
     ctx.effect(
       () => () => {

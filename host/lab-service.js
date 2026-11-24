@@ -208,6 +208,13 @@ function normalizeConfig(raw, base = undefined, { allowMigration = false } = {})
     }
     for (const [role, raw] of Object.entries(roleInputs)) {
       if (!['worker', 'advisor', 'scheduler', 'controller', 'merge', 'gc', 'dashboard'].includes(role)) continue;
+      // An explicit null means "fall back to inheritance": delete the role
+      // instead of keeping the previous value (which the merge below would
+      // otherwise resurrect from `models.roles`).
+      if (raw === null) {
+        delete models[role];
+        continue;
+      }
       const normalized = normalizeModelRef(raw, `config.models.${role}`);
       if (normalized) {
         models[role] = normalized; // flat form used by existing settings UI
@@ -2176,9 +2183,14 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       const project = requireProject(projectId);
       const node = structuredClone(requireNode(projectId, nodeId));
       const FIELD_EDITS = ['title', 'prompt', 'successCriteria', 'timeboxMinutes', 'needs', 'model', 'executionProfile', 'taskType'];
-      const hasFieldEdits = FIELD_EDITS.some((key) => input?.[key] !== undefined);
-      if (hasFieldEdits && node.status !== 'planned' && node.status !== 'proposed') {
-        throw new LabError('node_not_editable', 'only planned or proposed nodes can be edited', 409);
+      const editedFields = FIELD_EDITS.filter((key) => input?.[key] !== undefined);
+      const hasFieldEdits = editedFields.length > 0;
+      // A running node may only have its timebox extended: that is a scheduling
+      // decision on the live attempt, not a rewrite of the task itself.
+      const extendingRunningTimebox = node.status === 'running'
+        && editedFields.length === 1 && editedFields[0] === 'timeboxMinutes';
+      if (hasFieldEdits && node.status !== 'planned' && node.status !== 'proposed' && !extendingRunningTimebox) {
+        throw new LabError('node_not_editable', 'only planned or proposed nodes can be edited (running nodes may extend timeboxMinutes)', 409);
       }
       if (hasFieldEdits && (node.claim || node.admission || sandboxAdmissionBlock(node))) {
         throw new LabError('execution_in_use', 'execution fields are in use by a claimed, reserved or unresolved sandbox node', 409);
@@ -2202,6 +2214,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       if (input?.timeboxMinutes !== undefined) {
         const minutes = integer(input.timeboxMinutes, 'timeboxMinutes', project.config.nodeTimeoutMinutes, 1, project.config.maxNodeTimeoutMinutes);
         node.timeboxMs = minutes * 60_000;
+        if (node.status === 'running') {
+          // Keep the elapsed part: the deadline moves with the new budget, and
+          // never lands in the past (a too-small budget still gets a short grace).
+          const startedAt = Number(node.timestamps?.startedAt);
+          const base = Number.isFinite(startedAt) && startedAt > 0 ? startedAt : Date.now();
+          node.deadlineAt = Math.max(base + node.timeboxMs, Date.now() + 60_000);
+        }
         changed = true;
       }
       if (input?.needs !== undefined) {
@@ -2632,7 +2651,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   async function createPrivateCopilotSession(projectId, title = '') {
     const project = requireProject(projectId);
-    await archiveRootCopilots(projectId);
+    // Legacy root sessions keep their id, history and project link: creating a
+    // new private conversation must not archive them.
     if (!project.controllerSessionId) throw new LabError('bad_request', 'project has no controller session', 400);
     await orchestrator.ensureController(project);
     const model = resolveModelSelection(ctx, project, null, 'controller');
@@ -2722,12 +2742,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       // A resumed root agent must be given agentOptions again: agentOptions are
       // resume-time inputs and are not reconstructed from the persisted session.
       const model = resolveModelSelection(ctx, project, null, 'controller');
-      await archiveRootCopilots(projectId);
+      // Do not archive legacy root sessions on open: keep them selectable.
       // A proper Copilot is a private subagent child; its history route and
       // cold resume are authorized by the parent controller catalog.
       const sessions = copilotEntriesOf(project);
       const requested = typeof options.sessionId === 'string' ? options.sessionId : '';
       let entry = requested ? sessions.find((candidate) => candidate.id === requested) ?? null : null;
+      if (requested && !entry) {
+        // Never silently substitute another conversation for the one the caller
+        // asked for: the id is part of the contract.
+        throw new LabError('copilot_session_not_found', `unknown Copilot session: ${requested}`, 404);
+      }
       if (!entry && options.create !== true) {
         const active = typeof project.activeCopilotSessionId === 'string' ? project.activeCopilotSessionId : '';
         entry = sessions.find((candidate) => candidate.id === active && candidate.private)

@@ -388,7 +388,6 @@
     "log.type.node/resource_granted": "节点获得资源",
     "log.type.node/resource_lost": "节点资源丢失",
     "log.type.node/resource_waiting": "节点等待资源",
-    "log.type.node/retried": "节点重试",
     "log.type.project.created": "项目创建",
     "log.type.project.updated": "项目更新",
     "log.type.scheduler.finished": "调度器完成",
@@ -1180,7 +1179,7 @@
     "ws.settings.acceptMode.hint": "人工确认模式下新提案先进入待确认队列，不阻塞已建立节点的执行。",
     "ws.settings.advisorMaySelectModels": "允许顾问选择模型",
     "ws.settings.advisorTimeoutSeconds": "专家组超时（秒）",
-    "ws.settings.advisorTimeoutSeconds.hint": "单次 advisor/reviewer 运行的最长等待时间；默认 180 秒（原为硬编码 3 分钟）。",
+    "ws.settings.advisorTimeoutSeconds.hint": "单次 advisor/reviewer 运行的最长等待时间；默认 240 秒（30–1800）。",
     "ws.settings.autoUpgrade": "失败后自动升级模型",
     "ws.settings.cluster.connected": "协调器已连接",
     "ws.settings.cluster.disconnected": "协调器未连接",
@@ -1776,6 +1775,9 @@
     "ws.wal.seq": "项目内序号",
     "ws.wal.field": "字段",
     "ws.wal.before": "变更前",
-    "ws.wal.after": "变更后"
+    "ws.wal.after": "变更后",
+    "ws.copilot.legacyTag": "[旧]",
+    "ws.copilot.legacyOpenFailed": "这条旧会话无法在原生视图打开。",
+    "log.type.node.retried": "节点重试"
   }
 }

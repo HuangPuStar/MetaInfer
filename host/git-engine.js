@@ -4,7 +4,7 @@
  * worker agents never run git write commands.
  */
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { dshHome } from './store.js';
@@ -309,7 +309,11 @@ export function createGitEngine(ctx, options = {}) {
 
     const status = await runGit(['-C', repoRoot, 'status', '--porcelain'], { cwd: repoRoot });
     if (status.code !== 0) throw new LabError('repo_init_failed', status.stderr.trim() || 'git status failed', 422);
-    if (status.stdout.trim() !== '') {
+    const staged = await runGit(['-C', repoRoot, 'diff', '--cached', '--name-only'], { cwd: repoRoot });
+    const hasStaged = staged.code === 0 && staged.stdout.trim() !== '';
+    // If the user already staged something, commit exactly that: a blanket
+    // `add -A` would pull unrelated work-in-progress into the first commit.
+    if (!hasStaged && status.stdout.trim() !== '') {
       const add = await runGit(['-C', repoRoot, 'add', '-A'], { cwd: repoRoot, timeoutMs: 120_000 });
       if (add.code !== 0) throw new LabError('repo_init_failed', add.stderr.trim() || 'git add failed', 422);
     }
@@ -349,6 +353,19 @@ export function createGitEngine(ctx, options = {}) {
 
     const top = await runGit(['-C', candidate, 'rev-parse', '--show-toplevel'], { cwd: candidate });
     let prepared = 'existing';
+    if (top.code === 0) {
+      // Binding a subdirectory would silently use (and potentially commit into)
+      // the parent repository. Require the repository root instead.
+      const resolvedCandidate = path.resolve(candidate);
+      const resolvedTop = path.resolve(top.stdout.trim());
+      if (resolvedTop !== resolvedCandidate) {
+        throw new LabError(
+          'repo_not_root',
+          `${candidate} is a subdirectory of the repository at ${resolvedTop}; select the repository root`,
+          422,
+        );
+      }
+    }
     if (top.code !== 0) {
       const init = await runGit(['init', candidate], { cwd: candidate, timeoutMs: 60_000 });
       if (init.code !== 0) throw new LabError('repo_init_failed', init.stderr.trim() || 'git init failed', 422);
@@ -365,6 +382,13 @@ export function createGitEngine(ctx, options = {}) {
    * @returns {Promise<object>}
    */
   async function prepareRemote(url) {
+    if (/^[a-z][a-z0-9+.-]*:\/\/[^\s/@]*:[^\s/@]*@/i.test(url)) {
+      throw new LabError(
+        'remote_credentials_rejected',
+        'the repository URL must not embed credentials; configure Git credentials locally instead',
+        400,
+      );
+    }
     const target = path.join(reposRoot, cacheDirName(url));
     await mkdir(reposRoot, { recursive: true });
 
@@ -379,16 +403,27 @@ export function createGitEngine(ctx, options = {}) {
       return describeRepo(target, { prepared: 'remote-cache', remote: url, initialized });
     }
 
-    const clone = await runGit(['clone', '--', url, target], { cwd: reposRoot, timeoutMs: 300_000 });
+    // Clone into a unique staging directory and publish it with an atomic
+    // rename: a concurrent request for the same URL must never be deleted by
+    // the loser of the race.
+    const staging = path.join(reposRoot, `.tmp-${cacheDirName(url)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+    const clone = await runGit(['clone', '--', url, staging], { cwd: reposRoot, timeoutMs: 300_000 });
     if (clone.code !== 0) {
-      // A half-written clone would poison the next attempt (it would look like a
-      // corrupt cache); the directory is ours, so remove it before reporting.
-      await rm(target, { recursive: true, force: true });
+      await rm(staging, { recursive: true, force: true });
       throw new LabError(
         'remote_clone_failed',
         redactUrl(clone.stderr.trim() || `git clone ${url} failed`),
         422,
       );
+    }
+    try {
+      await rename(staging, target);
+    } catch (error) {
+      // Another request published first: drop our staging copy and reuse theirs.
+      await rm(staging, { recursive: true, force: true });
+      let presentNow = false;
+      try { presentNow = (await stat(target)).isDirectory(); } catch { presentNow = false; }
+      if (!presentNow) throw error;
     }
     const initialized = await ensureInitialCommit(target);
     return describeRepo(target, { prepared: 'remote-clone', remote: url, initialized });

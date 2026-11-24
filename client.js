@@ -89,7 +89,7 @@ window.__ModuleLoader__.load({
     const OPERATOR_READY_EVENT = 'metainfer:operator-ready';
 
     /** DAG canvas geometry (layer = column, one node per row cell). */
-    const NODE_W = 208;
+    const NODE_W = 260;
     const NODE_H = 84;
     const GAP_X = 72;
     const GAP_Y = 28;
@@ -1034,6 +1034,8 @@ window.__ModuleLoader__.load({
       "ws.copilot.nativeTitle": "项目 Copilot（原生会话）",
       "ws.copilot.newSession": "＋ 新会话",
       "ws.copilot.noSessions": "还没有私密会话",
+      "ws.copilot.legacyTag": "[旧]",
+      "ws.copilot.legacyOpenFailed": "这条旧会话无法在原生视图打开。",
       "ws.copilot.openNative": "在 DSH 原生窗口打开",
       "ws.copilot.openTrajectory": "在 DSH 中原生打开轨迹",
       "ws.copilot.pending": "Copilot 正在分析整个项目…",
@@ -1627,7 +1629,7 @@ window.__ModuleLoader__.load({
       "ws.settings.acceptMode.hint": "人工确认模式下新提案先进入待确认队列，不阻塞已建立节点的执行。",
       "ws.settings.advisorMaySelectModels": "允许顾问选择模型",
       "ws.settings.advisorTimeoutSeconds": "专家组超时（秒）",
-      "ws.settings.advisorTimeoutSeconds.hint": "单次 advisor/reviewer 运行的最长等待时间；默认 180 秒（原为硬编码 3 分钟）。",
+      "ws.settings.advisorTimeoutSeconds.hint": "单次 advisor/reviewer 运行的最长等待时间；默认 240 秒（30–1800）。",
       "ws.settings.autoUpgrade": "失败后自动升级模型",
       "ws.settings.cluster.connected": "协调器已连接",
       "ws.settings.cluster.disconnected": "协调器未连接",
@@ -2810,6 +2812,8 @@ window.__ModuleLoader__.load({
       "ws.copilot.nativeTitle": "Project Copilot (native session)",
       "ws.copilot.newSession": "＋ New session",
       "ws.copilot.noSessions": "No private session yet",
+      "ws.copilot.legacyOpenFailed": "This legacy conversation could not be opened in the native view.",
+      "ws.copilot.legacyTag": "[legacy]",
       "ws.copilot.openNative": "Open in DSH native window",
       "ws.copilot.openTrajectory": "Open native trajectory in DSH",
       "ws.copilot.pending": "Copilot is analyzing the whole project…",
@@ -3403,7 +3407,7 @@ window.__ModuleLoader__.load({
       "ws.settings.acceptMode.hint": "In human-approval mode new proposals wait in the pending queue without blocking established nodes.",
       "ws.settings.advisorMaySelectModels": "Let the advisor choose models",
       "ws.settings.advisorTimeoutSeconds": "Advisor timeout (seconds)",
-      "ws.settings.advisorTimeoutSeconds.hint": "Maximum wait for one advisor/reviewer run; default 180 s (previously hard-coded at 3 minutes).",
+      "ws.settings.advisorTimeoutSeconds.hint": "Maximum wait for one advisor/reviewer run; default 240 s (30-1800).",
       "ws.settings.autoUpgrade": "Auto-upgrade model after failures",
       "ws.settings.cluster.connected": "coordinator connected",
       "ws.settings.cluster.disconnected": "coordinator disconnected",
@@ -12774,10 +12778,13 @@ window.__ModuleLoader__.load({
             const isReused = record?.reused === true;
             const parent = firstString(record?.parentSessionId);
             const list = asArray(record?.sessions)
-              .filter((entry) => entry !== null && typeof entry === 'object' && firstString(entry?.id) !== '' && entry?.private !== false)
+              .filter((entry) => entry !== null && typeof entry === 'object' && firstString(entry?.id) !== '')
               .map((entry) => ({
                 id: firstString(entry?.id),
                 title: firstString(entry?.title) || firstString(entry?.id),
+                // Legacy root sessions stay listed and are opened natively; new
+                // private children are the ones embedded in the drawer.
+                legacy: entry?.private === false,
               }));
             setSessions(list);
             setParentSessionId(parent);
@@ -12829,6 +12836,21 @@ window.__ModuleLoader__.load({
       const switchCopilotSession = (nextId) => {
         const id = firstString(nextId);
         if (id === '' || id === sessionId) return;
+        const picked = sessions.find((entry) => entry?.id === id);
+        if (picked?.legacy === true) {
+          // A legacy root session keeps its id/history and continues in the
+          // native DSH view; embedding it would need a private child.
+          const result = typeof openNativeSession === 'function'
+            ? openNativeSession(id, 'chat', { projectId, nodeId: '' })
+            : null;
+          if (result === null || result === undefined || result?.ok !== true) {
+            setPhase('fallback');
+            setReason(t('ws.copilot.legacyOpenFailed'));
+            return;
+          }
+          onClose();
+          return;
+        }
         requestRef.current = { sessionId: id, create: false };
         setAttempt((value) => value + 1);
       };
@@ -12956,7 +12978,7 @@ window.__ModuleLoader__.load({
               value: sessionId,
               ariaLabel: t('ws.copilot.sessionPicker'),
               options: sessions.length > 0
-                ? sessions.map((entry) => ({ value: entry?.id, label: entry?.title }))
+                ? sessions.map((entry) => ({ value: entry?.id, label: (entry?.legacy === true ? t('ws.copilot.legacyTag') + ' ' : '') + entry?.title }))
                 : [{ value: '', label: t('ws.copilot.noSessions') }],
               onChange: (event) => switchCopilotSession(event?.target.value),
             }),
@@ -17279,7 +17301,7 @@ window.__ModuleLoader__.load({
         acceptMode: advisor.acceptMode === 'confirm' ? 'confirm' : 'auto',
         maxProposalsPerPass: String(numberOr(advisor.maxProposalsPerPass, 3)),
         maxPendingProposals: String(numberOr(advisor.maxPendingProposals, 20)),
-        advisorTimeoutSeconds: String(numberOr(advisor.timeoutSeconds, 180)),
+        advisorTimeoutSeconds: String(numberOr(advisor.timeoutSeconds, 240)),
         maxCycles: String(numberOr(auto.maxCycles, 50)),
         maxWallClockMinutes: String(Math.round(numberOr(auto.maxWallClockMs, 6 * 3600000) / 60000)),
         idleCycleLimit: String(numberOr(auto.idleCycleLimit, 3)),
@@ -17335,7 +17357,7 @@ window.__ModuleLoader__.load({
       advisor.acceptMode = draft.acceptMode === 'confirm' ? 'confirm' : 'auto';
       advisor.maxProposalsPerPass = parseInteger(draft.maxProposalsPerPass, 3);
       advisor.maxPendingProposals = parseInteger(draft.maxPendingProposals, 20);
-      advisor.timeoutSeconds = Math.max(30, Math.min(1800, parseInteger(draft.advisorTimeoutSeconds, 180)));
+      advisor.timeoutSeconds = Math.max(30, Math.min(1800, parseInteger(draft.advisorTimeoutSeconds, 240)));
       auto.maxCycles = parseInteger(draft.maxCycles, 50);
       auto.maxWallClockMs = Math.max(1, parseInteger(draft.maxWallClockMinutes, 360)) * 60000;
       auto.idleCycleLimit = parseInteger(draft.idleCycleLimit, 3);
@@ -17401,7 +17423,8 @@ window.__ModuleLoader__.load({
         const p = String(provider === undefined || provider === null ? '' : provider).trim();
         const m = String(model === undefined || model === null ? '' : model).trim();
         if (p && m) models[role] = { provider: p, model: m };
-        else delete models[role];
+        // 显式 null 表示「改回继承」：Host 会删除该角色的模型，而不是保留旧值。
+        else models[role] = null;
       };
       setModel('worker', draft.workerProvider, draft.workerModel);
       setModel('advisor', draft.advisorProvider, draft.advisorModel);
