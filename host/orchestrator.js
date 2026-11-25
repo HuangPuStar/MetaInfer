@@ -2825,7 +2825,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       const parent = store.getNode(projectId, parentId);
       if (!parent) throw new LabError('node_not_found', `unknown node: ${parentId}`, 404);
       if (parent.status !== 'completed') {
-        throw new LabError('node_not_sealed_source', `node ${parentId} is ${parent.status}; only completed nodes can get successors`, 409);
+        throw new LabError('node_not_completed_source', `node ${parentId} is ${parent.status}; only completed nodes can get successors ("sealed" only means the node already has children)`, 409);
       }
       // Clamp rather than reject: see host/titles.js.
       const title = clampNodeTitle(input?.title);

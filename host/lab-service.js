@@ -3278,11 +3278,27 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (input?.model !== undefined && !model) {
       throw new LabError('bad_request', 'model must be {profileId} or {provider, model, reasoningEffort?}', 400);
     }
-    return runtime.retry(projectId, nodeId, {
-      model,
-      upgrade: input?.upgrade === true,
-      reason: typeof input?.reason === 'string' ? input.reason : undefined,
-    });
+    try {
+      return await runtime.retry(projectId, nodeId, {
+        model,
+        upgrade: input?.upgrade === true,
+        reason: typeof input?.reason === 'string' ? input.reason : undefined,
+      });
+    } catch (error) {
+      // A structural block (for example a replacement chain that already
+      // reached a live node) is the real reason the retry is pointless; expose
+      // it instead of only the budget envelope.
+      if (error && error.code === 'host_budget_held') {
+        const project = store.getProject(projectId);
+        const blocks = project?.candidateBlocks && typeof project.candidateBlocks === 'object' ? project.candidateBlocks : {};
+        const relevant = Object.values(blocks).find((row) => row && row.sourceNodeId === nodeId);
+        if (relevant) {
+          const detail = `${error.message} (blocked: ${relevant.code} - ${relevant.reason})`;
+          throw new LabError(error.code, detail.slice(0, 2000), error.status ?? 409);
+        }
+      }
+      throw error;
+    }
   }
 
   async function deleteProject(projectId, options = {}) {
@@ -4085,7 +4101,24 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const page = store.listNodes(projectId, { limit, cursor });
     const total = store.countNodes(projectId);
     const nextCursor = page.length === limit ? page[page.length - 1]?.id ?? null : null;
-    return { ok: true, projectId, nodes: page, nextCursor, total, hasMore: nextCursor !== null };
+    // Full prompts/reports made this page huge and burned context on every call.
+    // Return the planning fields by default; `full: true` still yields the raw record.
+    const nodes = input?.full === true ? page : page.map((node) => ({
+      id: node.id,
+      title: node.title,
+      status: node.status,
+      kind: node.kind ?? null,
+      parentIds: node.parentIds ?? [],
+      currentAttempt: node.currentAttempt ?? 0,
+      priority: node.priority ?? null,
+      error: node.error ? { code: node.error.code ?? null, message: node.error.message ?? '' } : null,
+      timestamps: {
+        createdAt: node.timestamps?.createdAt ?? null,
+        startedAt: node.timestamps?.startedAt ?? null,
+        completedAt: node.timestamps?.completedAt ?? null,
+      },
+    }));
+    return { ok: true, projectId, nodes, nextCursor, total, hasMore: nextCursor !== null, compact: input?.full !== true };
   }
 
   async function eventsPageAction(projectId, input) {
