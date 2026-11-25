@@ -88,11 +88,28 @@ test('false worker report is never promoted by successful cleanup', async () => 
 test('wrong branch fails closed but still goes through cleanup', async () => {
   const f = fixture({ branch: 'foreign' }); await f.grant(); await f.finish(); await f.wait('finalize'); assert.equal(f.node.status, 'failed'); assert.equal(f.node.report, null); assert.ok(!f.calls.includes('commit')); await f.runtime.dispose();
 });
+test('changing needs on a running node requeues it with the new resources', async () => {
+  const f = fixture(); await f.grant();
+  const result = await f.runtime.requeueWithNeeds('p', 'n', { gpu: 2 });
+  assert.equal(result.ok, true);
+  assert.equal(f.node.status, 'planned');
+  assert.deepEqual(f.node.needs, { gpu: 2 });
+  assert.equal(f.node.requeued?.reason, 'needs_changed');
+  assert.equal(f.node.error, undefined);
+  assert.ok(f.commits.some((spec) => spec.mutations.some((m) => m.eventType === 'node/requeued')));
+  await f.runtime.dispose();
+});
+
 test('cancel during finishing usage can terminate without waiting for usage', async () => {
   const d = deferred(), f = fixture({ usage: () => d.promise }); await f.grant(); await f.finish(); await f.wait('usage');
   let ended = false; const cancel = f.runtime.cancel('p', 'n').then(() => { ended = true; });
-  try { for (let i = 0; i < 12; i++) await new Promise(setImmediate); assert.equal(ended, true); assert.equal(f.node.status, 'cancelled'); }
-  finally { d.resolve(); await cancel; await f.runtime.dispose(); }
+  try {
+    // Bounded wall-clock wait: the commit path flushes through the kernel event
+    // bus (tens of ms), so a fixed number of microtask ticks was machine-dependent.
+    for (let i = 0; i < 200 && !ended; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(ended, true, 'cancel must not wait for the pending usage read');
+    assert.equal(f.node.status, 'cancelled');
+  } finally { d.resolve(); await cancel; await f.runtime.dispose(); }
 });
 test('rejected cancel preserves owner until ordinary completion', async () => {
   const f = fixture(); await f.grant(); const before = clone(f.node); await assert.rejects(f.runtime.cancel('p', 'n', { expectedRevision: 0 }), /revision/i); assert.deepEqual(f.node, before);

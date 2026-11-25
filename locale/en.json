@@ -1778,6 +1778,7 @@
     "ws.wal.after": "After",
     "ws.copilot.legacyTag": "[legacy]",
     "ws.copilot.legacyOpenFailed": "This legacy conversation could not be opened in the native view.",
-    "log.type.node.retried": "Node retried"
+    "log.type.node.retried": "Node retried",
+    "ws.merge.state.failed": "Merge failed"
   }
 }

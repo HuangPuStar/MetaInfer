@@ -267,6 +267,8 @@ async function terminatePids(pids) {
 /**
  * @param {{ctx: object, store: object, git: object}} deps
  */
+const WIP_CHECKPOINT_MS = 10 * 60_000;
+
 export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, sandboxFactory, sandboxBackend, sandboxAdmission, hostAdmission }) {
   const active = new Map(); // key -> entry
   const deadlines = new Map(); // key -> epoch ms
@@ -372,6 +374,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
     return written;
   }
   async function hostDisposeHandles(entry) {
+    if (entry.wipTimer) { clearInterval(entry.wipTimer); entry.wipTimer = null; }
     const activation = entry.activation; entry.activation = null;
     try { await activation?.dispose?.(); } finally { await disposeAnchor({ anchorSessionId: entry.owner.anchorSessionId }); }
   }
@@ -393,6 +396,15 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
     catch { /* An unconfirmed raw release must retain all durable ownership. */ }
     hostNode(entry);
     const clean = cleanup.verifiedClean === true && released;
+    if (status !== 'completed' && details.stage === 'timeout') {
+      // Preserve whatever the worker produced before a timebox expiry is recorded.
+      // Other failures keep the old contract: never commit on a tree whose branch
+      // may have been changed by the worker.
+      try {
+        const live = hostLive(entry);
+        await git.commitWorktree(requireProject(entry.projectId), live, `wip(${live.id}): checkpoint before ${status}`);
+      } catch { /* best effort: never mask the terminal status */ }
+    }
     await hostChange(entry, preemption ? 'node/preempted' : status === 'completed' ? 'node/completed' : status === 'cancelled' ? 'node/cancelled' : 'node/failed', (n, project) => {
       if (!['planned', 'running'].includes(n.status)) throw new LabError('host_budget_held', 'Host attempt is already terminal', 409);
       if (status === 'completed') {
@@ -432,7 +444,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
     entry.terminating = (async () => {
       try {
         await hostDisposeHandles(entry); hostNode(entry);
-        const cancelled = ['cancel', 'dispose', 'preempted'].includes(kind);
+        const cancelled = ['cancel', 'dispose', 'preempted', 'requeue'].includes(kind);
         return await hostTerminal(entry, cancelled ? 'cancelled' : 'failed', { kind, requestedAt, preemptionPayload: payload, stage: kind === 'timeout' ? 'timeout' : 'run', error: payload.message ?? payload.reason ?? (cancelled ? 'cancelled by user' : 'Host attempt terminated') });
       } catch (error) {
         // Never write through a changed owner, including a late release ACK.
@@ -441,12 +453,47 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
         await hostDisposeHandles(entry);
         if (active.get(keyOf(entry.projectId, entry.nodeId)) === entry) active.delete(keyOf(entry.projectId, entry.nodeId));
         deadlines.delete(keyOf(entry.projectId, entry.nodeId));
-        if (!['cancel', 'dispose', 'preempted'].includes(kind)) await hostAutoUpgrade(entry, kind === 'timeout' ? 'timeout' : 'run');
+        if (!['cancel', 'dispose', 'preempted', 'requeue'].includes(kind)) await hostAutoUpgrade(entry, kind === 'timeout' ? 'timeout' : 'run');
       }
     })();
     entry.done = entry.terminating;
     return entry.terminating;
   }
+  /**
+   * Apply new resource needs to a running node by re-admitting it: the current
+   * attempt is terminated (audited), the node goes back to planned with the new
+   * needs, and the scheduler/admission will acquire the right resources.
+   */
+  async function requeueWithNeeds(projectId, nodeId, needs, reason = 'needs_changed') {
+    const node = requireNode(projectId, nodeId);
+    if (node.status !== 'running') throw new LabError('node_not_running', `node ${nodeId} is ${node.status}`, 409);
+    const entry = active.get(keyOf(projectId, nodeId));
+    if (!entry) throw new LabError('node_not_running', `node ${nodeId} has no live Host attempt to requeue`, 409);
+    const ended = await hostEnd(entry, 'requeue', { message: `needs changed to ${JSON.stringify(needs)}; the attempt is requeued`, reason });
+    if (ended?.status === 'held') return { ok: false, code: ended.code ?? 'HOST_CLEANUP_UNCONFIRMED', message: 'previous attempt cleanup is unconfirmed; the node stays as it is' };
+    const current = requireNode(projectId, nodeId);
+    if (!['cancelled', 'failed'].includes(current.status)) {
+      throw new LabError('requeue_conflict', `node ${nodeId} changed to ${current.status} while requeueing`, 409);
+    }
+    const next = structuredClone(current);
+    next.status = 'planned';
+    next.needs = needs;
+    next.deadlineAt = null;
+    next.requeued = { at: Date.now(), previousAttempt: current.currentAttempt ?? 0, reason };
+    delete next.error;
+    delete next.termination;
+    delete next.cleanup;
+    next.timestamps = { ...(next.timestamps ?? {}), runnableAt: Date.now(), startedAt: null, completedAt: null, lastActivityAt: Date.now() };
+    const result = await kernel.executor.commit(projectId, {
+      actor: { kind: 'system', id: 'requeue' },
+      causeId: `requeue:${nodeId}`,
+      ...(Number.isInteger(next.rev) ? { basis: next.rev } : {}),
+      mutations: [{ op: 'node.put', nodeId, node: next, eventType: 'node/requeued', eventData: { reason, needs, previousAttempt: next.requeued.previousAttempt } }],
+    });
+    if (result.ok !== true) throw new LabError(result.code ?? 'requeue_failed', result.message ?? 'requeue failed', 409);
+    return { ok: true, node: hostCopy(requireNode(projectId, nodeId)), revision: requireProject(projectId).revision };
+  }
+
   function hostFinish(entry, result, failure, mergePayload) {
     if (entry.done) return entry.done;
     entry.phase = 'finishing';
@@ -540,13 +587,33 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
         remotePrompt = remote.prompt;
         await hostChange(entry, 'node/remote_prepared', n => { n.remote = { mode: 'fleet', dir: '.dshex-run', leaseId: rawAdmissionLease.leaseId, machineIds: (rawAdmissionLease.machines ?? []).map(group => group.machineId) }; });
       }
-      if (node.kind === 'merge') await prepareMerge(project, hostLive(entry), entry);
+      if (node.kind === 'merge') {
+        await prepareMerge(project, hostLive(entry), entry);
+        const preparedMerge = hostLive(entry).merge;
+        if (preparedMerge?.state === 'failed') {
+          // Never start a merge worker on a tree that is not in a mergeable
+          // state: the old code reported `clean` and the worker had nothing to do.
+          throw new LabError('merge_prepare_failed', preparedMerge.error || 'merge preparation failed', 409);
+        }
+      }
       const current = hostLive(entry);
       const activation = await startActivation(ctx, { provider: 'spawn', label: `mir/${projectId}/${nodeId}`, delivery: 'caller', signal: entry.controller.signal, childId: current.sessionId,
         request: { parent: anchor, cwd: current.git.worktreePath, prompt: [{ type: 'text', text: node.kind === 'merge' ? mergePrompt(project, current, selection, remotePrompt) : workerPrompt(project, current, selection, remotePrompt) }],
           agentPreset: node.kind === 'merge' ? 'lab-merge' : 'lab-worker', agentOptions: selectionToAgentOptions(selection), ...(node.kind === 'merge' ? {} : { outputSchema: NODE_REPORT_SCHEMA }) } });
       entry.activation = activation; hostLive(entry);
       entry.phase = 'running'; entry.mode = node.kind === 'merge' ? 'merge' : 'experiment';
+      // A 4-hour run must not lose everything when the timebox expires: checkpoint
+      // the worktree periodically so a timeout still leaves commits behind.
+      entry.wipTimer = setInterval(() => {
+        void (async () => {
+          try {
+            const live = hostLive(entry);
+            if (live.status !== 'running') return;
+            await git.commitWorktree(requireProject(entry.projectId), live, `wip(${live.id}): checkpoint`);
+          } catch { /* a failed checkpoint must never end the attempt */ }
+        })();
+      }, WIP_CHECKPOINT_MS);
+      entry.wipTimer.unref?.();
       seedNodeSandbox(current.sessionId, project, current);
       activation.result.then(result => node.kind === 'merge' ? onMergeTurnEnd(projectId, nodeId, result) : hostFinish(entry, result), error => hostFinish(entry, null, error)).catch(() => {});
       return hostResult(entry, 'started');
@@ -1001,6 +1068,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
       .filter(Boolean);
     const prepared = [];
     let conflicts = [];
+    let failure = null;
     for (const other of others) {
       if (!other.git?.headCommit || !other.git?.branch) {
         throw new LabError('merge_parent_not_ready', `parent ${other.id} has no committed branch`, 409);
@@ -1008,23 +1076,32 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
       if (managed) hostLive(managed);
       const result = await git.mergeBranchIntoWorktree(node.git.worktreePath, other.git.branch);
       if (managed) hostLive(managed);
+      const ok = result.code === 0 && result.conflicts.length === 0;
       prepared.push({
         parentId: other.id,
         branch: other.git.branch,
         headCommit: other.git.headCommit,
-        clean: result.code === 0 && result.conflicts.length === 0,
+        clean: ok,
         conflicts: result.conflicts,
         stderr: result.stderr,
       });
-      if (result.conflicts.length > 0 || result.code !== 0) {
+      if (!ok) {
         conflicts = result.conflicts;
+        failure = result.stderr || `git merge exited with ${result.code}`;
         break;
       }
+      // `git merge --no-commit` leaves MERGE_HEAD behind; committing each parent
+      // immediately is what lets the next parent merge in. Without this the 3rd
+      // parent always failed with "MERGE_HEAD exists" and the failure was then
+      // reported as a clean merge.
+      const step = await git.finishMergeInWorktree(node.git.worktreePath, `dshex(${node.id}): merge parent ${other.id} (prepare)`);
+      prepared[prepared.length - 1].mergeCommit = step.head;
     }
     node.merge = {
       ...(node.merge ?? {}),
-      state: conflicts.length > 0 ? 'conflict' : 'clean',
+      state: conflicts.length > 0 ? 'conflict' : failure ? 'failed' : 'clean',
       conflictFiles: conflicts,
+      error: failure ? String(failure).slice(0, 2000) : null,
       prepared,
       preparedAt: Date.now(),
     };
@@ -2733,6 +2810,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
   return {
     start,
     cancel,
+    requeueWithNeeds,
     message,
     retry,
     escalate,

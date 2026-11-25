@@ -70,7 +70,7 @@ function freezeDescriptor(input) {
   return Object.freeze({
     id: input.id,
     persona: input.persona,
-    model: Object.freeze({ ...input.model }),
+    model: input.model ? Object.freeze({ ...input.model }) : null,
     tools: Object.freeze([...input.tools]),
     triggers: Object.freeze([...input.triggers]),
     mayPropose: Object.freeze([...input.mayPropose]),
@@ -89,7 +89,7 @@ export const EXPERT_DESCRIPTORS = Object.freeze([
   freezeDescriptor({
     id: 'lab-advisor',
     persona: 'Exploration lead: proposes the next experiment and states expected information gain.',
-    model: { provider: 'deepseek', model: 'deepseek-chat' },
+    model: null, // inherit the project/default model: provider ids differ per install (relays)
     tools: READ_TOOLS,
     triggers: ['node.completed', 'node.failed', 'low_water'],
     mayPropose: ['proposal', 'priority', 'close'],
@@ -102,7 +102,7 @@ export const EXPERT_DESCRIPTORS = Object.freeze([
   freezeDescriptor({
     id: 'lab-reviewer',
     persona: 'Reviewer: checks claims against evidence and proposes accept/reject decisions.',
-    model: { provider: 'deepseek', model: 'deepseek-chat' },
+    model: null, // inherit the project/default model: provider ids differ per install (relays)
     tools: READ_TOOLS,
     triggers: ['review.requested'],
     mayPropose: ['review', 'close'],
@@ -115,7 +115,7 @@ export const EXPERT_DESCRIPTORS = Object.freeze([
   freezeDescriptor({
     id: 'lab-curator',
     persona: 'Duplicate curator: judges deterministically recalled candidate pairs. Never closes a node.',
-    model: { provider: 'deepseek', model: 'deepseek-chat' },
+    model: null, // inherit the project/default model: provider ids differ per install (relays)
     tools: Object.freeze(['dag_map', 'dag_walk', 'dag_get', 'dag_query']),
     triggers: ['duplicate.candidates>=5', 'interval:15m'],
     mayPropose: ['close', 'defer'],
@@ -127,7 +127,7 @@ export const EXPERT_DESCRIPTORS = Object.freeze([
   freezeDescriptor({
     id: 'lab-chief',
     persona: 'Arbitrator: resolves escalations routed by deterministic codes.',
-    model: { provider: 'deepseek', model: 'deepseek-chat' },
+    model: null, // inherit the project/default model: provider ids differ per install (relays)
     tools: READ_TOOLS,
     triggers: ['escalation'],
     mayPropose: ['review', 'priority'],
@@ -142,7 +142,7 @@ export const EXPERT_DESCRIPTORS = Object.freeze([
   freezeDescriptor({
     id: 'lab-branch',
     persona: 'Branch reviewer: compresses exactly one subtree into a BranchReport; may never create a node.',
-    model: { provider: 'deepseek', model: 'deepseek-chat' },
+    model: null, // inherit the project/default model: provider ids differ per install (relays)
     tools: Object.freeze(['dag_map', 'dag_walk', 'dag_get', 'dag_query']),
     triggers: ['node.completed', 'node.failed', 'branch.event'],
     mayPropose: ['branch_report', 'escalate'],
@@ -155,7 +155,7 @@ export const EXPERT_DESCRIPTORS = Object.freeze([
   freezeDescriptor({
     id: 'lab-lead',
     persona: 'Direction lead: owns branch reports and materializes the next nodes; escalates exceptions to the chief.',
-    model: { provider: 'deepseek', model: 'deepseek-chat' },
+    model: null, // inherit the project/default model: provider ids differ per install (relays)
     tools: READ_TOOLS,
     triggers: ['branch.report', 'escalation'],
     mayPropose: ['proposal', 'priority', 'escalate'],

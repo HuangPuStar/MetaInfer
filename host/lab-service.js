@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process';
 import { realpath, stat } from 'node:fs/promises';
 import { LabError } from './git-engine.js';
 import { startActivation } from './subagent-compat.js';
-import { buildModelCatalog, cleanModelRef, resolveModelSelection, validateModelSelection } from './models.js';
+import { buildModelCatalog, cleanModelRef, registeredProviderIds, resolveModelSelection, validateModelSelection } from './models.js';
 import { compilePlacementPolicy, describePlacementSpec, sanitizePlacementSpec } from './placement.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_GC_PROMPT, DEFAULT_MERGE_PROMPT, DEFAULT_SCHEDULER_PROMPT, DEFAULT_WORKER_PREFIX, PROMPT_PLACEHOLDERS } from './prompts.js';
 import { DEFAULT_EXECUTION_PROFILES, executionSnapshot, normalizeExecutionProfile, resolveExecutionProfile } from './execution.js';
@@ -2179,6 +2179,23 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       const preProject = requireProject(projectId);
       validatedModel = await validateModelSelection(ctx, preProject, candidate);
     }
+    // Changing `needs` on a running node is a re-admission: terminate the current
+    // attempt (audited) and let the scheduler start it again with the new
+    // resources. Editing the field alone would not acquire anything.
+    const preProject = requireProject(projectId);
+    const preNode = requireNode(projectId, nodeId);
+    if (input?.needs !== undefined && preNode.status === 'running') {
+      if (typeof runtime?.requeueWithNeeds !== 'function') {
+        throw new LabError('unavailable', 'runtime cannot requeue this node', 503);
+      }
+      const checkedNeeds = normalizeNeeds(input.needs, preProject);
+      if (checkedNeeds.error) throw new LabError('bad_request', checkedNeeds.error, 400);
+      const requeued = await runtime.requeueWithNeeds(projectId, nodeId, checkedNeeds.needs, 'needs_changed');
+      if (requeued?.ok !== true) {
+        throw new LabError(requeued?.code ?? 'requeue_failed', requeued?.message ?? 'needs change could not be applied', 409);
+      }
+    }
+
     return store.withProjectLock(projectId, async () => {
       const project = requireProject(projectId);
       const node = structuredClone(requireNode(projectId, nodeId));
@@ -3278,11 +3295,27 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (input?.model !== undefined && !model) {
       throw new LabError('bad_request', 'model must be {profileId} or {provider, model, reasoningEffort?}', 400);
     }
-    return runtime.retry(projectId, nodeId, {
-      model,
-      upgrade: input?.upgrade === true,
-      reason: typeof input?.reason === 'string' ? input.reason : undefined,
-    });
+    try {
+      return await runtime.retry(projectId, nodeId, {
+        model,
+        upgrade: input?.upgrade === true,
+        reason: typeof input?.reason === 'string' ? input.reason : undefined,
+      });
+    } catch (error) {
+      // A structural block (for example a replacement chain that already
+      // reached a live node) is the real reason the retry is pointless; expose
+      // it instead of only the budget envelope.
+      if (error && error.code === 'host_budget_held') {
+        const project = store.getProject(projectId);
+        const blocks = project?.candidateBlocks && typeof project.candidateBlocks === 'object' ? project.candidateBlocks : {};
+        const relevant = Object.values(blocks).find((row) => row && row.sourceNodeId === nodeId);
+        if (relevant) {
+          const detail = `${error.message} (blocked: ${relevant.code} - ${relevant.reason})`;
+          throw new LabError(error.code, detail.slice(0, 2000), error.status ?? 409);
+        }
+      }
+      throw error;
+    }
   }
 
   async function deleteProject(projectId, options = {}) {
@@ -4085,7 +4118,24 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const page = store.listNodes(projectId, { limit, cursor });
     const total = store.countNodes(projectId);
     const nextCursor = page.length === limit ? page[page.length - 1]?.id ?? null : null;
-    return { ok: true, projectId, nodes: page, nextCursor, total, hasMore: nextCursor !== null };
+    // Full prompts/reports made this page huge and burned context on every call.
+    // Return the planning fields by default; `full: true` still yields the raw record.
+    const nodes = input?.full === true ? page : page.map((node) => ({
+      id: node.id,
+      title: node.title,
+      status: node.status,
+      kind: node.kind ?? null,
+      parentIds: node.parentIds ?? [],
+      currentAttempt: node.currentAttempt ?? 0,
+      priority: node.priority ?? null,
+      error: node.error ? { code: node.error.code ?? null, message: node.error.message ?? '' } : null,
+      timestamps: {
+        createdAt: node.timestamps?.createdAt ?? null,
+        startedAt: node.timestamps?.startedAt ?? null,
+        completedAt: node.timestamps?.completedAt ?? null,
+      },
+    }));
+    return { ok: true, projectId, nodes, nextCursor, total, hasMore: nextCursor !== null, compact: input?.full !== true };
   }
 
   async function eventsPageAction(projectId, input) {
@@ -4279,7 +4329,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const source = override && typeof override === 'object' ? override : {};
     return {
       persona: typeof source.persona === 'string' ? source.persona : descriptor.persona,
-      model: { ...(descriptor.model ?? {}), ...(source.model && typeof source.model === 'object' ? source.model : {}) },
+      model: (() => {
+        const merged = { ...(descriptor.model ?? {}), ...(source.model && typeof source.model === 'object' ? source.model : {}) };
+        return merged.provider || merged.model ? merged : null;
+      })(),
       tools: Array.isArray(source.tools) ? [...source.tools] : [...(descriptor.tools ?? [])],
       budget: { ...(descriptor.budget ?? {}), ...(source.budget && typeof source.budget === 'object' ? source.budget : {}) },
       triggers: Array.isArray(source.triggers) ? [...source.triggers] : [...(descriptor.triggers ?? [])],
@@ -5084,6 +5137,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   /** Hire one catalog expert into the project roster. */
+
+  /** Reject expert models whose provider route is not registered on this install. */
+  async function assertExpertProvider(ctx, model) {
+    if (!model || typeof model !== 'object' || !model.provider) return;
+    let ids = [];
+    try { ids = await registeredProviderIds(ctx); } catch { ids = []; }
+    if (ids.length === 0) return; // cannot enumerate: do not block the edit
+    if (ids.includes(model.provider)) return;
+    throw new LabError('bad_request',
+      `expert.model.provider "${model.provider}" is not a registered provider route on this install; available: ${ids.join(', ')}`, 400);
+  }
   async function hireExpert(projectId, input = {}, exec = null) {
     const project = requireProject(projectId);
     const actor = actorFromToolExecution(exec);
@@ -5104,8 +5168,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       throw new LabError('expert_already_hired', `expert is already ${existing.status}: ${expertId}`, 409);
     }
     if (!existing && roster.length >= 8) throw new LabError('expert_roster_full', 'the expert roster is full (8)', 409);
-    const provider = text(input.provider, 'provider', { max: 120 }) || descriptor.model.provider;
-    const model = text(input.model, 'model', { max: 200 }) || descriptor.model.model;
+    // Built-in experts inherit the install's model (providers differ per relay),
+    // so a missing model here is normal, not an error.
+    const provider = text(input.provider, 'provider', { max: 120 }) || descriptor.model?.provider || '';
+    const model = text(input.model, 'model', { max: 200 }) || descriptor.model?.model || '';
+    if (provider !== '') await assertExpertProvider(ctx, { provider });
     const lens = text(input.lens, 'lens', { max: 120 }) || '';
     const now = Date.now();
     const temporary = input?.temporary === true;
@@ -5115,8 +5182,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const entry = {
       expertId,
       status: 'active',
-      provider,
-      model,
+      ...(provider && model ? { provider, model } : {}),
       ...(lens ? { lens } : {}),
       hiredAt: now,
       hiredBy: actor.id,

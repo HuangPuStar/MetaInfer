@@ -387,6 +387,7 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
   async function start(projectId) {
     const project = projectOf(projectId);
     const state = stateOf(projectId);
+    const wasWallClock = state.pauseReason === 'maxWallClock';
     state.status = 'running';
     state.pauseReason = null;
     state.startedAt = Date.now();
@@ -456,7 +457,9 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
     state.quotaResumeAt = 0;
     state.quotaRemaining = null;
     state.quotaLimit = null;
-    if (!state.startedAt) state.startedAt = Date.now();
+    // A maxWallClock pause means the window is used up: resume must start a new
+    // window, otherwise the very next tick pauses again and resume looks broken.
+    if (wasWallClock || !state.startedAt) state.startedAt = Date.now();
     return statusOf(projectId);
   }
 

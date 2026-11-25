@@ -25,6 +25,29 @@ test('durable intent becomes unknown rather than replayed', async () => {
 test('local reconciliation keeps old behavior but uses a fresh record', async () => {
   const f = setup({ id: 'n', status: 'running', resourcesHeld: { gpu: 1 }, attempts: [{ index: 1 }] }); await reconcileRunningNodes(f); assert.equal(f.node.termination.verifiedClean, true); assert.equal(f.node.resourcesHeld, undefined);
 });
+
+test('a local running node is requeued, not failed, after a Host restart', async () => {
+  const f = setup({ id: 'n', projectId: 'p', status: 'running', currentAttempt: 1, execution: { driver: 'dsh' }, attempts: [{ index: 1, startedAt: 1 }] });
+  const reconciled = await reconcileRunningNodes(f);
+  assert.deepEqual(reconciled, ['p/n']);
+  assert.equal(f.node.status, 'planned', 'local work survives a restart as a retryable node');
+  assert.equal(f.node.requeued?.reason, 'host-restart');
+  assert.equal(f.node.requeued?.previousAttempt, 1);
+  assert.equal(f.node.error, undefined);
+  assert.equal(f.node.timestamps.completedAt, null);
+  assert.ok(f.node.timestamps.runnableAt > 0);
+  assert.equal(f.commits.length, 1);
+  const event = f.commits[0].mutations[0];
+  assert.equal(event.eventType, 'node/requeued');
+  assert.equal(event.eventData.requeued, true);
+});
+
+test('a remote running node still fails into the sandbox hold', async () => {
+  const f = setup(remote());
+  await reconcileRunningNodes(f);
+  assert.equal(f.node.status, 'failed');
+  assert.ok(f.node.sandboxGate);
+});
 test('completed physically clean remote node is untouched', async () => {
   const n = remote({ status: 'completed' }); n.sandbox.state = 'released'; n.sandbox.verifiedClean = true; delete n.resourcesHeld; n.attempts[0].endedAt = 2; delete n.admission;
   const f = setup(n); assert.deepEqual(await reconcileRunningNodes(f), []); assert.equal(f.commits.length, 0);

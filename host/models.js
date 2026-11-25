@@ -286,6 +286,12 @@ async function providerCatalog(ctx) {
   return value;
 }
 
+/** Registered provider route ids (the ids `llm.listModels` accepts). */
+export async function registeredProviderIds(ctx) {
+  const catalog = await providerCatalog(ctx);
+  return catalog.map((entry) => entry.id).filter((id) => typeof id === 'string' && id !== '');
+}
+
 export async function buildModelCatalog(ctx, project) {
   const options = [];
   for (const option of project?.config?.modelOptions ?? []) {

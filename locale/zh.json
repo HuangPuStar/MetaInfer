@@ -1778,6 +1778,7 @@
     "ws.wal.after": "变更后",
     "ws.copilot.legacyTag": "[旧]",
     "ws.copilot.legacyOpenFailed": "这条旧会话无法在原生视图打开。",
-    "log.type.node.retried": "节点重试"
+    "log.type.node.retried": "节点重试",
+    "ws.merge.state.failed": "合并失败"
   }
 }

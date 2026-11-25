@@ -99,9 +99,12 @@ export function resolveRoster(project) {
     if (!id) continue;
     const descriptor = custom.find((entry) => entry?.id === id) ?? getExpertDescriptor(id);
     if (!descriptor) continue;
+    // Never invent a provider: catalog/relay installs register different ids, and
+    // a hard-coded one makes every expert run fail with NO_ADAPTER. Inheriting
+    // (null) resolves through the project role model / DSH default instead.
     const model = row.model
-      ? { provider: row.provider ?? descriptor.model?.provider ?? 'deepseek', model: row.model }
-      : descriptor.model ?? null;
+      ? { ...(row.provider ?? descriptor.model?.provider ? { provider: row.provider ?? descriptor.model.provider } : {}), model: row.model }
+      : (descriptor.model ?? null);
     roster.push({ ...descriptor, id, model, roster: row });
   }
   return roster;

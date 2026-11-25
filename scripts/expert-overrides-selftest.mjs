@@ -119,7 +119,9 @@ const afterRollback = await service.listExperts(projectId);
 const restored = afterRollback.experts.find((expert) => expert.id === 'lab-advisor');
 check('rollback restores the catalog persona/model/budget',
   restored.override === null && restored.persona.includes('Exploration lead')
-  && restored.model.model === 'deepseek-chat' && restored.budget.queriesPerRun === 4,
+  // Built-in experts inherit the install's model now (provider ids differ per
+  // relay), so the catalog default is null rather than a hard-coded deepseek ref.
+  && restored.model === null && restored.budget.queriesPerRun === 4,
   JSON.stringify({ persona: restored.persona, model: restored.model, budget: restored.budget }));
 
 const noChange = await service.updateExpert(projectId, {

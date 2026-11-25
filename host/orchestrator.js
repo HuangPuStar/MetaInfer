@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { LabError } from './git-engine.js';
-import { cleanModelRef, validateModelSelection } from './models.js';
+import { cleanModelRef, registeredProviderIds, validateModelSelection } from './models.js';
 import { executionSnapshot, resolveExecutionProfile } from './execution.js';
 import { startOutcomeOf } from './dispatch/types.js';
 import { startActivation } from './subagent-compat.js';
@@ -149,6 +149,7 @@ const ADVISOR_SCHEMA = {
           },
           successCriteria: { type: 'string' },
           timeboxMinutes: { type: 'integer' },
+          cpuOnly: { type: 'boolean' },
           rationale: { type: 'string' },
           expectedInfoGain: { type: 'string' },
           expected: {
@@ -1555,6 +1556,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         successCriteria: typeof proposal.successCriteria === 'string' ? proposal.successCriteria.trim() : '',
         needs,
         timeboxMinutes,
+        ...(proposal.cpuOnly === true ? { cpuOnly: true } : {}),
         model: null,
         execution,
         ...(replacingFailedSource ? { replacesNodeId: replacementTarget } : {}),
@@ -1691,6 +1693,16 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
 
   /** Create a planned child from a completed parent, commit and seal the parent. */
   async function createChild(project, parent, spec, meta) {
+    // Advisor/lead materialization: a node with empty needs cannot launch any
+    // real work, and auto mode starts it within seconds, so the operator never
+    // gets a chance to fill it in. Require an explicit declaration up front.
+    const pools = project.config?.resourcePools ?? {};
+    const hasPools = Object.values(pools).some((amount) => Number(amount) > 0);
+    const declared = Object.values(spec.needs ?? {}).some((amount) => Number(amount) > 0);
+    if (hasPools && meta.createdBy !== 'user' && meta.createdBy !== 'seed' && !declared && spec.cpuOnly !== true) {
+      throw new LabError('needs_required',
+        'this project has resource pools: advisor-created nodes must declare needs (e.g. {"gpu":8}) or set cpuOnly:true for a node that needs no accelerator', 422);
+    }
     parent = structuredClone(parent);
     const now = Date.now();
     let head = parent.git?.headCommit ?? null;
@@ -2569,6 +2581,15 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     cycle.expertActivations = [];
     if (chosen.length === 0) return;
     const snapshot = buildAdvisorSnapshot(store, project);
+    // The installed provider routes are the only ones an expert may name: a
+    // hard-coded `deepseek` fails with NO_ADAPTER on relay/catalog installs.
+    let providers = null;
+    try { providers = await registeredProviderIds(ctx); } catch { providers = null; }
+    const usable = (model) => {
+      if (!model || typeof model !== 'object') return true;
+      if (!model.provider) return true;
+      return providers === null || providers.includes(model.provider);
+    };
     for (const expert of chosen) {
       project = requireProject(projectId);
       const proposer = expertProposes(expert.template);
@@ -2579,10 +2600,14 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       const maxQueries = Number(expert.budget?.queriesPerRun);
       let outcome = null;
       try {
+        const inherited = !usable(expert.model);
+        if (inherited) {
+          cycle.errors.push(`expert ${expert.id}: provider "${expert.model?.provider}" is not registered; using the project/default model`);
+        }
         const { record, failure } = await runRole(project, 'expert', cycle, prompt, schema, snapshot, {
           expertId: expert.id,
           lens: expert.lens || expert.name || null,
-          modelOverride: expert.model ?? undefined,
+          modelOverride: inherited ? undefined : (expert.model ?? undefined),
           ...(Number.isFinite(timeoutMs) && timeoutMs > 0 ? { timeoutMs } : {}),
           ...(Number.isFinite(maxQueries) && maxQueries > 0 ? { maxQueries } : {}),
         });
@@ -2825,7 +2850,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       const parent = store.getNode(projectId, parentId);
       if (!parent) throw new LabError('node_not_found', `unknown node: ${parentId}`, 404);
       if (parent.status !== 'completed') {
-        throw new LabError('node_not_sealed_source', `node ${parentId} is ${parent.status}; only completed nodes can get successors`, 409);
+        throw new LabError('node_not_completed_source', `node ${parentId} is ${parent.status}; only completed nodes can get successors ("sealed" only means the node already has children)`, 409);
       }
       // Clamp rather than reject: see host/titles.js.
       const title = clampNodeTitle(input?.title);
