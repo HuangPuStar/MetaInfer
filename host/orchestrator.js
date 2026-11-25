@@ -149,6 +149,7 @@ const ADVISOR_SCHEMA = {
           },
           successCriteria: { type: 'string' },
           timeboxMinutes: { type: 'integer' },
+          cpuOnly: { type: 'boolean' },
           rationale: { type: 'string' },
           expectedInfoGain: { type: 'string' },
           expected: {
@@ -1555,6 +1556,7 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
         successCriteria: typeof proposal.successCriteria === 'string' ? proposal.successCriteria.trim() : '',
         needs,
         timeboxMinutes,
+        ...(proposal.cpuOnly === true ? { cpuOnly: true } : {}),
         model: null,
         execution,
         ...(replacingFailedSource ? { replacesNodeId: replacementTarget } : {}),
@@ -1691,6 +1693,16 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
 
   /** Create a planned child from a completed parent, commit and seal the parent. */
   async function createChild(project, parent, spec, meta) {
+    // Advisor/lead materialization: a node with empty needs cannot launch any
+    // real work, and auto mode starts it within seconds, so the operator never
+    // gets a chance to fill it in. Require an explicit declaration up front.
+    const pools = project.config?.resourcePools ?? {};
+    const hasPools = Object.values(pools).some((amount) => Number(amount) > 0);
+    const declared = Object.values(spec.needs ?? {}).some((amount) => Number(amount) > 0);
+    if (hasPools && meta.createdBy !== 'user' && meta.createdBy !== 'seed' && !declared && spec.cpuOnly !== true) {
+      throw new LabError('needs_required',
+        'this project has resource pools: advisor-created nodes must declare needs (e.g. {"gpu":8}) or set cpuOnly:true for a node that needs no accelerator', 422);
+    }
     parent = structuredClone(parent);
     const now = Date.now();
     let head = parent.git?.headCommit ?? null;

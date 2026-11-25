@@ -38,5 +38,10 @@ check('auto resume starts a new wall-clock window', /const wasWallClock = state\
 check('nodes_page is compact unless full is requested', /const nodes = input\?\.full === true \? page : page\.map/.test(service));
 check('nodes_page full flag is documented', /full: \{ type: 'boolean', description: 'for nodes_page/.test(tool));
 check('merge state failed has translations', /"ws\.merge\.state\.failed": "合并失败"/.test(client) && /"ws\.merge\.state\.failed": "Merge failed"/.test(client));
+check('runtime exposes requeueWithNeeds', /requeueWithNeeds,/.test(runtime) && /async function requeueWithNeeds\(projectId, nodeId, needs, reason = 'needs_changed'\)/.test(runtime));
+check('requeue terminates the attempt without auto-upgrade', /\['cancel', 'dispose', 'preempted', 'requeue'\]\.includes\(kind\)/.test(runtime));
+check('editing needs on a running node delegates to requeue', /runtime\.requeueWithNeeds\(projectId, nodeId, checkedNeeds\.needs, 'needs_changed'\)/.test(service));
+check('advisor nodes in a pooled project must declare needs', /needs_required/.test(orch) && /spec\.cpuOnly !== true/.test(orch));
+check('agent tool and advisor schema accept cpuOnly', /cpuOnly: \{ type: 'boolean'/.test(tool) && /cpuOnly: \{ type: 'boolean' \}/.test(orch));
 
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

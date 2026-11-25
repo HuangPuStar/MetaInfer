@@ -444,7 +444,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
     entry.terminating = (async () => {
       try {
         await hostDisposeHandles(entry); hostNode(entry);
-        const cancelled = ['cancel', 'dispose', 'preempted'].includes(kind);
+        const cancelled = ['cancel', 'dispose', 'preempted', 'requeue'].includes(kind);
         return await hostTerminal(entry, cancelled ? 'cancelled' : 'failed', { kind, requestedAt, preemptionPayload: payload, stage: kind === 'timeout' ? 'timeout' : 'run', error: payload.message ?? payload.reason ?? (cancelled ? 'cancelled by user' : 'Host attempt terminated') });
       } catch (error) {
         // Never write through a changed owner, including a late release ACK.
@@ -453,12 +453,47 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
         await hostDisposeHandles(entry);
         if (active.get(keyOf(entry.projectId, entry.nodeId)) === entry) active.delete(keyOf(entry.projectId, entry.nodeId));
         deadlines.delete(keyOf(entry.projectId, entry.nodeId));
-        if (!['cancel', 'dispose', 'preempted'].includes(kind)) await hostAutoUpgrade(entry, kind === 'timeout' ? 'timeout' : 'run');
+        if (!['cancel', 'dispose', 'preempted', 'requeue'].includes(kind)) await hostAutoUpgrade(entry, kind === 'timeout' ? 'timeout' : 'run');
       }
     })();
     entry.done = entry.terminating;
     return entry.terminating;
   }
+  /**
+   * Apply new resource needs to a running node by re-admitting it: the current
+   * attempt is terminated (audited), the node goes back to planned with the new
+   * needs, and the scheduler/admission will acquire the right resources.
+   */
+  async function requeueWithNeeds(projectId, nodeId, needs, reason = 'needs_changed') {
+    const node = requireNode(projectId, nodeId);
+    if (node.status !== 'running') throw new LabError('node_not_running', `node ${nodeId} is ${node.status}`, 409);
+    const entry = active.get(keyOf(projectId, nodeId));
+    if (!entry) throw new LabError('node_not_running', `node ${nodeId} has no live Host attempt to requeue`, 409);
+    const ended = await hostEnd(entry, 'requeue', { message: `needs changed to ${JSON.stringify(needs)}; the attempt is requeued`, reason });
+    if (ended?.status === 'held') return { ok: false, code: ended.code ?? 'HOST_CLEANUP_UNCONFIRMED', message: 'previous attempt cleanup is unconfirmed; the node stays as it is' };
+    const current = requireNode(projectId, nodeId);
+    if (!['cancelled', 'failed'].includes(current.status)) {
+      throw new LabError('requeue_conflict', `node ${nodeId} changed to ${current.status} while requeueing`, 409);
+    }
+    const next = structuredClone(current);
+    next.status = 'planned';
+    next.needs = needs;
+    next.deadlineAt = null;
+    next.requeued = { at: Date.now(), previousAttempt: current.currentAttempt ?? 0, reason };
+    delete next.error;
+    delete next.termination;
+    delete next.cleanup;
+    next.timestamps = { ...(next.timestamps ?? {}), runnableAt: Date.now(), startedAt: null, completedAt: null, lastActivityAt: Date.now() };
+    const result = await kernel.executor.commit(projectId, {
+      actor: { kind: 'system', id: 'requeue' },
+      causeId: `requeue:${nodeId}`,
+      ...(Number.isInteger(next.rev) ? { basis: next.rev } : {}),
+      mutations: [{ op: 'node.put', nodeId, node: next, eventType: 'node/requeued', eventData: { reason, needs, previousAttempt: next.requeued.previousAttempt } }],
+    });
+    if (result.ok !== true) throw new LabError(result.code ?? 'requeue_failed', result.message ?? 'requeue failed', 409);
+    return { ok: true, node: hostCopy(requireNode(projectId, nodeId)), revision: requireProject(projectId).revision };
+  }
+
   function hostFinish(entry, result, failure, mergePayload) {
     if (entry.done) return entry.done;
     entry.phase = 'finishing';
@@ -2775,6 +2810,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
   return {
     start,
     cancel,
+    requeueWithNeeds,
     message,
     retry,
     escalate,

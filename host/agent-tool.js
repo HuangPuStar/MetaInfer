@@ -165,6 +165,7 @@ export const AGENT_TOOL_PARAMETERS = {
         },
         baseBranch: { type: 'string' },
         prompt: { type: 'string', description: 'for successor/continue/create: the node prompt (10..8000 chars). successor reads this field; text/initialPrompt are not aliases.' },
+        cpuOnly: { type: 'boolean', description: 'for advisor-created nodes: declare that the node needs no accelerator resources (only needed when the project has resource pools).' },
         needs: { type: 'object', additionalProperties: true, description: 'node resource needs, e.g. {"gpu":2,"machines":2}; successor/create_merge also accept [{"key":"gpu","amount":2}]' },
         parentIds: { type: 'array', items: { type: 'string' }, description: 'for create_merge: 2..4 completed parent node ids' },
         summary: { type: 'string', description: 'for finish_merge: merge summary' },

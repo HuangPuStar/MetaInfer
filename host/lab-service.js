@@ -2179,6 +2179,23 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       const preProject = requireProject(projectId);
       validatedModel = await validateModelSelection(ctx, preProject, candidate);
     }
+    // Changing `needs` on a running node is a re-admission: terminate the current
+    // attempt (audited) and let the scheduler start it again with the new
+    // resources. Editing the field alone would not acquire anything.
+    const preProject = requireProject(projectId);
+    const preNode = requireNode(projectId, nodeId);
+    if (input?.needs !== undefined && preNode.status === 'running') {
+      if (typeof runtime?.requeueWithNeeds !== 'function') {
+        throw new LabError('unavailable', 'runtime cannot requeue this node', 503);
+      }
+      const checkedNeeds = normalizeNeeds(input.needs, preProject);
+      if (checkedNeeds.error) throw new LabError('bad_request', checkedNeeds.error, 400);
+      const requeued = await runtime.requeueWithNeeds(projectId, nodeId, checkedNeeds.needs, 'needs_changed');
+      if (requeued?.ok !== true) {
+        throw new LabError(requeued?.code ?? 'requeue_failed', requeued?.message ?? 'needs change could not be applied', 409);
+      }
+    }
+
     return store.withProjectLock(projectId, async () => {
       const project = requireProject(projectId);
       const node = structuredClone(requireNode(projectId, nodeId));
