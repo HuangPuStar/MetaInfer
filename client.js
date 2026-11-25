@@ -8787,7 +8787,7 @@ window.__ModuleLoader__.load({
         setDeleteError('');
         try {
           await api.command(
-            { type: 'project.delete', projectId: id, removeWorktrees: removeWorktrees === true },
+            { type: 'project.delete', projectId: id, removeWorktrees: removeWorktrees === true, humanConfirmed: true },
             undefined,
             t,
           );
@@ -12136,7 +12136,7 @@ window.__ModuleLoader__.load({
         setDeleteError('');
         try {
           await api.command(
-            { type: 'project.delete', projectId, removeWorktrees: removeWorktrees === true },
+            { type: 'project.delete', projectId, removeWorktrees: removeWorktrees === true, humanConfirmed: true },
             undefined,
             t,
           );

@@ -786,6 +786,7 @@ export function registerHttpRoutes(ctx, service, { operatorAuthority = null, pro
         exec: actor,
         claim: body.claim,
         chiefConfirmed: body.chiefConfirmed === true,
+        humanConfirmed: body.humanConfirmed === true,
       }));
     }
     if (type === 'node.start') {
@@ -796,6 +797,7 @@ export function registerHttpRoutes(ctx, service, { operatorAuthority = null, pro
         exec: actor,
         claim: body.claim,
         chiefConfirmed: body.chiefConfirmed === true,
+        humanConfirmed: body.humanConfirmed === true,
       }));
     }
     if (type === 'node.message') {

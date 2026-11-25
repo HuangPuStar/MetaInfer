@@ -288,6 +288,16 @@ export function gateClaimAction(action, stats = {}, context = {}) {
   if (IRREVERSIBLE_ACTIONS.includes(action) && context.humanConfirmed !== true) {
     return { ...base, code: 'human_confirmation_required' };
   }
+  // A verified human operator who confirmed in the UI is the top of the
+  // authority chain for a human-only action. The L3/L4 appeal window and the
+  // citation-evidence floor exist to stop agents from talking their way into an
+  // irreversible step; they made a single-operator install unable to delete a
+  // project at all (there is no second human to resolve an appeal). The service
+  // only sets humanDirect for an operator-token request whose resolved actor is
+  // human, so an agent tool call can never reach this branch.
+  if (context.humanDirect === true && requirement.humanOnly === true) {
+    return { ...base, ok: true, lowerBound: null, requiredEvidence: 0, humanDirect: true };
+  }
   if (requirement.humanConfirmation && context.humanConfirmed !== true) {
     return { ...base, code: 'human_confirmation_required' };
   }

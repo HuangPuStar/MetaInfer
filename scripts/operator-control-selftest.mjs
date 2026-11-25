@@ -116,6 +116,14 @@ check('POST /preemption/appeal ignores the body actor and forwards the token act
   && runtimeAppeals[0].options.actor?.id !== 'body-attacker',
   JSON.stringify({ appealNoToken, appealWithToken, runtimeAppeals }));
 
+const deleteConfirmed = await request('/commands', {
+  method: 'POST', token: authority.token,
+  body: { type: 'project.delete', projectId, humanConfirmed: true, actor: { kind: 'human', id: 'body-attacker' } },
+});
+check('a token operator who confirms in the dialog can delete the project',
+  deleteConfirmed.ok === true && store.getProject(projectId) === undefined,
+  JSON.stringify({ deleteConfirmed }));
+
 await store.close();
 if (failed > 0) {
   console.error(`operator-control-selftest: ${failed} check(s) failed`);

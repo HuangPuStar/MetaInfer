@@ -5455,11 +5455,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const appeal = appealState(project, target, action, actor);
     const chiefConfirmed = (input?.chiefConfirmed === true || input?.claim?.chiefConfirmed === true)
       && (actor.kind === 'human' || actor.kind === 'system' || actor.preset === 'lab-chief');
+    // The UI dialog is the human confirmation: a request that names
+    // humanConfirmed and whose server-resolved actor is a human operator counts
+    // as the affirmative record. Agent tool calls cannot reach this branch
+    // because their actor kind is expert/agent, never human.
+    const operatorConfirmed = input?.humanConfirmed === true && actor?.kind === 'human';
     const gate = gateClaimAction(action, stats, {
       submitted,
       chiefConfirmed,
-      humanConfirmed: appeal.humanConfirmation !== null,
-      humanConfirmedBy: appeal.humanConfirmation?.by ?? null,
+      humanConfirmed: appeal.humanConfirmation !== null || operatorConfirmed,
+      humanConfirmedBy: appeal.humanConfirmation?.by ?? (operatorConfirmed ? actor.id : null),
+      humanDirect: operatorConfirmed,
       appealPending: appeal.pending,
       appealUnresolved: appeal.unresolved,
       appealTargetMismatch: appeal.targetMismatch,
