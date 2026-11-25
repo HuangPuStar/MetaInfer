@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process';
 import { realpath, stat } from 'node:fs/promises';
 import { LabError } from './git-engine.js';
 import { startActivation } from './subagent-compat.js';
-import { buildModelCatalog, cleanModelRef, resolveModelSelection, validateModelSelection } from './models.js';
+import { buildModelCatalog, cleanModelRef, registeredProviderIds, resolveModelSelection, validateModelSelection } from './models.js';
 import { compilePlacementPolicy, describePlacementSpec, sanitizePlacementSpec } from './placement.js';
 import { DEFAULT_ADVISOR_PROMPT, DEFAULT_GC_PROMPT, DEFAULT_MERGE_PROMPT, DEFAULT_SCHEDULER_PROMPT, DEFAULT_WORKER_PREFIX, PROMPT_PLACEHOLDERS } from './prompts.js';
 import { DEFAULT_EXECUTION_PROFILES, executionSnapshot, normalizeExecutionProfile, resolveExecutionProfile } from './execution.js';
@@ -4329,7 +4329,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const source = override && typeof override === 'object' ? override : {};
     return {
       persona: typeof source.persona === 'string' ? source.persona : descriptor.persona,
-      model: { ...(descriptor.model ?? {}), ...(source.model && typeof source.model === 'object' ? source.model : {}) },
+      model: (() => {
+        const merged = { ...(descriptor.model ?? {}), ...(source.model && typeof source.model === 'object' ? source.model : {}) };
+        return merged.provider || merged.model ? merged : null;
+      })(),
       tools: Array.isArray(source.tools) ? [...source.tools] : [...(descriptor.tools ?? [])],
       budget: { ...(descriptor.budget ?? {}), ...(source.budget && typeof source.budget === 'object' ? source.budget : {}) },
       triggers: Array.isArray(source.triggers) ? [...source.triggers] : [...(descriptor.triggers ?? [])],
@@ -5134,6 +5137,17 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   /** Hire one catalog expert into the project roster. */
+
+  /** Reject expert models whose provider route is not registered on this install. */
+  async function assertExpertProvider(ctx, model) {
+    if (!model || typeof model !== 'object' || !model.provider) return;
+    let ids = [];
+    try { ids = await registeredProviderIds(ctx); } catch { ids = []; }
+    if (ids.length === 0) return; // cannot enumerate: do not block the edit
+    if (ids.includes(model.provider)) return;
+    throw new LabError('bad_request',
+      `expert.model.provider "${model.provider}" is not a registered provider route on this install; available: ${ids.join(', ')}`, 400);
+  }
   async function hireExpert(projectId, input = {}, exec = null) {
     const project = requireProject(projectId);
     const actor = actorFromToolExecution(exec);
@@ -5154,8 +5168,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
       throw new LabError('expert_already_hired', `expert is already ${existing.status}: ${expertId}`, 409);
     }
     if (!existing && roster.length >= 8) throw new LabError('expert_roster_full', 'the expert roster is full (8)', 409);
-    const provider = text(input.provider, 'provider', { max: 120 }) || descriptor.model.provider;
-    const model = text(input.model, 'model', { max: 200 }) || descriptor.model.model;
+    // Built-in experts inherit the install's model (providers differ per relay),
+    // so a missing model here is normal, not an error.
+    const provider = text(input.provider, 'provider', { max: 120 }) || descriptor.model?.provider || '';
+    const model = text(input.model, 'model', { max: 200 }) || descriptor.model?.model || '';
+    if (provider !== '') await assertExpertProvider(ctx, { provider });
     const lens = text(input.lens, 'lens', { max: 120 }) || '';
     const now = Date.now();
     const temporary = input?.temporary === true;
@@ -5165,8 +5182,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const entry = {
       expertId,
       status: 'active',
-      provider,
-      model,
+      ...(provider && model ? { provider, model } : {}),
       ...(lens ? { lens } : {}),
       hiredAt: now,
       hiredBy: actor.id,

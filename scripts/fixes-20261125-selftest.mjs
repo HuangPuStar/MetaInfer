@@ -43,5 +43,13 @@ check('requeue terminates the attempt without auto-upgrade', /\['cancel', 'dispo
 check('editing needs on a running node delegates to requeue', /runtime\.requeueWithNeeds\(projectId, nodeId, checkedNeeds\.needs, 'needs_changed'\)/.test(service));
 check('advisor nodes in a pooled project must declare needs', /needs_required/.test(orch) && /spec\.cpuOnly !== true/.test(orch));
 check('agent tool and advisor schema accept cpuOnly', /cpuOnly: \{ type: 'boolean'/.test(tool) && /cpuOnly: \{ type: 'boolean' \}/.test(orch));
+const registry = read('host/experts/registry.js');
+const activation = read('host/experts/activation.js');
+const models = read('host/models.js');
+check('built-in experts inherit the install model instead of hard-coding deepseek', /model: null, \/\/ inherit/.test(registry) && !/provider: 'deepseek'/.test(registry));
+check('roster resolution never invents a provider', !/\?\? 'deepseek'/.test(activation));
+check('registered provider routes are enumerable', /export async function registeredProviderIds\(ctx\)/.test(models));
+check('an unregistered expert provider falls back to the project/default model', /provider "\$\{expert\.model\?\.provider\}" is not registered/.test(orch));
+check('hiring without an explicit model stores no model override', /provider && model \? \{ provider, model \} : \{\}/.test(service));
 
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

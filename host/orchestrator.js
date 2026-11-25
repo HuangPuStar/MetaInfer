@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { LabError } from './git-engine.js';
-import { cleanModelRef, validateModelSelection } from './models.js';
+import { cleanModelRef, registeredProviderIds, validateModelSelection } from './models.js';
 import { executionSnapshot, resolveExecutionProfile } from './execution.js';
 import { startOutcomeOf } from './dispatch/types.js';
 import { startActivation } from './subagent-compat.js';
@@ -2581,6 +2581,15 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
     cycle.expertActivations = [];
     if (chosen.length === 0) return;
     const snapshot = buildAdvisorSnapshot(store, project);
+    // The installed provider routes are the only ones an expert may name: a
+    // hard-coded `deepseek` fails with NO_ADAPTER on relay/catalog installs.
+    let providers = null;
+    try { providers = await registeredProviderIds(ctx); } catch { providers = null; }
+    const usable = (model) => {
+      if (!model || typeof model !== 'object') return true;
+      if (!model.provider) return true;
+      return providers === null || providers.includes(model.provider);
+    };
     for (const expert of chosen) {
       project = requireProject(projectId);
       const proposer = expertProposes(expert.template);
@@ -2591,10 +2600,14 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
       const maxQueries = Number(expert.budget?.queriesPerRun);
       let outcome = null;
       try {
+        const inherited = !usable(expert.model);
+        if (inherited) {
+          cycle.errors.push(`expert ${expert.id}: provider "${expert.model?.provider}" is not registered; using the project/default model`);
+        }
         const { record, failure } = await runRole(project, 'expert', cycle, prompt, schema, snapshot, {
           expertId: expert.id,
           lens: expert.lens || expert.name || null,
-          modelOverride: expert.model ?? undefined,
+          modelOverride: inherited ? undefined : (expert.model ?? undefined),
           ...(Number.isFinite(timeoutMs) && timeoutMs > 0 ? { timeoutMs } : {}),
           ...(Number.isFinite(maxQueries) && maxQueries > 0 ? { maxQueries } : {}),
         });
