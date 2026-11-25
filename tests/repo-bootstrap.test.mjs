@@ -50,7 +50,11 @@ function seam(options = {}) {
     spawn(spec) {
       const argv = spec.argv;
       state.calls.push(argv);
-      const isGit = /^git(\.exe)?$/i.test(argv[0]) || argv[0] === hiddenGit;
+      // Also match absolute candidates (/usr/bin/git, C:\\...\\git.exe): the
+      // engine falls back to a candidate list after the bare name fails, so
+      // matching only `git` made this harness pass or fail depending on whether
+      // the host machine happened to have Git installed.
+      const isGit = /(^|[\\/])git(\.exe)?$/i.test(argv[0]) || argv[0] === hiddenGit;
       if (isGit && !state.gitAvailable) {
         return handle(argv, Promise.reject(new Error('spawn git ENOENT')), emptyCollected());
       }
