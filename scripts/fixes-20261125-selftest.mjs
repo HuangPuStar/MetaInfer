@@ -64,4 +64,6 @@ check('cancelling a running node asks for confirmation first', /const \[cancelRe
 check('the cancel confirmation sends humanConfirmed', /runNodeCommand\('node\.cancel', request\.nodeId, \{ humanConfirmed: true \}\)/.test(client));
 check('humanDirect covers every irreversible action', /context\.humanDirect === true && IRREVERSIBLE_ACTIONS\.includes\(action\)/.test(read('host/kernel/claims.js')));
 
+check('the project menu escapes the clipped topbar', /rl-topbar-menu-open/.test(client) && /projectMenuOpen \? 'rl-topbar rl-topbar-menu-open' : 'rl-topbar'/.test(client));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

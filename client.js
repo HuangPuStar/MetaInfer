@@ -4373,6 +4373,8 @@ window.__ModuleLoader__.load({
       '.rl-project-delete:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }',
       '.rl-project-delete:disabled { opacity: 0.5; cursor: not-allowed; }',
       '.rl-menu-wrap { position: relative; display: inline-flex; flex: none; }',
+      '.rl-topbar-menu-open { overflow: visible; z-index: 30; }',
+      '.rl-topbar-menu-open .rl-menu { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28); }',
       '.rl-menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 12; display: flex; flex-direction: column; gap: 2px; min-width: 140px; padding: 4px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
       '.rl-menu-item { box-sizing: border-box; display: flex; align-items: center; width: 100%; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; line-height: 18px; text-align: left; cursor: pointer; white-space: nowrap; }',
       '.rl-menu-item:hover { background: var(--dsw-alias-bg-layer-2); }',
@@ -13183,7 +13185,7 @@ window.__ModuleLoader__.load({
         null,
         h(
           'header',
-          { className: 'rl-topbar' },
+          { className: projectMenuOpen ? 'rl-topbar rl-topbar-menu-open' : 'rl-topbar' },
           h(LabButton, { label: '←', variant: 'ghost', title: t('ws.back'), ariaLabel: t('ws.back'), onClick: onBack }),
           h(
             'div',
