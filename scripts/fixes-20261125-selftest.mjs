@@ -69,4 +69,13 @@ check('the project menu escapes the clipped topbar', /rl-topbar-menu-open/.test(
 check('waiting shows the Host reason instead of a flat approval message', /autoWaitingLabelKeyOf/.test(client) && /ws\.auto\.waiting\.capacityFull/.test(client) && /ws\.auto\.waiting\.awaitingGpu/.test(client));
 check('known gate errors get a human message', /KNOWN_ERROR_KEYS/.test(client) && /error\.code\.human_confirmation_required/.test(client));
 
+const promptsSrc = read('host/prompts.js');
+const gitSrc = read('host/git-engine.js');
+check('the default worker prefix carries the disk policy', /Disk policy \(hard requirement/.test(promptsSrc) && /NEVER copy raw captures/.test(promptsSrc));
+check('the commit guard refuses oversized untracked artifacts', /artifact_too_large/.test(gitSrc) && /maxFileMb/.test(gitSrc) && /untrackedFiles/.test(gitSrc));
+check('default repository excludes are installed and never committed', /ensureRepoExcludes/.test(gitSrc) && /info\/exclude/.test(gitSrc) && /profile\//.test(gitSrc));
+check('the node report declares artifacts with sizes', /artifacts: \{/.test(runtime) && /sizeBytes/.test(runtime));
+check('disk audit and cleanup actions exist', /async function diskReport\(projectId\)/.test(service) && /async function diskPrune\(projectId, input = \{\}\)/.test(service) && /disk_report/.test(read('host/agent-tool.js')));
+check('terminal disk warnings are recorded', /diskWarning/.test(runtime) && /maxUntrackedMb/.test(runtime));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

@@ -7,7 +7,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import { spawn } from 'node:child_process';
-import { realpath, stat } from 'node:fs/promises';
+import { mkdir, realpath, rename, stat } from 'node:fs/promises';
 import { LabError } from './git-engine.js';
 import { startActivation } from './subagent-compat.js';
 import { buildModelCatalog, cleanModelRef, registeredProviderIds, resolveModelSelection, validateModelSelection } from './models.js';
@@ -19,7 +19,7 @@ import { ExecutionLog } from './execution-log.js';
 import { DEFAULT_DASHBOARD_SPEC, DASHBOARD_CHAT_SCHEMA, WIDGET_DATA_RESULT_SCHEMA, sanitizeDashboardSpec, normalizeWidgets, normalizeWidgetData, applyWidgetLayouts, buildWidgetPrompt, buildDashboardChatPrompt } from './dashboard.js';
 import { assertModelSchema } from './schema-check.js';
 import { nodeFailureReason } from './failure.js';
-import { newProjectId, newSessionId } from './store.js';
+import { dshHome, newProjectId, newSessionId } from './store.js';
 import { clampNodeTitle } from './titles.js';
 import { buildStatusFacts } from './observability/status.js';
 import { computeProjectMetrics, createMetricsCollector } from './observability/metrics.js';
@@ -189,6 +189,10 @@ function normalizeConfig(raw, base = undefined, { allowMigration = false } = {})
     // L2-3: a reservation that shows no activity for this long gets a warning,
     // and twice this long without activity releases it. 0 disables the sweep.
     leaseTtlMinutes: integer(input.leaseTtlMinutes, 'config.leaseTtlMinutes', previous.leaseTtlMinutes ?? 30, 0, 1440),
+    diskPolicy: {
+      maxUntrackedMb: integer(input.diskPolicy?.maxUntrackedMb, 'config.diskPolicy.maxUntrackedMb', previous.diskPolicy?.maxUntrackedMb ?? 200, 0, 1_000_000),
+      maxFileMb: integer(input.diskPolicy?.maxFileMb, 'config.diskPolicy.maxFileMb', previous.diskPolicy?.maxFileMb ?? 100, 1, 100_000),
+    },
     workerSandboxMode,
     execution: {
       profiles: previous.execution?.profiles ?? { ...DEFAULT_EXECUTION_PROFILES },
@@ -707,7 +711,9 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
 
   /** Validate and, when needed, initialise or clone a repository. */
   async function prepareRepo(input) {
-    return git.prepareRepo(input);
+    const prepared = await git.prepareRepo(input);
+    try { await git.ensureRepoExcludes?.(prepared.repoRoot); } catch { /* best effort */ }
+    return prepared;
   }
 
   /** Git availability and installer facts for the wizard. */
@@ -726,6 +732,7 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const repoPath = text(input?.repoPath, 'repoPath', { required: true, max: 4096 });
 
     const repo = await git.validateRepo(repoPath);
+    try { await git.ensureRepoExcludes?.(repo.repoRoot); } catch { /* best effort: commits stay guarded anyway */ }
     const baseBranch = text(input?.baseBranch, 'baseBranch', { max: 256 }) || repo.defaultBranch;
     const baseCommit = await git.resolveBranch(repo.repoRoot, baseBranch);
     const config = normalizeConfig(input?.config);
@@ -4127,6 +4134,126 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     return { ...diffCache.diff(projectId, nodes, revision, since), projectId, revision };
   }
 
+  // ---------------------------------------------------------------------------
+  // Disk audit (2026-11-26): worktrees accumulate untracked raw captures. Report
+  // what is there and, on explicit human confirmation, move duplicates to trash.
+  // ---------------------------------------------------------------------------
+  const DISK_AUDIT_MIN_HASH_BYTES = 20 * 1024 * 1024;
+  const DISK_AUDIT_MAX_HASH_FILES = 120;
+
+  async function diskReport(projectId) {
+    requireProject(projectId);
+    if (typeof git?.untrackedFiles !== 'function') return rejection('unavailable', 'git engine cannot inspect worktrees');
+    const nodes = store.listNodes(projectId);
+    const rows = [];
+    const bySize = new Map();
+    let hashed = 0;
+    for (const node of nodes) {
+      const worktree = node.git?.worktreePath;
+      if (!worktree) continue;
+      const files = await git.untrackedFiles(worktree);
+      const totalBytes = files.reduce((sum, file) => sum + Number(file.size ?? 0), 0);
+      if (files.length === 0) continue;
+      const top = [...files].sort((left, right) => right.size - left.size).slice(0, 10);
+      rows.push({
+        nodeId: node.id,
+        status: node.status,
+        untrackedFiles: files.length,
+        untrackedBytes: totalBytes,
+        top: top.map((file) => ({ path: file.path, sizeBytes: file.size })),
+      });
+      for (const file of files) {
+        if (file.size < DISK_AUDIT_MIN_HASH_BYTES || hashed >= DISK_AUDIT_MAX_HASH_FILES) continue;
+        hashed += 1;
+        const digest = await hashFile(path.join(worktree, file.path));
+        if (!digest) continue;
+        const key = `${digest}:${file.size}`;
+        if (!bySize.has(key)) bySize.set(key, { digest, sizeBytes: file.size, copies: [] });
+        bySize.get(key).copies.push({ nodeId: node.id, status: node.status, path: file.path, worktree, absolute: path.join(worktree, file.path) });
+      }
+    }
+    const duplicates = [...bySize.values()]
+      .filter((group) => group.copies.length > 1)
+      .map((group) => ({
+        digest: group.digest,
+        sizeBytes: group.sizeBytes,
+        copies: group.copies.map(({ absolute, ...rest }) => rest),
+        reclaimableBytes: group.sizeBytes * (group.copies.length - 1),
+      }))
+      .sort((left, right) => right.reclaimableBytes - left.reclaimableBytes);
+    const totals = rows.reduce((acc, row) => ({
+      untrackedFiles: acc.untrackedFiles + row.untrackedFiles,
+      untrackedBytes: acc.untrackedBytes + row.untrackedBytes,
+    }), { untrackedFiles: 0, untrackedBytes: 0 });
+    return {
+      ok: true,
+      projectId,
+      totals: { ...totals, reclaimableBytes: duplicates.reduce((sum, group) => sum + group.reclaimableBytes, 0) },
+      nodes: rows.sort((left, right) => right.untrackedBytes - left.untrackedBytes),
+      duplicates,
+      hashedFiles: hashed,
+    };
+  }
+
+  async function hashFile(absolutePath) {
+    try {
+      const { createHash } = await import('node:crypto');
+      const handle = await import('node:fs');
+      const hash = createHash('sha256');
+      await new Promise((resolve, reject) => {
+        const stream = handle.createReadStream(absolutePath);
+        stream.on('data', (chunk) => hash.update(chunk));
+        stream.on('error', reject);
+        stream.on('end', resolve);
+      });
+      return hash.digest('hex');
+    } catch {
+      return null;
+    }
+  }
+
+  async function diskPrune(projectId, input = {}) {
+    const project = requireProject(projectId);
+    if (input?.humanConfirmed !== true && input?.dryRun !== true) {
+      throw new LabError('human_confirmation_required', 'disk_prune moves files out of worktrees; pass humanConfirmed:true (or dryRun:true to preview)', 403);
+    }
+    const report = await diskReport(projectId);
+    if (report.ok !== true) return report;
+    const running = new Set(store.listNodes(projectId).filter((node) => node.status === 'running').map((node) => node.id));
+    const actions = [];
+    const trashRoot = path.join(dshHome(), 'metainfer-research-lab', 'trash', `disk-prune-${Date.now()}`);
+    let reclaimedBytes = 0;
+    for (const group of report.duplicates) {
+      const keep = group.copies[0];
+      for (const copy of group.copies.slice(1)) {
+        if (running.has(copy.nodeId)) { actions.push({ ...copy, action: 'skipped-running' }); continue; }
+        const source = path.join(project.repo.worktreeRoot, copy.nodeId, copy.path);
+        const target = path.join(trashRoot, copy.nodeId, copy.path);
+        if (input?.dryRun === true) { actions.push({ ...copy, action: 'would-move', sizeBytes: group.sizeBytes }); continue; }
+        try {
+          await mkdir(path.dirname(target), { recursive: true });
+          await rename(source, target);
+          actions.push({ ...copy, action: 'moved', sizeBytes: group.sizeBytes });
+          reclaimedBytes += group.sizeBytes;
+        } catch (error) {
+          actions.push({ ...copy, action: 'failed', error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      actions.push({ nodeId: keep.nodeId, path: keep.path, action: 'kept' });
+    }
+    if (input?.dryRun !== true && reclaimedBytes > 0) {
+      try {
+        await commitProjectFields(projectId, {}, {
+          actor: { kind: 'human', id: 'operator' },
+          eventType: 'project/disk_pruned',
+          eventData: { reclaimedBytes, trashRoot, moved: actions.filter((row) => row.action === 'moved').length },
+          causeId: `disk-prune:${projectId}`,
+        });
+      } catch { /* the audit event is best effort; the move already happened */ }
+    }
+    return { ok: true, projectId, dryRun: input?.dryRun === true, reclaimedBytes, trashRoot: input?.dryRun === true ? null : trashRoot, actions };
+  }
+
   async function nodesPageAction(projectId, input) {
     requireProject(projectId);
     const limit = Number.isFinite(input?.limit) ? Math.max(1, Math.min(500, input.limit)) : 100;
@@ -6691,6 +6818,8 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     if (action === 'dag_walk') return dagWalkAction(input?.projectId, input);
     if (action === 'dag_diff') return dagDiffAction(input?.projectId, input);
     if (action === 'nodes_page') return nodesPageAction(input?.projectId, input);
+    if (action === 'disk_report') return diskReport(input?.projectId);
+    if (action === 'disk_prune') return diskPrune(input?.projectId, input);
     if (action === 'events_page') return eventsPageAction(input?.projectId, input);
     if (action === 'claim_review') return reviewClaimAction(input?.projectId, input, exec);
     if (action === 'release_review') return reviewReleaseAction(input?.projectId, input, exec);

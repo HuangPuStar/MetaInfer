@@ -4,7 +4,7 @@
  * worker agents never run git write commands.
  */
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { dshHome } from './store.js';
@@ -599,8 +599,73 @@ export function createGitEngine(ctx, options = {}) {
    * @param {string} message commit message.
    * @returns {Promise<{committed: boolean, head: string}>}
    */
+  /** Hard cap for one file inside a worktree before the Host refuses to commit. */
+  const DEFAULT_MAX_ARTIFACT_MB = 100;
+  const REPO_EXCLUDE_PATTERNS = Object.freeze([
+    '# MetaInfer default: keep raw captures/artifacts out of git history',
+    'profile/',
+    'raw/',
+    '*.tar.gz',
+    '*.tar',
+    '*.tgz',
+    '*.trace',
+    '*.nsys-rep',
+    '*.ncu-rep',
+    '*.qdrep',
+    'profiler/',
+    'traces/',
+  ]);
+
+  /** Untracked (not ignored) files inside a worktree with their byte sizes. */
+  async function untrackedFiles(worktreePath) {
+    const listed = await runGit(['-C', worktreePath, 'ls-files', '--others', '--exclude-standard', '-z'], { cwd: worktreePath, timeoutMs: 60_000 });
+    if (listed.code !== 0) return [];
+    const paths = listed.stdout.split('\u0000').filter(Boolean);
+    const out = [];
+    for (const relative of paths) {
+      try {
+        const info = await stat(path.join(worktreePath, relative));
+        if (info.isFile()) out.push({ path: relative, size: Number(info.size) || 0 });
+      } catch { /* vanished */ }
+    }
+    return out;
+  }
+
+  /**
+   * Install the default ignore patterns in the repository's local exclude file
+   * (.git/info/exclude). Unlike .gitignore this is never committed and applies to
+   * every worktree of the repository.
+   */
+  async function ensureRepoExcludes(repoRoot) {
+    const gitPath = await runGit(['-C', repoRoot, 'rev-parse', '--git-path', 'info/exclude'], { cwd: repoRoot });
+    if (gitPath.code !== 0) return false;
+    const relative = gitPath.stdout.trim();
+    if (!relative) return false;
+    const target = path.isAbsolute(relative) ? relative : path.join(repoRoot, relative);
+    let current = '';
+    try { current = await readFile(target, 'utf8'); } catch { current = ''; }
+    const missing = REPO_EXCLUDE_PATTERNS.filter((line) => !current.split('\n').map((row) => row.trim()).includes(line));
+    if (missing.length === 0) return false;
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, `${current}${current.endsWith('\n') || current === '' ? '' : '\n'}${missing.join('\n')}\n`, 'utf8');
+    return true;
+  }
+
   async function commitWorktree(project, node, message) {
     const cwd = node.git.worktreePath;
+    // Guard: a worker that dropped a huge capture into the worktree must not have
+    // it committed into the project history (git add -A would do exactly that).
+    const maxFileMb = Number(project?.config?.diskPolicy?.maxFileMb ?? DEFAULT_MAX_ARTIFACT_MB);
+    const untracked = await untrackedFiles(cwd);
+    const oversized = maxFileMb > 0 ? untracked.filter((file) => file.size > maxFileMb * 1024 * 1024) : [];
+    if (oversized.length > 0) {
+      const sample = oversized.slice(0, 5).map((file) => `${file.path} (${(file.size / (1024 * 1024)).toFixed(1)} MB)`).join(', ');
+      const error = new LabError('artifact_too_large',
+        `refusing to commit: ${oversized.length} untracked file(s) exceed ${maxFileMb} MB (${sample}); move them out of the worktree (keep only MB-scale artifacts) and retry`,
+        422);
+      error.artifacts = oversized.slice(0, 50);
+      throw error;
+    }
     const add = await runGit(['-C', cwd, 'add', '-A'], { cwd, timeoutMs: 30_000 });
     if (add.code !== 0) throw new LabError('git_failed', add.stderr.trim() || 'git add failed', 422);
 
@@ -774,6 +839,8 @@ export function createGitEngine(ctx, options = {}) {
     resolveBranch,
     ensureWorktree,
     removeWorktree,
+    untrackedFiles,
+    ensureRepoExcludes,
     mergeBranchIntoWorktree,
     finishMergeInWorktree,
     listRefs,

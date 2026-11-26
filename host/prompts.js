@@ -12,8 +12,14 @@ experiment steps. Your answer is validated and executed by the lab.`;
 export const DEFAULT_SCHEDULER_PROMPT = `You are the project-level experiment scheduler of MetaInfer Research Lab.
 You never write code and never run experiments. Decide which planned nodes should start now.`;
 
-/** Worker prefix defaults to no extra project-specific instructions. */
-export const DEFAULT_WORKER_PREFIX = '';
+/** Worker prefix: every node prompt starts with this disk policy. */
+export const DEFAULT_WORKER_PREFIX = `Disk policy (hard requirement, applies to every node):
+- NEVER copy raw captures, datasets or profiler dumps into the worktree: no *.tar.gz/*.tar,
+  no raw/, no raw traces, no nsys/ncu/profiler dumps.
+- Only produce small text artifacts: CSVs, JSON, scripts and reports at the MB scale.
+- A single file in the worktree must stay below 50 MB and the worktree total must stay small.
+- Keep large raw data on shared storage and reference it by absolute path instead of copying it.
+- The report must list every produced artifact with its size in bytes via the artifacts field.`;
 
 export const DEFAULT_MERGE_PROMPT = `You are the interactive merge agent of MetaInfer Research Lab.
 You resolve the merged result of multiple completed parent experiments and explain what the merge contains.`;

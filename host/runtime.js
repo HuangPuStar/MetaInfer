@@ -57,6 +57,20 @@ export const NODE_REPORT_SCHEMA = {
     blockers: { type: 'array', items: { type: 'string' } },
     next: { type: 'array', items: { type: 'string' } },
     risks: { type: 'array', items: { type: 'string' } },
+    // Disk policy contract: every produced artifact is declared with its size so
+    // the Host can flag oversized outputs instead of discovering them at commit time.
+    artifacts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          sizeBytes: { type: 'number' },
+        },
+        required: ['path'],
+        additionalProperties: false,
+      },
+    },
   },
   required: ['summary', 'changes', 'metrics', 'reproduce', 'success', 'blockers', 'next', 'risks'],
   additionalProperties: false,
@@ -98,7 +112,17 @@ export function normalizeNodeReport(report) {
   const headline = typeof report.headline === 'string' && report.headline.trim()
     ? report.headline.trim().slice(0, REPORT_LIMITS.headline)
     : summary.slice(0, REPORT_LIMITS.headline);
+  const artifacts = Array.isArray(report.artifacts)
+    ? report.artifacts
+      .filter((item) => item && typeof item === 'object' && typeof item.path === 'string' && item.path.trim())
+      .slice(0, 50)
+      .map((item) => ({
+        path: String(item.path).trim().slice(0, 300),
+        sizeBytes: Number.isFinite(Number(item.sizeBytes)) ? Math.max(0, Math.trunc(Number(item.sizeBytes))) : null,
+      }))
+    : [];
   return {
+    artifacts,
     summary,
     headline,
     changes: clampList(report.changes),
@@ -396,6 +420,32 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
     catch { /* An unconfirmed raw release must retain all durable ownership. */ }
     hostNode(entry);
     const clean = cleanup.verifiedClean === true && released;
+    // Disk policy enforcement (after-the-fact): flag a node that left oversized
+    // untracked files in its worktree so a human can inspect/clean before the next
+    // node copies them around. The commit guard already refuses to add >maxFileMb
+    // files to history.
+    let diskWarning = null;
+    try {
+      const project = requireProject(entry.projectId);
+      const policy = project.config?.diskPolicy ?? {};
+      const maxUntrackedMb = Number(policy.maxUntrackedMb ?? 200);
+      const maxFileMb = Number(policy.maxFileMb ?? 100);
+      const files = typeof git?.untrackedFiles === 'function' ? await git.untrackedFiles(hostLive(entry).git.worktreePath) : [];
+      const totalBytes = files.reduce((sum, file) => sum + Number(file.size ?? 0), 0);
+      const largest = files.reduce((max, file) => (Number(file.size ?? 0) > Number(max?.size ?? 0) ? file : max), null);
+      const tooMuch = maxUntrackedMb > 0 && totalBytes > maxUntrackedMb * 1024 * 1024;
+      const tooBig = maxFileMb > 0 && largest !== null && Number(largest.size) > maxFileMb * 1024 * 1024;
+      if (tooMuch || tooBig) {
+        diskWarning = {
+          at: Date.now(),
+          untrackedBytes: totalBytes,
+          untrackedFiles: files.length,
+          largestFile: largest ? { path: largest.path, sizeBytes: Number(largest.size) } : null,
+          maxUntrackedMb,
+          maxFileMb,
+        };
+      }
+    } catch { /* the warning is best effort and must never mask the terminal status */ }
     if (status !== 'completed' && details.stage === 'timeout') {
       // Preserve whatever the worker produced before a timebox expiry is recorded.
       // Other failures keep the old contract: never commit on a tree whose branch
@@ -418,6 +468,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
       if (details.kind) n.termination = { ...cleanup, kind: details.kind, requestedAt, killedAt: Date.now() };
       if (preemption) n.preemption = preemption;
       if (details.usage) applyUsage(project, n, details.usage);
+      if (diskWarning !== null) n.diskWarning = diskWarning;
       endAttempt(n, { status, stopReason: status, ...(details.error ? { error: failureMessage(details.error) } : {}) });
       n.timestamps = { ...(n.timestamps ?? {}), completedAt: Date.now(), lastActivityAt: Date.now() };
       if (clean) {
@@ -425,7 +476,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
         n.deadlineAt = null;
         n.hostBudgetCleanup = { attempt: n.currentAttempt, sessionId: n.sessionId, verifiedClean: true, at: Date.now() };
       }
-    }, { cleaned: clean, ...(preemption ? { causeId: preemption.causeId, data: { kind: 'preempted', preemption } } : {}) });
+    }, { cleaned: clean, ...(diskWarning !== null ? { data: { diskWarning } } : {}), ...(preemption ? { causeId: preemption.causeId, data: { kind: 'preempted', preemption, ...(diskWarning !== null ? { diskWarning } : {}) } } : {}) });
     let final = { released: false, held: true };
     if (clean) {
       hostNode(entry, true);

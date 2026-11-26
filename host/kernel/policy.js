@@ -52,6 +52,8 @@ export const ACTION_CATALOG = Object.freeze({
   wal_query: 'read',
   wal_latest: 'read',
   nodes_page: 'read',
+  disk_report: 'read',
+  disk_prune: 'write',
   events_page: 'read',
   runs_page: 'read',
   review_claims: 'read',
