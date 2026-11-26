@@ -415,3 +415,21 @@ test('installGit is a no-op when Git is already available', async () => {
     await cleanup();
   }
 });
+
+test('a Host that throws on spawn reports git_missing instead of raw ENOENT', async () => {
+  // Some Hosts throw synchronously for a missing executable instead of
+  // rejecting the done promise; the wizard used to surface that raw ENOENT.
+  const root = await mkdtemp(path.join(tmpdir(), 'metainfer-repo-'));
+  const throwing = { spawn() { throw new Error('spawn git ENOENT'); } };
+  const engine = createGitEngine({ subprocess: throwing }, {
+    platform: 'plan9',
+    reposRoot: path.join(root, 'repos'),
+    gitExecutable: 'git',
+  });
+  try {
+    await expectLabError(engine.validateRepo(root), 'git_missing');
+    await expectLabError(engine.prepareRepo(root), 'git_missing');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

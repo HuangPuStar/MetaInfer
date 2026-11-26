@@ -125,17 +125,31 @@ export function createGitEngine(ctx, options = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(new Error(`command timeout after ${timeoutMs}ms`)), timeoutMs);
     try {
-      const handle = ctx.subprocess.spawn({
-        argv,
-        cwd,
-        stdio: {
-          stdin: 'ignore',
-          stdout: { maxBytes: GIT_LIMITS.stdoutBytes },
-          stderr: { maxBytes: GIT_LIMITS.stderrBytes },
-        },
-        graceMs: GIT_LIMITS.graceMs,
-        signal: controller.signal,
-      });
+      let handle;
+      try {
+        handle = ctx.subprocess.spawn({
+          argv,
+          cwd,
+          stdio: {
+            stdin: 'ignore',
+            stdout: { maxBytes: GIT_LIMITS.stdoutBytes },
+            stderr: { maxBytes: GIT_LIMITS.stderrBytes },
+          },
+          graceMs: GIT_LIMITS.graceMs,
+          signal: controller.signal,
+        });
+      } catch (spawnError) {
+        // Some Hosts throw synchronously for a missing executable ("spawn git
+        // ENOENT") instead of rejecting the done promise. Report it as a normal
+        // failed process so detection can fall through to the install paths and
+        // the caller gets an actionable git_missing instead of a raw ENOENT.
+        return {
+          code: null,
+          stdout: '',
+          stderr: spawnError instanceof Error ? spawnError.message : String(spawnError),
+          timedOut: false,
+        };
+      }
       let outcome;
       try {
         outcome = await handle.done;
@@ -167,6 +181,11 @@ export function createGitEngine(ctx, options = {}) {
 
   async function gitText(args, options) {
     const result = await runGit(args, options);
+    if (result.code === null) {
+      throw new LabError('git_missing',
+        `Git is not available to the DSH process (${result.stderr.trim() || 'spawn failed'}); install Git or start DSH from a shell where "git" is on PATH`,
+        422);
+    }
     if (result.code !== 0) {
       throw new LabError('git_failed', result.stderr.trim() || `git ${args[0]} failed`, 422);
     }
@@ -285,6 +304,11 @@ export function createGitEngine(ctx, options = {}) {
     await requireGit();
 
     const top = await runGit(['-C', candidate, 'rev-parse', '--show-toplevel'], { cwd: candidate });
+    if (top.code === null) {
+      throw new LabError('git_missing',
+        `Git is not available to the DSH process (${top.stderr.trim() || 'spawn failed'}); install Git or start DSH from a shell where "git" is on PATH`,
+        422);
+    }
     if (top.code !== 0) {
       throw new LabError('not_git', top.stderr.trim() || 'not a git repository', 422);
     }
