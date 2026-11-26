@@ -1779,6 +1779,11 @@
     "ws.copilot.legacyTag": "[legacy]",
     "ws.copilot.legacyOpenFailed": "This legacy conversation could not be opened in the native view.",
     "log.type.node.retried": "Node retried",
-    "ws.merge.state.failed": "Merge failed"
+    "ws.merge.state.failed": "Merge failed",
+    "ws.canvas.searchPlaceholder": "Search node id or title",
+    "ws.canvas.searchGo": "Go",
+    "ws.canvas.searchHint": "Type a node id (or part of a title) and press Enter; shortcut / or Ctrl+F",
+    "ws.canvas.searchHit": "Located {id}",
+    "ws.canvas.searchMiss": "No matching node"
   }
 }

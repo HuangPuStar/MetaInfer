@@ -126,7 +126,7 @@ function recordingContext() {
     beginPath() { calls.path += 1; }, closePath() {}, moveTo() { calls.moveTo += 1; }, lineTo() {},
     bezierCurveTo() { calls.bezier += 1; }, arcTo() {}, arc() { calls.arc += 1; }, rect() {},
     roundRect() { calls.arc += 1; }, fill() { calls.fill += 1; }, stroke() { calls.stroke += 1; },
-    fillText() { calls.fillText += 1; }, measureText() { return { width: 10 }; },
+    fillText() { calls.fillText += 1; }, measureText() { return { width: 10 }; }, setLineDash() {},
     set fillStyle(value) { this._fill = value; }, get fillStyle() { return this._fill; },
     set strokeStyle(value) { this._stroke = value; }, get strokeStyle() { return this._stroke; },
     set lineWidth(value) { this._lw = value; }, get lineWidth() { return this._lw; },
@@ -160,6 +160,18 @@ const hit = dag.hitTestDag(scene, { x: target.x + 10, y: target.y + 10 });
 check('hit test finds the card under the cursor', hit?.id === 'n-01234', String(hit?.id));
 check('hit test misses the gap between cards', dag.hitTestDag(scene, { x: target.x + NODE_W + 20, y: target.y - 20 }) === null);
 check('hit test misses beyond the graph', dag.hitTestDag(scene, { x: -500, y: -500 }) === null);
+
+// Search highlight: one extra dashed ring, and only for the requested node.
+const plainCtx = recordingContext();
+dag.paintDag(plainCtx, scene, view, size, { theme, selectedId: null, hoverId: null, related: null });
+const hitCtx = recordingContext();
+dag.paintDag(hitCtx, scene, view, size, { theme, selectedId: null, hoverId: null, related: null, highlightId: 'n-01234' });
+check('a search hit paints exactly one extra ring', hitCtx.calls.stroke === plainCtx.calls.stroke + 1,
+  `${hitCtx.calls.stroke} vs ${plainCtx.calls.stroke}`);
+const missCtx = recordingContext();
+dag.paintDag(missCtx, scene, view, size, { theme, selectedId: null, hoverId: null, related: null, highlightId: 'n-missing' });
+check('an unknown highlight id paints no extra ring', missCtx.calls.stroke === plainCtx.calls.stroke,
+  `${missCtx.calls.stroke} vs ${plainCtx.calls.stroke}`);
 
 // --- mounted component: one canvas, one DOM card, no per-node DOM -----------
 const stub = recordingContext();

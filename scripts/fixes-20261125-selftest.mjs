@@ -56,4 +56,8 @@ check('shrinking releases the quota delta on the held record', /held\[key\] = Ma
 check('the service routes decreases to shrink and increases to requeue', /await runtime\.shrinkNeeds\(projectId, nodeId, checkedNeeds\.needs, 'needs_shrunk'\)/.test(service));
 check('lease TTL is configurable and swept with a warning before release', /leaseTtlMinutes: integer\(input\.leaseTtlMinutes/.test(service) && /async function sweepLeaseTtl\(nowMs = Date\.now\(\)\)/.test(runtime) && /node\/lease_idle_warning/.test(runtime) && /lease TTL expired/.test(runtime));
 
+check('canvas search box is wired to a centering lookup', /className: 'rl-canvas-search'/.test(client) && /const runSearch = React\.useCallback/.test(client) && /centerOnNode\(hit\.id\)/.test(client));
+check('search accepts id prefix and title fragments', /byId\(item\)\.startsWith\(query\)/.test(client) && /String\(item\?\.title \?\? ''\)\.toLowerCase\(\)\.includes\(query\)/.test(client));
+check('search has a highlight ring and shortcuts', /highlightId: searchHitId/.test(client) && /setLineDash/.test(client) && /event\.key === '\/'/.test(client));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

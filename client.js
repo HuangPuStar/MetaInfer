@@ -788,6 +788,11 @@ window.__ModuleLoader__.load({
       "ws.canvas.empty": "没有节点，检查项目状态后刷新。",
       "ws.canvas.fit": "适应画布",
       "ws.canvas.hint": "拖拽平移 · 滚轮缩放 · 点击节点查看详情",
+      "ws.canvas.searchPlaceholder": "搜索节点号 / 标题",
+      "ws.canvas.searchGo": "定位",
+      "ws.canvas.searchHint": "输入节点号（或标题片段）后回车定位；快捷键 / 或 Ctrl+F",
+      "ws.canvas.searchHit": "已定位 {id}",
+      "ws.canvas.searchMiss": "没有匹配的节点",
       "ws.canvas.label": "实验 DAG 画布",
       "ws.canvas.zoomIn": "放大",
       "ws.canvas.zoomOut": "缩小",
@@ -2567,6 +2572,11 @@ window.__ModuleLoader__.load({
       "ws.canvas.empty": "No nodes — check the project state and refresh.",
       "ws.canvas.fit": "Fit",
       "ws.canvas.hint": "Drag to pan · scroll to zoom · click a node for details",
+      "ws.canvas.searchPlaceholder": "Search node id or title",
+      "ws.canvas.searchGo": "Go",
+      "ws.canvas.searchHint": "Type a node id (or part of a title) and press Enter; shortcut / or Ctrl+F",
+      "ws.canvas.searchHit": "Located {id}",
+      "ws.canvas.searchMiss": "No matching node",
       "ws.canvas.label": "experiment DAG canvas",
       "ws.canvas.zoomIn": "Zoom in",
       "ws.canvas.zoomOut": "Zoom out",
@@ -4150,6 +4160,9 @@ window.__ModuleLoader__.load({
       '.rl-node-title { flex: 1 1 auto; min-width: 0; font-size: 12.5px; font-weight: 500; line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
       '.rl-node-sub { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
       '.rl-node-chips { display: flex; align-items: center; gap: 4px; margin-top: auto; overflow: hidden; }',
+      '.rl-canvas-search { box-sizing: border-box; width: 132px; height: 24px; padding: 0 8px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; font-size: 11px; line-height: 22px; }',
+      '.rl-canvas-search:focus { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }',
+      '.rl-canvas-search-note { position: absolute; top: 44px; right: 12px; z-index: 2; padding: 2px 8px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 16px; pointer-events: none; }',
       '.rl-canvas-toolbar { position: absolute; top: 12px; right: 12px; z-index: 2; display: flex; align-items: center; gap: 4px; padding: 3px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); }',
       '.rl-canvas-zoom { min-width: 40px; color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; text-align: center; }',
       '.rl-canvas-hint { position: absolute; bottom: 12px; left: 12px; z-index: 2; padding: 2px 8px; border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 16px; pointer-events: none; }',
@@ -13709,6 +13722,7 @@ window.__ModuleLoader__.load({
       const visible = visibleDagItems(scene, { zoom, pan }, size, pad);
       const selectedId = options.selectedId;
       const hoverId = options.hoverId;
+      const highlightId = options.highlightId ?? null;
       const related = options.related ?? null;
       const labelBudget = 1400;
       const detail = visible.items.length <= labelBudget && zoom >= 0.35;
@@ -13763,6 +13777,17 @@ window.__ModuleLoader__.load({
         ctx.lineWidth = Math.max((isSelected ? 2 : 1) / zoom, 0.75);
         roundRectPath(ctx, item.x, item.y, item.w, item.h, 8);
         ctx.stroke();
+        if (highlightId !== null && item.id === highlightId) {
+          // Search result ring: drawn outside the card so it survives the
+          // selected/hover styles and is visible at any zoom.
+          ctx.save();
+          if (typeof ctx.setLineDash === 'function') ctx.setLineDash([Math.max(6 / zoom, 4), Math.max(4 / zoom, 2)]);
+          ctx.strokeStyle = theme.accent;
+          ctx.lineWidth = Math.max(3 / zoom, 1.5);
+          roundRectPath(ctx, item.x - 4, item.y - 4, item.w + 8, item.h + 8, 11);
+          ctx.stroke();
+          ctx.restore();
+        }
         if (detail) {
           const fontSize = 11;
           ctx.font = '600 ' + fontSize + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -13797,6 +13822,12 @@ window.__ModuleLoader__.load({
         if (zoomTimerRef.current !== null) { clearTimeout(zoomTimerRef.current); zoomTimerRef.current = null; }
       }, []);
       const [hoverId, setHoverId] = React.useState(null);
+      // Node search: '#' jumps here, Enter selects + centers, the painter draws a
+      // dashed ring around the hit so a large DAG is navigable without scrolling.
+      const searchRef = React.useRef(null);
+      const [searchQuery, setSearchQuery] = React.useState('');
+      const [searchHitId, setSearchHitId] = React.useState(null);
+      const [searchNote, setSearchNote] = React.useState('');
       // Right-click menu: the inspector only carries details; node actions live
       // here so the side panel stops listing everything at once.
       const [menu, setMenu] = React.useState(null);
@@ -13836,6 +13867,7 @@ window.__ModuleLoader__.load({
           theme: dagTheme(),
           selectedId,
           hoverId: view.hoverId,
+          highlightId: searchHitId,
           related,
         });
         const stamp = Date.now();
@@ -13851,7 +13883,7 @@ window.__ModuleLoader__.load({
             setZoomPct(Math.round(viewRef.current.zoom * 100));
           }, 130);
         }
-      }, [selectedId, related]);
+      }, [selectedId, related, searchHitId]);
 
       const schedule = React.useCallback(() => {
         if (frameRef.current !== 0) return;
@@ -13903,6 +13935,71 @@ window.__ModuleLoader__.load({
         }
         schedule();
       }, [safeLayout, schedule]);
+
+      const centerOnNode = React.useCallback((nodeId) => {
+        const item = sceneRef.current?.byId?.get(nodeId);
+        const size = sizeRef.current;
+        if (!item || !(size.width > 0) || !(size.height > 0)) return false;
+        const view = viewRef.current;
+        const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.zoom));
+        view.zoom = zoom;
+        view.pan = {
+          x: size.width / 2 - (item.x + item.w / 2) * zoom,
+          y: size.height / 2 - (item.y + item.h / 2) * zoom,
+        };
+        schedule();
+        return true;
+      }, [schedule]);
+
+      const runSearch = React.useCallback(() => {
+        const query = String(searchQuery ?? '').trim().toLowerCase();
+        if (query === '') { setSearchHitId(null); setSearchNote(''); return; }
+        const items = sceneRef.current?.items ?? [];
+        const byId = (item) => String(item?.id ?? '').toLowerCase();
+        const hit = items.find((item) => byId(item) === query)
+          ?? items.find((item) => byId(item).startsWith(query))
+          ?? items.find((item) => String(item?.title ?? '').toLowerCase().includes(query));
+        if (!hit) {
+          setSearchHitId(null);
+          setSearchNote(t('ws.canvas.searchMiss'));
+          return;
+        }
+        setSearchHitId(hit.id);
+        setSearchNote(t('ws.canvas.searchHit', { id: hit.id }));
+        onSelect(hit.id);
+        centerOnNode(hit.id);
+      }, [searchQuery, centerOnNode, onSelect, t]);
+
+      React.useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const onKey = (event) => {
+          const target = event?.target;
+          const typing = target && typeof target.closest === 'function'
+            && target.closest('input, textarea, select, [contenteditable="true"]') !== null;
+          if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === 'f') {
+            if (searchRef.current === null) return;
+            event.preventDefault();
+            searchRef.current.focus();
+            searchRef.current.select?.();
+            return;
+          }
+          if (typing) return;
+          if (event.key === '/' || event.key === '#') {
+            if (searchRef.current === null) return;
+            event.preventDefault();
+            searchRef.current.focus();
+            return;
+          }
+          if (event.key === 'Escape' && searchRef.current !== null && document.activeElement === searchRef.current) {
+            setSearchQuery('');
+            setSearchHitId(null);
+            setSearchNote('');
+            searchRef.current.blur();
+          }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, []);
 
       React.useEffect(() => {
         if (fittedRef.current) return;
@@ -14212,6 +14309,22 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'rl-canvas-toolbar' },
+          h('input', {
+            ref: searchRef,
+            className: 'rl-canvas-search',
+            type: 'search',
+            value: searchQuery,
+            placeholder: t('ws.canvas.searchPlaceholder'),
+            'aria-label': t('ws.canvas.searchPlaceholder'),
+            title: t('ws.canvas.searchHint'),
+            onInput: (event) => setSearchQuery(event?.target?.value ?? ''),
+            onChange: (event) => setSearchQuery(event?.target?.value ?? ''),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter') { event.preventDefault(); runSearch(); }
+              if (event.key === 'Escape') { setSearchQuery(''); setSearchHitId(null); setSearchNote(''); }
+            },
+          }),
+          h(LabButton, { label: t('ws.canvas.searchGo'), variant: 'ghost', onClick: runSearch, title: t('ws.canvas.searchHint') }),
           typeof onToggleRail === 'function' ? h(LabButton, {
             label: t(railOpen === true ? 'ws.rail.hide' : 'ws.rail.show'),
             variant: railOpen === true ? 'primary' : 'ghost',
@@ -14223,6 +14336,7 @@ window.__ModuleLoader__.load({
           h('span', { className: 'rl-canvas-zoom' }, zoomPct + '%'),
           h(LabButton, { label: '－', variant: 'ghost', onClick: () => zoomBy(1 / 1.2), title: t('ws.canvas.zoomOut') }),
         ),
+        searchNote !== '' ? h('div', { className: 'rl-canvas-search-note' }, searchNote) : null,
         safeNodes.length > 0 ? h('div', { className: 'rl-canvas-hint' }, t('ws.canvas.hint')) : null,
         safeNodes.length === 0 ? h('div', { className: 'rl-canvas-empty' }, t('ws.canvas.empty')) : null,
 

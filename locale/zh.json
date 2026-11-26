@@ -1779,6 +1779,11 @@
     "ws.copilot.legacyTag": "[旧]",
     "ws.copilot.legacyOpenFailed": "这条旧会话无法在原生视图打开。",
     "log.type.node.retried": "节点重试",
-    "ws.merge.state.failed": "合并失败"
+    "ws.merge.state.failed": "合并失败",
+    "ws.canvas.searchPlaceholder": "搜索节点号 / 标题",
+    "ws.canvas.searchGo": "定位",
+    "ws.canvas.searchHint": "输入节点号（或标题片段）后回车定位；快捷键 / 或 Ctrl+F",
+    "ws.canvas.searchHit": "已定位 {id}",
+    "ws.canvas.searchMiss": "没有匹配的节点"
   }
 }
