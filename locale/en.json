@@ -1787,6 +1787,22 @@
     "ws.canvas.searchMiss": "No matching node",
     "ws.cancel.confirmTitle": "Stop the running node?",
     "ws.cancel.confirmBody": "This interrupts the current attempt and releases its resources; the node is marked cancelled and any commits already made are kept. Stop it?",
-    "ws.cancel.confirmLabel": "Stop node"
+    "ws.cancel.confirmLabel": "Stop node",
+    "ws.auto.waiting.generic": "Waiting",
+    "ws.auto.waiting.capacityFull": "Waiting for a free run slot",
+    "ws.auto.waiting.awaitingGpu": "Waiting for GPU quota",
+    "ws.auto.waiting.awaitingConfirmation": "Waiting for human confirmation",
+    "ws.auto.waiting.quota_backoff": "Quota backoff",
+    "error.code.human_confirmation_required": "This action needs a human confirmation; confirm it in the dialog and retry",
+    "error.code.claim_evidence_required": "This action needs more verified evidence before it can run",
+    "error.code.chief_confirmation_required": "This action still needs the chief confirmation",
+    "error.code.appeal_window_required": "The appeal window is still open; the action cannot run yet",
+    "error.code.needs_required": "This node must declare resource needs (or cpuOnly for a pure-CPU node)",
+    "error.code.needs_increase_requires_readmission": "A running node can only shrink resources; an increase requires re-admission",
+    "error.code.node_not_editable": "This node cannot be edited in its current state",
+    "error.code.git_missing": "Git was not found: install Git, or start DSH where git is on PATH",
+    "error.code.project_busy": "The project still has running nodes; stop them first",
+    "error.code.node_sealed": "This node already has children (sealed)",
+    "error.code.host_budget_held": "Budget or cleanup is still unresolved; the action is blocked"
   }
 }

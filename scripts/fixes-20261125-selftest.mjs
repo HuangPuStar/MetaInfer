@@ -66,4 +66,7 @@ check('humanDirect covers every irreversible action', /context\.humanDirect === 
 
 check('the project menu escapes the clipped topbar', /rl-topbar-menu-open/.test(client) && /projectMenuOpen \? 'rl-topbar rl-topbar-menu-open' : 'rl-topbar'/.test(client));
 
+check('waiting shows the Host reason instead of a flat approval message', /autoWaitingLabelKeyOf/.test(client) && /ws\.auto\.waiting\.capacityFull/.test(client) && /ws\.auto\.waiting\.awaitingGpu/.test(client));
+check('known gate errors get a human message', /KNOWN_ERROR_KEYS/.test(client) && /error\.code\.human_confirmation_required/.test(client));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

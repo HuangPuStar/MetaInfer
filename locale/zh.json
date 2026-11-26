@@ -1787,6 +1787,22 @@
     "ws.canvas.searchMiss": "没有匹配的节点",
     "ws.cancel.confirmTitle": "终止运行中的节点？",
     "ws.cancel.confirmBody": "这会中断当前尝试并释放它占用的资源，节点将记为已取消；已产生的提交会保留。确认终止吗？",
-    "ws.cancel.confirmLabel": "终止节点"
+    "ws.cancel.confirmLabel": "终止节点",
+    "ws.auto.waiting.generic": "等待中",
+    "ws.auto.waiting.capacityFull": "等待运行槽位释放",
+    "ws.auto.waiting.awaitingGpu": "等待 GPU 配额释放",
+    "ws.auto.waiting.awaitingConfirmation": "等待人工确认提案",
+    "ws.auto.waiting.quota_backoff": "配额退避中",
+    "error.code.human_confirmation_required": "这项操作需要人类确认，请在确认框中确认后重试",
+    "error.code.claim_evidence_required": "这项操作需要更多已验证证据才能执行",
+    "error.code.chief_confirmation_required": "这项操作还需要 chief 确认",
+    "error.code.appeal_window_required": "仍在申诉窗口期内，暂时不能执行",
+    "error.code.needs_required": "该节点必须声明资源需求（needs），或标记为纯 CPU（cpuOnly）",
+    "error.code.needs_increase_requires_readmission": "运行中只能缩减资源；增加资源需要重新准入（节点会重排）",
+    "error.code.node_not_editable": "该节点当前状态不允许编辑",
+    "error.code.git_missing": "找不到 Git：请安装 Git，或让 DSH 在包含 git 的环境里启动",
+    "error.code.project_busy": "项目里还有运行中的节点，先停止再操作",
+    "error.code.node_sealed": "该节点已有子节点（已封存）",
+    "error.code.host_budget_held": "资源预算或清理还没结算完，暂时不能操作"
   }
 }

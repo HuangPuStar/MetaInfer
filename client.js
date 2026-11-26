@@ -783,6 +783,22 @@ window.__ModuleLoader__.load({
       "ws.auto.tokens": "tokens {used}/{max}",
       "ws.auto.viewPending": "查看待确认",
       "ws.auto.waiting": "等待人工确认",
+      "ws.auto.waiting.generic": "等待中",
+      "ws.auto.waiting.capacityFull": "等待运行槽位释放",
+      "ws.auto.waiting.awaitingGpu": "等待 GPU 配额释放",
+      "ws.auto.waiting.awaitingConfirmation": "等待人工确认提案",
+      "ws.auto.waiting.quota_backoff": "配额退避中",
+      "error.code.human_confirmation_required": "这项操作需要人类确认，请在确认框中确认后重试",
+      "error.code.claim_evidence_required": "这项操作需要更多已验证证据才能执行",
+      "error.code.chief_confirmation_required": "这项操作还需要 chief 确认",
+      "error.code.appeal_window_required": "仍在申诉窗口期内，暂时不能执行",
+      "error.code.needs_required": "该节点必须声明资源需求（needs），或标记为纯 CPU（cpuOnly）",
+      "error.code.needs_increase_requires_readmission": "运行中只能缩减资源；增加资源需要重新准入（节点会重排）",
+      "error.code.node_not_editable": "该节点当前状态不允许编辑",
+      "error.code.git_missing": "找不到 Git：请安装 Git，或让 DSH 在包含 git 的环境里启动",
+      "error.code.project_busy": "项目里还有运行中的节点，先停止再操作",
+      "error.code.node_sealed": "该节点已有子节点（已封存）",
+      "error.code.host_budget_held": "资源预算或清理还没结算完，暂时不能操作",
       "ws.back": "← 项目列表",
       "ws.busy": "执行中…",
       "ws.canvas.empty": "没有节点，检查项目状态后刷新。",
@@ -2570,6 +2586,22 @@ window.__ModuleLoader__.load({
       "ws.auto.tokens": "tokens {used}/{max}",
       "ws.auto.viewPending": "View pending proposals",
       "ws.auto.waiting": "Waiting for approval",
+      "ws.auto.waiting.generic": "Waiting",
+      "ws.auto.waiting.capacityFull": "Waiting for a free run slot",
+      "ws.auto.waiting.awaitingGpu": "Waiting for GPU quota",
+      "ws.auto.waiting.awaitingConfirmation": "Waiting for human confirmation",
+      "ws.auto.waiting.quota_backoff": "Quota backoff",
+      "error.code.human_confirmation_required": "This action needs a human confirmation; confirm it in the dialog and retry",
+      "error.code.claim_evidence_required": "This action needs more verified evidence before it can run",
+      "error.code.chief_confirmation_required": "This action still needs the chief confirmation",
+      "error.code.appeal_window_required": "The appeal window is still open; the action cannot run yet",
+      "error.code.needs_required": "This node must declare resource needs (or cpuOnly for a pure-CPU node)",
+      "error.code.needs_increase_requires_readmission": "A running node can only shrink resources; an increase requires re-admission",
+      "error.code.node_not_editable": "This node cannot be edited in its current state",
+      "error.code.git_missing": "Git was not found: install Git, or start DSH where git is on PATH",
+      "error.code.project_busy": "The project still has running nodes; stop them first",
+      "error.code.node_sealed": "This node already has children (sealed)",
+      "error.code.host_budget_held": "Budget or cleanup is still unresolved; the action is blocked",
       "ws.back": "← Projects",
       "ws.busy": "Working…",
       "ws.canvas.empty": "No nodes — check the project state and refresh.",
@@ -4813,8 +4845,30 @@ window.__ModuleLoader__.load({
     }
 
     /** Turn a thrown value into one localized, actionable line. */
+    const KNOWN_ERROR_KEYS = Object.freeze({
+      human_confirmation_required: 'error.code.human_confirmation_required',
+      claim_evidence_required: 'error.code.claim_evidence_required',
+      chief_confirmation_required: 'error.code.chief_confirmation_required',
+      appeal_window_required: 'error.code.appeal_window_required',
+      needs_required: 'error.code.needs_required',
+      needs_increase_requires_readmission: 'error.code.needs_increase_requires_readmission',
+      node_not_editable: 'error.code.node_not_editable',
+      git_missing: 'error.code.git_missing',
+      project_busy: 'error.code.project_busy',
+      node_sealed: 'error.code.node_sealed',
+      host_budget_held: 'error.code.host_budget_held',
+    });
+    function knownErrorTextOf(error, t) {
+      const code = error && typeof error.code === 'string' ? error.code : '';
+      const key = KNOWN_ERROR_KEYS[code];
+      if (!key) return '';
+      const text = t(key);
+      return text === key ? '' : text;
+    }
     function describeError(error, t) {
       if (operatorCredentialIssueOf(error)) return operatorCredentialMessage(t);
+      const known = knownErrorTextOf(error, t);
+      if (known !== '') return known;
       const nextStep = nextStepOf(error);
       if (nextStep !== '') return t('error.nextStep', { nextStep });
       if (error instanceof LabRequestError) return error.message || t('error.unknown');
@@ -6740,6 +6794,14 @@ window.__ModuleLoader__.load({
     function autoPauseLabelKeyOf(reason) {
       const known = ['maxCycles', 'maxWallClock', 'maxNodes', 'noProgress', 'idle', 'errors', 'awaitingConfirmation', 'hostRestarted', 'maxTokens', 'maxCost', 'resourcesQueued'];
       return known.indexOf(reason) >= 0 ? 'ws.auto.pause.' + reason : 'ws.auto.pause.unknown';
+    }
+    /** Waiting is not always "waiting for a human": map the Host reason. */
+    function autoWaitingLabelKeyOf(reason) {
+      const known = ['capacityFull', 'awaitingGpu', 'awaitingConfirmation', 'quota_backoff'];
+      return known.indexOf(reason) >= 0 ? 'ws.auto.waiting.' + reason : 'ws.auto.waiting.generic';
+    }
+    function autoWaitingReasonOf(auto) {
+      return String(asObject(asObject(auto).state).pauseReason ?? asObject(auto).pauseReason ?? '');
     }
     function autoLimitsOf(auto, project) {
       const limits = asObject(asObject(auto).limits);
@@ -13105,9 +13167,10 @@ window.__ModuleLoader__.load({
       const status = autoStatusOf(auto);
       const maxNodes = Math.round(projectMaxNodes(project));
       const reason = status === 'paused' ? t(autoPauseLabelKeyOf(autoPauseReasonOf(auto))) : '';
+      const waitingText = t(autoWaitingLabelKeyOf(autoWaitingReasonOf(auto)));
       const statusText = status === 'off' ? t('ws.mode.manual')
         : status === 'running' ? t('ws.auto.running')
-          : status === 'paused' ? t('ws.auto.paused') : t('ws.auto.waiting');
+          : status === 'paused' ? t('ws.auto.paused') : status === 'waiting' ? waitingText : t('ws.auto.waiting.generic');
       return h(
         'button',
         {
@@ -17278,7 +17341,7 @@ window.__ModuleLoader__.load({
         label = t('ws.auto.paused');
         meta = t(autoPauseLabelKeyOf(autoPauseReasonOf(auto)));
       } else {
-        label = t('ws.auto.waiting');
+        label = t(autoWaitingLabelKeyOf(autoWaitingReasonOf(auto)));
         meta = t('ws.auto.viewPending') + ' ' + String(pendingProposals);
       }
       meta = (meta ? meta : '') + tokensText + costText;
