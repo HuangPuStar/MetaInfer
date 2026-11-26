@@ -569,7 +569,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
         if (active.has(key)) continue;
         const last = Number(stored.timestamps?.lastActivityAt ?? stored.timestamps?.startedAt ?? nowMs);
         const idleMs = Math.max(0, nowMs - last);
-        if (idleMs < ttlMs * 2) continue;
+        if (idleMs < ttlMs) continue;
         const next = structuredClone(stored);
         const attempt = Array.isArray(next.attempts) ? next.attempts[next.attempts.length - 1] : null;
         if (attempt && !attempt.endedAt) { attempt.endedAt = nowMs; attempt.status = 'failed'; attempt.stopReason = 'ghost'; }
@@ -601,10 +601,11 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
   }
 
   /**
-   * L2-3: lease TTL sweep. A running attempt with no recorded activity for
-   * `config.leaseTtlMinutes` gets one warning; twice that idle time releases the
-   * reservation (the attempt is terminated as a failure). Sandbox nodes are
-   * skipped: their leases belong to the remote backend and need its own expiry.
+   * L2-3: lease TTL sweep. A running attempt with no recorded activity for two
+   * thirds of `config.leaseTtlMinutes` (default 30 -> 20 min) gets one warning;
+   * the TTL itself (30 min) releases the reservation (the attempt is terminated
+   * as a failure). Sandbox nodes are skipped: their leases belong to the remote
+   * backend and need its own expiry.
    */
   async function sweepLeaseTtl(nowMs = Date.now()) {
     const outcomes = [];
@@ -620,9 +621,12 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
       } catch { continue; }
       const ttlMs = ttlMinutes * 60_000;
       if (!Number.isFinite(ttlMs) || ttlMs <= 0) continue;
+      // Warn at 2/3 of the TTL and release at the TTL itself (default: 20 min and
+      // 30 min), so an idle reservation is reclaimed within one TTL window.
+      const warnMs = Math.round(ttlMs * 2 / 3);
       const last = Number(node.timestamps?.lastActivityAt ?? node.timestamps?.startedAt ?? nowMs);
       const idleMs = Math.max(0, nowMs - last);
-      if (idleMs < ttlMs) continue;
+      if (idleMs < warnMs) continue;
       if (!node.leaseTtlWarning) {
         try {
           await hostChange(entry, 'node/lease_idle_warning', (n) => {
@@ -633,7 +637,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
         } catch { /* an owner change is handled by the next sweep */ }
         continue;
       }
-      if (idleMs < ttlMs * 2) continue;
+      if (idleMs < ttlMs) continue;
       try {
         await hostEnd(entry, 'failure', { message: `lease TTL expired: no activity for ${Math.round(idleMs / 60000)} min; the reservation is released` });
         outcomes.push({ projectId: entry.projectId, nodeId: entry.nodeId, action: 'released', idleMs });

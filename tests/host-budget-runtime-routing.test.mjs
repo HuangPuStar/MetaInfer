@@ -113,17 +113,30 @@ test('a running node without a Host attempt is reaped as a ghost', async () => {
   await f.runtime.dispose();
 });
 
+test('a ghost younger than one TTL is not reaped yet', async () => {
+  const f = fixture();
+  const startedAt = Date.now() - 10 * 60_000;
+  f.replace({ status: 'running', currentAttempt: 1, timestamps: { startedAt, lastActivityAt: startedAt } });
+  const outcomes = await f.runtime.sweepGhostAttempts(Date.now());
+  assert.deepEqual(outcomes, []);
+  assert.equal(f.node.status, 'running');
+  await f.runtime.dispose();
+});
+
 test('lease TTL warns once, then releases an idle attempt', async () => {
-  // start() records lastActivityAt=now; sweep with a synthetic future clock.
+  // start() records lastActivityAt=now; sweep with synthetic clocks.
+  // Default TTL is 30 min: warn at 20 min (2/3), release at 30 min.
   const f = fixture();
   await f.grant();
-  const t0 = Date.now() + 31 * 60_000;
-  const first = await f.runtime.sweepLeaseTtl(t0);
-  assert.equal(first[0]?.action, 'warned');
+  const base = Date.now();
+  assert.deepEqual(await f.runtime.sweepLeaseTtl(base + 19 * 60_000), []);
+  const warned = await f.runtime.sweepLeaseTtl(base + 20 * 60_000 + 1000);
+  assert.equal(warned[0]?.action, 'warned');
   assert.ok(f.node.leaseTtlWarning);
   assert.equal(f.node.status, 'running');
-  const second = await f.runtime.sweepLeaseTtl(t0 + 31 * 60_000);
-  assert.equal(second[0]?.action, 'released');
+  assert.deepEqual(await f.runtime.sweepLeaseTtl(base + 29 * 60_000), []);
+  const released = await f.runtime.sweepLeaseTtl(base + 30 * 60_000 + 1000);
+  assert.equal(released[0]?.action, 'released');
   assert.equal(f.node.status, 'failed');
   assert.match(String(f.node.error?.message ?? ''), /lease TTL expired/);
   await f.runtime.dispose();
