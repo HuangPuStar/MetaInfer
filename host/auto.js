@@ -387,7 +387,6 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
   async function start(projectId) {
     const project = projectOf(projectId);
     const state = stateOf(projectId);
-    const wasWallClock = state.pauseReason === 'maxWallClock';
     state.status = 'running';
     state.pauseReason = null;
     state.startedAt = Date.now();
@@ -436,6 +435,9 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
   async function resume(projectId) {
     const state = stateOf(projectId);
     if (state.status === 'off') return start(projectId);
+    // Read the reason BEFORE clearing it: a maxWallClock pause means the window
+    // is used up, so resume must start a new window.
+    const wasWallClock = state.pauseReason === 'maxWallClock';
     state.status = 'running';
     state.pauseReason = null;
     state.blockedBy = [];

@@ -85,4 +85,7 @@ check('a saved role effort reaches the model ref', /models\[role\] = \{ provider
 check('needs keys are validated against the project pools in the service path', /unknown resource: \$\{name\} \(available:/.test(service));
 check('a project can forbid multi-parent merges', /mergePolicy: \{/.test(service) && /merge_disabled/.test(service) && /merge_disabled/.test(orch));
 
+check('auto resume reads wasWallClock before clearing the reason', /const wasWallClock = state\.pauseReason === 'maxWallClock';/.test(read('host/auto.js')) && /if \(wasWallClock \|\| !state\.startedAt\) state\.startedAt = Date\.now\(\);/.test(read('host/auto.js')));
+check('needs.machines without a fleet fails fast', /fleet_unavailable/.test(service) && /no fleet inventory is registered/.test(service));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

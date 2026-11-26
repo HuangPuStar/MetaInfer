@@ -2329,6 +2329,21 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   async function startNode(projectId, nodeId) {
+    // U6: a node that asks for machines cannot be satisfied without a fleet
+    // inventory. Fail fast instead of parking the project in capacityFull/waiting.
+    const node = requireNode(projectId, nodeId);
+    if (Number(node?.needs?.machines ?? 0) > 0) {
+      let status = null;
+      try { status = cluster ? cluster.getStatus() : null; } catch { status = null; }
+      const fleet = Array.isArray(status?.fleet?.machines) ? status.fleet.machines : [];
+      const machines = Array.isArray(status?.machines) ? status.machines : [];
+      const fleetEnabled = status?.fleet?.enabled === true || status?.enabled === true;
+      if (!fleetEnabled || (fleet.length === 0 && machines.length === 0)) {
+        throw new LabError('fleet_unavailable',
+          `node ${nodeId} requests needs.machines=${node.needs.machines} but no fleet inventory is registered (cluster disabled or fleet.machines empty); remove the machines requirement or register the fleet`,
+          409);
+      }
+    }
     return runtime.start(projectId, nodeId);
   }
 

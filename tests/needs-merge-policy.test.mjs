@@ -57,3 +57,32 @@ test('mergePolicy.allowed=false rejects create_merge with an actionable error', 
   );
   await store.close();
 });
+
+test('needs.machines without a fleet inventory fails fast instead of parking', async () => {
+  const store = await openStore(storeContext(memoryDomain()));
+  const kernel = createKernel({ store });
+  const projectId = 'fleet-probe-p';
+  await store.saveProject({
+    id: projectId, revision: 0, counters: { eventSeq: 0 },
+    config: { maxRunningNodes: 2, resourcePools: { gpu: 4 }, maxNodes: 20 },
+    createdAt: 0, updatedAt: 0,
+  });
+  kernel.load(projectId);
+  await store.saveNode(projectId, {
+    id: 'n-0001', projectId, title: 'fleet node', status: 'planned',
+    needs: { machines: 1 }, git: { worktreePath: '/nonexistent', branch: 'b', baseCommit: 'x' },
+    timestamps: { createdAt: 1 },
+  });
+  const service = createLabService({
+    ctx: { effect: () => {}, get: () => null, logger: { info() {}, warn() {} } },
+    store, kernel, git: null, runtime: { start: async () => ({ started: true }) },
+    transcript: null, orchestrator: null, auto: null,
+    cluster: { getStatus: () => ({ enabled: false, fleet: { enabled: false, machines: [] } }) },
+    clusterAdmin: null,
+  });
+  await assert.rejects(
+    () => service.startNode(projectId, 'n-0001'),
+    (error) => error?.code === 'fleet_unavailable' && /fleet inventory/.test(error.message),
+  );
+  await store.close();
+});
