@@ -2959,6 +2959,11 @@ export function createOrchestrator({ ctx, store, git, runtime, cluster, kernel }
 
   /** Create a multi-parent merge node and freeze/seal every parent commit. */
   async function createMergeNode(projectId, input) {
+    if (requireProject(projectId).config?.mergePolicy?.allowed === false) {
+      throw new LabError('merge_disabled',
+        'this project forbids multi-parent merges (config.mergePolicy.allowed=false); use a single-parent successor and synthesise the result in the report instead',
+        409);
+    }
     let validatedModel = null;
     if (input?.model !== undefined) {
       const candidate = cleanModelRef(input.model);

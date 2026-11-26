@@ -114,6 +114,8 @@ function normalizeNeeds(raw, project) {
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     return { needs: {}, error: 'needs must be an object like {"gpu": 1}' };
   }
+  const pools = project?.config?.resourcePools ?? {};
+  const available = Object.keys(pools);
   const needs = {};
   for (const [key, value] of Object.entries(raw)) {
     const name = String(key).trim();
@@ -125,9 +127,26 @@ function normalizeNeeds(raw, project) {
       return { needs: {}, error: `resource ${name} must be an integer 0..64` };
     }
     if (amount === 0) continue;
+    if (name === 'machines') {
+      if (amount < 1 || amount > 8) return { needs: {}, error: 'needs[machines] must be 1..8' };
+      needs.machines = amount;
+      continue;
+    }
+    // Validate against the project pools here too: the scheduling/capacity layer
+    // only knows pool keys, so an unknown key used to be accepted and then never
+    // gated anything (it looked like the platform silently dropped it).
+    if (!(name in pools)) {
+      return {
+        needs: {},
+        error: `unknown resource: ${name} (available: ${available.length > 0 ? available.join(', ') : 'none'}; add it to config.resourcePools or omit needs)`,
+      };
+    }
+    const total = Number(pools[name] ?? 0);
+    if (amount > total) {
+      return { needs: {}, error: `needs ${name}=${amount} exceeds pool ${name}=${total}` };
+    }
     needs[name] = amount;
   }
-  void project;
   return { needs, error: null };
 }
 
@@ -189,6 +208,14 @@ function normalizeConfig(raw, base = undefined, { allowMigration = false } = {})
     // L2-3: a reservation that shows no activity for this long gets a warning,
     // and twice this long without activity releases it. 0 disables the sweep.
     leaseTtlMinutes: integer(input.leaseTtlMinutes, 'config.leaseTtlMinutes', previous.leaseTtlMinutes ?? 30, 0, 1440),
+    // Multi-parent Join can silently merge only the first parent on some Git
+    // versions; a project may forbid it entirely and use single-parent
+    // successors with document-level synthesis instead.
+    mergePolicy: {
+      allowed: input.mergePolicy?.allowed === undefined
+        ? (previous.mergePolicy?.allowed !== false)
+        : input.mergePolicy.allowed === true,
+    },
     diskPolicy: {
       maxUntrackedMb: integer(input.diskPolicy?.maxUntrackedMb, 'config.diskPolicy.maxUntrackedMb', previous.diskPolicy?.maxUntrackedMb ?? 200, 0, 1_000_000),
       maxFileMb: integer(input.diskPolicy?.maxFileMb, 'config.diskPolicy.maxFileMb', previous.diskPolicy?.maxFileMb ?? 100, 1, 100_000),
@@ -3801,6 +3828,11 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
   }
 
   async function createMergeNode(projectId, input) {
+    if (requireProject(projectId).config?.mergePolicy?.allowed === false) {
+      throw new LabError('merge_disabled',
+        'this project forbids multi-parent merges (config.mergePolicy.allowed=false); use a single-parent successor and synthesise the result in the report instead',
+        409);
+    }
     if (!orchestrator) throw new LabError('unavailable', 'orchestrator is not wired', 503);
     return orchestrator.createMergeNode(projectId, input);
   }

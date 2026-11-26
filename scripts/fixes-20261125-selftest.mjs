@@ -82,4 +82,7 @@ check('the settings page can pin a role thinking effort', /modelField\('worker',
 check('models.defaultEffort defaults to max and degrades gracefully', /models\.defaultEffort = .*\?\? 'max'/.test(service) && /projectDefaultEffort/.test(read('host/models.js')) && /effortFallbackFrom/.test(read('host/models.js')));
 check('a saved role effort reaches the model ref', /models\[role\] = \{ provider: p, model: m, \.\.\.\(e \? \{ reasoningEffort: e \} : \{\}\) \}/.test(client));
 
+check('needs keys are validated against the project pools in the service path', /unknown resource: \$\{name\} \(available:/.test(service));
+check('a project can forbid multi-parent merges', /mergePolicy: \{/.test(service) && /merge_disabled/.test(service) && /merge_disabled/.test(orch));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);
