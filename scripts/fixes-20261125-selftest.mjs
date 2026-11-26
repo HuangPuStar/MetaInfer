@@ -51,5 +51,9 @@ check('roster resolution never invents a provider', !/\?\? 'deepseek'/.test(acti
 check('registered provider routes are enumerable', /export async function registeredProviderIds\(ctx\)/.test(models));
 check('an unregistered expert provider falls back to the project/default model', /provider "\$\{expert\.model\?\.provider\}" is not registered/.test(orch));
 check('hiring without an explicit model stores no model override', /provider && model \? \{ provider, model \} : \{\}/.test(service));
+check('running needs can shrink in place', /async function shrinkNeeds\(projectId, nodeId, needs, reason = 'needs_shrunk'\)/.test(runtime) && /needs_increase_requires_readmission/.test(runtime));
+check('shrinking releases the quota delta on the held record', /held\[key\] = Math\.max\(0, Number\(held\[key\] \?\? 0\) - released\)/.test(runtime));
+check('the service routes decreases to shrink and increases to requeue', /await runtime\.shrinkNeeds\(projectId, nodeId, checkedNeeds\.needs, 'needs_shrunk'\)/.test(service));
+check('lease TTL is configurable and swept with a warning before release', /leaseTtlMinutes: integer\(input\.leaseTtlMinutes/.test(service) && /async function sweepLeaseTtl\(nowMs = Date\.now\(\)\)/.test(runtime) && /node\/lease_idle_warning/.test(runtime) && /lease TTL expired/.test(runtime));
 
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

@@ -186,6 +186,9 @@ function normalizeConfig(raw, base = undefined, { allowMigration = false } = {})
     clusterPriority: integer(input.clusterPriority, 'config.clusterPriority', previous.clusterPriority ?? 0, 0, 100),
     nodeTimeoutMinutes,
     maxNodeTimeoutMinutes,
+    // L2-3: a reservation that shows no activity for this long gets a warning,
+    // and twice this long without activity releases it. 0 disables the sweep.
+    leaseTtlMinutes: integer(input.leaseTtlMinutes, 'config.leaseTtlMinutes', previous.leaseTtlMinutes ?? 30, 0, 1440),
     workerSandboxMode,
     execution: {
       profiles: previous.execution?.profiles ?? { ...DEFAULT_EXECUTION_PROFILES },
@@ -2185,14 +2188,27 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const preProject = requireProject(projectId);
     const preNode = requireNode(projectId, nodeId);
     if (input?.needs !== undefined && preNode.status === 'running') {
-      if (typeof runtime?.requeueWithNeeds !== 'function') {
-        throw new LabError('unavailable', 'runtime cannot requeue this node', 503);
-      }
       const checkedNeeds = normalizeNeeds(input.needs, preProject);
       if (checkedNeeds.error) throw new LabError('bad_request', checkedNeeds.error, 400);
-      const requeued = await runtime.requeueWithNeeds(projectId, nodeId, checkedNeeds.needs, 'needs_changed');
-      if (requeued?.ok !== true) {
-        throw new LabError(requeued?.code ?? 'requeue_failed', requeued?.message ?? 'needs change could not be applied', 409);
+      const sandboxed = Boolean(preNode.sandbox || preNode.execution?.sandboxProfile);
+      // L2-2: shrinking a reservation never needs a new admission. Release the
+      // delta in place so the quota is usable immediately; only an increase
+      // requires re-admission (terminate + requeue).
+      const increases = Object.keys(checkedNeeds.needs)
+        .some((key) => Number(checkedNeeds.needs[key] ?? 0) > Number(preNode.needs?.[key] ?? 0));
+      if (!increases && !sandboxed && typeof runtime?.shrinkNeeds === 'function') {
+        const shrunk = await runtime.shrinkNeeds(projectId, nodeId, checkedNeeds.needs, 'needs_shrunk');
+        if (shrunk?.ok !== true) {
+          throw new LabError(shrunk?.code ?? 'needs_shrink_failed', shrunk?.message ?? 'needs could not be shrunk', 409);
+        }
+      } else {
+        if (typeof runtime?.requeueWithNeeds !== 'function') {
+          throw new LabError('unavailable', 'runtime cannot requeue this node', 503);
+        }
+        const requeued = await runtime.requeueWithNeeds(projectId, nodeId, checkedNeeds.needs, 'needs_changed');
+        if (requeued?.ok !== true) {
+          throw new LabError(requeued?.code ?? 'requeue_failed', requeued?.message ?? 'needs change could not be applied', 409);
+        }
       }
     }
 

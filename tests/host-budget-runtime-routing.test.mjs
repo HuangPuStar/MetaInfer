@@ -88,6 +88,34 @@ test('false worker report is never promoted by successful cleanup', async () => 
 test('wrong branch fails closed but still goes through cleanup', async () => {
   const f = fixture({ branch: 'foreign' }); await f.grant(); await f.finish(); await f.wait('finalize'); assert.equal(f.node.status, 'failed'); assert.equal(f.node.report, null); assert.ok(!f.calls.includes('commit')); await f.runtime.dispose();
 });
+test('shrinking needs on a running node releases quota in place', async () => {
+  const f = fixture(); await f.grant();
+  const result = await f.runtime.shrinkNeeds('p', 'n', {});
+  assert.equal(result.ok, true);
+  assert.equal(f.node.status, 'running');
+  assert.deepEqual(f.node.needs, {});
+  assert.deepEqual(f.node.resourcesHeld, { gpu: 0 });
+  assert.ok(f.commits.some((spec) => spec.mutations.some((m) => m.eventType === 'node/needs_shrunk')));
+  await assert.rejects(() => f.runtime.shrinkNeeds('p', 'n', { gpu: 4 }), /readmission|increase/i);
+  await f.runtime.dispose();
+});
+
+test('lease TTL warns once, then releases an idle attempt', async () => {
+  // start() records lastActivityAt=now; sweep with a synthetic future clock.
+  const f = fixture();
+  await f.grant();
+  const t0 = Date.now() + 31 * 60_000;
+  const first = await f.runtime.sweepLeaseTtl(t0);
+  assert.equal(first[0]?.action, 'warned');
+  assert.ok(f.node.leaseTtlWarning);
+  assert.equal(f.node.status, 'running');
+  const second = await f.runtime.sweepLeaseTtl(t0 + 31 * 60_000);
+  assert.equal(second[0]?.action, 'released');
+  assert.equal(f.node.status, 'failed');
+  assert.match(String(f.node.error?.message ?? ''), /lease TTL expired/);
+  await f.runtime.dispose();
+});
+
 test('changing needs on a running node requeues it with the new resources', async () => {
   const f = fixture(); await f.grant();
   const result = await f.runtime.requeueWithNeeds('p', 'n', { gpu: 2 });

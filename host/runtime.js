@@ -460,6 +460,87 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
     return entry.terminating;
   }
   /**
+   * L2-2: shrink a running node's reservation in place. Only decreases are
+   * accepted (an increase needs a new admission, see requeueWithNeeds); the
+   * freed quota is immediately visible to capacity/compute pickers because the
+   * pool is computed from `resourcesHeld`.
+   */
+  async function shrinkNeeds(projectId, nodeId, needs, reason = 'needs_shrunk') {
+    const current = requireNode(projectId, nodeId);
+    if (current.status !== 'running') throw new LabError('node_not_running', `node ${nodeId} is ${current.status}`, 409);
+    const before = { ...(current.needs ?? {}) };
+    const increases = Object.keys(needs ?? {}).some((key) => Number(needs[key] ?? 0) > Number(before[key] ?? 0));
+    if (increases) {
+      throw new LabError('needs_increase_requires_readmission',
+        'needs may only shrink while the node is running; an increase needs a new admission', 409);
+    }
+    const next = structuredClone(current);
+    next.needs = { ...needs };
+    if (next.resourcesHeld !== undefined) {
+      const held = { ...next.resourcesHeld };
+      for (const key of Object.keys(held)) {
+        const released = Math.max(0, Number(before[key] ?? 0) - Number(needs?.[key] ?? 0));
+        // Keep the key at 0 instead of deleting it: release/cleanup paths treat
+        // a missing resourcesHeld as "no reservation" and would skip the
+        // hand-back of the raw lease.
+        held[key] = Math.max(0, Number(held[key] ?? 0) - released);
+      }
+      next.resourcesHeld = held;
+    }
+    const result = await kernel.executor.commit(projectId, {
+      actor: { kind: 'system', id: 'lease' },
+      causeId: `shrink:${nodeId}`,
+      ...(Number.isInteger(next.rev) ? { basis: next.rev } : {}),
+      mutations: [{ op: 'node.put', nodeId, node: next, eventType: 'node/needs_shrunk',
+        eventData: { reason, before, after: next.needs, released: Object.keys(before).filter((key) => Number(before[key] ?? 0) > Number(needs?.[key] ?? 0)) } }],
+    });
+    if (result.ok !== true) throw new LabError(result.code ?? 'needs_shrink_failed', result.message ?? 'shrink failed', 409);
+    return { ok: true, node: hostCopy(requireNode(projectId, nodeId)), revision: requireProject(projectId).revision };
+  }
+
+  /**
+   * L2-3: lease TTL sweep. A running attempt with no recorded activity for
+   * `config.leaseTtlMinutes` gets one warning; twice that idle time releases the
+   * reservation (the attempt is terminated as a failure). Sandbox nodes are
+   * skipped: their leases belong to the remote backend and need its own expiry.
+   */
+  async function sweepLeaseTtl(nowMs = Date.now()) {
+    const outcomes = [];
+    for (const [key, entry] of [...active.entries()]) {
+      if (!entry || entry.phase !== 'running') continue;
+      let node;
+      try { node = hostCopy(requireNode(entry.projectId, entry.nodeId)); } catch { continue; }
+      if (node.sandbox || needsSandbox(node)) continue;
+      let ttlMinutes = 30;
+      try {
+        const project = requireProject(entry.projectId);
+        ttlMinutes = Number(project.config?.leaseTtlMinutes ?? 30);
+      } catch { continue; }
+      const ttlMs = ttlMinutes * 60_000;
+      if (!Number.isFinite(ttlMs) || ttlMs <= 0) continue;
+      const last = Number(node.timestamps?.lastActivityAt ?? node.timestamps?.startedAt ?? nowMs);
+      const idleMs = Math.max(0, nowMs - last);
+      if (idleMs < ttlMs) continue;
+      if (!node.leaseTtlWarning) {
+        try {
+          await hostChange(entry, 'node/lease_idle_warning', (n) => {
+            n.timestamps = { ...(n.timestamps ?? {}), lastActivityAt: n.timestamps?.lastActivityAt ?? nowMs };
+            n.leaseTtlWarning = { at: nowMs, idleMs, ttlMs };
+          });
+          outcomes.push({ projectId: entry.projectId, nodeId: entry.nodeId, action: 'warned', idleMs });
+        } catch { /* an owner change is handled by the next sweep */ }
+        continue;
+      }
+      if (idleMs < ttlMs * 2) continue;
+      try {
+        await hostEnd(entry, 'failure', { message: `lease TTL expired: no activity for ${Math.round(idleMs / 60000)} min; the reservation is released` });
+        outcomes.push({ projectId: entry.projectId, nodeId: entry.nodeId, action: 'released', idleMs });
+      } catch { /* hostEnd reports its own result */ }
+    }
+    return outcomes;
+  }
+
+  /**
    * Apply new resource needs to a running node by re-admitting it: the current
    * attempt is terminated (audited), the node goes back to planned with the new
    * needs, and the scheduler/admission will acquire the right resources.
@@ -2807,10 +2888,17 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
     deadlines.clear();
   }
 
+  // L2-3 sweep: warning at ttl, release at 2x ttl. Cheap and idempotent.
+  const leaseTtlTimer = setInterval(() => { void sweepLeaseTtl().catch(() => {}); }, 60_000);
+  leaseTtlTimer.unref?.();
+  lifetime.signal.addEventListener('abort', () => clearInterval(leaseTtlTimer), { once: true });
+
   return {
     start,
     cancel,
     requeueWithNeeds,
+    shrinkNeeds,
+    sweepLeaseTtl,
     message,
     retry,
     escalate,
