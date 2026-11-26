@@ -42,6 +42,23 @@ test('a local running node is requeued, not failed, after a Host restart', async
   assert.equal(event.eventData.requeued, true);
 });
 
+test('stale local ownership on a planned node is cleared at boot', async () => {
+  const f = setup({
+    id: 'n', projectId: 'p', status: 'planned', currentAttempt: 0,
+    claim: { decisionId: 'old' }, admission: { leaseId: 'old-lease' },
+    hostBudgetReservation: { reservationId: 'old-res' },
+    resourcesHeld: { gpu: 2 },
+  });
+  const reconciled = await reconcileRunningNodes(f);
+  assert.deepEqual(reconciled, ['p/n']);
+  assert.equal(f.node.status, 'planned');
+  assert.equal(f.node.claim, undefined);
+  assert.equal(f.node.admission, undefined);
+  assert.equal(f.node.hostBudgetReservation, undefined);
+  assert.equal(f.node.resourcesHeld, undefined);
+  assert.equal(f.commits[0].mutations[0].eventType, 'node/ownership_cleared');
+});
+
 test('a remote running node still fails into the sandbox hold', async () => {
   const f = setup(remote());
   await reconcileRunningNodes(f);

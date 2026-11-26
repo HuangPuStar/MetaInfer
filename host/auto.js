@@ -31,6 +31,20 @@ function leadFailureRetryable(errorText) {
 }
 
 export const QUOTA_BACKOFF_THRESHOLD_MS = 10 * 60_000;
+
+/** Local midnight after `now`: providers that answer "resets next day 0:00". */
+function nextLocalMidnight(now = Date.now()) {
+  const next = new Date(now);
+  next.setHours(24, 0, 5, 0);
+  return next.getTime();
+}
+
+/** Quota exhaustion is a pause-until-reset signal, not a generic error. */
+function quotaFailureOf(code, text) {
+  if (String(code ?? '') === 'provider_quota_exhausted') return true;
+  return /(insufficient_quota|quota[_ ]?exhausted|quota exceeded|额度已用尽|余额不足|402)/i.test(String(text ?? ''));
+}
+
 const THROTTLE_RETRY_FALLBACK_MS = 60_000;
 const MAX_DEADLOCK_BLOCKERS = 20;
 
@@ -689,6 +703,17 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
       } else {
         state.lastPlanSkip = null;
       }
+      // Any quota error (lead or worker) pauses until the provider reset instead
+      // of tripping the generic error breaker.
+      const quotaError = (Array.isArray(result.errors) ? result.errors : []).find((text) => quotaFailureOf(null, text));
+      if (quotaError) {
+        const resumeAt = nextLocalMidnight();
+        state.resumeAt = resumeAt;
+        state.quotaResumeAt = resumeAt;
+        state.lastThrottle = { kind: 'quota', code: 'provider_quota_exhausted', quota: null, at: Date.now(), resumeAt, skipReason: `provider quota exhausted; resume after ${new Date(resumeAt).toISOString()}` };
+        state.lastPlanSkip = state.lastThrottle.skipReason;
+        return pause(projectId, 'quota_backoff');
+      }
       state.errorStreak = result.errors.length > 0 ? state.errorStreak + 1 : 0;
       if (leadFailure) {
         const failedLeadRun = result.cycle?.leadRunId && typeof store.getRun === 'function'
@@ -708,6 +733,18 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
         state.lastLeadErrorCode = leadFailureRecord?.errorCode ?? failedLeadRun?.errorCode ?? null;
         state.lastLeadErrorDetail = leadFailureRecord?.errorDetail ?? failedLeadRun?.errorDetail ?? null;
         state.lastLeadRetryable = retryable;
+        if (quotaFailureOf(state.lastLeadErrorCode, errorText)) {
+          const resumeAt = nextLocalMidnight();
+          state.resumeAt = resumeAt;
+          state.quotaResumeAt = resumeAt;
+          state.lastThrottle = {
+            kind: 'quota', code: 'provider_quota_exhausted', quota: null,
+            at: Date.now(), resumeAt,
+            skipReason: `provider quota exhausted; resume after ${new Date(resumeAt).toISOString()}`,
+          };
+          state.lastPlanSkip = state.lastThrottle.skipReason;
+          return pause(projectId, 'quota_backoff');
+        }
         if (retryable) {
           state.leadBackoffUntil = state.lastLeadFailureAt + leadRetryBackoffMs(streak);
           state.lastPlanSkip = `lead retry backoff; ${Math.round(leadRetryBackoffMs(streak) / 1000)}s after: ${state.lastLeadError}`;
@@ -771,6 +808,13 @@ export function createAutoController({ store, kernel, orchestrator, cluster, dis
         retryable: error?.retryable === true,
       };
       state.lastPlanSkip = `cycle failed before completion: ${code ? `${code}: ` : ''}${message}`;
+      if (quotaFailureOf(code, message)) {
+        const resumeAt = nextLocalMidnight();
+        state.resumeAt = resumeAt;
+        state.quotaResumeAt = resumeAt;
+        state.lastThrottle = { kind: 'quota', code: 'provider_quota_exhausted', quota: null, at: Date.now(), resumeAt, skipReason: `provider quota exhausted; resume after ${new Date(resumeAt).toISOString()}` };
+        return pause(projectId, 'quota_backoff');
+      }
       state.errorStreak += 1;
       if (state.errorStreak >= 3) await pause(projectId, 'errors');
       return undefined;

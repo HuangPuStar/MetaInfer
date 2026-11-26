@@ -19,6 +19,7 @@ export const RETRYABLE_ROLE_ERROR_CODES = Object.freeze(new Set([
   'stream_disconnected',
   'run_timeout',
   'provider_rate_limited',
+  'provider_quota_exhausted',
   'provider_unavailable',
 ]));
 
@@ -28,6 +29,9 @@ const PERMISSION_RE = /(permission denied|permission_required|forbidden|unauthor
 const SCHEMA_RE = /(schema|structured[_ -]?output|validation|required property|additionalproperties|must be (?:an?|one of|of type)|invalid (?:output|result|payload))/i;
 const JSON_RE = /(unexpected token|unexpected end of json|json\.parse|parse error|invalid json|json parse|unterminated string|end of json input)/i;
 const RATE_RE = /(rate limit|too many requests|429|overloaded|capacity exceeded)/i;
+// Provider quota exhaustion (insufficient_quota / 402 / 额度已用尽) is not a
+// failure to retry with backoff: it recovers at the provider's reset time.
+const QUOTA_RE = /(insufficient_quota|quota[_ ]?exhausted|quota exceeded|out of quota|额度|余额不足|402)/i;
 const PROVIDER_RE = /(provider|upstream|502|503|504|500|bad gateway|service unavailable|internal server error)/i;
 const AUTH_RE = /(api key|authentication|unauthorized|forbidden|401|403)/i;
 
@@ -131,6 +135,7 @@ function classifyCode({ failureInfo, childInfo, diagnostic, stopReason, rawText,
   if (String(stopReason ?? '').toLowerCase() === 'timeout' || TIMEOUT_RE.test(lower) || /run_timeout/i.test(failureInfo?.code ?? '')) {
     return 'run_timeout';
   }
+  if (QUOTA_RE.test(combined)) return 'provider_quota_exhausted';
   if (PERMISSION_RE.test(combined) || AUTH_RE.test(combined)) return 'permission_denied';
   if (SCHEMA_RE.test(combined)) return 'invalid_schema';
   if (/query_budget_exceeded/i.test(failureInfo?.code ?? '') || /tool calls, budget/i.test(combined)) return 'query_budget_exceeded';

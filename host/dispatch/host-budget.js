@@ -134,7 +134,23 @@ export function createHostBudget({readProject,readNodes,readNode,commitReservati
     }
     const quotaUsed={};
     for (const row of owners.values()) for (const [key,amount] of Object.entries(row.resources)) quotaUsed[key]=(quotaUsed[key]??0)+amount;
-    return copy({slotsUsed:owners.size,quotaUsed,owners:[...owners.values()],conflicts:[...new Set(conflicts)]});
+    // A1: slots must count live attempts, not every owner. A stale claim on a
+    // terminal or planned node used to occupy a slot forever (HOST_SLOTS with
+    // nothing actually running). A planned node with a just-created persistent
+    // reservation, or a process-pending owner, still counts: those are real starts.
+    const live = [...owners.values()].filter((row) => {
+      if (row.sources.includes('process-pending') || row.sources.includes('persistent-reservation')) return true;
+      const current = byId.get(row.nodeId);
+      if (!current) return true;
+      if (current.status === 'running') return true;
+      // Unresolved sandbox operations are real unfinished work: keep the slot so
+      // no new start races an unknown remote step.
+      if (operationsUnresolved(current)) return true;
+      // Anything else (a bare stale claim/admission left by a dead start) must
+      // not occupy a slot; only a real resource/admission/lease/binding source does.
+      return row.sources.some((source) => source !== 'persistent-owner');
+    });
+    return copy({slotsUsed:live.length,quotaUsed,owners:[...owners.values()],conflicts:[...new Set(conflicts)]});
   }
   async function update(ctx,next,event) {
     const {entry,token}=ctx;

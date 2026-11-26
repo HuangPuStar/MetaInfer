@@ -100,6 +100,19 @@ test('shrinking needs on a running node releases quota in place', async () => {
   await f.runtime.dispose();
 });
 
+test('a running node without a Host attempt is reaped as a ghost', async () => {
+  const f = fixture();
+  const startedAt = Date.now() - 3 * 60 * 60_000;
+  f.replace({ status: 'running', currentAttempt: 1, claim: { decisionId: 'stale' }, admission: { leaseId: 'stale' }, resourcesHeld: { gpu: 1 }, timestamps: { startedAt, lastActivityAt: startedAt } });
+  const outcomes = await f.runtime.sweepGhostAttempts(Date.now());
+  assert.equal(outcomes[0]?.action, 'freed');
+  assert.equal(f.node.status, 'failed');
+  assert.equal(f.node.error?.code, 'ghost_attempt');
+  assert.equal(f.node.claim, undefined);
+  assert.equal(f.node.resourcesHeld, undefined);
+  await f.runtime.dispose();
+});
+
 test('lease TTL warns once, then releases an idle attempt', async () => {
   // start() records lastActivityAt=now; sweep with a synthetic future clock.
   const f = fixture();

@@ -88,4 +88,11 @@ check('a project can forbid multi-parent merges', /mergePolicy: \{/.test(service
 check('auto resume reads wasWallClock before clearing the reason', /const wasWallClock = state\.pauseReason === 'maxWallClock';/.test(read('host/auto.js')) && /if \(wasWallClock \|\| !state\.startedAt\) state\.startedAt = Date\.now\(\);/.test(read('host/auto.js')));
 check('needs.machines without a fleet fails fast', /fleet_unavailable/.test(service) && /no fleet inventory is registered/.test(service));
 
+check('host slots count live attempts, not stale claims', /slotsUsed:live\.length/.test(read('host/dispatch/host-budget.js')) && /persistent-owner/.test(read('host/dispatch/host-budget.js')));
+check('boot clears stale ownership on planned/terminal nodes', /node\/ownership_cleared/.test(read('host/reconcile.js')));
+check('ghost attempts are reaped', /async function sweepGhostAttempts/.test(runtime) && /ghost_attempt/.test(runtime));
+check('provider quota exhaustion pauses as quota_backoff', /provider_quota_exhausted/.test(read('host/role-errors.js')) && /quotaFailureOf/.test(read('host/auto.js')) && /nextLocalMidnight/.test(read('host/auto.js')));
+check('a stale settings save cannot erase pools', /poolsChanged/.test(client) && /poolsFingerprint/.test(client));
+check('workers are told to clean up their services', /Clean up before you finish/.test(read('host/prompts.js')));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

@@ -17,7 +17,43 @@ export async function reconcileRunningNodes({ store, kernel }) {
         && !node.sandbox && !node.admission && !node.claim && !node.resourcesHeld && !node.resourceWait && !node.sandboxGate;
       if (remote && pristine) continue;
       const pendingRemote = remote && (!physicalClean || unresolved || node.sandboxGate || node.admission || node.claim || node.resourcesHeld || node.resourceWait);
-      if (node.status !== 'running' && !pendingRemote) continue;
+      if (node.status !== 'running' && !pendingRemote) {
+        // A4: a planned/terminal local node can still carry a claim, admission or
+        // reservation from a start that died with the Host. Nothing is running for
+        // it, so the ownership is stale: clear it and let the node start again
+        // instead of blocking the project behind OWNER_BLOCKED/PENDING_OWNER.
+        const localStale = !remote && (node.claim || node.admission || node.lease
+          || node.resourcesHeld || node.hostBudgetReservation || node.resourceWait);
+        if (localStale) {
+          const now = Date.now();
+          const cleared = {
+            claim: Boolean(node.claim),
+            admission: Boolean(node.admission),
+            lease: Boolean(node.lease),
+            resourcesHeld: Boolean(node.resourcesHeld),
+            reservation: Boolean(node.hostBudgetReservation),
+          };
+          delete node.claim;
+          delete node.admission;
+          delete node.lease;
+          delete node.resourcesHeld;
+          delete node.hostBudgetReservation;
+          delete node.resourceWait;
+          delete node.deadlineAt;
+          node.timestamps = { ...(node.timestamps ?? {}), lastActivityAt: now };
+          const result = await kernel.executor.commit(project.id, {
+            actor: { kind: 'system', id: 'reconcile' },
+            causeId: `reconcile-clear:${node.id}`,
+            ...(Number.isInteger(node.rev) ? { basis: node.rev } : {}),
+            mutations: [{ op: 'node.put', nodeId: node.id, node,
+              eventType: 'node/ownership_cleared',
+              eventData: { reason: 'no attempt survived the restart', cleared } }],
+          });
+          if (result.ok !== true) throw new Error(result.message ?? `reconcile clear ${node.id} failed`);
+          reconciled.push(`${project.id}/${node.id}`);
+        }
+        continue;
+      }
       // A previously held cold node remains held without rewriting its history on every reload.
       if (node.status !== 'running' && node.sandboxGate?.code === 'sandbox_restart_held'
         && !Object.values(operations).some(row => row?.state === 'intent')) continue;

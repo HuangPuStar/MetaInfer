@@ -550,6 +550,57 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
   }
 
   /**
+   * A6/U2: a node can be marked running while no Host attempt exists (a start
+   * that died between the running commit and the activation). Nothing can drive
+   * it and message_node already reports "No live admitted Host attempt", so the
+   * sweep fails it and clears the local ownership instead of letting it hold a
+   * slot for the whole timebox.
+   */
+  async function sweepGhostAttempts(nowMs = Date.now()) {
+    const outcomes = [];
+    for (const project of store.listProjects()) {
+      let ttlMinutes = 30;
+      try { ttlMinutes = Number(project.config?.leaseTtlMinutes ?? 30); } catch { ttlMinutes = 30; }
+      const ttlMs = Math.max(5, Number.isFinite(ttlMinutes) && ttlMinutes > 0 ? ttlMinutes : 30) * 60_000;
+      for (const stored of store.listNodes(project.id)) {
+        if (stored.status !== 'running') continue;
+        if (stored.sandbox || needsSandbox(stored)) continue;
+        const key = keyOf(project.id, stored.id);
+        if (active.has(key)) continue;
+        const last = Number(stored.timestamps?.lastActivityAt ?? stored.timestamps?.startedAt ?? nowMs);
+        const idleMs = Math.max(0, nowMs - last);
+        if (idleMs < ttlMs * 2) continue;
+        const next = structuredClone(stored);
+        const attempt = Array.isArray(next.attempts) ? next.attempts[next.attempts.length - 1] : null;
+        if (attempt && !attempt.endedAt) { attempt.endedAt = nowMs; attempt.status = 'failed'; attempt.stopReason = 'ghost'; }
+        next.status = 'failed';
+        next.error = { code: 'ghost_attempt', message: 'node was marked running but no Host attempt exists; the stale ownership was released. Check the worker log and retry.', at: nowMs, stage: 'run' };
+        next.deadlineAt = null;
+        next.termination = { ...(next.termination ?? {}), kind: 'ghost', requestedAt: nowMs, killedAt: nowMs, verifiedClean: true, leftover: [] };
+        delete next.claim;
+        delete next.admission;
+        delete next.lease;
+        delete next.resourcesHeld;
+        delete next.hostBudgetReservation;
+        delete next.resourceWait;
+        delete next.sandboxGate;
+        next.timestamps = { ...(next.timestamps ?? {}), completedAt: next.timestamps?.completedAt ?? nowMs, lastActivityAt: nowMs };
+        try {
+          const result = await kernel.executor.commit(project.id, {
+            actor: { kind: 'system', id: 'reaper' },
+            causeId: `ghost:${stored.id}`,
+            ...(Number.isInteger(next.rev) ? { basis: next.rev } : {}),
+            mutations: [{ op: 'node.put', nodeId: stored.id, node: next, eventType: 'node/failed',
+              eventData: { stage: 'run', message: next.error.message, ghost: true, idleMs } }],
+          });
+          if (result.ok === true) outcomes.push({ projectId: project.id, nodeId: stored.id, action: 'freed', idleMs });
+        } catch { /* a changed owner is handled by the next sweep */ }
+      }
+    }
+    return outcomes;
+  }
+
+  /**
    * L2-3: lease TTL sweep. A running attempt with no recorded activity for
    * `config.leaseTtlMinutes` gets one warning; twice that idle time releases the
    * reservation (the attempt is terminated as a failure). Sandbox nodes are
@@ -2940,7 +2991,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
   }
 
   // L2-3 sweep: warning at ttl, release at 2x ttl. Cheap and idempotent.
-  const leaseTtlTimer = setInterval(() => { void sweepLeaseTtl().catch(() => {}); }, 60_000);
+  const leaseTtlTimer = setInterval(() => { void sweepLeaseTtl().catch(() => {}); void sweepGhostAttempts().catch(() => {}); }, 60_000);
   leaseTtlTimer.unref?.();
   lifetime.signal.addEventListener('abort', () => clearInterval(leaseTtlTimer), { once: true });
 
@@ -2950,6 +3001,7 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
     requeueWithNeeds,
     shrinkNeeds,
     sweepLeaseTtl,
+    sweepGhostAttempts,
     message,
     retry,
     escalate,

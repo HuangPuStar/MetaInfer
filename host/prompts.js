@@ -33,6 +33,9 @@ export const WORKER_RULES = `- You execute exactly one experiment node and then 
 - Do NOT delegate to sub-agents. Do NOT ask the user questions.
 - Operations that need approval are rejected automatically; record them in blockers.
 - Respect the time budget: when the deadline fires the lab kills this run deterministically.
+- Clean up before you finish: stop every container/process/server you started for this node
+  (e.g. docker run/exec, python daemons, vLLM), and leave no background service running.
+  A leftover service blocks the next node on the same machines. Record what you stopped in the report.
 - Finish by calling structured_output exactly once with the report schema.
 - The report \`summary\` field must be at most 500 characters. Put evidence, numbers
   and narrative detail in \`changes\` / \`metrics\` / \`reproduce\`; a longer summary

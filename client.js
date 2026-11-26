@@ -17681,6 +17681,11 @@ window.__ModuleLoader__.load({
         if (!key || amount <= 0) continue;
         pools[key] = amount;
       }
+      // A10: a stale settings tab must not erase a pool added elsewhere (the
+      // report saw a custom d1pair pool disappear on the next save). Only send
+      // resourcePools when the edited rows actually differ from the project.
+      const poolsFingerprint = (value) => JSON.stringify(Object.keys(value ?? {}).sort().map((key) => [key, Number(value[key] ?? 0)]));
+      const poolsChanged = poolsFingerprint(pools) !== poolsFingerprint(projectConfig(project).resourcePools);
       const setModel = (role, provider, model, effort) => {
         const p = String(provider === undefined || provider === null ? '' : provider).trim();
         const m = String(model === undefined || model === null ? '' : model).trim();
@@ -17704,7 +17709,7 @@ window.__ModuleLoader__.load({
       setPrompt('advisor', draft.advisorPrompt);
       setPrompt('scheduler', draft.schedulerPrompt);
       return {
-        resourcePools: pools,
+        ...(poolsChanged ? { resourcePools: pools } : {}),
         maxRunningNodes: Math.max(1, parseInteger(draft.maxRunningNodes, 4)),
         maxNodes: Math.max(1, parseInteger(draft.maxNodes, 60)),
         nodeTimeoutMinutes: Math.max(1, parseInteger(draft.nodeTimeoutMinutes, 10)),
