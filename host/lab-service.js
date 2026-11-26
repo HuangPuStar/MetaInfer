@@ -109,7 +109,7 @@ function normalizeModelRef(raw, field) {
   return { provider, model, ...(reasoningEffort ? { reasoningEffort } : {}) };
 }
 
-function normalizeNeeds(raw, project) {
+export function normalizeNeeds(raw, project) {
   if (raw === undefined || raw === null) return { needs: {}, error: null };
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     return { needs: {}, error: 'needs must be an object like {"gpu": 1}' };
