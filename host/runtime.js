@@ -2990,8 +2990,12 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
     deadlines.clear();
   }
 
-  // L2-3 sweep: warning at ttl, release at 2x ttl. Cheap and idempotent.
-  const leaseTtlTimer = setInterval(() => { void sweepLeaseTtl().catch(() => {}); void sweepGhostAttempts().catch(() => {}); }, 60_000);
+  // L2-3/A6 sweep: the timer only decides how often we LOOK; the thresholds are
+  // leaseTtlMinutes (default 30 min) and 2x that for release, and a ghost must
+  // additionally have no live Host attempt. Ten minutes keeps the scan cheap
+  // while still reacting well inside those thresholds.
+  const MAINTENANCE_SWEEP_MS = 10 * 60_000;
+  const leaseTtlTimer = setInterval(() => { void sweepLeaseTtl().catch(() => {}); void sweepGhostAttempts().catch(() => {}); }, MAINTENANCE_SWEEP_MS);
   leaseTtlTimer.unref?.();
   lifetime.signal.addEventListener('abort', () => clearInterval(leaseTtlTimer), { once: true });
 
