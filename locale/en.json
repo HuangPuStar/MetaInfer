@@ -1784,6 +1784,9 @@
     "ws.canvas.searchGo": "Go",
     "ws.canvas.searchHint": "Type a node id (or part of a title) and press Enter; shortcut / or Ctrl+F",
     "ws.canvas.searchHit": "Located {id}",
-    "ws.canvas.searchMiss": "No matching node"
+    "ws.canvas.searchMiss": "No matching node",
+    "ws.cancel.confirmTitle": "Stop the running node?",
+    "ws.cancel.confirmBody": "This interrupts the current attempt and releases its resources; the node is marked cancelled and any commits already made are kept. Stop it?",
+    "ws.cancel.confirmLabel": "Stop node"
   }
 }

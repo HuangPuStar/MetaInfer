@@ -37,6 +37,7 @@ await kernel.executor.commit(projectId, {
 const authority = createOperatorAuthority();
 const runtimeAppeals = [];
 const runtime = {
+  cancel: async (pid, nodeId, options) => ({ node: { id: nodeId, status: 'cancelled' }, revision: 1, options }),
   appealPreemption: async (pid, nodeId, options) => {
     runtimeAppeals.push({ pid, nodeId, options });
     return { ok: true, projectId: pid, nodeId, appeal: { status: 'appealed', by: options.actor } };
@@ -115,6 +116,19 @@ check('POST /preemption/appeal ignores the body actor and forwards the token act
   && runtimeAppeals[0].options.actor?.id === 'operator'
   && runtimeAppeals[0].options.actor?.id !== 'body-attacker',
   JSON.stringify({ appealNoToken, appealWithToken, runtimeAppeals }));
+
+const cancelNoConfirm = await request('/commands', {
+  method: 'POST', token: authority.token,
+  body: { type: 'node.cancel', projectId, nodeId: 'root' },
+});
+const cancelConfirmed = await request('/commands', {
+  method: 'POST', token: authority.token,
+  body: { type: 'node.cancel', projectId, nodeId: 'root', humanConfirmed: true },
+});
+check('a running-node cancel needs the dialog confirmation, then succeeds',
+  cancelNoConfirm.ok === false && cancelNoConfirm.error?.code === 'human_confirmation_required'
+  && cancelConfirmed.ok === true,
+  JSON.stringify({ cancelNoConfirm, cancelConfirmed }));
 
 const deleteConfirmed = await request('/commands', {
   method: 'POST', token: authority.token,

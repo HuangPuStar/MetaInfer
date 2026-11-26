@@ -1784,6 +1784,9 @@
     "ws.canvas.searchGo": "定位",
     "ws.canvas.searchHint": "输入节点号（或标题片段）后回车定位；快捷键 / 或 Ctrl+F",
     "ws.canvas.searchHit": "已定位 {id}",
-    "ws.canvas.searchMiss": "没有匹配的节点"
+    "ws.canvas.searchMiss": "没有匹配的节点",
+    "ws.cancel.confirmTitle": "终止运行中的节点？",
+    "ws.cancel.confirmBody": "这会中断当前尝试并释放它占用的资源，节点将记为已取消；已产生的提交会保留。确认终止吗？",
+    "ws.cancel.confirmLabel": "终止节点"
   }
 }

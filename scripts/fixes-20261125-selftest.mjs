@@ -60,4 +60,8 @@ check('canvas search box is wired to a centering lookup', /className: 'rl-canvas
 check('search accepts id prefix and title fragments', /byId\(item\)\.startsWith\(query\)/.test(client) && /String\(item\?\.title \?\? ''\)\.toLowerCase\(\)\.includes\(query\)/.test(client));
 check('search has a highlight ring and shortcuts', /highlightId: searchHitId/.test(client) && /setLineDash/.test(client) && /event\.key === '\/'/.test(client));
 
+check('cancelling a running node asks for confirmation first', /const \[cancelRequest, setCancelRequest\]/.test(client) && /setCancelRequest\(\{ nodeId \}\)/.test(client) && /ws\.cancel\.confirmTitle/.test(client));
+check('the cancel confirmation sends humanConfirmed', /runNodeCommand\('node\.cancel', request\.nodeId, \{ humanConfirmed: true \}\)/.test(client));
+check('humanDirect covers every irreversible action', /context\.humanDirect === true && IRREVERSIBLE_ACTIONS\.includes\(action\)/.test(read('host/kernel/claims.js')));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

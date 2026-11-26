@@ -295,7 +295,10 @@ export function gateClaimAction(action, stats = {}, context = {}) {
   // project at all (there is no second human to resolve an appeal). The service
   // only sets humanDirect for an operator-token request whose resolved actor is
   // human, so an agent tool call can never reach this branch.
-  if (context.humanDirect === true && requirement.humanOnly === true) {
+  if (context.humanDirect === true && IRREVERSIBLE_ACTIONS.includes(action)) {
+    // A verified human operator who confirmed in the UI is the authority for any
+    // irreversible action; the evidence/chief/appeal requirements exist to stop
+    // agents from talking their way into one.
     return { ...base, ok: true, lowerBound: null, requiredEvidence: 0, humanDirect: true };
   }
   if (requirement.humanConfirmation && context.humanConfirmed !== true) {

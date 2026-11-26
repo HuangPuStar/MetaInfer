@@ -1013,6 +1013,9 @@ window.__ModuleLoader__.load({
       "ws.confirm.approveBody": "批准后节点进入待执行队列；若这是父节点的第一个子节点，父节点将被封存。",
       "ws.confirm.approveTitle": "批准该提案？",
       "ws.confirm.cancel": "取消",
+      "ws.cancel.confirmTitle": "终止运行中的节点？",
+      "ws.cancel.confirmBody": "这会中断当前尝试并释放它占用的资源，节点将记为已取消；已产生的提交会保留。确认终止吗？",
+      "ws.cancel.confirmLabel": "终止节点",
       "ws.confirm.close": "关闭确认",
       "ws.confirm.reject": "拒绝",
       "ws.confirm.rejectBody": "提案将被删除，父节点保持可继续对话。",
@@ -2797,6 +2800,9 @@ window.__ModuleLoader__.load({
       "ws.confirm.approveBody": "The node joins the planned queue; if it is the parent's first child the parent is sealed.",
       "ws.confirm.approveTitle": "Approve this proposal?",
       "ws.confirm.cancel": "Cancel",
+      "ws.cancel.confirmTitle": "Stop the running node?",
+      "ws.cancel.confirmBody": "This interrupts the current attempt and releases its resources; the node is marked cancelled and any commits already made are kept. Stop it?",
+      "ws.cancel.confirmLabel": "Stop node",
       "ws.confirm.close": "Close confirmation",
       "ws.confirm.reject": "Reject",
       "ws.confirm.rejectBody": "The proposal is deleted and the parent stays unsealed.",
@@ -11658,6 +11664,10 @@ window.__ModuleLoader__.load({
       const [autoBusy, setAutoBusy] = React.useState(false);
       const [autoConfirmOpen, setAutoConfirmOpen] = React.useState(false);
       const [confirmRequest, setConfirmRequest] = React.useState(null);
+      // Cancelling a running node is irreversible: confirm first, then send the
+      // human confirmation the claim gate requires (a single click must not kill
+      // a live attempt by accident).
+      const [cancelRequest, setCancelRequest] = React.useState(null);
       const [projectMenuOpen, setProjectMenuOpen] = React.useState(false);
       const [deleteOpen, setDeleteOpen] = React.useState(false);
       const [deleteBusy, setDeleteBusy] = React.useState(false);
@@ -11903,8 +11913,16 @@ window.__ModuleLoader__.load({
       }, [applyCommandResult, projectId, t]);
 
       const handleNodeAction = React.useCallback((type, nodeId, extra) => {
+        if (type === 'node.cancel' && extra?.humanConfirmed !== true) {
+          const target = nodes.find((node) => nodeIdOf(node) === nodeId) ?? null;
+          if (target !== null && nodeStatusOf(target) === 'running') {
+            setSelectedId(nodeId);
+            setCancelRequest({ nodeId });
+            return;
+          }
+        }
         void runNodeCommand(type, nodeId, extra);
-      }, [runNodeCommand]);
+      }, [nodes, runNodeCommand]);
       /** Open a session in DSH's native conversation (trajectory/chat preset). */
       const openSessionNative = React.useCallback((sessionId, view, nodeId) => {
         if (typeof openNativeSession !== 'function') {
@@ -12127,6 +12145,13 @@ window.__ModuleLoader__.load({
         void runProposalAction(request?.kind === 'reject' ? 'node.reject' : 'node.approve', request?.nodeId);
       }, [confirmRequest, reload, runNodeCommand, runProposalAction]);
       const cancelConfirm = React.useCallback(() => setConfirmRequest(null), []);
+      const confirmCancelRunning = React.useCallback(() => {
+        const request = cancelRequest;
+        setCancelRequest(null);
+        if (request === null) return;
+        void runNodeCommand('node.cancel', request.nodeId, { humanConfirmed: true });
+      }, [cancelRequest, runNodeCommand]);
+      const dismissCancelRunning = React.useCallback(() => setCancelRequest(null), []);
 
       /** Failed-node retry (server decides planned-restart vs follow-up re-run). */
       const requestRetry = React.useCallback((nodeId) => {
@@ -12724,6 +12749,17 @@ window.__ModuleLoader__.load({
               danger: confirmRequest?.kind === 'reject',
               onConfirm: confirmProposal,
               onCancel: cancelConfirm,
+              t,
+            })
+          : null,
+        cancelRequest !== null
+          ? h(ConfirmDialog, {
+              title: t('ws.cancel.confirmTitle'),
+              body: t('ws.cancel.confirmBody'),
+              confirmLabel: t('ws.cancel.confirmLabel'),
+              danger: true,
+              onConfirm: confirmCancelRunning,
+              onCancel: dismissCancelRunning,
               t,
             })
           : null,
