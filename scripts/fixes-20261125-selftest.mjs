@@ -78,4 +78,8 @@ check('the node report declares artifacts with sizes', /artifacts: \{/.test(runt
 check('disk audit and cleanup actions exist', /async function diskReport\(projectId\)/.test(service) && /async function diskPrune\(projectId, input = \{\}\)/.test(service) && /disk_report/.test(read('host/agent-tool.js')));
 check('terminal disk warnings are recorded', /diskWarning/.test(runtime) && /maxUntrackedMb/.test(runtime));
 
+check('the settings page can pin a role thinking effort', /modelField\('worker', 'workerProvider', 'workerModel', 'workerEffort'\)/.test(client) && /ws\.settings\.model\.effort/.test(client));
+check('models.defaultEffort defaults to max and degrades gracefully', /models\.defaultEffort = .*\?\? 'max'/.test(service) && /projectDefaultEffort/.test(read('host/models.js')) && /effortFallbackFrom/.test(read('host/models.js')));
+check('a saved role effort reaches the model ref', /models\[role\] = \{ provider: p, model: m, \.\.\.\(e \? \{ reasoningEffort: e \} : \{\}\) \}/.test(client));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

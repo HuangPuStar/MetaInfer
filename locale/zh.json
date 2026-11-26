@@ -1803,6 +1803,11 @@
     "error.code.git_missing": "找不到 Git：请安装 Git，或让 DSH 在包含 git 的环境里启动",
     "error.code.project_busy": "项目里还有运行中的节点，先停止再操作",
     "error.code.node_sealed": "该节点已有子节点（已封存）",
-    "error.code.host_budget_held": "资源预算或清理还没结算完，暂时不能操作"
+    "error.code.host_budget_held": "资源预算或清理还没结算完，暂时不能操作",
+    "ws.settings.model.effort": "思考强度",
+    "ws.settings.model.effort.inherit": "跟随默认",
+    "ws.settings.model.effortHint": "该角色使用所选模型的思考强度；留空表示跟随下面的默认思考强度",
+    "ws.settings.model.defaultEffort": "默认思考强度",
+    "ws.settings.model.defaultEffortHint": "所有未单独指定思考强度的角色都继承它，默认 max；模型不支持时会自动降级并在运行记录里注明"
   }
 }

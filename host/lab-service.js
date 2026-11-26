@@ -234,6 +234,12 @@ function normalizeConfig(raw, base = undefined, { allowMigration = false } = {})
     models.roles = Object.fromEntries(
       Object.entries(models).filter(([key]) => ['worker', 'advisor', 'scheduler', 'controller', 'merge', 'gc', 'dashboard'].includes(key)),
     );
+    // Thinking strength default: every role inherits this unless it pins its own.
+    if (input.models.defaultEffort !== undefined) {
+      models.defaultEffort = text(input.models.defaultEffort, 'config.models.defaultEffort', { max: 40 }) ?? 'max';
+    } else if (typeof models.defaultEffort !== 'string' || models.defaultEffort.trim() === '') {
+      models.defaultEffort = previous.models?.defaultEffort ?? 'max';
+    }
     config.models = models;
   }
 

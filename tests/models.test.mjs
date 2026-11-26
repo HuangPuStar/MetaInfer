@@ -89,3 +89,35 @@ test('project role models resolve to the pinned provider for every lab role', ()
     assert.equal(selection.source, 'project-role', `${name} source`);
   }
 });
+
+test('the project default thinking effort applies when a role does not pin one', () => {
+  const project = projectWithRoles({ defaultEffort: 'max', roles: {} });
+  const ctx = fakeCtx([]);
+  const selection = resolveModelSelection(ctx, project, null, 'worker');
+  assert.equal(selection.reasoningEffort, 'max');
+  assert.equal(selection.effortSource, 'project-default');
+});
+
+test('an explicit role effort wins over the project default', () => {
+  const role = { provider: 'tencent-token-plan', model: 'deepseek/deepseek-flash', reasoningEffort: 'low' };
+  const project = projectWithRoles({ defaultEffort: 'max', roles: { worker: role } });
+  const selection = resolveModelSelection(fakeCtx([]), project, null, 'worker');
+  assert.equal(selection.reasoningEffort, 'low');
+  assert.equal(selection.effortSource, undefined);
+});
+
+test('a project default unsupported by the model degrades instead of failing', async () => {
+  const { validateModelSelection } = await import('../host/models.js');
+  const ctx = fakeCtx([]);
+  ctx.llm.resolveModelInfo = async (provider, model) => ({
+    provider,
+    id: model,
+    capabilities: {},
+    reasoning: { efforts: [{ id: 'low' }, { id: 'high' }], defaultEffort: 'high' },
+  });
+  const project = projectWithRoles({ defaultEffort: 'max', roles: {} });
+  const selection = resolveModelSelection(ctx, project, null, 'worker');
+  const checked = await validateModelSelection(ctx, project, selection);
+  assert.equal(checked.reasoningEffort, 'high');
+  assert.equal(checked.effortFallbackFrom, 'max');
+});

@@ -1720,6 +1720,11 @@ window.__ModuleLoader__.load({
       "ws.settings.modelOption.tags": "标签（逗号分隔）",
       "ws.settings.modelOptions.hint": "定义可路由的模型档位；每项包含 id、provider、model 与价格（每百万 token）。",
       "ws.settings.models.hint": "留空使用 profile 默认模型；同时填写 provider 与 model 才生效。",
+      "ws.settings.model.effort": "思考强度",
+      "ws.settings.model.effort.inherit": "跟随默认",
+      "ws.settings.model.effortHint": "该角色使用所选模型的思考强度；留空表示跟随下面的默认思考强度",
+      "ws.settings.model.defaultEffort": "默认思考强度",
+      "ws.settings.model.defaultEffortHint": "所有未单独指定思考强度的角色都继承它，默认 max；模型不支持时会自动降级并在运行记录里注明",
       "ws.settings.nodeTimeoutMinutes": "默认执行时限（分钟）",
       "ws.settings.pageHint": "项目配置、预算与模型、迁移开关都在这里集中管理；保存后立即生效。",
       "ws.settings.placement.catalog": "可用标签与 GPU 型号",
@@ -3522,6 +3527,11 @@ window.__ModuleLoader__.load({
       "ws.settings.modelOption.remove": "Remove model option",
       "ws.settings.modelOption.tags": "tags (comma separated)",
       "ws.settings.modelOptions.hint": "Define routable model tiers: id, provider, model and prices per million tokens.",
+      "ws.settings.model.effort": "Thinking effort",
+      "ws.settings.model.effort.inherit": "Inherit default",
+      "ws.settings.model.effortHint": "Thinking strength for this role; empty inherits the default below",
+      "ws.settings.model.defaultEffort": "Default thinking effort",
+      "ws.settings.model.defaultEffortHint": "Inherited by every role that does not pin its own effort; defaults to max and degrades with a note when the model does not support it",
       "ws.settings.models.hint": "Leave blank to use the profile default; both provider and model are required to take effect.",
       "ws.settings.nodeTimeoutMinutes": "Default node timebox (minutes)",
       "ws.settings.pageHint": "Project configuration, budgets, models and migration switches live here; changes apply on save.",
@@ -4389,7 +4399,7 @@ window.__ModuleLoader__.load({
       '.rl-proposal-title { margin: 0; color: var(--dsw-alias-state-warn-primary); font-size: 12px; font-weight: 500; line-height: 18px; }',
       '.rl-settings-section { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 0.5px solid var(--dsw-alias-border-l2); }',
       '.rl-settings-section-title { margin: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 500; line-height: 18px; }',
-      '.rl-settings-model-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: end; }',
+      '.rl-settings-model-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1fr) 96px; gap: 8px; align-items: end; }',
       '.rl-settings-model-role { padding-bottom: 6px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }',
       '.rl-settings-details { border: 0.5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); }',
       '.rl-settings-details > summary { padding: 6px 10px; color: var(--dsw-alias-label-secondary); font-size: 11.5px; line-height: 17px; cursor: pointer; list-style-position: inside; }',
@@ -6058,6 +6068,23 @@ window.__ModuleLoader__.load({
         defaultEffort: match === null ? '' : firstString(match.defaultEffort),
       };
     }
+    /** Thinking-strength choices: inherit + every effort advertised by the catalog. */
+    function modelEffortChoicesOf(catalogOptions, current, t) {
+      const choices = [{ value: '', label: t('ws.settings.model.effort.inherit') }];
+      const seen = new Set();
+      for (const option of asArray(catalogOptions)) {
+        for (const effort of asArray(option?.efforts)) {
+          const id = firstString(effort);
+          if (id === '' || seen.has(id)) continue;
+          seen.add(id);
+          choices.push({ value: id, label: id });
+        }
+      }
+      const currentValue = firstString(current);
+      if (currentValue !== '' && !seen.has(currentValue)) choices.push({ value: currentValue, label: currentValue });
+      return choices;
+    }
+
     function modelChoicesOf(providers, provider, currentModel, t) {
       const providerId = firstString(provider);
       const choices = [];
@@ -17568,10 +17595,14 @@ window.__ModuleLoader__.load({
           : [{ id: 'settings-pool-default', key: 'gpu', value: '1' }],
         workerProvider: worker.provider,
         workerModel: worker.model,
+        workerEffort: firstString(worker.reasoningEffort),
         advisorProvider: advisorModel.provider,
         advisorModel: advisorModel.model,
+        advisorEffort: firstString(advisorModel.reasoningEffort),
         schedulerProvider: schedulerModel.provider,
         schedulerModel: schedulerModel.model,
+        schedulerEffort: firstString(schedulerModel.reasoningEffort),
+        modelDefaultEffort: firstString(asObject(projectConfig(project).models).defaultEffort),
         workerPrefix: promptValueOf('workerPrefix'),
         advisorPrompt: promptValueOf('advisor'),
         schedulerPrompt: promptValueOf('scheduler'),
@@ -17650,16 +17681,18 @@ window.__ModuleLoader__.load({
         if (!key || amount <= 0) continue;
         pools[key] = amount;
       }
-      const setModel = (role, provider, model) => {
+      const setModel = (role, provider, model, effort) => {
         const p = String(provider === undefined || provider === null ? '' : provider).trim();
         const m = String(model === undefined || model === null ? '' : model).trim();
-        if (p && m) models[role] = { provider: p, model: m };
+        const e = String(effort === undefined || effort === null ? '' : effort).trim();
+        if (p && m) models[role] = { provider: p, model: m, ...(e ? { reasoningEffort: e } : {}) };
         // 显式 null 表示「改回继承」：Host 会删除该角色的模型，而不是保留旧值。
         else models[role] = null;
       };
-      setModel('worker', draft.workerProvider, draft.workerModel);
-      setModel('advisor', draft.advisorProvider, draft.advisorModel);
-      setModel('scheduler', draft.schedulerProvider, draft.schedulerModel);
+      setModel('worker', draft.workerProvider, draft.workerModel, draft.workerEffort);
+      setModel('advisor', draft.advisorProvider, draft.advisorModel, draft.advisorEffort);
+      setModel('scheduler', draft.schedulerProvider, draft.schedulerModel, draft.schedulerEffort);
+      models.defaultEffort = String(draft.modelDefaultEffort ?? '').trim() || 'max';
       const defaults = asObject(promptDefaults);
       const setPrompt = (key, value) => {
         const text = String(value === undefined || value === null ? '' : value).trim();
@@ -17898,7 +17931,7 @@ window.__ModuleLoader__.load({
       const promptPlaceholderLine = () => (promptPlaceholders.length > 0
         ? h('p', { className: 'rl-hint' }, t('ws.settings.prompts.placeholders', { list: promptPlaceholders.join(', ') }))
         : null);
-      const modelField = (role, providerKey, modelKey) => {
+      const modelField = (role, providerKey, modelKey, effortKey) => {
         const provider = draft[providerKey];
         const currentModel = draft[modelKey];
         return h(
@@ -17912,6 +17945,7 @@ window.__ModuleLoader__.load({
             onChange: (event) => {
               setField(providerKey, event?.target.value);
               setField(modelKey, '');
+              if (effortKey) setField(effortKey, '');
             },
           }),
           h(LabSelect, {
@@ -17919,7 +17953,17 @@ window.__ModuleLoader__.load({
             ariaLabel: t('ws.settings.model.' + role) + ' ' + t('ws.settings.model.model'),
             disabled: String(provider === undefined || provider === null ? '' : provider) === '',
             options: modelChoicesOf(catalogProviders, provider, currentModel, t),
-            onChange: (event) => setField(modelKey, event?.target.value),
+            onChange: (event) => {
+              setField(modelKey, event?.target.value);
+              if (effortKey) setField(effortKey, '');
+            },
+          }),
+          effortKey === undefined ? null : h(LabSelect, {
+            value: draft[effortKey],
+            ariaLabel: t('ws.settings.model.' + role) + ' ' + t('ws.settings.model.effort'),
+            title: t('ws.settings.model.effortHint'),
+            options: modelEffortChoicesOf(catalogOptions, draft[effortKey], t),
+            onChange: (event) => setField(effortKey, event?.target.value),
           }),
         );
       };
@@ -18305,9 +18349,22 @@ window.__ModuleLoader__.load({
               { className: 'rl-settings-section' },
               h('h3', { className: 'rl-settings-section-title' }, t('ws.settings.section.models')),
               h('p', { className: 'rl-hint' }, t('ws.settings.models.hint')),
-              modelField('worker', 'workerProvider', 'workerModel'),
-              modelField('advisor', 'advisorProvider', 'advisorModel'),
-              modelField('scheduler', 'schedulerProvider', 'schedulerModel'),
+              modelField('worker', 'workerProvider', 'workerModel', 'workerEffort'),
+              modelField('advisor', 'advisorProvider', 'advisorModel', 'advisorEffort'),
+              modelField('scheduler', 'schedulerProvider', 'schedulerModel', 'schedulerEffort'),
+              h(
+                'div',
+                { className: 'rl-settings-model-row' },
+                h('span', { className: 'rl-settings-model-role' }, t('ws.settings.model.defaultEffort')),
+                h(LabSelect, {
+                  value: draft.modelDefaultEffort,
+                  ariaLabel: t('ws.settings.model.defaultEffort'),
+                  title: t('ws.settings.model.defaultEffortHint'),
+                  options: modelEffortChoicesOf(catalogOptions, draft.modelDefaultEffort, t),
+                  onChange: (event) => setField('modelDefaultEffort', event?.target.value),
+                }),
+              ),
+              h('p', { className: 'rl-hint' }, t('ws.settings.model.defaultEffortHint')),
             ),
             h(
               'div',

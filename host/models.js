@@ -143,8 +143,12 @@ export function resolveModelSelection(ctx, project, node, role) {
     provider: ref?.provider ?? fallback.provider,
     model: ref?.model ?? fallback.model,
   };
-  const effort = ref?.reasoningEffort ?? fallback.reasoningEffort;
+  // Thinking strength: an explicit ref wins, then the project default effort
+  // (config.models.defaultEffort, default "max"), then the DSH default selection.
+  const projectDefaultEffort = trimString(project?.config?.models?.defaultEffort, 40);
+  const effort = ref?.reasoningEffort ?? projectDefaultEffort ?? fallback.reasoningEffort;
   if (effort) selection.reasoningEffort = effort;
+  if (!ref?.reasoningEffort && projectDefaultEffort) selection.effortSource = 'project-default';
   if (ref?.profileId) selection.profileId = ref.profileId;
   selection.source = source;
   if (nodeRef?.reason) selection.reason = nodeRef.reason;
@@ -235,6 +239,21 @@ export async function validateModelSelection(ctx, project, selection) {
   if (effective.reasoningEffort) {
     if (Array.isArray(capabilities.efforts) && capabilities.efforts.length > 0) {
       if (!capabilities.efforts.includes(effective.reasoningEffort)) {
+        const fromProjectDefault = effective.effortSource === 'project-default';
+        if (fromProjectDefault) {
+          // The project default ("max") must not break models that do not offer
+          // it: fall back to the model default / the strongest advertised effort.
+          const fallbackEffort = capabilities.defaultEffort && capabilities.efforts.includes(capabilities.defaultEffort)
+            ? capabilities.defaultEffort
+            : capabilities.efforts[capabilities.efforts.length - 1];
+          return {
+            ...effective,
+            reasoningEffort: fallbackEffort,
+            effortFallbackFrom: effective.reasoningEffort,
+            effortSource: 'project-default-fallback',
+            capabilities,
+          };
+        }
         throw new LabError(
           'model_effort_unsupported',
           `reasoningEffort "${effective.reasoningEffort}" is not supported by ${effective.provider}/${effective.model}; allowed: ${capabilities.efforts.join(', ')}`,

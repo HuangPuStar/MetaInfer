@@ -1803,6 +1803,11 @@
     "error.code.git_missing": "Git was not found: install Git, or start DSH where git is on PATH",
     "error.code.project_busy": "The project still has running nodes; stop them first",
     "error.code.node_sealed": "This node already has children (sealed)",
-    "error.code.host_budget_held": "Budget or cleanup is still unresolved; the action is blocked"
+    "error.code.host_budget_held": "Budget or cleanup is still unresolved; the action is blocked",
+    "ws.settings.model.effort": "Thinking effort",
+    "ws.settings.model.effort.inherit": "Inherit default",
+    "ws.settings.model.effortHint": "Thinking strength for this role; empty inherits the default below",
+    "ws.settings.model.defaultEffort": "Default thinking effort",
+    "ws.settings.model.defaultEffortHint": "Inherited by every role that does not pin its own effort; defaults to max and degrades with a note when the model does not support it"
   }
 }
