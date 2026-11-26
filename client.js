@@ -809,6 +809,9 @@ window.__ModuleLoader__.load({
       "ws.canvas.searchHint": "输入节点号（或标题片段）后回车定位；快捷键 / 或 Ctrl+F",
       "ws.canvas.searchHit": "已定位 {id}",
       "ws.canvas.searchMiss": "没有匹配的节点",
+      "ws.canvas.searchMatches": "命中 {count} 个（{index}/{count}）",
+      "ws.canvas.searchNext": "下一个匹配",
+      "ws.canvas.searchPrev": "上一个匹配",
       "ws.canvas.label": "实验 DAG 画布",
       "ws.canvas.zoomIn": "放大",
       "ws.canvas.zoomOut": "缩小",
@@ -2617,6 +2620,9 @@ window.__ModuleLoader__.load({
       "ws.canvas.searchHint": "Type a node id (or part of a title) and press Enter; shortcut / or Ctrl+F",
       "ws.canvas.searchHit": "Located {id}",
       "ws.canvas.searchMiss": "No matching node",
+      "ws.canvas.searchMatches": "{count} matches ({index}/{count})",
+      "ws.canvas.searchNext": "Next match",
+      "ws.canvas.searchPrev": "Previous match",
       "ws.canvas.label": "experiment DAG canvas",
       "ws.canvas.zoomIn": "Zoom in",
       "ws.canvas.zoomOut": "Zoom out",
@@ -13432,10 +13438,15 @@ window.__ModuleLoader__.load({
           if (byStatus[status] === undefined) byStatus[status] = [];
           byStatus[status].push(node);
         }
+        const idOrdinal = (node) => {
+          const match = /^n-(\d+)$/.exec(String(nodeIdOf(node)));
+          return match === null ? Number.MAX_SAFE_INTEGER : Number(match[1]);
+        };
+        // Operator request: the task list follows the node number, so a node can
+        // be found by scanning n-0001, n-0002, ... instead of by recency.
         for (const status of Object.keys(byStatus)) {
           byStatus[status].sort((left, right) =>
-            nodeRecencyOf(right) - nodeRecencyOf(left)
-            || nodeTimeOf(right) - nodeTimeOf(left)
+            idOrdinal(left) - idOrdinal(right)
             || String(nodeIdOf(left)).localeCompare(String(nodeIdOf(right))));
         }
         return byStatus;
@@ -13850,7 +13861,9 @@ window.__ModuleLoader__.load({
       const visible = visibleDagItems(scene, { zoom, pan }, size, pad);
       const selectedId = options.selectedId;
       const hoverId = options.hoverId;
-      const highlightId = options.highlightId ?? null;
+      const highlightIds = Array.isArray(options.highlightIds)
+        ? new Set(options.highlightIds)
+        : (options.highlightId ? new Set([options.highlightId]) : null);
       const related = options.related ?? null;
       const labelBudget = 1400;
       const detail = visible.items.length <= labelBudget && zoom >= 0.35;
@@ -13905,7 +13918,7 @@ window.__ModuleLoader__.load({
         ctx.lineWidth = Math.max((isSelected ? 2 : 1) / zoom, 0.75);
         roundRectPath(ctx, item.x, item.y, item.w, item.h, 8);
         ctx.stroke();
-        if (highlightId !== null && item.id === highlightId) {
+        if (highlightIds !== null && highlightIds.has(item.id)) {
           // Search result ring: drawn outside the card so it survives the
           // selected/hover styles and is visible at any zoom.
           ctx.save();
@@ -13933,6 +13946,38 @@ window.__ModuleLoader__.load({
     }
     // #endregion dag-canvas-scene
 
+    /**
+     * Keyword match for the canvas search: node id (exact > prefix > contains),
+     * then title, prompt, success criteria, report and error text. Returns ids in
+     * match-priority order; the UI highlights every hit and cycles through them.
+     */
+    function matchDagNodes(items, query) {
+      const needle = String(query ?? '').trim().toLowerCase();
+      if (needle === '') return [];
+      const score = (item) => {
+        const node = item?.node ?? {};
+        const id = String(item?.id ?? '').toLowerCase();
+        if (id === needle) return 0;
+        if (id.startsWith(needle)) return 1;
+        if (id.includes(needle)) return 2;
+        const text = [
+          item?.title,
+          node.title,
+          node.prompt,
+          node.successCriteria,
+          node.report?.summary,
+          node.reportText,
+          node.error?.message,
+        ].filter((value) => typeof value === 'string' && value !== '').join(' ').toLowerCase();
+        return text.includes(needle) ? 3 : -1;
+      };
+      return (Array.isArray(items) ? items : [])
+        .map((item, order) => ({ id: item?.id, order, rank: score(item) }))
+        .filter((row) => typeof row.id === 'string' && row.id !== '' && row.rank >= 0)
+        .sort((left, right) => left.rank - right.rank || left.order - right.order)
+        .map((row) => row.id);
+    }
+
     function DagCanvas({ nodes, edges, layout, selectedId, now, busyKey, onSelect, onOpenNative, onContinue, onNodeAction, onProposalAction, onRetryRequest, onEscalate, onOpenTrace, onOpenFiles, onSuccessor, onOpenMergeCreate, onOpenDetail, rail, railOpen, onToggleRail, t }) {
       const hostRef = React.useRef(null);
       const canvasRef = React.useRef(null);
@@ -13955,6 +14000,8 @@ window.__ModuleLoader__.load({
       const searchRef = React.useRef(null);
       const [searchQuery, setSearchQuery] = React.useState('');
       const [searchHitId, setSearchHitId] = React.useState(null);
+      const [searchMatches, setSearchMatches] = React.useState([]);
+      const [searchIndex, setSearchIndex] = React.useState(0);
       const [searchNote, setSearchNote] = React.useState('');
       // Right-click menu: the inspector only carries details; node actions live
       // here so the side panel stops listing everything at once.
@@ -13995,7 +14042,7 @@ window.__ModuleLoader__.load({
           theme: dagTheme(),
           selectedId,
           hoverId: view.hoverId,
-          highlightId: searchHitId,
+          highlightIds: searchMatches.length > 0 ? searchMatches : (searchHitId !== null ? [searchHitId] : []),
           related,
         });
         const stamp = Date.now();
@@ -14011,7 +14058,7 @@ window.__ModuleLoader__.load({
             setZoomPct(Math.round(viewRef.current.zoom * 100));
           }, 130);
         }
-      }, [selectedId, related, searchHitId]);
+      }, [selectedId, related, searchHitId, searchMatches]);
 
       const schedule = React.useCallback(() => {
         if (frameRef.current !== 0) return;
@@ -14079,24 +14126,38 @@ window.__ModuleLoader__.load({
         return true;
       }, [schedule]);
 
+      const matchSearch = (query) => matchDagNodes(sceneRef.current?.items ?? [], query);
+
+      const focusMatch = (matches, index) => {
+        const id = matches[index] ?? null;
+        setSearchHitId(id);
+        setSearchIndex(index);
+        setSearchNote(id === null
+          ? t('ws.canvas.searchMiss')
+          : t('ws.canvas.searchMatches', { count: matches.length, index: index + 1 }));
+        if (id !== null) {
+          onSelect(id);
+          centerOnNode(id);
+        }
+      };
+
       const runSearch = React.useCallback(() => {
-        const query = String(searchQuery ?? '').trim().toLowerCase();
-        if (query === '') { setSearchHitId(null); setSearchNote(''); return; }
-        const items = sceneRef.current?.items ?? [];
-        const byId = (item) => String(item?.id ?? '').toLowerCase();
-        const hit = items.find((item) => byId(item) === query)
-          ?? items.find((item) => byId(item).startsWith(query))
-          ?? items.find((item) => String(item?.title ?? '').toLowerCase().includes(query));
-        if (!hit) {
+        const matches = matchSearch(searchQuery);
+        setSearchMatches(matches);
+        if (matches.length === 0) {
           setSearchHitId(null);
+          setSearchIndex(0);
           setSearchNote(t('ws.canvas.searchMiss'));
           return;
         }
-        setSearchHitId(hit.id);
-        setSearchNote(t('ws.canvas.searchHit', { id: hit.id }));
-        onSelect(hit.id);
-        centerOnNode(hit.id);
+        focusMatch(matches, 0);
       }, [searchQuery, centerOnNode, onSelect, t]);
+
+      const nextSearchMatch = React.useCallback((delta = 1) => {
+        if (searchMatches.length === 0) { runSearch(); return; }
+        const next = (searchIndex + delta + searchMatches.length) % searchMatches.length;
+        focusMatch(searchMatches, next);
+      }, [searchMatches, searchIndex, runSearch, t]);
 
       React.useEffect(() => {
         if (typeof window === 'undefined') return undefined;
@@ -14448,11 +14509,13 @@ window.__ModuleLoader__.load({
             onInput: (event) => setSearchQuery(event?.target?.value ?? ''),
             onChange: (event) => setSearchQuery(event?.target?.value ?? ''),
             onKeyDown: (event) => {
-              if (event.key === 'Enter') { event.preventDefault(); runSearch(); }
-              if (event.key === 'Escape') { setSearchQuery(''); setSearchHitId(null); setSearchNote(''); }
+              if (event.key === 'Enter') { event.preventDefault(); if (event.shiftKey) nextSearchMatch(-1); else if (searchMatches.length > 0) nextSearchMatch(1); else runSearch(); }
+              if (event.key === 'Escape') { setSearchQuery(''); setSearchHitId(null); setSearchMatches([]); setSearchNote(''); }
             },
           }),
           h(LabButton, { label: t('ws.canvas.searchGo'), variant: 'ghost', onClick: runSearch, title: t('ws.canvas.searchHint') }),
+          searchMatches.length > 1 ? h(LabButton, { label: '◀', variant: 'ghost', onClick: () => nextSearchMatch(-1), title: t('ws.canvas.searchPrev') }) : null,
+          searchMatches.length > 1 ? h(LabButton, { label: '▶', variant: 'ghost', onClick: () => nextSearchMatch(1), title: t('ws.canvas.searchNext') }) : null,
           typeof onToggleRail === 'function' ? h(LabButton, {
             label: t(railOpen === true ? 'ws.rail.hide' : 'ws.rail.show'),
             variant: railOpen === true ? 'primary' : 'ghost',
@@ -22286,7 +22349,7 @@ window.__ModuleLoader__.load({
     // by that test; the Web shell never sees these fields.
     if (typeof window !== 'undefined' && window.__METAINFER_TEST__ === true) {
       // Internal renderer entry points used by scripts/dag-canvas-selftest.mjs.
-      exported.__dag = { buildDagScene, visibleDagItems, hitTestDag, paintDag, dagTheme, nodeActionsOf, inspectorSectionIndexes, NODE_WINDOW_TABS, replaySnapshot };
+      exported.__dag = { buildDagScene, visibleDagItems, hitTestDag, paintDag, dagTheme, nodeActionsOf, inspectorSectionIndexes, NODE_WINDOW_TABS, replaySnapshot, matchDagNodes };
       exported.__components = {
         LandingScreen,
         CreateProjectWizard,

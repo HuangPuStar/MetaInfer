@@ -161,15 +161,31 @@ check('hit test finds the card under the cursor', hit?.id === 'n-01234', String(
 check('hit test misses the gap between cards', dag.hitTestDag(scene, { x: target.x + NODE_W + 20, y: target.y - 20 }) === null);
 check('hit test misses beyond the graph', dag.hitTestDag(scene, { x: -500, y: -500 }) === null);
 
+// Keyword search: id ranks before title, prompt matches are included.
+const searchItems = [
+  { id: 'n-0001', node: { title: 'root' } },
+  { id: 'n-0056', node: { title: 'unrelated' } },
+  { id: 'n-0100', node: { title: '带宽基线', prompt: 'measure 56 GB/s' } },
+  { id: 'n-0200', node: { title: 'another', reportText: 'bandwidth 56' } },
+];
+check('keyword search finds id prefix and prompt/report hits', JSON.stringify(dag.matchDagNodes(searchItems, '56')) === JSON.stringify(['n-0056', 'n-0100', 'n-0200']),
+  JSON.stringify(dag.matchDagNodes(searchItems, '56')));
+check('exact id match ranks first', JSON.stringify(dag.matchDagNodes(searchItems, 'n-0100')) === JSON.stringify(['n-0100']));
+check('empty query matches nothing', dag.matchDagNodes(searchItems, '   ').length === 0);
+
 // Search highlight: one extra dashed ring, and only for the requested node.
 const plainCtx = recordingContext();
 dag.paintDag(plainCtx, scene, view, size, { theme, selectedId: null, hoverId: null, related: null });
 const hitCtx = recordingContext();
-dag.paintDag(hitCtx, scene, view, size, { theme, selectedId: null, hoverId: null, related: null, highlightId: 'n-01234' });
+dag.paintDag(hitCtx, scene, view, size, { theme, selectedId: null, hoverId: null, related: null, highlightIds: ['n-01234'] });
 check('a search hit paints exactly one extra ring', hitCtx.calls.stroke === plainCtx.calls.stroke + 1,
   `${hitCtx.calls.stroke} vs ${plainCtx.calls.stroke}`);
+const multiCtx = recordingContext();
+dag.paintDag(multiCtx, scene, view, size, { theme, selectedId: null, hoverId: null, related: null, highlightIds: ['n-01234', 'n-01235', 'n-01236'] });
+check('every keyword match paints a ring', multiCtx.calls.stroke === plainCtx.calls.stroke + 3,
+  `${multiCtx.calls.stroke} vs ${plainCtx.calls.stroke}`);
 const missCtx = recordingContext();
-dag.paintDag(missCtx, scene, view, size, { theme, selectedId: null, hoverId: null, related: null, highlightId: 'n-missing' });
+dag.paintDag(missCtx, scene, view, size, { theme, selectedId: null, hoverId: null, related: null, highlightIds: ['n-missing'] });
 check('an unknown highlight id paints no extra ring', missCtx.calls.stroke === plainCtx.calls.stroke,
   `${missCtx.calls.stroke} vs ${plainCtx.calls.stroke}`);
 

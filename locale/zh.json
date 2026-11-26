@@ -1808,6 +1808,9 @@
     "ws.settings.model.effort.inherit": "跟随默认",
     "ws.settings.model.effortHint": "该角色使用所选模型的思考强度；留空表示跟随下面的默认思考强度",
     "ws.settings.model.defaultEffort": "默认思考强度",
-    "ws.settings.model.defaultEffortHint": "所有未单独指定思考强度的角色都继承它，默认 max；模型不支持时会自动降级并在运行记录里注明"
+    "ws.settings.model.defaultEffortHint": "所有未单独指定思考强度的角色都继承它，默认 max；模型不支持时会自动降级并在运行记录里注明",
+    "ws.canvas.searchMatches": "命中 {count} 个（{index}/{count}）",
+    "ws.canvas.searchNext": "下一个匹配",
+    "ws.canvas.searchPrev": "上一个匹配"
   }
 }

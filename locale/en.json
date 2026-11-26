@@ -1808,6 +1808,9 @@
     "ws.settings.model.effort.inherit": "Inherit default",
     "ws.settings.model.effortHint": "Thinking strength for this role; empty inherits the default below",
     "ws.settings.model.defaultEffort": "Default thinking effort",
-    "ws.settings.model.defaultEffortHint": "Inherited by every role that does not pin its own effort; defaults to max and degrades with a note when the model does not support it"
+    "ws.settings.model.defaultEffortHint": "Inherited by every role that does not pin its own effort; defaults to max and degrades with a note when the model does not support it",
+    "ws.canvas.searchMatches": "{count} matches ({index}/{count})",
+    "ws.canvas.searchNext": "Next match",
+    "ws.canvas.searchPrev": "Previous match"
   }
 }
