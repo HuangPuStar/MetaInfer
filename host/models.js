@@ -295,7 +295,23 @@ async function providerCatalog(ctx) {
       } catch {
         models = [];
       }
-      return { id: provider.id, name: provider.name, models };
+      // Thinking-strength gears come from the adapter, not from a fixed list.
+      // Resolve them per model (cached above) so the settings UI can offer the
+      // exact efforts this API accepts. Bounded to keep a huge catalog cheap.
+      const withEfforts = [];
+      for (const model of models.slice(0, 40)) {
+        let efforts = [];
+        let defaultEffort = null;
+        try {
+          const info = await resolveCapabilities(ctx, provider.id, model.id);
+          if (info?.available && Array.isArray(info.efforts) && info.efforts.length > 0) {
+            efforts = info.efforts;
+            defaultEffort = info.defaultEffort ?? null;
+          }
+        } catch { /* keep the model without effort metadata */ }
+        withEfforts.push(efforts.length > 0 ? { ...model, efforts, defaultEffort } : model);
+      }
+      return { id: provider.id, name: provider.name, models: withEfforts.concat(models.slice(40)) };
     }));
   } catch {
     value = [];

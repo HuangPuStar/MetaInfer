@@ -1725,7 +1725,8 @@ window.__ModuleLoader__.load({
       "ws.settings.models.hint": "留空使用 profile 默认模型；同时填写 provider 与 model 才生效。",
       "ws.settings.model.effort": "思考强度",
       "ws.settings.model.effort.inherit": "跟随默认",
-      "ws.settings.model.effortHint": "该角色使用所选模型的思考强度；留空表示跟随下面的默认思考强度",
+"ws.settings.model.effortDefaultSuffix": "（默认）",
+            "ws.settings.model.effortHint": "该角色使用所选模型的思考强度；留空表示跟随下面的默认思考强度",
       "ws.settings.model.defaultEffort": "默认思考强度",
       "ws.settings.model.defaultEffortHint": "所有未单独指定思考强度的角色都继承它，默认 max；模型不支持时会自动降级并在运行记录里注明",
       "ws.settings.nodeTimeoutMinutes": "默认执行时限（分钟）",
@@ -3536,6 +3537,7 @@ window.__ModuleLoader__.load({
       "ws.settings.model.effort": "Thinking effort",
       "ws.settings.model.effort.inherit": "Inherit default",
       "ws.settings.model.effortHint": "Thinking strength for this role; empty inherits the default below",
+      "ws.settings.model.effortDefaultSuffix": " (default)",
       "ws.settings.model.defaultEffort": "Default thinking effort",
       "ws.settings.model.defaultEffortHint": "Inherited by every role that does not pin its own effort; defaults to max and degrades with a note when the model does not support it",
       "ws.settings.models.hint": "Leave blank to use the profile default; both provider and model are required to take effect.",
@@ -6074,18 +6076,63 @@ window.__ModuleLoader__.load({
         defaultEffort: match === null ? '' : firstString(match.defaultEffort),
       };
     }
-    /** Thinking-strength choices: inherit + every effort advertised by the catalog. */
-    function modelEffortChoicesOf(catalogOptions, current, t) {
-      const choices = [{ value: '', label: t('ws.settings.model.effort.inherit') }];
+    // Fallback gears when an adapter does not advertise its own reasoning efforts.
+    const GENERIC_EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'max'];
+
+    /** Efforts a specific provider/model advertises (catalog), plus configured tiers. */
+    function modelEffortsOf(catalogProviders, catalogOptions, provider, model) {
       const seen = new Set();
+      const providerEntry = asArray(catalogProviders).filter((entry) => firstString(entry?.id) === firstString(provider))[0] || null;
+      const modelEntry = providerEntry === null ? null
+        : asArray(providerEntry.models).filter((entry) => firstString(entry?.id) === firstString(model))[0] || null;
+      for (const effort of asArray(modelEntry?.efforts)) {
+        const id = firstString(effort);
+        if (id !== '') seen.add(id);
+      }
       for (const option of asArray(catalogOptions)) {
+        if (firstString(option?.provider) !== firstString(provider) || firstString(option?.model) !== firstString(model)) continue;
         for (const effort of asArray(option?.efforts)) {
           const id = firstString(effort);
-          if (id === '' || seen.has(id)) continue;
-          seen.add(id);
-          choices.push({ value: id, label: id });
+          if (id !== '') seen.add(id);
         }
       }
+      return {
+        efforts: [...seen],
+        defaultEffort: firstString(modelEntry?.defaultEffort),
+      };
+    }
+
+    /** Thinking-strength choices: inherit + the gears this model actually accepts. */
+    function modelEffortChoicesOf(catalogProviders, catalogOptions, provider, model, current, t) {
+      const choices = [{ value: '', label: t('ws.settings.model.effort.inherit') }];
+      const info = modelEffortsOf(catalogProviders, catalogOptions, provider, model);
+      const efforts = info.efforts.length > 0 ? info.efforts : GENERIC_EFFORTS;
+      const seen = new Set();
+      for (const id of efforts) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        choices.push({ value: id, label: id === info.defaultEffort ? `${id}${t('ws.settings.model.effortDefaultSuffix')}` : id });
+      }
+      const currentValue = firstString(current);
+      if (currentValue !== '' && !seen.has(currentValue)) choices.push({ value: currentValue, label: currentValue });
+      return choices;
+    }
+
+    /** Union of every model's gears, used by the project-level default select. */
+    function allEffortChoicesOf(catalogProviders, catalogOptions, current, t) {
+      const choices = [{ value: '', label: t('ws.settings.model.effort.inherit') }];
+      const seen = new Set();
+      const add = (id) => {
+        const value = firstString(id);
+        if (value === '' || seen.has(value)) return;
+        seen.add(value);
+        choices.push({ value, label: value });
+      };
+      for (const provider of asArray(catalogProviders)) {
+        for (const model of asArray(provider?.models)) for (const effort of asArray(model?.efforts)) add(effort);
+      }
+      for (const option of asArray(catalogOptions)) for (const effort of asArray(option?.efforts)) add(effort);
+      if (seen.size === 0) for (const effort of GENERIC_EFFORTS) add(effort);
       const currentValue = firstString(current);
       if (currentValue !== '' && !seen.has(currentValue)) choices.push({ value: currentValue, label: currentValue });
       return choices;
@@ -18030,7 +18077,7 @@ window.__ModuleLoader__.load({
             value: draft[effortKey],
             ariaLabel: t('ws.settings.model.' + role) + ' ' + t('ws.settings.model.effort'),
             title: t('ws.settings.model.effortHint'),
-            options: modelEffortChoicesOf(catalogOptions, draft[effortKey], t),
+            options: modelEffortChoicesOf(catalogProviders, catalogOptions, provider, currentModel, draft[effortKey], t),
             onChange: (event) => setField(effortKey, event?.target.value),
           }),
         );
@@ -18428,7 +18475,7 @@ window.__ModuleLoader__.load({
                   value: draft.modelDefaultEffort,
                   ariaLabel: t('ws.settings.model.defaultEffort'),
                   title: t('ws.settings.model.defaultEffortHint'),
-                  options: modelEffortChoicesOf(catalogOptions, draft.modelDefaultEffort, t),
+                  options: allEffortChoicesOf(catalogProviders, catalogOptions, draft.modelDefaultEffort, t),
                   onChange: (event) => setField('modelDefaultEffort', event?.target.value),
                 }),
               ),

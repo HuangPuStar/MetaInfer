@@ -1811,6 +1811,7 @@
     "ws.settings.model.defaultEffortHint": "Inherited by every role that does not pin its own effort; defaults to max and degrades with a note when the model does not support it",
     "ws.canvas.searchMatches": "{count} matches ({index}/{count})",
     "ws.canvas.searchNext": "Next match",
-    "ws.canvas.searchPrev": "Previous match"
+    "ws.canvas.searchPrev": "Previous match",
+    "ws.settings.model.effortDefaultSuffix": " (default)"
   }
 }

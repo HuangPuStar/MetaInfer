@@ -96,4 +96,7 @@ check('provider quota exhaustion pauses as quota_backoff', /provider_quota_exhau
 check('a stale settings save cannot erase pools', /poolsChanged/.test(client) && /poolsFingerprint/.test(client));
 check('workers are told to clean up their services', /Clean up before you finish/.test(read('host/prompts.js')));
 
+check('the model catalog advertises adapter reasoning efforts', /resolveCapabilities\(ctx, provider\.id, model\.id\)/.test(read('host/models.js')) && /defaultEffort/.test(read('host/models.js')));
+check('effort selects use the model gears with a generic fallback', /GENERIC_EFFORTS/.test(client) && /modelEffortsOf\(/.test(client) && /allEffortChoicesOf\(/.test(client));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

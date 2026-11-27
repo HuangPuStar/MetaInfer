@@ -64,7 +64,7 @@ test('provider catalog queries listModels by route id, not display name', async 
   assert.ok(tokenPlan, 'tencent-token-plan must be listed');
   assert.equal(tokenPlan.name, '腾讯云 Token Plan');
   assert.deepEqual(tokenPlan.models, [
-    { id: 'deepseek/deepseek-flash', name: 'DeepSeek-V4.1-Flash' },
+    { id: 'deepseek/deepseek-flash', name: 'DeepSeek-V4.1-Flash', efforts: ['max'], defaultEffort: 'max' },
   ]);
 
   // A provider with no credential/models still keeps its identity and offers no
@@ -109,6 +109,8 @@ test('an explicit role effort wins over the project default', () => {
 test('a project default unsupported by the model degrades instead of failing', async () => {
   const { validateModelSelection } = await import('../host/models.js');
   const ctx = fakeCtx([]);
+  // A distinct model id: the capability cache is keyed by provider/model.
+  ctx.agentDefaultModel = { currentSelection: () => ({ ...DEFAULT_SELECTION, model: 'deepseek/effort-probe' }) };
   ctx.llm.resolveModelInfo = async (provider, model) => ({
     provider,
     id: model,

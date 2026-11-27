@@ -1811,6 +1811,7 @@
     "ws.settings.model.defaultEffortHint": "所有未单独指定思考强度的角色都继承它，默认 max；模型不支持时会自动降级并在运行记录里注明",
     "ws.canvas.searchMatches": "命中 {count} 个（{index}/{count}）",
     "ws.canvas.searchNext": "下一个匹配",
-    "ws.canvas.searchPrev": "上一个匹配"
+    "ws.canvas.searchPrev": "上一个匹配",
+    "ws.settings.model.effortDefaultSuffix": "（默认）"
   }
 }
