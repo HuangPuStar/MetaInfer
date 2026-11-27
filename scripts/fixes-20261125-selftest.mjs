@@ -102,4 +102,8 @@ check('effort selects use the model gears with a generic fallback', /GENERIC_EFF
 check('a role can pin only its thinking effort', /else if \(e\) models\[role\] = \{ reasoningEffort: e \}/.test(client) && /effort-only ref is valid/.test(read('host/models.js')));
 check('provider and model must be given together', /provider and model must be provided together/.test(service));
 
+check('shrinking needs keeps the Host reservation vector in sync', /next\.hostBudgetReservation = \{ \.\.\.next\.hostBudgetReservation, resources \}/.test(runtime));
+check('quota accounting follows live owners', /for \(const row of live\) for/.test(read('host/dispatch/host-budget.js')));
+check('set_priority accepts the documented nested shape', /const requestedClass = input\?\.class \?\? nestedPriority\.class/.test(service));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

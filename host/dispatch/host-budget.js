@@ -132,9 +132,7 @@ export function createHostBudget({readProject,readNodes,readNode,commitReservati
       if (!current || !identity(entry.token,current,current.hostBudgetReservation??entry.record)) conflicts.push('pending owner changed: '+entry.token.nodeId);
       add(entry.token.nodeId,entry.token.resources,'process-pending',entry.token);
     }
-    const quotaUsed={};
-    for (const row of owners.values()) for (const [key,amount] of Object.entries(row.resources)) quotaUsed[key]=(quotaUsed[key]??0)+amount;
-    // A1: slots must count live attempts, not every owner. A stale claim on a
+    // A1: slots count live attempts, not every owner. A stale claim on a
     // terminal or planned node used to occupy a slot forever (HOST_SLOTS with
     // nothing actually running). A planned node with a just-created persistent
     // reservation, or a process-pending owner, still counts: those are real starts.
@@ -150,6 +148,10 @@ export function createHostBudget({readProject,readNodes,readNode,commitReservati
       // not occupy a slot; only a real resource/admission/lease/binding source does.
       return row.sources.some((source) => source !== 'persistent-owner');
     });
+    // V4-08: quota follows the same live set. Counting a bare `persistent-owner`
+    // claim at full `needs` made HOST_QUOTA fire while the UI showed free cards.
+    const quotaUsed={};
+    for (const row of live) for (const [key,amount] of Object.entries(row.resources)) quotaUsed[key]=(quotaUsed[key]??0)+amount;
     return copy({slotsUsed:live.length,quotaUsed,owners:[...owners.values()],conflicts:[...new Set(conflicts)]});
   }
   async function update(ctx,next,event) {

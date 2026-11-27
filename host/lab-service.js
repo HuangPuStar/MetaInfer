@@ -6666,7 +6666,13 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     const project = requireProject(projectId);
     const node = requireNode(projectId, nodeId);
     const classes = ['p0', 'p1', 'p2', 'p3', 'deferred'];
-    if (input?.class !== undefined && !classes.includes(input.class)) {
+    // Both {class, score} and {priority: {class, score}} are accepted (the tool
+    // schema documents the nested one); validate either before use.
+    const nestedPriority = input?.priority && typeof input.priority === 'object' && !Array.isArray(input.priority)
+      ? input.priority
+      : {};
+    const requestedClass = input?.class ?? nestedPriority.class;
+    if (requestedClass !== undefined && !classes.includes(requestedClass)) {
       return rejection('bad_request', `priority.class must be one of ${classes.join(', ')}`);
     }
     // Priority is a pre-run scheduling hint. Once a node is running or terminal
@@ -6684,9 +6690,10 @@ export function createLabService({ ctx, store, git, runtime, transcript, orchest
     // the human operator; a tool call passes its DSH session actor, so a
     // `lab-chat` change is never recorded as a human intervention.
     const commitActor = actor ?? { kind: 'human', id: 'operator' };
+    const requestedScore = Number.isFinite(input?.score) ? input.score : (Number.isFinite(nestedPriority.score) ? nestedPriority.score : undefined);
     const priority = {
-      ...(input?.class !== undefined ? { class: input.class } : {}),
-      ...(Number.isFinite(input?.score) ? { score: input.score } : {}),
+      ...(requestedClass !== undefined ? { class: requestedClass } : {}),
+      ...(requestedScore !== undefined ? { score: requestedScore } : {}),
       reason: typeof input?.reason === 'string' && input.reason.trim() ? input.reason.trim().slice(0, 500) : 'manual priority change',
     };
     // Q5: pruning is a separate quota. Without this check a project could

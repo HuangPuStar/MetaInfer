@@ -95,6 +95,9 @@ test('shrinking needs on a running node releases quota in place', async () => {
   assert.equal(f.node.status, 'running');
   assert.deepEqual(f.node.needs, {});
   assert.deepEqual(f.node.resourcesHeld, { gpu: 0 });
+  // V4-13: the reservation vector must shrink too, otherwise snapshot() reports
+  // conflicting footprints and every dispatch queues with BUDGET_CONFLICT.
+  assert.deepEqual(f.node.hostBudgetReservation?.resources, {});
   assert.ok(f.commits.some((spec) => spec.mutations.some((m) => m.eventType === 'node/needs_shrunk')));
   await assert.rejects(() => f.runtime.shrinkNeeds('p', 'n', { gpu: 4 }), /readmission|increase/i);
   await f.runtime.dispose();

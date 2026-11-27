@@ -527,6 +527,19 @@ export function createRuntime({ ctx, store, git, onTerminated, cluster, kernel, 
     }
     const next = structuredClone(current);
     next.needs = { ...needs };
+    // V4-13: the durable Host reservation must move with the new vector. Leaving
+    // the old resources behind made snapshot() see two different footprints and
+    // report BUDGET_CONFLICT on every later dispatch (free 64 GPUs, nothing
+    // started), and identity() rejected replays of the node itself.
+    if (next.hostBudgetReservation && typeof next.hostBudgetReservation === 'object') {
+      const resources = {};
+      for (const [key, value] of Object.entries(next.needs ?? {})) {
+        const amount = Number(value ?? 0);
+        if (key === 'machines' || !Number.isFinite(amount) || amount <= 0) continue;
+        resources[key] = amount;
+      }
+      next.hostBudgetReservation = { ...next.hostBudgetReservation, resources };
+    }
     if (next.resourcesHeld !== undefined) {
       const held = { ...next.resourcesHeld };
       for (const key of Object.keys(held)) {
