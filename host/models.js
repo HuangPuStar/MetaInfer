@@ -26,7 +26,9 @@ export function cleanModelRef(ref) {
     ? ref.source
     : undefined;
   const reason = typeof ref.reason === 'string' ? ref.reason.trim().slice(0, 500) : undefined;
-  if (!profileId && !provider && !model) return null;
+  // An effort-only ref is valid for roles that inherit provider/model but pin
+  // their own thinking strength.
+  if (!profileId && !provider && !model && !reasoningEffort) return null;
   return {
     ...(profileId ? { profileId } : {}),
     ...(provider ? { provider } : {}),
@@ -146,7 +148,9 @@ export function resolveModelSelection(ctx, project, node, role) {
   // Thinking strength: an explicit ref wins, then the project default effort
   // (config.models.defaultEffort, default "max"), then the DSH default selection.
   const projectDefaultEffort = trimString(project?.config?.models?.defaultEffort, 40);
-  const effort = ref?.reasoningEffort ?? projectDefaultEffort ?? fallback.reasoningEffort;
+  // trimString returns '' (not undefined), so `??` would stop the chain here;
+  // use || so the profile-default effort is still used when nothing is pinned.
+  const effort = ref?.reasoningEffort || projectDefaultEffort || fallback.reasoningEffort;
   if (effort) selection.reasoningEffort = effort;
   if (!ref?.reasoningEffort && projectDefaultEffort) selection.effortSource = 'project-default';
   if (ref?.profileId) selection.profileId = ref.profileId;

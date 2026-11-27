@@ -1220,7 +1220,7 @@
     "ws.settings.modelOption.remove": "移除模型选项",
     "ws.settings.modelOption.tags": "标签（逗号分隔）",
     "ws.settings.modelOptions.hint": "定义可路由的模型档位；每项包含 id、provider、model 与价格（每百万 token）。",
-    "ws.settings.models.hint": "留空使用 profile 默认模型；同时填写 provider 与 model 才生效。",
+    "ws.settings.models.hint": "留空使用 profile 默认模型（provider 与 model 需同时填写）；思考强度可以只选挡位、模型留空继承。",
     "ws.settings.nodeTimeoutMinutes": "默认执行时限（分钟）",
     "ws.settings.placement.catalog": "可用标签与 GPU 型号",
     "ws.settings.placement.catalogEmpty": "当前 fleet 没有可用标签或 GPU 型号；配置 Fleet 后策略才会生效。",

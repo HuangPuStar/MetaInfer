@@ -1722,7 +1722,7 @@ window.__ModuleLoader__.load({
       "ws.settings.modelOption.remove": "移除模型选项",
       "ws.settings.modelOption.tags": "标签（逗号分隔）",
       "ws.settings.modelOptions.hint": "定义可路由的模型档位；每项包含 id、provider、model 与价格（每百万 token）。",
-      "ws.settings.models.hint": "留空使用 profile 默认模型；同时填写 provider 与 model 才生效。",
+      "ws.settings.models.hint": "留空使用 profile 默认模型（provider 与 model 需同时填写）；思考强度可以只选挡位、模型留空继承。",
       "ws.settings.model.effort": "思考强度",
       "ws.settings.model.effort.inherit": "跟随默认",
 "ws.settings.model.effortDefaultSuffix": "（默认）",
@@ -3540,7 +3540,7 @@ window.__ModuleLoader__.load({
       "ws.settings.model.effortDefaultSuffix": " (default)",
       "ws.settings.model.defaultEffort": "Default thinking effort",
       "ws.settings.model.defaultEffortHint": "Inherited by every role that does not pin its own effort; defaults to max and degrades with a note when the model does not support it",
-      "ws.settings.models.hint": "Leave blank to use the profile default; both provider and model are required to take effect.",
+      "ws.settings.models.hint": "Leave blank to use the profile default (provider and model go together); the thinking effort can be pinned on its own while the model is inherited.",
       "ws.settings.nodeTimeoutMinutes": "Default node timebox (minutes)",
       "ws.settings.pageHint": "Project configuration, budgets, models and migration switches live here; changes apply on save.",
       "ws.settings.placement.catalog": "Available labels and GPU models",
@@ -17801,6 +17801,8 @@ window.__ModuleLoader__.load({
         const m = String(model === undefined || model === null ? '' : model).trim();
         const e = String(effort === undefined || effort === null ? '' : effort).trim();
         if (p && m) models[role] = { provider: p, model: m, ...(e ? { reasoningEffort: e } : {}) };
+        // 只选思考强度、模型留空 = 继承 profile 模型但单独指定挡位。
+        else if (e) models[role] = { reasoningEffort: e };
         // 显式 null 表示「改回继承」：Host 会删除该角色的模型，而不是保留旧值。
         else models[role] = null;
       };

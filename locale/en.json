@@ -1220,7 +1220,7 @@
     "ws.settings.modelOption.remove": "Remove model option",
     "ws.settings.modelOption.tags": "tags (comma separated)",
     "ws.settings.modelOptions.hint": "Define routable model tiers: id, provider, model and prices per million tokens.",
-    "ws.settings.models.hint": "Leave blank to use the profile default; both provider and model are required to take effect.",
+    "ws.settings.models.hint": "Leave blank to use the profile default (provider and model go together); the thinking effort can be pinned on its own while the model is inherited.",
     "ws.settings.nodeTimeoutMinutes": "Default node timebox (minutes)",
     "ws.settings.placement.catalog": "Available labels and GPU models",
     "ws.settings.placement.catalogEmpty": "No fleet labels or GPU models yet; the policy takes effect after the fleet is configured.",

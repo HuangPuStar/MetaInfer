@@ -99,4 +99,7 @@ check('workers are told to clean up their services', /Clean up before you finish
 check('the model catalog advertises adapter reasoning efforts', /resolveCapabilities\(ctx, provider\.id, model\.id\)/.test(read('host/models.js')) && /defaultEffort/.test(read('host/models.js')));
 check('effort selects use the model gears with a generic fallback', /GENERIC_EFFORTS/.test(client) && /modelEffortsOf\(/.test(client) && /allEffortChoicesOf\(/.test(client));
 
+check('a role can pin only its thinking effort', /else if \(e\) models\[role\] = \{ reasoningEffort: e \}/.test(client) && /effort-only ref is valid/.test(read('host/models.js')));
+check('provider and model must be given together', /provider and model must be provided together/.test(service));
+
 console.log(`\nfixes-20261125-selftest: ${checks} checks passed`);

@@ -101,12 +101,18 @@ function normalizeResourcePools(raw) {
 function normalizeModelRef(raw, field) {
   if (raw === undefined || raw === null) return undefined;
   if (typeof raw !== 'object' || Array.isArray(raw)) throw new LabError('bad_request', `${field} must be an object`);
-  const provider = text(raw.provider, `${field}.provider`, { required: true, max: 120 });
-  const model = text(raw.model, `${field}.model`, { required: true, max: 200 });
+  const provider = text(raw.provider, `${field}.provider`, { required: false, max: 120 });
+  const model = text(raw.model, `${field}.model`, { required: false, max: 200 });
   const reasoningEffort = raw.reasoningEffort === undefined
     ? undefined
     : text(raw.reasoningEffort, `${field}.reasoningEffort`, { max: 40 });
-  return { provider, model, ...(reasoningEffort ? { reasoningEffort } : {}) };
+  // A role may override ONLY the thinking effort while inheriting the profile's
+  // provider/model; provider and model must still come as a pair.
+  if ((provider && !model) || (!provider && model)) {
+    throw new LabError('bad_request', `${field}: provider and model must be provided together`);
+  }
+  if (!provider && !model && !reasoningEffort) return undefined;
+  return { ...(provider ? { provider } : {}), ...(model ? { model } : {}), ...(reasoningEffort ? { reasoningEffort } : {}) };
 }
 
 export function normalizeNeeds(raw, project) {

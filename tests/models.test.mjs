@@ -123,3 +123,17 @@ test('a project default unsupported by the model degrades instead of failing', a
   assert.equal(checked.reasoningEffort, 'high');
   assert.equal(checked.effortFallbackFrom, 'max');
 });
+
+test('a role can pin only the thinking effort and keep the inherited model', () => {
+  const project = projectWithRoles({ roles: { worker: { reasoningEffort: 'low' }, scheduler: { reasoningEffort: 'max' } } });
+  const ctx = fakeCtx([]);
+  const worker = resolveModelSelection(ctx, project, null, 'worker');
+  assert.equal(worker.reasoningEffort, 'low', 'worker effort');
+  assert.equal(worker.provider, DEFAULT_SELECTION.provider, 'worker inherits provider');
+  assert.equal(worker.model, DEFAULT_SELECTION.model, 'worker inherits model');
+  assert.equal(worker.source, 'project-role');
+  const scheduler = resolveModelSelection(ctx, project, null, 'scheduler');
+  assert.equal(scheduler.reasoningEffort, 'max', 'scheduler keeps its own gear');
+  const advisor = resolveModelSelection(ctx, project, null, 'advisor');
+  assert.equal(advisor.reasoningEffort, 'max', 'advisor falls back to the project default');
+});
